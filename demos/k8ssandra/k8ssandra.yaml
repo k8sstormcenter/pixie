@@ -4,6 +4,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: clientconfigs.config.k8ssandra.io
 spec:
   group: config.k8ssandra.io
@@ -61,6 +63,8 @@ metadata:
     cert-manager.io/inject-ca-from: px-k8ssandra/k8ssandra-operator-serving-cert
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: k8ssandraclusters.k8ssandra.io
 spec:
   group: k8ssandra.io
@@ -30476,6 +30480,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: k8ssandratasks.control.k8ssandra.io
 spec:
   group: control.k8ssandra.io
@@ -30797,6 +30803,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: medusabackupjobs.medusa.k8ssandra.io
 spec:
   group: medusa.k8ssandra.io
@@ -30875,6 +30883,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: medusabackups.medusa.k8ssandra.io
 spec:
   group: medusa.k8ssandra.io
@@ -30940,6 +30950,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: medusabackupschedules.medusa.k8ssandra.io
 spec:
   group: medusa.k8ssandra.io
@@ -31045,6 +31057,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: medusarestorejobs.medusa.k8ssandra.io
 spec:
   group: medusa.k8ssandra.io
@@ -31130,6 +31144,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: medusatasks.medusa.k8ssandra.io
 spec:
   group: medusa.k8ssandra.io
@@ -31234,6 +31250,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: reapers.reaper.k8ssandra.io
 spec:
   group: reaper.k8ssandra.io
@@ -33615,6 +33633,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: replicatedsecrets.replication.k8ssandra.io
 spec:
   group: replication.k8ssandra.io
@@ -33748,6 +33768,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: stargates.stargate.k8ssandra.io
 spec:
   group: stargate.k8ssandra.io
@@ -37318,6 +37340,7 @@ kind: Namespace
 metadata:
   labels:
     control-plane: k8ssandra-operator
+    pixie-demo: px-k8ssandra
   name: k8ssandra-operator
 ---
 apiVersion: apiextensions.k8s.io/v1
@@ -37326,6 +37349,9 @@ metadata:
   annotations:
     cert-manager.io/inject-ca-from: px-k8ssandra/cass-operator-serving-cert
     controller-gen.kubebuilder.io/version: v0.10.0
+  creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: cassandradatacenters.cassandra.datastax.com
 spec:
   group: cassandra.datastax.com
@@ -48095,6 +48121,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: cassandratasks.control.k8ssandra.io
 spec:
   group: control.k8ssandra.io
@@ -48323,6 +48351,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: clientconfigs.config.k8ssandra.io
 spec:
   group: config.k8ssandra.io
@@ -48379,6 +48409,9 @@ metadata:
   annotations:
     cert-manager.io/inject-ca-from: px-k8ssandra/k8ssandra-operator-serving-cert
     controller-gen.kubebuilder.io/version: v0.10.0
+  creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: k8ssandraclusters.k8ssandra.io
 spec:
   group: k8ssandra.io
@@ -78794,6 +78827,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: k8ssandratasks.control.k8ssandra.io
 spec:
   group: control.k8ssandra.io
@@ -79115,6 +79150,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: medusabackupjobs.medusa.k8ssandra.io
 spec:
   group: medusa.k8ssandra.io
@@ -79193,6 +79230,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: medusabackups.medusa.k8ssandra.io
 spec:
   group: medusa.k8ssandra.io
@@ -79258,6 +79297,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: medusabackupschedules.medusa.k8ssandra.io
 spec:
   group: medusa.k8ssandra.io
@@ -79363,6 +79404,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: medusarestorejobs.medusa.k8ssandra.io
 spec:
   group: medusa.k8ssandra.io
@@ -79448,6 +79491,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: medusatasks.medusa.k8ssandra.io
 spec:
   group: medusa.k8ssandra.io
@@ -79552,6 +79597,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: reapers.reaper.k8ssandra.io
 spec:
   group: reaper.k8ssandra.io
@@ -81933,6 +81980,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: replicatedsecrets.replication.k8ssandra.io
 spec:
   group: replication.k8ssandra.io
@@ -82066,6 +82115,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: stargates.stargate.k8ssandra.io
 spec:
   group: stargate.k8ssandra.io
@@ -85635,12 +85686,16 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: cass-operator-controller-manager
   namespace: px-k8ssandra
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: k8ssandra-operator
   namespace: px-k8ssandra
 secrets:
@@ -85649,6 +85704,8 @@ secrets:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: cass-operator-leader-election-role
   namespace: px-k8ssandra
 rules:
@@ -85677,6 +85734,8 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: leader-election-role
   namespace: px-k8ssandra
 rules:
@@ -85716,6 +85775,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: cass-operator-manager-crrole
   namespace: px-k8ssandra
 rules:
@@ -85847,6 +85908,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: k8ssandra-operator
   namespace: px-k8ssandra
 rules:
@@ -86256,6 +86319,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: cass-operator-manager-role
 rules:
 - apiGroups:
@@ -86271,6 +86336,8 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: cass-operator-leader-election-rolebinding
   namespace: px-k8ssandra
 roleRef:
@@ -86285,6 +86352,8 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: leader-election-rolebinding
   namespace: px-k8ssandra
 roleRef:
@@ -86299,6 +86368,8 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: cass-operator-manager-rolebinding
   namespace: px-k8ssandra
 roleRef:
@@ -86313,6 +86384,8 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: k8ssandra-operator
   namespace: px-k8ssandra
 roleRef:
@@ -86327,6 +86400,8 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: cass-operator-manager-res-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -86379,6 +86454,8 @@ data:
         repository: "datastax/dse-mgmtapi-6_8"
 kind: ConfigMap
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: cass-operator-manager-config
   namespace: px-k8ssandra
 ---
@@ -86398,6 +86475,8 @@ data:
       resourceName: dcabfccc.k8ssandra.io
 kind: ConfigMap
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: manager-config
   namespace: px-k8ssandra
 ---
@@ -86406,6 +86485,8 @@ kind: Secret
 metadata:
   annotations:
     kubernetes.io/service-account.name: k8ssandra-operator
+  labels:
+    pixie-demo: px-k8ssandra
   name: k8ssandra-operator-token
   namespace: px-k8ssandra
 type: kubernetes.io/service-account-token
@@ -86413,6 +86494,8 @@ type: kubernetes.io/service-account-token
 apiVersion: v1
 kind: Service
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: cass-operator-webhook-service
   namespace: px-k8ssandra
 spec:
@@ -86421,10 +86504,13 @@ spec:
     targetPort: 9443
   selector:
     control-plane: controller-manager
+    pixie-demo: px-k8ssandra
 ---
 apiVersion: v1
 kind: Service
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: k8ssandra-operator-webhook-service
   namespace: px-k8ssandra
 spec:
@@ -86434,12 +86520,14 @@ spec:
     targetPort: 9443
   selector:
     control-plane: k8ssandra-operator
+    pixie-demo: px-k8ssandra
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
     control-plane: controller-manager
+    pixie-demo: px-k8ssandra
   name: cass-operator-controller-manager
   namespace: px-k8ssandra
 spec:
@@ -86448,11 +86536,13 @@ spec:
     matchLabels:
       control-plane: controller-manager
       name: cass-operator
+      pixie-demo: px-k8ssandra
   template:
     metadata:
       labels:
         control-plane: controller-manager
         name: cass-operator
+        pixie-demo: px-k8ssandra
     spec:
       containers:
       - args:
@@ -86514,6 +86604,7 @@ kind: Deployment
 metadata:
   labels:
     control-plane: k8ssandra-operator
+    pixie-demo: px-k8ssandra
   name: k8ssandra-operator
   namespace: px-k8ssandra
 spec:
@@ -86521,10 +86612,12 @@ spec:
   selector:
     matchLabels:
       control-plane: k8ssandra-operator
+      pixie-demo: px-k8ssandra
   template:
     metadata:
       labels:
         control-plane: k8ssandra-operator
+        pixie-demo: px-k8ssandra
     spec:
       containers:
       - args: []
@@ -86580,6 +86673,8 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: cass-operator-serving-cert
   namespace: px-k8ssandra
 spec:
@@ -86594,6 +86689,8 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: k8ssandra-operator-serving-cert
   namespace: px-k8ssandra
 spec:
@@ -86608,6 +86705,8 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: cass-operator-selfsigned-issuer
   namespace: px-k8ssandra
 spec:
@@ -86616,6 +86715,8 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: k8ssandra-operator-selfsigned-issuer
   namespace: px-k8ssandra
 spec:
@@ -86626,6 +86727,9 @@ kind: MutatingWebhookConfiguration
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: px-k8ssandra/k8ssandra-operator-serving-cert
+  creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: k8ssandra-operator-mutating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
@@ -86660,6 +86764,9 @@ kind: ValidatingWebhookConfiguration
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: px-k8ssandra/cass-operator-serving-cert
+  creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: cass-operator-validating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
@@ -86689,6 +86796,9 @@ kind: ValidatingWebhookConfiguration
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: px-k8ssandra/k8ssandra-operator-serving-cert
+  creationTimestamp: null
+  labels:
+    pixie-demo: px-k8ssandra
   name: k8ssandra-operator-validating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
@@ -86734,6 +86844,8 @@ webhooks:
 apiVersion: v1
 kind: Namespace
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: petclinic
 ---
 apiVersion: v1
@@ -86742,6 +86854,8 @@ data:
   username: Y2Fzc2FuZHJh
 kind: Secret
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
   name: demo-superuser
   namespace: px-k8ssandra
 type: Opaque
@@ -86755,6 +86869,7 @@ metadata:
   creationTimestamp: null
   labels:
     io.kompose.service: petclinic-backend
+    pixie-demo: px-k8ssandra
   name: petclinic-backend
   namespace: px-k8ssandra
 spec:
@@ -86767,6 +86882,7 @@ spec:
     targetPort: 9967
   selector:
     io.kompose.service: petclinic-backend
+    pixie-demo: px-k8ssandra
 status:
   loadBalancer: {}
 ---
@@ -86779,6 +86895,7 @@ metadata:
   creationTimestamp: null
   labels:
     io.kompose.service: petclinic-frontend
+    pixie-demo: px-k8ssandra
   name: petclinic-frontend
   namespace: px-k8ssandra
 spec:
@@ -86788,6 +86905,7 @@ spec:
     targetPort: 8080
   selector:
     io.kompose.service: petclinic-frontend
+    pixie-demo: px-k8ssandra
 status:
   loadBalancer: {}
 ---
@@ -86800,6 +86918,7 @@ metadata:
   creationTimestamp: null
   labels:
     io.kompose.service: petclinic-backend
+    pixie-demo: px-k8ssandra
   name: petclinic-backend
   namespace: px-k8ssandra
 spec:
@@ -86807,6 +86926,7 @@ spec:
   selector:
     matchLabels:
       io.kompose.service: petclinic-backend
+      pixie-demo: px-k8ssandra
   strategy: {}
   template:
     metadata:
@@ -86817,6 +86937,7 @@ spec:
       labels:
         io.kompose.network/spring-petclinic-reactive-default: "true"
         io.kompose.service: petclinic-backend
+        pixie-demo: px-k8ssandra
     spec:
       containers:
       - env:
@@ -86899,6 +87020,7 @@ metadata:
   creationTimestamp: null
   labels:
     io.kompose.service: petclinic-frontend
+    pixie-demo: px-k8ssandra
   name: petclinic-frontend
   namespace: px-k8ssandra
 spec:
@@ -86906,6 +87028,7 @@ spec:
   selector:
     matchLabels:
       io.kompose.service: petclinic-frontend
+      pixie-demo: px-k8ssandra
   strategy: {}
   template:
     metadata:
@@ -86916,6 +87039,7 @@ spec:
       labels:
         io.kompose.network/spring-petclinic-reactive-default: "true"
         io.kompose.service: petclinic-frontend
+        pixie-demo: px-k8ssandra
     spec:
       containers:
       - image: gcr.io/pixie-prod/demos/petclinic/frontend:1.0@sha256:0a48dc7ebc80cf8c818e27777038c052ef82a8c11c30accbdf16845cb1f72d77
@@ -86929,6 +87053,9 @@ status: {}
 apiVersion: k8ssandra.io/v1alpha1
 kind: K8ssandraCluster
 metadata:
+  labels:
+    pixie-demo: px-k8ssandra
+    pixie-demo-initial-cleanup: "true"
   name: demo
   namespace: px-k8ssandra
 spec:

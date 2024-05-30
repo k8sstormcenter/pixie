@@ -86552,7 +86552,7 @@ spec:
         env:
         - name: WATCH_NAMESPACE
           value: ""
-        image: k8ssandra/cass-operator:v1.15.0
+        image: ghcr.io/pixie-io/px-k8ssandra-cass-operator:v1.15.0@sha256:176c17f725e10743cd1413c5ebfb190b935cecce6b7868a139cef72384015cfa
         imagePullPolicy: IfNotPresent
         livenessProbe:
           httpGet:
@@ -86628,7 +86628,7 @@ spec:
           value: ""
         - name: K8SSANDRA_CONTROL_PLANE
           value: "true"
-        image: k8ssandra/k8ssandra-operator:v1.6.1
+        image: ghcr.io/pixie-io/px-k8ssandra-k8ssandra-operator:v1.6.1@sha256:976e6be635a1d46cd83b593f3fce1a9bd5e7db48e5150cee03ad35f28f2433c8
         imagePullPolicy: IfNotPresent
         livenessProbe:
           httpGet:
@@ -86976,7 +86976,7 @@ spec:
           value: "false"
         - name: MONITORING_PROMETHEUS
           value: "false"
-        image: gcr.io/pixie-prod/demos/petclinic/backend:1.0@sha256:8f3bfb03da53e13d25a70291631d35aff259ce038b5dce61a8ea182766e7594b
+        image: ghcr.io/pixie-io/px-k8ssandra-backend:1.0@sha256:8f3bfb03da53e13d25a70291631d35aff259ce038b5dce61a8ea182766e7594b
         name: petclinic-backend
         ports:
         - containerPort: 9966
@@ -86992,7 +86992,7 @@ spec:
           value: petclinic-backend
         - name: BACKEND_PORT
           value: "9966"
-        image: gcr.io/pixie-oss/pixie-dev-public/curl:multiarch-7.87.0@sha256:f7f265d5c64eb4463a43a99b6bf773f9e61a50aaa7cefaf564f43e42549a01dd
+        image: ghcr.io/pixie-io/pixie-oss-pixie-dev-public-curl:multiarch-7.87.0@sha256:f7f265d5c64eb4463a43a99b6bf773f9e61a50aaa7cefaf564f43e42549a01dd
         name: backend-load-generator
       initContainers:
       - command:
@@ -87006,7 +87006,7 @@ spec:
           value: demo-dc1-service
         - name: CASSANDRA_PORT
           value: "9042"
-        image: cassandra:3.11.8@sha256:f38395460cdaf4ccf4da72766dd076069c39ce47ffc51e5bdfaecfca843d964a
+        image: ghcr.io/pixie-io/px-k8ssandra-cassandra:3.11.8@sha256:f38395460cdaf4ccf4da72766dd076069c39ce47ffc51e5bdfaecfca843d964a
         name: cassandra-wait
       restartPolicy: Always
 status: {}
@@ -87042,7 +87042,7 @@ spec:
         pixie-demo: px-k8ssandra
     spec:
       containers:
-      - image: gcr.io/pixie-prod/demos/petclinic/frontend:1.0@sha256:0a48dc7ebc80cf8c818e27777038c052ef82a8c11c30accbdf16845cb1f72d77
+      - image: ghcr.io/pixie-io/px-k8ssandra-frontend:1.0@sha256:0a48dc7ebc80cf8c818e27777038c052ef82a8c11c30accbdf16845cb1f72d77
         name: petclinic-frontend
         ports:
         - containerPort: 8080

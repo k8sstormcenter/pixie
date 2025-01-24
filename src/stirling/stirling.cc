@@ -201,6 +201,7 @@ class StirlingImpl final : public Stirling {
       sole::uuid uuid,
       std::unique_ptr<dynamic_tracing::ir::logical::TracepointDeployment> program) override;
   StatusOr<stirlingpb::Publish> GetTracepointInfo(sole::uuid trace_id) override;
+  StatusOr<stirlingpb::Publish> GetFileSourceInfo(sole::uuid trace_id) override;
   Status RemoveTracepoint(sole::uuid trace_id) override;
   void GetPublishProto(stirlingpb::Publish* publish_pb) override;
   void RegisterDataPushCallback(DataPushCallback f) override { data_push_callback_ = f; }
@@ -277,6 +278,10 @@ class StirlingImpl final : public Stirling {
   absl::flat_hash_map<sole::uuid, StatusOr<stirlingpb::Publish>> dynamic_trace_status_map_
       ABSL_GUARDED_BY(dynamic_trace_status_map_lock_);
 
+  absl::base_internal::SpinLock file_source_status_map_lock_;
+  absl::flat_hash_map<sole::uuid, StatusOr<stirlingpb::Publish>> file_source_status_map_
+      ABSL_GUARDED_BY(file_source_status_map_lock_);
+
   StirlingMonitor& monitor_ = *StirlingMonitor::GetInstance();
 
   struct DynamicTraceInfo {
@@ -287,6 +292,15 @@ class StirlingImpl final : public Stirling {
 
   absl::flat_hash_map<sole::uuid, DynamicTraceInfo> trace_id_info_map_
       ABSL_GUARDED_BY(dynamic_trace_status_map_lock_);
+
+  struct FileSourceInfo {
+    std::string source_connector;
+    std::string file_name;
+    std::string output_table;
+  };
+
+  absl::flat_hash_map<sole::uuid, FileSourceInfo> file_source_info_map_
+      ABSL_GUARDED_BY(file_source_status_map_lock_);
 
   // RunCoreStats tracks how much work is accomplished in each run core iteration,
   // and it also keeps a histogram of sleep durations.
@@ -652,12 +666,77 @@ void StirlingImpl::RegisterTracepoint(
   t.detach();
 }
 
+void StirlingImpl::RegisterFileSource(
+    sole::uuid trace_id,
+    std::string) {
+  // Temporary: Check if the target exists on this PEM, otherwise return NotFound.
+  // TODO(oazizi): Need to think of a better way of doing this.
+  //               Need to differentiate errors caused by the binary not being on the host vs
+  //               other errors. Also should consider races with binary creation/deletion.
+  {
+    absl::base_internal::SpinLockHolder lock(&file_source_status_map_lock_);
+    std::string source_connector = "file_source";
+    trace_id_info_map_[trace_id] = {.source_connector = std::move(source_connector),
+                                    .tracepoint = program->name(),
+                                    .output_table = ""};
+  }
+
+  if (program->has_deployment_spec()) {
+    std::unique_ptr<ConnectorContext> conn_ctx = GetContext();
+
+    if (conn_ctx == nullptr) {
+      UpdateDynamicTraceStatus(
+          trace_id, error::FailedPrecondition(
+                        "Failed to get K8s metadata; cannot resolve K8s entity to UPID"));
+      return;
+    }
+
+    Status s = dynamic_tracing::ResolveTargetObjPaths(conn_ctx->GetK8SMetadata(),
+                                                      program->mutable_deployment_spec());
+
+    if (!s.ok()) {
+      LOG(ERROR) << s.ToString();
+      // Most failures of ResolveTargetObjPath() are caused by incorrect/incomplete user input.
+      // So the error message is sent back directly to the UI.
+      UpdateDynamicTraceStatus(
+          trace_id,
+          error::FailedPrecondition(
+              "Target binary/UPID not found, error message: $0",
+              error::IsInternal(s) ? "internal error, chat with us on Intercom" : s.ToString()));
+      return;
+    }
+  }
+
+  // Initialize the status of this trace to pending.
+  {
+    absl::base_internal::SpinLockHolder lock(&dynamic_trace_status_map_lock_);
+    dynamic_trace_status_map_[trace_id] =
+        error::ResourceUnavailable("Probe deployment in progress.");
+  }
+
+  auto t =
+      std::thread(&StirlingImpl::DeployDynamicTraceConnector, this, trace_id, std::move(program));
+  t.detach();
+}
+
 StatusOr<stirlingpb::Publish> StirlingImpl::GetTracepointInfo(sole::uuid trace_id) {
   absl::base_internal::SpinLockHolder lock(&dynamic_trace_status_map_lock_);
 
   auto iter = dynamic_trace_status_map_.find(trace_id);
   if (iter == dynamic_trace_status_map_.end()) {
     return error::NotFound("Tracepoint $0 not found.", trace_id.str());
+  }
+
+  StatusOr<stirlingpb::Publish> s = iter->second;
+  return s;
+}
+
+StatusOr<stirlingpb::Publish> StirlingImpl::GetFileSourceInfo(sole::uuid trace_id) {
+  absl::base_internal::SpinLockHolder lock(&file_source_status_map_lock_);
+
+  auto iter = file_source_status_map_.find(trace_id);
+  if (iter == file_source_status_map_.end()) {
+    return error::NotFound("FileSource $0 not found.", trace_id.str());
   }
 
   StatusOr<stirlingpb::Publish> s = iter->second;

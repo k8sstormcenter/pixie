@@ -50,11 +50,12 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
  public:
   VizierServer() = delete;
   VizierServer(carnot::Carnot* carnot, px::vizier::agent::StandaloneGRPCResultSinkServer* svr,
-               px::carnot::EngineState* engine_state, TracepointManager* tp_manager) {
+               px::carnot::EngineState* engine_state, TracepointManager* tp_manager, FileSourceManager* file_source_manager) {
     carnot_ = carnot;
     sink_server_ = svr;
     engine_state_ = engine_state;
     tp_manager_ = tp_manager;
+    file_source_manager_ = file_source_manager;
   }
 
   ::grpc::Status ExecuteScript(
@@ -63,6 +64,13 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
     LOG(INFO) << "Executing Script";
 
     auto query_id = sole::uuid4();
+
+    if (reader->query_str().contains("LOG_SOURCE")) {
+      FileSourcMessage msg;
+      msg.set_file_name("/home/ddelnano/code/pixie-worktree/test.json");
+      file_source_manager_->HandleRegisterFileSourceRequest(query_id, msg);
+    }
+
     auto compiler_state = engine_state_->CreateLocalExecutionCompilerState(0);
 
     // Handle mutations.
@@ -201,6 +209,7 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
   px::vizier::agent::StandaloneGRPCResultSinkServer* sink_server_;
   px::carnot::EngineState* engine_state_;
   TracepointManager* tp_manager_;
+  FileSourceManager* file_source_manager_;
 };
 
 class VizierGRPCServer {
@@ -208,8 +217,8 @@ class VizierGRPCServer {
   VizierGRPCServer() = delete;
   VizierGRPCServer(int port, carnot::Carnot* carnot,
                    px::vizier::agent::StandaloneGRPCResultSinkServer* svr,
-                   carnot::EngineState* engine_state, TracepointManager* tp_manager)
-      : vizier_server_(std::make_unique<VizierServer>(carnot, svr, engine_state, tp_manager)) {
+                   carnot::EngineState* engine_state, TracepointManager* tp_manager, FileSourceManager* file_source_manager)
+      : vizier_server_(std::make_unique<VizierServer>(carnot, svr, engine_state, tp_manager, file_source_manager)) {
     grpc::ServerBuilder builder;
 
     std::string uri = absl::Substitute("0.0.0.0:$0", port);

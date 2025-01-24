@@ -107,6 +107,8 @@ StandalonePEMManager::StandalonePEMManager(sole::uuid agent_id, std::string_view
 
   tracepoint_manager_ =
       std::make_unique<TracepointManager>(dispatcher_.get(), stirling_.get(), table_store_.get());
+  file_source_manager_ =
+      std::make_unique<FileSourceManager>(dispatcher_.get(), stirling_.get(), table_store_.get());
   // Force Metadata Update.
   ECHECK_OK(mds_manager_->PerformMetadataStateUpdate());
 }
@@ -148,7 +150,7 @@ Status StandalonePEMManager::Init() {
 
   vizier_grpc_server_ =
       std::make_unique<VizierGRPCServer>(port_, carnot_.get(), results_sink_server_.get(),
-                                         carnot_->GetEngineState(), tracepoint_manager_.get());
+                                         carnot_->GetEngineState(), tracepoint_manager_.get(), file_source_manager_.get());
 
   return Status::OK();
 }

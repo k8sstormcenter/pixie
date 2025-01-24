@@ -44,6 +44,7 @@ message VizierMessage {
     TracepointMessage tracepoint_message = 10;
     ConfigUpdateMessage config_update_message = 11;
     K8sMetadataMessage k8s_metadata_message = 12;
+    FileSourceMessage file_source_message = 13;
   }
   // DEPRECATED: Formerly used for UpdateAgentRequest.
   reserved 3;
@@ -58,6 +59,10 @@ message TracepointMessage {
     RemoveTracepointRequest remove_tracepoint_request = 2;
     RegisterTracepointRequest register_tracepoint_request = 3;
   }
+}
+
+message FileSourceMessage {
+  string file_name = 1;
 }
 
 // A wrapper around all PEM-config-related messages that can be sent over the message bus.

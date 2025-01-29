@@ -45,6 +45,11 @@ service MetadataService {
   rpc GetWithPrefixKey(WithPrefixKeyRequest) returns (WithPrefixKeyResponse);
 }
 
+service MetadataFileSourceService {
+  rpc RegisterFileSource(RegisterFileSourceRequest) returns (RegisterFileSourceResponse);
+  rpc RemoveFileSource(RemoveFileSourceRequest) returns (RemoveFileSourceResponse);
+}
+
 service MetadataTracepointService {
   rpc RegisterTracepoint(RegisterTracepointRequest) returns (RegisterTracepointResponse);
   rpc GetTracepointInfo(GetTracepointInfoRequest) returns (GetTracepointInfoResponse);
@@ -160,6 +165,66 @@ message WithPrefixKeyResponse {
   }
   // All the key-value pairs that matched the given prefix.
   repeated KV kvs = 1;
+}
+
+message RegisterFileSourceRequest {
+  message FileSourceRequest {
+    string glob_pattern = 1;
+    string table_name = 2;
+    google.protobuf.Duration ttl = 3 [ (gogoproto.customname) = "TTL" ];
+  }
+  repeated FileSourceRequest requests = 1;
+}
+
+// The response to a RegisterFileSourceRequest.
+message RegisterFileSourceResponse {
+  message FileSourceStatus {
+    px.statuspb.Status status = 1; // TODO(ddelnano): Is this necessary?
+    // The ID of the file_source. This should be the user-specified name for the file_source .
+    uuidpb.UUID id = 2 [ (gogoproto.customname) = "ID" ];
+    string name = 3;
+  }
+  repeated FileSourceStatus file_sources = 1;
+  // Overall status of whether file_source  registration requests were initiated with/without errors.
+  px.statuspb.Status status = 2;
+}
+
+// The request to check the status for a file_source with the given names.
+message GetFileSourceInfoRequest {
+  // The file_source  IDs to get the info for. If empty, fetches the info for all known file_source s.
+  repeated uuidpb.UUID ids = 1 [ (gogoproto.customname) = "IDs" ];
+}
+
+// The status of whether the file_source  has successfully registered or not.
+message GetFileSourceInfoResponse {
+  message FileSourceState {
+    // The file_source  ID.
+    uuidpb.UUID id = 1 [ (gogoproto.customname) = "ID" ];
+    // The state of the file_source .
+    px.statuspb.LifeCycleState state = 2;
+    // The status of the file_source , specified if the state of the file_source  is not healthy.
+    repeated px.statuspb.Status statuses = 3;
+    string name = 4;
+    // The desired state for the file_source . This can be used to determine whether
+    // the file_source  is just starting up or in the process of terminating.
+    px.statuspb.LifeCycleState expected_state = 5;
+    repeated string schema_names = 6;
+  }
+  // List of file_source  states.
+  repeated FileSourceState file_sources = 1;
+}
+
+// The request to evict a file_source . This will normally happen via the file_source 's TTL, but can be
+// initiated via request as well.
+message RemoveFileSourceRequest {
+  // The name of the file_source  to remove.
+  repeated string names = 1;
+}
+
+// The response to the file_source  removal.
+message RemoveFileSourceResponse {
+  // Status of whether the file_source  removal request was initiated with/without errors.
+  px.statuspb.Status status = 1;
 }
 
 // The request to register tracepoints on all PEMs.

@@ -136,7 +136,7 @@ message FileSourceDeployment {
   // The table name to write the data to.
   string table_name = 2;
   // The ttl to run the file source for. -1 indicates that the file source should run indefinitely.
-  google.protobuf.Duration ttl = 3;
+  google.protobuf.Duration ttl = 3 [ (gogoproto.customname) = "TTL" ];
 }
 
 message DeleteFileSource {
@@ -145,7 +145,7 @@ message DeleteFileSource {
   // The table name to write the data to.
   string table_name = 2;
   // The ttl to run the file source for. -1 indicates that the file source should run indefinitely.
-  google.protobuf.Duration ttl = 3;
+  google.protobuf.Duration ttl = 3 [ (gogoproto.customname) = "TTL" ];
 }
 
 // The definition of a mutation to perfom on Vizier. Mutations include operations

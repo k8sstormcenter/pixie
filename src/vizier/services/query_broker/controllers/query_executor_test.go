@@ -807,7 +807,7 @@ func buildMutationFailedQueryTestCase(t *testing.T) queryExecTestCase {
 		QueryExecExpectedWaitError: err,
 		StreamResultsErr:           err,
 		StreamResultsCallExpected:  true,
-		MutExecFactory: func(planner controllers.Planner, client metadatapb.MetadataTracepointServiceClient, client2 metadatapb.MetadataConfigServiceClient, state *distributedpb.DistributedState) controllers.MutationExecutor {
+		MutExecFactory: func(planner controllers.Planner, client metadatapb.MetadataTracepointServiceClient, client2 metadatapb.MetadataFileSourceServiceClient, client3 metadatapb.MetadataConfigServiceClient, state *distributedpb.DistributedState) controllers.MutationExecutor {
 			return &fakeMutationExecutor{
 				MutInfo:       mutInfo,
 				ExecuteStatus: nil,

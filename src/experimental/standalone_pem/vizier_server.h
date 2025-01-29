@@ -65,10 +65,16 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
 
     auto query_id = sole::uuid4();
 
-    if (reader->query_str().contains("LOG_SOURCE")) {
-      FileSourcMessage msg;
+    auto log_source_mutation = false;
+    if (reader->query_str().find("LOG_SOURCE") != std::string::npos) {
+      messages::FileSourceMessage msg;
       msg.set_file_name("/home/ddelnano/code/pixie-worktree/test.json");
-      file_source_manager_->HandleRegisterFileSourceRequest(query_id, msg);
+      auto s = file_source_manager_->HandleRegisterFileSourceRequest(query_id, msg);
+      if (!s.ok()) {
+        return ::grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Failed to register file source");
+      }
+      log_source_mutation = true;
+      sleep(10);
     }
 
     auto compiler_state = engine_state_->CreateLocalExecutionCompilerState(0);
@@ -187,6 +193,16 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
     auto s = carnot_->ExecuteQuery(reader->query_str(), query_id, px::CurrentTimeNS());
     if (s != Status::OK()) {
       return ::grpc::Status::CANCELLED;
+    }
+
+    if (log_source_mutation) {
+      LOG(INFO) << "Removing file source";
+      messages::FileSourceMessage msg;
+       msg.set_file_name("/home/ddelnano/code/pixie-worktree/test.json");
+      auto s = file_source_manager_->HandleRemoveFileSourceRequest(query_id, msg);
+      if (!s.ok()) {
+        return ::grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Failed to remove file source");
+      }
     }
 
     return ::grpc::Status::OK;

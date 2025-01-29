@@ -44,14 +44,14 @@ class FileSourceManager {
   FileSourceManager(px::event::Dispatcher* dispatcher, stirling::Stirling* stirling,
                     table_store::TableStore* table_store);
 
-  /* std::string DebugString() const; */
+  std::string DebugString() const;
+  Status HandleRegisterFileSourceRequest(sole::uuid id, const messages::FileSourceMessage& req);
+  Status HandleRemoveFileSourceRequest(sole::uuid id, const messages::FileSourceMessage& req);
 
  private:
   // The tracepoint Monitor that is responsible for watching and updating the state of
   // active tracepoints.
   void Monitor();
-  Status HandleRegisterFileSourceRequest(const messages::FileSourceMessage& req);
-  Status HandleRemoveFileSourceRequest(const messages::FileSourceMessage& req);
   Status UpdateSchema(const stirling::stirlingpb::Publish& publish_proto);
 
   px::event::Dispatcher* dispatcher_;

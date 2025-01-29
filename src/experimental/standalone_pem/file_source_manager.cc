@@ -22,6 +22,8 @@
 #include "src/common/base/base.h"
 #include "src/experimental/standalone_pem/file_source_manager.h"
 
+constexpr auto kUpdateInterval = std::chrono::seconds(2);
+
 namespace px {
 namespace vizier {
 namespace agent {
@@ -59,24 +61,38 @@ Status FileSourceManager::HandleRegisterFileSourceRequest(
   auto file_name = req.file_name();
   LOG(INFO) << "Registering file source: " << file_name;
 
-  // Create the new source connector
-  stirling_->RegisterFileSource(file_name);
-  PX_UNUSED(table_store_);
-  PX_UNUSED(dispatcher_);
+  FileSourceInfo info;
+  info.name = file_name;
+  info.id = id;
+  info.expected_state = statuspb::RUNNING_STATE;
+  info.current_state = statuspb::PENDING_STATE;
+  info.last_updated_at = dispatcher_->GetTimeSource().MonotonicTime();
+  stirling_->RegisterFileSource(id, file_name);
+  {
+    std::lock_guard<std::mutex> lock(mu_);
+    file_sources_[id] = std::move(info);
+  }
   return Status::OK();
 }
 
 Status FileSourceManager::HandleRemoveFileSourceRequest(
-    const messages::FileSourceMessage& msg) {
-  PX_UNUSED(msg);
-  return Status::OK();
+    sole::uuid id,
+    const messages::FileSourceMessage& /*msg*/) {
+  std::lock_guard<std::mutex> lock(mu_);
+  auto it = file_sources_.find(id);
+  if (it == file_sources_.end()) {
+    return error::NotFound("File source with ID: $0, not found", id.str());
+  }
+
+  it->second.expected_state = statuspb::TERMINATED_STATE;
+  return stirling_->RemoveFileSource(id);
 }
 
 void FileSourceManager::Monitor() {
   std::lock_guard<std::mutex> lock(mu_);
 
   for (auto& [id, file_source] : file_sources_) {
-    auto s_or_publish = stirling_->GetTracepointInfo(id);
+    auto s_or_publish = stirling_->GetFileSourceInfo(id);
     statuspb::LifeCycleState current_state;
     // Get the latest current state according to stirling.
     if (s_or_publish.ok()) {
@@ -148,6 +164,7 @@ void FileSourceManager::Monitor() {
 }
 
 Status FileSourceManager::UpdateSchema(const stirling::stirlingpb::Publish& publish_pb) {
+  LOG(INFO) << "Updating schema for file source";
   auto relation_info_vec = ConvertPublishPBToRelationInfo(publish_pb);
 
   // TODO: Failure here can lead to an inconsistent schema state. We should

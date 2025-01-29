@@ -126,21 +126,21 @@ char* PlannerCompileMutations(PlannerPtr planner_ptr, const char* mutation_reque
 
   auto planner = reinterpret_cast<px::carnot::planner::LogicalPlanner*>(planner_ptr);
 
-  auto dynamic_trace_or_s = planner->CompileTrace(mutation_request_pb);
-  if (!dynamic_trace_or_s.ok()) {
-    return ExitEarly<CompileMutationsResponse>(dynamic_trace_or_s.status(), resultLen);
+  auto mutations_ir_or_s = planner->CompileTrace(mutation_request_pb);
+  if (!mutations_ir_or_s.ok()) {
+    return ExitEarly<CompileMutationsResponse>(mutations_ir_or_s.status(), resultLen);
   }
-  std::unique_ptr<px::carnot::planner::compiler::MutationsIR> trace =
-      dynamic_trace_or_s.ConsumeValueOrDie();
+  std::unique_ptr<px::carnot::planner::compiler::MutationsIR> mutations =
+      mutations_ir_or_s.ConsumeValueOrDie();
 
   // If the response is ok, then we can go ahead and set this up.
   CompileMutationsResponse mutations_response_pb;
-  WrapStatus(&mutations_response_pb, dynamic_trace_or_s.status());
+  WrapStatus(&mutations_response_pb, mutations_ir_or_s.status());
 
   PLANNER_RETURN_IF_ERROR(CompileMutationsResponse, resultLen,
-                          trace->ToProto(&mutations_response_pb));
+                          mutations->ToProto(&mutations_response_pb));
 
-  // Serialize the tracing program into bytes.
+  // Serialize the mutations into bytes.
   return PrepareResult(&mutations_response_pb, resultLen);
 }
 

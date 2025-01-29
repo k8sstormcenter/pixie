@@ -166,6 +166,20 @@ class TracepointIR {
   std::shared_ptr<ProbeOutput> output_ = nullptr;
 };
 
+class FileSourceDeployment {
+ public:
+  FileSourceDeployment(const std::string& glob_pattern,
+                       const std::string& table_name, int64_t ttl_ns)
+      : glob_pattern_(glob_pattern), table_name_(table_name), ttl_ns_(ttl_ns) {}
+
+  Status ToProto(plannerpb::FileSourceDeployment pb) const;
+
+ private:
+  std::string glob_pattern_;
+  std::string table_name_;
+  int64_t ttl_ns_;
+};
+
 class TracepointDeployment {
  public:
   TracepointDeployment(const std::string& trace_name, int64_t ttl_ns)
@@ -224,6 +238,10 @@ class MutationsIR {
    * @return std::shared_ptr<TracepointIR>
    */
   std::shared_ptr<TracepointIR> StartProbe(const std::string& function_name);
+
+  void CreateFileSourceDeployment(const std::string& glob_pattern,
+                                  const std::string& table_name,
+                                  int64_t ttl_ns);
 
   /**
    * @brief Create a TraceProgram for the MutationsIR w/ the specified UPID.
@@ -348,6 +366,8 @@ class MutationsIR {
 
   // The updates to internal config that need to be done.
   std::vector<plannerpb::ConfigUpdate> config_updates_;
+
+  std::vector<plannerpb::FileSourceDeployment> file_source_deployments_;
 };
 
 }  // namespace compiler

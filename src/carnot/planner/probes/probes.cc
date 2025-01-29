@@ -296,10 +296,26 @@ Status MutationsIR::ToProto(plannerpb::CompileMutationsResponse* pb) {
     *(pb->add_mutations()->mutable_config_update()) = update;
   }
 
+  for (const auto& file_source : file_source_deployments_) {
+    *(pb->add_mutations()->mutable_file_source()) = file_source;
+  }
+
   return Status::OK();
 }
 
 void MutationsIR::EndProbe() { current_tracepoint_ = nullptr; }
+
+void MutationsIR::CreateFileSourceDeployment(const std::string& glob_pattern,
+                                                         const std::string& table_name,
+                                                         int64_t ttl_ns) {
+  plannerpb::FileSourceDeployment file_source;
+  file_source.set_glob_pattern(glob_pattern);
+  file_source.set_table_name(table_name);
+  auto one_sec = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(1));
+  file_source.mutable_ttl()->set_seconds(ttl_ns / one_sec.count());
+  file_source.mutable_ttl()->set_nanos(ttl_ns % one_sec.count());
+  file_source_deployments_.push_back(file_source);
+}
 
 }  // namespace compiler
 }  // namespace planner

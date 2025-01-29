@@ -1039,6 +1039,34 @@ px.export(otel_df, px.otel.Data(
 )))otel");
 }
 
+constexpr char kFileSourceQuery[] = R"pxl(
+import pxlog
+import px
+
+glob_pattern= '/var/log/kern.log'
+table_name='table'
+ttl='10m'
+pxlog.FileSource(glob_pattern, table_name, ttl)
+
+df = px.DataFrame(table=table_name)
+df.stream()
+)pxl";
+
+TEST_F(LogicalPlannerTest, FileSource) {
+  auto planner = LogicalPlanner::Create(info_).ConsumeValueOrDie();
+  plannerpb::CompileMutationsRequest req;
+  req.set_query_str(kFileSourceQuery);
+  *req.mutable_logical_planner_state() =
+      testutils::CreateTwoPEMsOneKelvinPlannerState(testutils::kHttpEventsSchema);
+  auto log_ir_or_s = planner->CompileTrace(req);
+  ASSERT_OK(log_ir_or_s);
+  auto log_ir = log_ir_or_s.ConsumeValueOrDie();
+  plannerpb::CompileMutationsResponse resp;
+  ASSERT_OK(log_ir->ToProto(&resp));
+  /* ASSERT_EQ(resp.mutations_size(), 1); */
+  /* EXPECT_THAT(resp.mutations()[0].trace(), EqualsProto(kBPFTwoTraceProgramsPb)); */
+}
+
 }  // namespace planner
 }  // namespace carnot
 }  // namespace px

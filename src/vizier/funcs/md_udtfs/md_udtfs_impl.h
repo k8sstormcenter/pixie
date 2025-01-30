@@ -76,6 +76,20 @@ class UDTFWithMDTPFactory : public carnot::udf::UDTFFactory {
 };
 
 template <typename TUDTF>
+class UDTFWithMDFSFactory : public carnot::udf::UDTFFactory {
+ public:
+  UDTFWithMDFSFactory() = delete;
+  explicit UDTFWithMDFSFactory(const VizierFuncFactoryContext& ctx) : ctx_(ctx) {}
+
+  std::unique_ptr<carnot::udf::AnyUDTF> Make() override {
+    return std::make_unique<TUDTF>(ctx_.mdfs_stub(), ctx_.add_auth_to_grpc_context_func());
+  }
+
+ private:
+  const VizierFuncFactoryContext& ctx_;
+};
+
+template <typename TUDTF>
 class UDTFWithCronscriptFactory : public carnot::udf::UDTFFactory {
  public:
   UDTFWithCronscriptFactory() = delete;
@@ -981,6 +995,127 @@ class GetTracepointStatus final : public carnot::udf::UDTF<GetTracepointStatus> 
   int idx_ = 0;
   std::unique_ptr<px::vizier::services::metadata::GetTracepointInfoResponse> resp_;
   std::shared_ptr<MDTPStub> stub_;
+  std::function<void(grpc::ClientContext*)> add_context_authentication_func_;
+};
+
+/**
+ * This UDTF fetches information about tracepoints from MDS.
+ */
+class GetFileSourceStatus final : public carnot::udf::UDTF<GetFileSourceStatus> {
+ public:
+  using MDFSStub = vizier::services::metadata::MetadataFileSourceService::Stub;
+  using FileSourceResponse = vizier::services::metadata::GetFileSourceInfoResponse;
+  GetFileSourceStatus() = delete;
+  explicit GetFileSourceStatus(std::shared_ptr<MDFSStub> stub,
+                               std::function<void(grpc::ClientContext*)> add_context_authentication)
+      : idx_(0), stub_(stub), add_context_authentication_func_(add_context_authentication) {}
+
+  static constexpr auto Executor() { return carnot::udfspb::UDTFSourceExecutor::UDTF_ONE_KELVIN; }
+
+  static constexpr auto OutputRelation() {
+    return MakeArray(ColInfo("file_source_id", types::DataType::UINT128, types::PatternType::GENERAL,
+                             "The id of the file source"),
+                     ColInfo("name", types::DataType::STRING, types::PatternType::GENERAL,
+                             "The name of the file source"),
+                     ColInfo("state", types::DataType::STRING, types::PatternType::GENERAL,
+                             "The state of the file source"),
+                     ColInfo("status", types::DataType::STRING, types::PatternType::GENERAL,
+                             "The status message if not healthy"),
+                     ColInfo("output_tables", types::DataType::STRING, types::PatternType::GENERAL,
+                             "A list of tables output by the file source"));
+    // TODO(ddelnano): Add in the create time, and TTL in here after we add those attributes to the
+    // GetFileSourceInfo RPC call in MDS.
+  }
+
+  Status Init(FunctionContext*) {
+    px::vizier::services::metadata::GetFileSourceInfoRequest req;
+    resp_ = std::make_unique<px::vizier::services::metadata::GetFileSourceInfoResponse>();
+
+    grpc::ClientContext ctx;
+    add_context_authentication_func_(&ctx);
+    auto s = stub_->GetFileSourceInfo(&ctx, req, resp_.get());
+    if (!s.ok()) {
+      return error::Internal("Failed to make RPC call to GetFileSourceStatus: $0",
+                             s.error_message());
+    }
+    return Status::OK();
+  }
+
+  bool NextRecord(FunctionContext*, RecordWriter* rw) {
+    if (resp_->file_sources_size() == 0) {
+      return false;
+    }
+    const auto& file_source_info = resp_->file_sources(idx_);
+
+    auto u_or_s = ParseUUID(file_source_info.id());
+    sole::uuid u;
+    if (u_or_s.ok()) {
+      u = u_or_s.ConsumeValueOrDie();
+    }
+
+    auto actual = file_source_info.state();
+    auto expected = file_source_info.expected_state();
+    std::string state;
+
+    switch (actual) {
+      case statuspb::PENDING_STATE: {
+        state = "pending";
+        break;
+      }
+      case statuspb::RUNNING_STATE: {
+        state = "running";
+        break;
+      }
+      case statuspb::FAILED_STATE: {
+        state = "failed";
+        break;
+      }
+      case statuspb::TERMINATED_STATE: {
+        if (actual != expected) {
+          state = "terminating";
+        } else {
+          state = "terminated";
+        }
+        break;
+      }
+      default:
+        state = "unknown";
+    }
+
+    rapidjson::Document tables;
+    tables.SetArray();
+    for (const auto& table : file_source_info.schema_names()) {
+      tables.PushBack(internal::StringRef(table), tables.GetAllocator());
+    }
+
+    rapidjson::StringBuffer tables_sb;
+    rapidjson::Writer<rapidjson::StringBuffer> tables_writer(tables_sb);
+    tables.Accept(tables_writer);
+
+    rw->Append<IndexOf("file_source_id")>(absl::MakeUint128(u.ab, u.cd));
+    rw->Append<IndexOf("name")>(file_source_info.name());
+    rw->Append<IndexOf("state")>(state);
+
+    rapidjson::Document statuses;
+    statuses.SetArray();
+    for (const auto& status : file_source_info.statuses()) {
+      statuses.PushBack(internal::StringRef(status.msg()), statuses.GetAllocator());
+    }
+    rapidjson::StringBuffer statuses_sb;
+    rapidjson::Writer<rapidjson::StringBuffer> statuses_writer(statuses_sb);
+    statuses.Accept(statuses_writer);
+    rw->Append<IndexOf("status")>(statuses_sb.GetString());
+
+    rw->Append<IndexOf("output_tables")>(tables_sb.GetString());
+
+    ++idx_;
+    return idx_ < resp_->file_sources_size();
+  }
+
+ private:
+  int idx_ = 0;
+  std::unique_ptr<px::vizier::services::metadata::GetFileSourceInfoResponse> resp_;
+  std::shared_ptr<MDFSStub> stub_;
   std::function<void(grpc::ClientContext*)> add_context_authentication_func_;
 };
 

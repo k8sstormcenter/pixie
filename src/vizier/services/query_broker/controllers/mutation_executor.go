@@ -30,6 +30,7 @@ import (
 	"px.dev/pixie/src/api/proto/uuidpb"
 	"px.dev/pixie/src/api/proto/vizierpb"
 	"px.dev/pixie/src/carnot/planner/distributedpb"
+	"px.dev/pixie/src/carnot/planner/file_source/ir"
 	"px.dev/pixie/src/carnot/planner/plannerpb"
 	"px.dev/pixie/src/carnot/planpb"
 	"px.dev/pixie/src/common/base/statuspb"
@@ -130,7 +131,7 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 	}
 	configmapReqs := make([]*metadatapb.UpdateConfigRequest, 0)
 	fileSourceReqs := &metadatapb.RegisterFileSourceRequest{
-		Requests: make([]*metadatapb.RegisterFileSourceRequest_FileSourceRequest, 0),
+		Requests: make([]*ir.FileSourceDeployment, 0),
 	}
 
 	outputTablesMap := make(map[string]bool)
@@ -176,7 +177,8 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 		case *plannerpb.CompileMutation_FileSource:
 			{
 				name := mut.FileSource.GlobPattern
-				fileSourceReqs.Requests = append(fileSourceReqs.Requests, &metadatapb.RegisterFileSourceRequest_FileSourceRequest{
+				fileSourceReqs.Requests = append(fileSourceReqs.Requests, &ir.FileSourceDeployment{
+					Name:        name,
 					GlobPattern: name,
 					TableName:   mut.FileSource.TableName,
 					TTL:         mut.FileSource.TTL,

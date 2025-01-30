@@ -48,6 +48,7 @@ service MetadataService {
 
 service MetadataFileSourceService {
   rpc RegisterFileSource(RegisterFileSourceRequest) returns (RegisterFileSourceResponse);
+  rpc GetFileSourceInfo(GetFileSourceInfoRequest) returns (GetFileSourceInfoResponse);
   rpc RemoveFileSource(RemoveFileSourceRequest) returns (RemoveFileSourceResponse);
 }
 

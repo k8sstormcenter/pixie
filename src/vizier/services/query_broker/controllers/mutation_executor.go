@@ -133,6 +133,9 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 	fileSourceReqs := &metadatapb.RegisterFileSourceRequest{
 		Requests: make([]*ir.FileSourceDeployment, 0),
 	}
+	deleteFileSourcesReq := &metadatapb.RemoveFileSourceRequest{
+		Names: make([]string, 0),
+	}
 
 	outputTablesMap := make(map[string]bool)
 	// TODO(zasgar): We should make sure that we don't simultaneously add and delete the tracepoint.
@@ -194,6 +197,11 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 					Status:      nil,
 				}
 			}
+		case *plannerpb.CompileMutation_DeleteFileSource:
+			{
+				deleteFileSourcesReq.Names = append(deleteFileSourcesReq.Names, mut.DeleteFileSource.GlobPattern)
+			}
+
 		}
 	}
 
@@ -265,6 +273,23 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 			m.activeFileSources[fs.Name].Status = fs.Status
 		}
 	}
+	if len(deleteFileSourcesReq.Names) > 0 {
+		delResp, err := m.mdfs.RemoveFileSource(ctx, deleteFileSourcesReq)
+		if err != nil {
+			log.WithError(err).
+				Errorf("Failed to delete tracepoints")
+			return nil, ErrFileSourceDeletionFailed
+		}
+		if delResp.Status != nil && delResp.Status.ErrCode != statuspb.OK {
+			log.WithField("status", delResp.Status.String()).
+				Errorf("Failed to delete tracepoints with bad status")
+			return delResp.Status, ErrFileSourceDeletionFailed
+		}
+		// Remove the tracepoints we considered deleted.
+		for _, fsName := range deleteFileSourcesReq.Names {
+			delete(m.activeFileSources, fsName)
+		}
+	}
 
 	m.outputTables = make([]string, 0)
 	for k := range outputTablesMap {
@@ -276,11 +301,17 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 
 // MutationInfo returns the summarized mutation information.
 func (m *MutationExecutorImpl) MutationInfo(ctx context.Context) (*vizierpb.MutationInfo, error) {
-	req := &metadatapb.GetTracepointInfoRequest{
+	tpReq := &metadatapb.GetTracepointInfoRequest{
 		IDs: make([]*uuidpb.UUID, 0),
 	}
 	for _, tp := range m.activeTracepoints {
-		req.IDs = append(req.IDs, utils.ProtoFromUUID(tp.ID))
+		tpReq.IDs = append(tpReq.IDs, utils.ProtoFromUUID(tp.ID))
+	}
+	fsReq := &metadatapb.GetFileSourceInfoRequest{
+		IDs: make([]*uuidpb.UUID, 0),
+	}
+	for _, fs := range m.activeFileSources {
+		fsReq.IDs = append(fsReq.IDs, utils.ProtoFromUUID(fs.ID))
 	}
 	aCtx, err := authcontext.FromContext(ctx)
 	if err != nil {
@@ -288,31 +319,56 @@ func (m *MutationExecutorImpl) MutationInfo(ctx context.Context) (*vizierpb.Muta
 	}
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("bearer %s", aCtx.AuthToken))
 
-	resp, err := m.mdtp.GetTracepointInfo(ctx, req)
+	tpResp, err := m.mdtp.GetTracepointInfo(ctx, tpReq)
 	if err != nil {
 		return nil, err
 	}
+	fsResp, err := m.mdfs.GetFileSourceInfo(ctx, fsReq)
+	if err != nil {
+		return nil, err
+	}
+	tps := len(tpResp.Tracepoints)
 	mutationInfo := &vizierpb.MutationInfo{
 		Status: &vizierpb.Status{Code: 0},
-		States: make([]*vizierpb.MutationInfo_MutationState, len(resp.Tracepoints)),
+		States: make([]*vizierpb.MutationInfo_MutationState, tps+len(fsResp.FileSources)),
 	}
 
-	ready := true
-	for idx, tp := range resp.Tracepoints {
+	tpReady := true
+	for idx, tp := range tpResp.Tracepoints {
 		mutationInfo.States[idx] = &vizierpb.MutationInfo_MutationState{
 			ID:    utils.UUIDFromProtoOrNil(tp.ID).String(),
 			State: convertLifeCycleStateToVizierLifeCycleState(tp.State),
 			Name:  tp.Name,
 		}
 		if tp.State != statuspb.RUNNING_STATE {
-			ready = false
+			tpReady = false
 		}
 	}
 
-	if !ready {
+	fsReady := true
+	for idx, fs := range fsResp.FileSources {
+		mutationInfo.States[idx+tps] = &vizierpb.MutationInfo_MutationState{
+			ID:    utils.UUIDFromProtoOrNil(fs.ID).String(),
+			State: convertLifeCycleStateToVizierLifeCycleState(fs.State),
+			Name:  fs.Name,
+		}
+		if fs.State != statuspb.RUNNING_STATE {
+			fsReady = false
+		}
+	}
+
+	if !tpReady {
 		mutationInfo.Status = &vizierpb.Status{
 			Code:    int32(codes.Unavailable),
 			Message: "probe installation in progress",
+		}
+		return mutationInfo, nil
+	}
+
+	if !fsReady {
+		mutationInfo.Status = &vizierpb.Status{
+			Code:    int32(codes.Unavailable),
+			Message: "file source installation in progress",
 		}
 		return mutationInfo, nil
 	}

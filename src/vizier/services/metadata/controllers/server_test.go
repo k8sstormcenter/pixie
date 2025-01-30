@@ -56,6 +56,8 @@ import (
 	"px.dev/pixie/src/vizier/messages/messagespb"
 	"px.dev/pixie/src/vizier/services/metadata/controllers"
 	mock_agent "px.dev/pixie/src/vizier/services/metadata/controllers/agent/mock"
+	"px.dev/pixie/src/vizier/services/metadata/controllers/file_source"
+	mock_file_source "px.dev/pixie/src/vizier/services/metadata/controllers/file_source/mock"
 	"px.dev/pixie/src/vizier/services/metadata/controllers/testutils"
 	"px.dev/pixie/src/vizier/services/metadata/controllers/tracepoint"
 	mock_tracepoint "px.dev/pixie/src/vizier/services/metadata/controllers/tracepoint/mock"
@@ -166,7 +168,7 @@ func TestGetAgentInfo(t *testing.T) {
 		t.Fatal("Failed to create api environment.")
 	}
 
-	s := controllers.NewServer(env, nil, nil, mockAgtMgr, nil)
+	s := controllers.NewServer(env, nil, nil, mockAgtMgr, nil, nil)
 
 	req := metadatapb.AgentInfoRequest{}
 
@@ -212,7 +214,7 @@ func TestGetAgentInfoGetActiveAgentsFailed(t *testing.T) {
 		t.Fatal("Failed to create api environment.")
 	}
 
-	s := controllers.NewServer(env, nil, nil, mockAgtMgr, nil)
+	s := controllers.NewServer(env, nil, nil, mockAgtMgr, nil, nil)
 
 	req := metadatapb.AgentInfoRequest{}
 
@@ -241,7 +243,7 @@ func TestGetSchemas(t *testing.T) {
 		t.Fatal("Failed to create api environment.")
 	}
 
-	s := controllers.NewServer(env, nil, nil, mockAgtMgr, nil)
+	s := controllers.NewServer(env, nil, nil, mockAgtMgr, nil, nil)
 
 	req := metadatapb.SchemaRequest{}
 
@@ -349,7 +351,7 @@ func Test_Server_RegisterTracepoint(t *testing.T) {
 		t.Fatal("Failed to create api environment.")
 	}
 
-	s := controllers.NewServer(env, nil, nil, mockAgtMgr, tracepointMgr)
+	s := controllers.NewServer(env, nil, nil, mockAgtMgr, tracepointMgr, nil)
 
 	reqs := []*metadatapb.RegisterTracepointRequest_TracepointRequest{
 		{
@@ -474,7 +476,7 @@ func Test_Server_RegisterTracepoint_Exists(t *testing.T) {
 		t.Fatal("Failed to create api environment.")
 	}
 
-	s := controllers.NewServer(env, nil, nil, mockAgtMgr, tracepointMgr)
+	s := controllers.NewServer(env, nil, nil, mockAgtMgr, tracepointMgr, nil)
 
 	reqs := []*metadatapb.RegisterTracepointRequest_TracepointRequest{
 		{
@@ -614,8 +616,10 @@ func Test_Server_GetTracepointInfo(t *testing.T) {
 			defer ctrl.Finish()
 			mockAgtMgr := mock_agent.NewMockManager(ctrl)
 			mockTracepointStore := mock_tracepoint.NewMockStore(ctrl)
+			mockFileSourceStore := mock_file_source.NewMockStore(ctrl)
 
 			tracepointMgr := tracepoint.NewManager(mockTracepointStore, mockAgtMgr, 5*time.Second)
+			fileSourceMgr := file_source.NewManager(mockFileSourceStore, mockAgtMgr, 5*time.Second)
 
 			program := &logicalpb.TracepointDeployment{
 				Programs: []*logicalpb.TracepointDeployment_TracepointProgram{
@@ -659,7 +663,7 @@ func Test_Server_GetTracepointInfo(t *testing.T) {
 				t.Fatal("Failed to create api environment.")
 			}
 
-			s := controllers.NewServer(env, nil, nil, mockAgtMgr, tracepointMgr)
+			s := controllers.NewServer(env, nil, nil, mockAgtMgr, tracepointMgr, fileSourceMgr)
 			req := metadatapb.GetTracepointInfoRequest{
 				IDs: []*uuidpb.UUID{utils.ProtoFromUUID(tID)},
 			}
@@ -693,8 +697,10 @@ func Test_Server_RemoveTracepoint(t *testing.T) {
 	defer ctrl.Finish()
 	mockAgtMgr := mock_agent.NewMockManager(ctrl)
 	mockTracepointStore := mock_tracepoint.NewMockStore(ctrl)
+	mockFileSourceStore := mock_file_source.NewMockStore(ctrl)
 
 	tracepointMgr := tracepoint.NewManager(mockTracepointStore, mockAgtMgr, 5*time.Second)
+	fileSourceMgr := file_source.NewManager(mockFileSourceStore, mockAgtMgr, 5*time.Second)
 
 	tpID1 := uuid.Must(uuid.NewV4())
 	tpID2 := uuid.Must(uuid.NewV4())
@@ -717,7 +723,7 @@ func Test_Server_RemoveTracepoint(t *testing.T) {
 		t.Fatal("Failed to create api environment.")
 	}
 
-	s := controllers.NewServer(env, nil, nil, mockAgtMgr, tracepointMgr)
+	s := controllers.NewServer(env, nil, nil, mockAgtMgr, tracepointMgr, fileSourceMgr)
 
 	req := metadatapb.RemoveTracepointRequest{
 		Names: []string{"test1", "test2"},
@@ -903,7 +909,7 @@ func TestGetAgentUpdates(t *testing.T) {
 		t.Fatal("Failed to create api environment.")
 	}
 
-	srv := controllers.NewServer(mdEnv, nil, nil, mockAgtMgr, nil)
+	srv := controllers.NewServer(mdEnv, nil, nil, mockAgtMgr, nil, nil)
 
 	env := env.New("withpixie.ai")
 	s := server.CreateGRPCServer(env, &server.GRPCServerOptions{})
@@ -1053,6 +1059,9 @@ func Test_Server_UpdateConfig(t *testing.T) {
 	mockTracepointStore := mock_tracepoint.NewMockStore(ctrl)
 	tracepointMgr := tracepoint.NewManager(mockTracepointStore, mockAgtMgr, 5*time.Second)
 
+	mockFileSourceStore := mock_file_source.NewMockStore(ctrl)
+	fsMgr := file_source.NewManager(mockFileSourceStore, mockAgtMgr, 5*time.Second)
+
 	mockAgtMgr.
 		EXPECT().
 		UpdateConfig("pl", "pem-1234", "gprof", "true").
@@ -1064,7 +1073,7 @@ func Test_Server_UpdateConfig(t *testing.T) {
 		t.Fatal("Failed to create api environment.")
 	}
 
-	s := controllers.NewServer(env, nil, nil, mockAgtMgr, tracepointMgr)
+	s := controllers.NewServer(env, nil, nil, mockAgtMgr, tracepointMgr, fsMgr)
 
 	req := metadatapb.UpdateConfigRequest{
 		AgentPodName: "pl/pem-1234",
@@ -1105,7 +1114,7 @@ func Test_Server_ConvertLabelsToPods(t *testing.T) {
 		t.Fatal("Failed to create api environment.")
 	}
 
-	s := controllers.NewServer(env, nil, pls, nil, nil)
+	s := controllers.NewServer(env, nil, pls, nil, nil, nil)
 
 	program := &logicalpb.TracepointDeployment{}
 	err = proto.UnmarshalText(testutils.TDLabelSelectorPb, program)

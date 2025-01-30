@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "src/carnot/planner/dynamic_tracing/ir/logicalpb/logical.pb.h"
+#include "src/carnot/planner/file_source/ir/logical.pb.h"
 #include "src/carnot/planner/objects/funcobject.h"
 #include "src/carnot/planner/plannerpb/service.pb.h"
 #include "src/carnot/planner/probes/label_selector_target.h"
@@ -172,7 +173,7 @@ class FileSourceDeployment {
                        const std::string& table_name, int64_t ttl_ns)
       : glob_pattern_(glob_pattern), table_name_(table_name), ttl_ns_(ttl_ns) {}
 
-  Status ToProto(plannerpb::FileSourceDeployment pb) const;
+  Status ToProto(file_source::ir::FileSourceDeployment pb) const;
 
  private:
   std::string glob_pattern_;
@@ -367,7 +368,7 @@ class MutationsIR {
   // The updates to internal config that need to be done.
   std::vector<plannerpb::ConfigUpdate> config_updates_;
 
-  std::vector<plannerpb::FileSourceDeployment> file_source_deployments_;
+  std::vector<file_source::ir::FileSourceDeployment> file_source_deployments_;
 };
 
 }  // namespace compiler

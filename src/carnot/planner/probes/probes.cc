@@ -308,7 +308,8 @@ void MutationsIR::EndProbe() { current_tracepoint_ = nullptr; }
 void MutationsIR::CreateFileSourceDeployment(const std::string& glob_pattern,
                                                          const std::string& table_name,
                                                          int64_t ttl_ns) {
-  plannerpb::FileSourceDeployment file_source;
+  file_source::ir::FileSourceDeployment file_source;
+  file_source.set_name(glob_pattern);
   file_source.set_glob_pattern(glob_pattern);
   file_source.set_table_name(table_name);
   auto one_sec = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(1));

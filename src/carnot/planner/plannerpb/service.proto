@@ -23,6 +23,7 @@ package px.carnot.planner.plannerpb;
 option go_package = "plannerpb";
 
 import "src/carnot/planner/dynamic_tracing/ir/logicalpb/logical.proto";
+import "src/carnot/planner/file_source/ir/logical.proto";
 import "src/common/base/statuspb/status.proto";
 import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 import "google/protobuf/duration.proto";
@@ -130,22 +131,11 @@ message ConfigUpdate {
   string agent_pod_name = 3;
 }
 
-message FileSourceDeployment {
-  // The glob pattern to use to find files to read.
-  string glob_pattern = 1;
-  // The table name to write the data to.
-  string table_name = 2;
-  // The ttl to run the file source for. -1 indicates that the file source should run indefinitely.
-  google.protobuf.Duration ttl = 3 [ (gogoproto.customname) = "TTL" ];
-}
-
 message DeleteFileSource {
   // The glob pattern to use to find files to read.
   string glob_pattern = 1;
   // The table name to write the data to.
   string table_name = 2;
-  // The ttl to run the file source for. -1 indicates that the file source should run indefinitely.
-  google.protobuf.Duration ttl = 3 [ (gogoproto.customname) = "TTL" ];
 }
 
 // The definition of a mutation to perfom on Vizier. Mutations include operations
@@ -160,7 +150,7 @@ message CompileMutation {
     // Mutation that sets a config.
     ConfigUpdate config_update = 4;
     // Mutation that adds a file source/poller
-    FileSourceDeployment file_source = 5;
+    carnot.planner.file_source.ir.FileSourceDeployment file_source = 5;
     // Mutation that deletes a file source/poller
     DeleteFileSource delete_file_source = 6;
   }

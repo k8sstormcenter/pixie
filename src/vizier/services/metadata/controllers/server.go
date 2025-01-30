@@ -41,6 +41,7 @@ import (
 	"px.dev/pixie/src/table_store/schemapb"
 	"px.dev/pixie/src/utils"
 	"px.dev/pixie/src/vizier/services/metadata/controllers/agent"
+	"px.dev/pixie/src/vizier/services/metadata/controllers/file_source"
 	"px.dev/pixie/src/vizier/services/metadata/controllers/k8smeta"
 	"px.dev/pixie/src/vizier/services/metadata/controllers/tracepoint"
 	"px.dev/pixie/src/vizier/services/metadata/metadataenv"
@@ -61,6 +62,7 @@ type Server struct {
 	pls    k8smeta.PodLabelStore
 	agtMgr agent.Manager
 	tpMgr  *tracepoint.Manager
+	fsMgr  *file_source.Manager
 	// The current cursor that is actively running the GetAgentsUpdate stream. Only one GetAgentsUpdate
 	// stream should be running at a time.
 	getAgentsCursor uuid.UUID
@@ -68,13 +70,14 @@ type Server struct {
 }
 
 // NewServer creates GRPC handlers.
-func NewServer(env metadataenv.MetadataEnv, ds datastore.MultiGetterSetterDeleterCloser, pls k8smeta.PodLabelStore, agtMgr agent.Manager, tpMgr *tracepoint.Manager) *Server {
+func NewServer(env metadataenv.MetadataEnv, ds datastore.MultiGetterSetterDeleterCloser, pls k8smeta.PodLabelStore, agtMgr agent.Manager, tpMgr *tracepoint.Manager, fsMgr *file_source.Manager) *Server {
 	return &Server{
 		env:    env,
 		ds:     ds,
 		pls:    pls,
 		agtMgr: agtMgr,
 		tpMgr:  tpMgr,
+		fsMgr:  fsMgr,
 	}
 }
 

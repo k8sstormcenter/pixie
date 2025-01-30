@@ -308,6 +308,7 @@ func main() {
 		httpmiddleware.WithBearerAuthMiddleware(env, mux), maxMsgSize)
 	metadatapb.RegisterMetadataServiceServer(s.GRPCServer(), svr)
 	metadatapb.RegisterMetadataTracepointServiceServer(s.GRPCServer(), svr)
+	metadatapb.RegisterMetadataFileSourceServiceServer(s.GRPCServer(), svr)
 	metadatapb.RegisterMetadataConfigServiceServer(s.GRPCServer(), svr)
 	metadatapb.RegisterCronScriptStoreServiceServer(s.GRPCServer(), cronScriptSvr)
 

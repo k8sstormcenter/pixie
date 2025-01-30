@@ -87,6 +87,13 @@ Manager::MDTPServiceSPtr CreateMDTPStub(const std::shared_ptr<grpc::Channel>& ch
   return std::make_shared<Manager::MDTPService::Stub>(chan);
 }
 
+Manager::MDFSServiceSPtr CreateMDFSStub(const std::shared_ptr<grpc::Channel>& chan) {
+  if (chan == nullptr) {
+    return nullptr;
+  }
+  return std::make_shared<Manager::MDFSService::Stub>(chan);
+}
+
 std::shared_ptr<services::metadata::CronScriptStoreService::Stub> CreateCronScriptStub(
     const std::shared_ptr<grpc::Channel>& chan) {
   if (chan == nullptr) {
@@ -108,6 +115,7 @@ Manager::Manager(sole::uuid agent_id, std::string_view pod_name, std::string_vie
       relation_info_manager_(std::make_unique<RelationInfoManager>()),
       mds_channel_(grpc::CreateChannel(std::string(mds_url), grpc_channel_creds_)),
       func_context_(this, CreateMDSStub(mds_channel_), CreateMDTPStub(mds_channel_),
+                    CreateMDFSStub(mds_channel_),
                     CreateCronScriptStub(mds_channel_), table_store_,
                     [](grpc::ClientContext* ctx) { AddServiceTokenToClientContext(ctx); }),
       memory_metrics_(&GetMetricsRegistry(), "agent_id", agent_id.str()) {

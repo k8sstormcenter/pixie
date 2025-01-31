@@ -29,6 +29,12 @@ class FileSourceHandler {
                                     const ParsedArgs& args, ASTVisitor* visitor);
 };
 
+class DeleteFileSourceHandler {
+ public:
+  static StatusOr<QLObjectPtr> Eval(MutationsIR* mutations_ir, const pypa::AstPtr& ast,
+                                    const ParsedArgs& args, ASTVisitor* visitor);
+};
+
 StatusOr<std::shared_ptr<LogModule>> LogModule::Create(MutationsIR* mutations_ir,
                                                            ASTVisitor* ast_visitor) {
   auto tracing_module = std::shared_ptr<LogModule>(new LogModule(mutations_ir, ast_visitor));
@@ -48,6 +54,17 @@ Status LogModule::Init() {
   PX_RETURN_IF_ERROR(upsert_fn->SetDocString(kFileSourceDocstring));
   AddMethod(kFileSourceID, upsert_fn);
 
+  PX_ASSIGN_OR_RETURN(
+      std::shared_ptr<FuncObject> delete_fn,
+      FuncObject::Create(kFileSourceID, {"name"}, {},
+                         /* has_variable_len_args */ false,
+                         /* has_variable_len_kwargs */ false,
+                         std::bind(DeleteFileSourceHandler::Eval, mutations_ir_, std::placeholders::_1,
+                                   std::placeholders::_2, std::placeholders::_3),
+                         ast_visitor()));
+  PX_RETURN_IF_ERROR(upsert_fn->SetDocString(kDeleteFileSourceDocstring));
+  AddMethod(kDeleteFileSourceID, delete_fn);
+
   return Status::OK();
 }
 
@@ -64,6 +81,18 @@ StatusOr<QLObjectPtr> FileSourceHandler::Eval(MutationsIR* mutations_ir, const p
   PX_ASSIGN_OR_RETURN(int64_t ttl_ns, StringToTimeInt(ttl_ir->str()));
 
   mutations_ir->CreateFileSourceDeployment(glob_pattern_str, table_name_str, ttl_ns);
+
+  return std::static_pointer_cast<QLObject>(std::make_shared<NoneObject>(ast, visitor));
+}
+
+StatusOr<QLObjectPtr> DeleteFileSourceHandler::Eval(MutationsIR* mutations_ir, const pypa::AstPtr& ast,
+                                          const ParsedArgs& args, ASTVisitor* visitor) {
+  DCHECK(mutations_ir);
+
+  PX_ASSIGN_OR_RETURN(auto glob_pattern_ir, GetArgAs<StringIR>(ast, args, "name"));
+  const std::string& glob_pattern_str = glob_pattern_ir->str();
+
+  mutations_ir->DeleteFileSource(glob_pattern_str);
 
   return std::static_pointer_cast<QLObject>(std::make_shared<NoneObject>(ast, visitor));
 }

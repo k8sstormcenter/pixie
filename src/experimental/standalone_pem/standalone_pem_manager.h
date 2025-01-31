@@ -23,9 +23,9 @@
 
 #include "src/carnot/carnot.h"
 #include "src/common/event/event.h"
+#include "src/experimental/standalone_pem/file_source_manager.h"
 #include "src/experimental/standalone_pem/sink_server.h"
 #include "src/experimental/standalone_pem/tracepoint_manager.h"
-#include "src/experimental/standalone_pem/file_source_manager.h"
 #include "src/experimental/standalone_pem/vizier_server.h"
 #include "src/shared/metadata/metadata.h"
 #include "src/stirling/stirling.h"

@@ -129,21 +129,21 @@ std::string ToJSONString(const T& x) {
 inline std::string RapidJSONTypeToString(rapidjson::Type type) {
   switch (type) {
     case rapidjson::kNullType:
-        return "Null";
+      return "Null";
     case rapidjson::kFalseType:
-        return "False";
+      return "False";
     case rapidjson::kTrueType:
-        return "True";
+      return "True";
     case rapidjson::kObjectType:
-        return "Object";
+      return "Object";
     case rapidjson::kArrayType:
-        return "Array";
+      return "Array";
     case rapidjson::kStringType:
-        return "String";
+      return "String";
     case rapidjson::kNumberType:
-        return "Number";
+      return "Number";
     default:
-        return "Unknown";
+      return "Unknown";
   }
 }
 

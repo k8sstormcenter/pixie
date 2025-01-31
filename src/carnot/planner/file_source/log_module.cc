@@ -36,7 +36,7 @@ class DeleteFileSourceHandler {
 };
 
 StatusOr<std::shared_ptr<LogModule>> LogModule::Create(MutationsIR* mutations_ir,
-                                                           ASTVisitor* ast_visitor) {
+                                                       ASTVisitor* ast_visitor) {
   auto tracing_module = std::shared_ptr<LogModule>(new LogModule(mutations_ir, ast_visitor));
   PX_RETURN_IF_ERROR(tracing_module->Init());
   return tracing_module;
@@ -54,14 +54,14 @@ Status LogModule::Init() {
   PX_RETURN_IF_ERROR(upsert_fn->SetDocString(kFileSourceDocstring));
   AddMethod(kFileSourceID, upsert_fn);
 
-  PX_ASSIGN_OR_RETURN(
-      std::shared_ptr<FuncObject> delete_fn,
-      FuncObject::Create(kFileSourceID, {"name"}, {},
-                         /* has_variable_len_args */ false,
-                         /* has_variable_len_kwargs */ false,
-                         std::bind(DeleteFileSourceHandler::Eval, mutations_ir_, std::placeholders::_1,
-                                   std::placeholders::_2, std::placeholders::_3),
-                         ast_visitor()));
+  PX_ASSIGN_OR_RETURN(std::shared_ptr<FuncObject> delete_fn,
+                      FuncObject::Create(kFileSourceID, {"name"}, {},
+                                         /* has_variable_len_args */ false,
+                                         /* has_variable_len_kwargs */ false,
+                                         std::bind(DeleteFileSourceHandler::Eval, mutations_ir_,
+                                                   std::placeholders::_1, std::placeholders::_2,
+                                                   std::placeholders::_3),
+                                         ast_visitor()));
   PX_RETURN_IF_ERROR(upsert_fn->SetDocString(kDeleteFileSourceDocstring));
   AddMethod(kDeleteFileSourceID, delete_fn);
 
@@ -69,7 +69,7 @@ Status LogModule::Init() {
 }
 
 StatusOr<QLObjectPtr> FileSourceHandler::Eval(MutationsIR* mutations_ir, const pypa::AstPtr& ast,
-                                          const ParsedArgs& args, ASTVisitor* visitor) {
+                                              const ParsedArgs& args, ASTVisitor* visitor) {
   DCHECK(mutations_ir);
 
   PX_ASSIGN_OR_RETURN(auto glob_pattern_ir, GetArgAs<StringIR>(ast, args, "glob_pattern"));
@@ -85,8 +85,9 @@ StatusOr<QLObjectPtr> FileSourceHandler::Eval(MutationsIR* mutations_ir, const p
   return std::static_pointer_cast<QLObject>(std::make_shared<NoneObject>(ast, visitor));
 }
 
-StatusOr<QLObjectPtr> DeleteFileSourceHandler::Eval(MutationsIR* mutations_ir, const pypa::AstPtr& ast,
-                                          const ParsedArgs& args, ASTVisitor* visitor) {
+StatusOr<QLObjectPtr> DeleteFileSourceHandler::Eval(MutationsIR* mutations_ir,
+                                                    const pypa::AstPtr& ast, const ParsedArgs& args,
+                                                    ASTVisitor* visitor) {
   DCHECK(mutations_ir);
 
   PX_ASSIGN_OR_RETURN(auto glob_pattern_ir, GetArgAs<StringIR>(ast, args, "name"));

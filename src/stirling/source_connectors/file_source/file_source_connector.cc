@@ -18,11 +18,11 @@
 
 #include "src/stirling/source_connectors/file_source/file_source_connector.h"
 
-
-#include <string>
-
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
+
+#include <string>
+#include <utility>
 
 using px::StatusOr;
 
@@ -42,9 +42,10 @@ StatusOr<BackedDataElements> DataElementsFromJSON(std::ifstream& f_stream) {
   rapidjson::Document d;
   rapidjson::ParseResult ok = d.Parse(line.c_str());
   if (!ok) {
-    return error::Internal("Failed to parse JSON: $0 $1", line, rapidjson::GetParseError_En(ok.Code()));
+    return error::Internal("Failed to parse JSON: $0 $1", line,
+                           rapidjson::GetParseError_En(ok.Code()));
   }
-  auto elements = d.MemberCount() + 1; // Add additional columns for time_
+  auto elements = d.MemberCount() + 1;  // Add additional columns for time_
   BackedDataElements data_elements(elements);
 
   data_elements.emplace_back("time_", "", types::DataType::TIME64NS);
@@ -54,9 +55,9 @@ StatusOr<BackedDataElements> DataElementsFromJSON(std::ifstream& f_stream) {
     types::DataType col_type;
 
     if (value.IsInt()) {
-        col_type = types::DataType::INT64;
+      col_type = types::DataType::INT64;
     } else if (value.IsDouble()) {
-        col_type = types::DataType::FLOAT64;
+      col_type = types::DataType::FLOAT64;
     } else if (value.IsString()) {
       col_type = types::DataType::STRING;
     } else if (value.IsBool()) {
@@ -77,10 +78,12 @@ StatusOr<BackedDataElements> DataElementsFromCSV(std::ifstream& file_name) {
 
 namespace {
 
-StatusOr<std::pair<BackedDataElements, std::ifstream>> DataElementsFromFile(const std::filesystem::path& file_name) {
+StatusOr<std::pair<BackedDataElements, std::ifstream>> DataElementsFromFile(
+    const std::filesystem::path& file_name) {
   auto f = std::ifstream(file_name.string());
   if (!f.is_open()) {
-    return error::Internal("Failed to open file: $0 with error=$1", file_name.string(), strerror(errno));
+    return error::Internal("Failed to open file: $0 with error=$1", file_name.string(),
+                           strerror(errno));
   }
 
   // get the file extension of the file
@@ -98,12 +101,10 @@ StatusOr<std::pair<BackedDataElements, std::ifstream>> DataElementsFromFile(cons
   return std::make_pair(std::move(data_elements), std::move(f));
 }
 
-} // namespace
+}  // namespace
 
 StatusOr<std::unique_ptr<SourceConnector>> FileSourceConnector::Create(
-    std::string_view source_name,
-    const std::filesystem::path& file_name) {
-
+    std::string_view source_name, const std::filesystem::path& file_name) {
   auto host_path = px::system::Config::GetInstance().ToHostPath(file_name);
   PX_ASSIGN_OR_RETURN(auto data_elements_and_file, DataElementsFromFile(host_path));
   auto& [data_elements, file] = data_elements_and_file;
@@ -112,12 +113,13 @@ StatusOr<std::unique_ptr<SourceConnector>> FileSourceConnector::Create(
   auto name = host_path.filename().string();
   std::unique_ptr<DynamicDataTableSchema> table_schema =
       DynamicDataTableSchema::Create(name, "", std::move(data_elements));
-  return std::unique_ptr<SourceConnector>(new FileSourceConnector(source_name, host_path, std::move(file), std::move(table_schema)));
+  return std::unique_ptr<SourceConnector>(
+      new FileSourceConnector(source_name, host_path, std::move(file), std::move(table_schema)));
 }
 
-FileSourceConnector::FileSourceConnector(
-    std::string_view source_name, std::filesystem::path& file_name, std::ifstream file,
-    std::unique_ptr<DynamicDataTableSchema> table_schema) 
+FileSourceConnector::FileSourceConnector(std::string_view source_name,
+                                         const std::filesystem::path& file_name, std::ifstream file,
+                                         std::unique_ptr<DynamicDataTableSchema> table_schema)
     : SourceConnector(source_name, ArrayView<DataTableSchema>(&table_schema->Get(), 1)),
       name_(source_name),
       file_name_(file_name),
@@ -136,7 +138,8 @@ Status FileSourceConnector::StopImpl() {
   file_.close();
   // check failbit
   /* if (file_.fail()) { */
-  /*   return error::Internal("Failed to close file: $0 with error=$1", file_name_, strerror(errno)); */
+  /*   return error::Internal("Failed to close file: $0 with error=$1", file_name_,
+   * strerror(errno)); */
   /* } */
   return Status::OK();
 }
@@ -154,16 +157,18 @@ void FileSourceConnector::TransferDataImpl(ConnectorContext* /* ctx */) {
   while (i < kMaxLines) {
     std::string line;
     std::getline(file_, line);
-    
+
     if (file_.eof()) {
-      LOG_EVERY_N(INFO, 100) << absl::Substitute("Reached EOF for file=$0 eof count=$1", file_name_.string(), eof_count_);
+      LOG_EVERY_N(INFO, 100) << absl::Substitute("Reached EOF for file=$0 eof count=$1",
+                                                 file_name_.string(), eof_count_);
       eof_count_++;
       return;
     }
 
     rapidjson::ParseResult ok = d.Parse(line.c_str());
     if (!ok) {
-      LOG(ERROR) << absl::Substitute("Failed to parse JSON: $0 $1", line, rapidjson::GetParseError_En(ok.Code()));
+      LOG(ERROR) << absl::Substitute("Failed to parse JSON: $0 $1", line,
+                                     rapidjson::GetParseError_En(ok.Code()));
       return;
     }
 

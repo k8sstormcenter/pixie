@@ -39,7 +39,7 @@ class LogModule : public QLObject {
       /* type */ QLObjectType::kLogModule,
   };
   static StatusOr<std::shared_ptr<LogModule>> Create(MutationsIR* mutations_ir,
-                                                       ASTVisitor* ast_visitor);
+                                                     ASTVisitor* ast_visitor);
 
   // Constant for the modules.
   inline static constexpr char kLogModuleObjName[] = "pxlog";

@@ -1013,8 +1013,8 @@ class GetFileSourceStatus final : public carnot::udf::UDTF<GetFileSourceStatus> 
   static constexpr auto Executor() { return carnot::udfspb::UDTFSourceExecutor::UDTF_ONE_KELVIN; }
 
   static constexpr auto OutputRelation() {
-    return MakeArray(ColInfo("file_source_id", types::DataType::UINT128, types::PatternType::GENERAL,
-                             "The id of the file source"),
+    return MakeArray(ColInfo("file_source_id", types::DataType::UINT128,
+                             types::PatternType::GENERAL, "The id of the file source"),
                      ColInfo("name", types::DataType::STRING, types::PatternType::GENERAL,
                              "The name of the file source"),
                      ColInfo("state", types::DataType::STRING, types::PatternType::GENERAL,

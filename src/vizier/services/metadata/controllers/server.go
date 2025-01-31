@@ -637,9 +637,7 @@ func (s *Server) RegisterFileSource(ctx context.Context, req *metadatapb.Registe
 
 	// Create file source.
 	for i, fs := range req.Requests {
-
 		// TODO(ddelnano): Consider adding support for filtering by labels.
-
 		fileSourceID, err := s.fsMgr.CreateFileSource(fs.Name, fs)
 		if err != nil && err != file_source.ErrFileSourceAlreadyExists {
 			return nil, err

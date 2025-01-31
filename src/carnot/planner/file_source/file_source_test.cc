@@ -16,9 +16,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "src/carnot/planner/probes/probes.h"
 #include "src/carnot/planner/compiler/ast_visitor.h"
 #include "src/carnot/planner/compiler/test_utils.h"
+#include "src/carnot/planner/probes/probes.h"
 
 namespace px {
 namespace carnot {
@@ -81,7 +81,8 @@ TEST_F(FileSourceCompilerTest, parse_single_file_source) {
   plannerpb::CompileMutationsResponse pb;
   EXPECT_OK(mutation_ir->ToProto(&pb));
   ASSERT_EQ(pb.mutations_size(), 1);
-  EXPECT_THAT(pb.mutations()[0].file_source(), testing::proto::EqualsProto(kSingleFileSourceProgramPb));
+  EXPECT_THAT(pb.mutations()[0].file_source(),
+              testing::proto::EqualsProto(kSingleFileSourceProgramPb));
 }
 
 }  // namespace compiler

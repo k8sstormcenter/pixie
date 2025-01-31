@@ -29,15 +29,16 @@ namespace vizier {
 namespace agent {
 
 FileSourceManager::FileSourceManager(px::event::Dispatcher* dispatcher, Info* agent_info,
-    Manager::VizierNATSConnector* nats_conn, stirling::Stirling* stirling,
-    table_store::TableStore* table_store, RelationInfoManager* relation_info_manager)
+                                     Manager::VizierNATSConnector* nats_conn,
+                                     stirling::Stirling* stirling,
+                                     table_store::TableStore* table_store,
+                                     RelationInfoManager* relation_info_manager)
     : MessageHandler(dispatcher, agent_info, nats_conn),
       dispatcher_(dispatcher),
       nats_conn_(nats_conn),
       stirling_(stirling),
       table_store_(table_store),
-      relation_info_manager_(relation_info_manager)
-    {
+      relation_info_manager_(relation_info_manager) {
   file_source_monitor_timer_ =
       dispatcher_->CreateTimer(std::bind(&FileSourceManager::Monitor, this));
   // Kick off the background monitor.
@@ -76,12 +77,14 @@ std::string FileSourceManager::DebugString() const {
         "$0\t$1\t$2\t$3\t$4 seconds\n", id.str(), file_source.name,
         statuspb::LifeCycleState_Name(file_source.current_state),
         statuspb::LifeCycleState_Name(file_source.expected_state),
-        std::chrono::duration_cast<std::chrono::seconds>(now - file_source.last_updated_at).count());
+        std::chrono::duration_cast<std::chrono::seconds>(now - file_source.last_updated_at)
+            .count());
   }
   return ss.str();
 }
 
-Status FileSourceManager::HandleRegisterFileSourceRequest(const messages::RegisterFileSourceRequest & req) {
+Status FileSourceManager::HandleRegisterFileSourceRequest(
+    const messages::RegisterFileSourceRequest& req) {
   auto glob_pattern = req.file_source_deployment().glob_pattern();
   PX_ASSIGN_OR_RETURN(auto id, ParseUUID(req.id()));
   LOG(INFO) << "Registering file source: " << glob_pattern;
@@ -100,7 +103,8 @@ Status FileSourceManager::HandleRegisterFileSourceRequest(const messages::Regist
   return Status::OK();
 }
 
-Status FileSourceManager::HandleRemoveFileSourceRequest(const messages::RemoveFileSourceRequest& req) {
+Status FileSourceManager::HandleRemoveFileSourceRequest(
+    const messages::RemoveFileSourceRequest& req) {
   PX_ASSIGN_OR_RETURN(auto id, ParseUUID(req.id()));
   std::lock_guard<std::mutex> lock(mu_);
   auto it = file_sources_.find(id);

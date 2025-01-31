@@ -176,19 +176,21 @@ message RegisterFileSourceRequest {
 // The response to a RegisterFileSourceRequest.
 message RegisterFileSourceResponse {
   message FileSourceStatus {
-    px.statuspb.Status status = 1; // TODO(ddelnano): Is this necessary?
+    px.statuspb.Status status = 1;  // TODO(ddelnano): Is this necessary?
     // The ID of the file source. This should be the user-specified name for the file source .
     uuidpb.UUID id = 2 [ (gogoproto.customname) = "ID" ];
     string name = 3;
   }
   repeated FileSourceStatus file_sources = 1;
-  // Overall status of whether file source  registration requests were initiated with/without errors.
+  // Overall status of whether file source  registration requests were initiated with/without
+  // errors.
   px.statuspb.Status status = 2;
 }
 
 // The request to check the status for a file source with the given names.
 message GetFileSourceInfoRequest {
-  // The file source  IDs to get the info for. If empty, fetches the info for all known file source s.
+  // The file source  IDs to get the info for. If empty, fetches the info for all known file source
+  // s.
   repeated uuidpb.UUID ids = 1 [ (gogoproto.customname) = "IDs" ];
 }
 
@@ -211,8 +213,8 @@ message GetFileSourceInfoResponse {
   repeated FileSourceState file_sources = 1;
 }
 
-// The request to evict a file source . This will normally happen via the file source 's TTL, but can be
-// initiated via request as well.
+// The request to evict a file source . This will normally happen via the file source 's TTL, but
+// can be initiated via request as well.
 message RemoveFileSourceRequest {
   // The name of the file source  to remove.
   repeated string names = 1;

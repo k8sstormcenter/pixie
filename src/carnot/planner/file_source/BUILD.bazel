@@ -18,7 +18,7 @@ load("//bazel:pl_build_system.bzl", "pl_cc_binary", "pl_cc_library", "pl_cc_test
 
 package(default_visibility = [
     "//src/carnot:__subpackages__",
-    "//src/experimental/standalone_pem:__subpackages__", # TODO(ddelnano): Is this needed?
+    "//src/experimental/standalone_pem:__subpackages__",  # TODO(ddelnano): Is this needed?
 ])
 
 pl_cc_library(
@@ -37,7 +37,7 @@ pl_cc_library(
     deps = [
         "//src/carnot/planner/objects:cc_library",
         "//src/carnot/planner/probes:cc_library",
-        "//src/common/uuid:cc_library", # TODO(ddelnano): This may not be needed
+        "//src/common/uuid:cc_library",  # TODO(ddelnano): This may not be needed
     ],
 )
 

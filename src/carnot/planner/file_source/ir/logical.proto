@@ -27,7 +27,8 @@ import "google/protobuf/duration.proto";
 
 // A logical file source deployment
 message FileSourceDeployment {
-  // For now this is the same as glob_pattern, but in the future may provide a logical name for the file source.
+  // For now this is the same as glob_pattern, but in the future may provide a logical name for the
+  // file source.
   string name = 1;
   // The glob pattern to use to find files to read.
   string glob_pattern = 2;

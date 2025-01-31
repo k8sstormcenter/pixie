@@ -47,8 +47,7 @@ class VizierFuncFactoryContext : public NotCopyable {
   VizierFuncFactoryContext() = default;
   VizierFuncFactoryContext(
       const agent::BaseManager* agent_manager, const std::shared_ptr<MDSStub>& mds_stub,
-      const std::shared_ptr<MDTPStub>& mdtp_stub,
-      const std::shared_ptr<MDFSStub>& mdfs_stub,
+      const std::shared_ptr<MDTPStub>& mdtp_stub, const std::shared_ptr<MDFSStub>& mdfs_stub,
       const std::shared_ptr<services::metadata::CronScriptStoreService::Stub>& cronscript_stub,
       std::shared_ptr<::px::table_store::TableStore> table_store,
       std::function<void(grpc::ClientContext* ctx)> add_grpc_auth)

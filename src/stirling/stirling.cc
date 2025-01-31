@@ -44,9 +44,9 @@
 #include "src/stirling/proto/stirling.pb.h"
 
 #include "src/stirling/source_connectors/dynamic_bpftrace/dynamic_bpftrace_connector.h"
-#include "src/stirling/source_connectors/file_source/file_source_connector.h"
 #include "src/stirling/source_connectors/dynamic_bpftrace/utils.h"
 #include "src/stirling/source_connectors/dynamic_tracer/dynamic_trace_connector.h"
+#include "src/stirling/source_connectors/file_source/file_source_connector.h"
 #include "src/stirling/source_connectors/jvm_stats/jvm_stats_connector.h"
 #include "src/stirling/source_connectors/network_stats/network_stats_connector.h"
 #include "src/stirling/source_connectors/perf_profiler/perf_profile_connector.h"
@@ -228,8 +228,7 @@ class StirlingImpl final : public Stirling {
   void UpdateDynamicTraceStatus(const sole::uuid& uuid,
                                 const StatusOr<stirlingpb::Publish>& status);
 
-  void UpdateFileSourceStatus(const sole::uuid& uuid,
-                                const StatusOr<stirlingpb::Publish>& status);
+  void UpdateFileSourceStatus(const sole::uuid& uuid, const StatusOr<stirlingpb::Publish>& status);
 
  private:
   // Adds a source to Stirling, and updates all state accordingly.
@@ -247,9 +246,7 @@ class StirlingImpl final : public Stirling {
   void DestroyDynamicTraceConnector(sole::uuid trace_id);
 
   // Creates and deploys file source connector
-  void DeployFileSourceConnector(
-      sole::uuid trace_id,
-      std::string file_name);
+  void DeployFileSourceConnector(sole::uuid trace_id, std::string file_name);
 
   void DestroyFileSourceConnector(sole::uuid id);
 
@@ -528,11 +525,10 @@ namespace {
 constexpr char kDynTraceSourcePrefix[] = "DT_";
 constexpr char kFileSourcePrefix[] = "LOG_";
 
-StatusOr<std::unique_ptr<SourceConnector>> CreateFileSourceConnector(
-    sole::uuid id,
-    std::string file_name) {
-    auto name = absl::StrCat(kFileSourcePrefix, id.str());
-    return FileSourceConnector::Create(name, file_name);
+StatusOr<std::unique_ptr<SourceConnector>> CreateFileSourceConnector(sole::uuid id,
+                                                                     std::string file_name) {
+  auto name = absl::StrCat(kFileSourcePrefix, id.str());
+  return FileSourceConnector::Create(name, file_name);
 }
 
 StatusOr<std::unique_ptr<SourceConnector>> CreateDynamicSourceConnector(
@@ -571,7 +567,7 @@ StatusOr<std::unique_ptr<SourceConnector>> CreateDynamicSourceConnector(
 }  // namespace
 
 void StirlingImpl::UpdateFileSourceStatus(const sole::uuid& id,
-                                            const StatusOr<stirlingpb::Publish>& s) {
+                                          const StatusOr<stirlingpb::Publish>& s) {
   absl::base_internal::SpinLockHolder lock(&file_source_status_map_lock_);
   file_source_status_map_[id] = s;
 
@@ -588,7 +584,7 @@ void StirlingImpl::UpdateFileSourceStatus(const sole::uuid& id,
     }
 
     monitor_.AppendSourceStatusRecord(file_source_info.source_connector, s.status(),
-                                     builder.GetString());
+                                      builder.GetString());
 
     // Clean up map if status is not ok. When status is RESOURCE_UNAVAILABLE, either deployment
     // or removal is pending, so don't clean up.
@@ -634,8 +630,8 @@ void StirlingImpl::DeployFileSourceConnector(sole::uuid id, std::string file_nam
     LOG(INFO) << s.ToString();
     return;
   }
-  LOG(INFO) << absl::Substitute("FileSourceConnector [$0]: Deployed BPF program in $1 ms.", id.str(),
-                                timer.ElapsedTime_us() / 1000.0);
+  LOG(INFO) << absl::Substitute("FileSourceConnector [$0]: Deployed BPF program in $1 ms.",
+                                id.str(), timer.ElapsedTime_us() / 1000.0);
 
   stirlingpb::Publish publication;
   {
@@ -795,19 +791,17 @@ void StirlingImpl::RegisterFileSource(sole::uuid id, std::string file_name) {
     absl::base_internal::SpinLockHolder lock(&file_source_status_map_lock_);
     std::string source_connector = "file_source";
     file_source_info_map_[id] = {.source_connector = std::move(source_connector),
-                                    .file_name = file_name,
-                                    .output_table = ""};
+                                 .file_name = file_name,
+                                 .output_table = ""};
   }
 
   // Initialize the status of this trace to pending.
   {
     absl::base_internal::SpinLockHolder lock(&file_source_status_map_lock_);
-    file_source_status_map_[id] =
-        error::ResourceUnavailable("Waiting for file polling to start.");
+    file_source_status_map_[id] = error::ResourceUnavailable("Waiting for file polling to start.");
   }
 
-  auto t =
-      std::thread(&StirlingImpl::DeployFileSourceConnector, this, id, file_name);
+  auto t = std::thread(&StirlingImpl::DeployFileSourceConnector, this, id, file_name);
   t.detach();
 }
 

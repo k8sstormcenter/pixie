@@ -21,10 +21,7 @@
 namespace px {
 namespace carnot {
 namespace planner {
-namespace compiler {
-
-
-}  // namespace compiler
+namespace compiler {}  // namespace compiler
 }  // namespace planner
 }  // namespace carnot
 }  // namespace px

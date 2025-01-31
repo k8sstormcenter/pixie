@@ -32,30 +32,30 @@ class FileSourceConnector : public SourceConnector {
  public:
   static constexpr auto kSamplingPeriod = std::chrono::milliseconds{100};
   // Set this high enough to avoid the following error:
-  // F20250129 00:05:30.980778 2527479 source_connector.cc:64] Failed to push data. Message = Table_id 1 doesn't exist.
+  // F20250129 00:05:30.980778 2527479 source_connector.cc:64] Failed to push data. Message =
+  // Table_id 1 doesn't exist.
   //
-  // This occurs when the Stirling data table has data but the table store hasn't received its schema
-  // yet. I'm not sure why the dynamic tracer doesn't experience this case.
+  // This occurs when the Stirling data table has data but the table store hasn't received its
+  // schema yet. I'm not sure why the dynamic tracer doesn't experience this case.
   static constexpr auto kPushPeriod = std::chrono::milliseconds{7000};
 
-  static StatusOr<std::unique_ptr<SourceConnector> > Create(
-      std::string_view source_name, const std::filesystem::path& file_name);
+  static StatusOr<std::unique_ptr<SourceConnector> > Create(std::string_view source_name,
+                                                            const std::filesystem::path& file_name);
 
   FileSourceConnector() = delete;
   ~FileSourceConnector() override = default;
 
  protected:
-  explicit FileSourceConnector(std::string_view source_name,
-                               std::filesystem::path& file_name,
+  explicit FileSourceConnector(std::string_view source_name, const std::filesystem::path& file_name,
                                std::ifstream file,
-                                    std::unique_ptr<DynamicDataTableSchema> table_schema);
+                               std::unique_ptr<DynamicDataTableSchema> table_schema);
   Status InitImpl() override;
   Status StopImpl() override;
   void TransferDataImpl(ConnectorContext* ctx) override;
 
  private:
   std::string name_;
-  std::filesystem::path& file_name_;
+  const std::filesystem::path& file_name_;
   std::ifstream file_;
   std::unique_ptr<DynamicDataTableSchema> table_schema_;
   int eof_count_ = 0;

@@ -169,8 +169,8 @@ class TracepointIR {
 
 class FileSourceDeployment {
  public:
-  FileSourceDeployment(const std::string& glob_pattern,
-                       const std::string& table_name, int64_t ttl_ns)
+  FileSourceDeployment(const std::string& glob_pattern, const std::string& table_name,
+                       int64_t ttl_ns)
       : glob_pattern_(glob_pattern), table_name_(table_name), ttl_ns_(ttl_ns) {}
 
   Status ToProto(file_source::ir::FileSourceDeployment pb) const;
@@ -240,8 +240,7 @@ class MutationsIR {
    */
   std::shared_ptr<TracepointIR> StartProbe(const std::string& function_name);
 
-  void CreateFileSourceDeployment(const std::string& glob_pattern,
-                                  const std::string& table_name,
+  void CreateFileSourceDeployment(const std::string& glob_pattern, const std::string& table_name,
                                   int64_t ttl_ns);
 
   void CreateDeleteFileSource(const std::string& glob_pattern);

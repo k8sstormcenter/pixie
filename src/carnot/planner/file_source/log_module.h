@@ -49,6 +49,11 @@ class LogModule : public QLObject {
   TBD
   )doc";
 
+  inline static constexpr char kDeleteFileSourceID[] = "DeleteFileSource";
+  inline static constexpr char kDeleteFileSourceDocstring[] = R"doc(
+  TBD
+  )doc";
+
  protected:
   explicit LogModule(MutationsIR* mutations_ir, ASTVisitor* ast_visitor)
       : QLObject(LogModuleType, ast_visitor), mutations_ir_(mutations_ir) {}

@@ -292,6 +292,10 @@ Status MutationsIR::ToProto(plannerpb::CompileMutationsResponse* pb) {
     pb->add_mutations()->mutable_delete_tracepoint()->set_name(tracepoint_to_delete);
   }
 
+  for (const auto& file_source_to_delete : FileSourcesToDelete()) {
+    pb->add_mutations()->mutable_delete_file_source()->set_glob_pattern(file_source_to_delete);
+  }
+
   for (const auto& update : config_updates_) {
     *(pb->add_mutations()->mutable_config_update()) = update;
   }

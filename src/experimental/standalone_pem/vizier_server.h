@@ -50,7 +50,8 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
  public:
   VizierServer() = delete;
   VizierServer(carnot::Carnot* carnot, px::vizier::agent::StandaloneGRPCResultSinkServer* svr,
-               px::carnot::EngineState* engine_state, TracepointManager* tp_manager, FileSourceManager* file_source_manager) {
+               px::carnot::EngineState* engine_state, TracepointManager* tp_manager,
+               FileSourceManager* file_source_manager) {
     carnot_ = carnot;
     sink_server_ = svr;
     engine_state_ = engine_state;
@@ -198,7 +199,7 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
     if (log_source_mutation) {
       LOG(INFO) << "Removing file source";
       messages::FileSourceMessage msg;
-       msg.set_file_name("/home/ddelnano/code/pixie-worktree/test.json");
+      msg.set_file_name("/home/ddelnano/code/pixie-worktree/test.json");
       auto s = file_source_manager_->HandleRemoveFileSourceRequest(query_id, msg);
       if (!s.ok()) {
         return ::grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Failed to remove file source");
@@ -233,8 +234,10 @@ class VizierGRPCServer {
   VizierGRPCServer() = delete;
   VizierGRPCServer(int port, carnot::Carnot* carnot,
                    px::vizier::agent::StandaloneGRPCResultSinkServer* svr,
-                   carnot::EngineState* engine_state, TracepointManager* tp_manager, FileSourceManager* file_source_manager)
-      : vizier_server_(std::make_unique<VizierServer>(carnot, svr, engine_state, tp_manager, file_source_manager)) {
+                   carnot::EngineState* engine_state, TracepointManager* tp_manager,
+                   FileSourceManager* file_source_manager)
+      : vizier_server_(std::make_unique<VizierServer>(carnot, svr, engine_state, tp_manager,
+                                                      file_source_manager)) {
     grpc::ServerBuilder builder;
 
     std::string uri = absl::Substitute("0.0.0.0:$0", port);

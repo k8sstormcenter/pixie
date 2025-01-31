@@ -148,9 +148,9 @@ Status StandalonePEMManager::Init() {
   stirling_->RegisterAgentMetadataCallback(
       std::bind(&px::md::AgentMetadataStateManager::CurrentAgentMetadataState, mds_manager_.get()));
 
-  vizier_grpc_server_ =
-      std::make_unique<VizierGRPCServer>(port_, carnot_.get(), results_sink_server_.get(),
-                                         carnot_->GetEngineState(), tracepoint_manager_.get(), file_source_manager_.get());
+  vizier_grpc_server_ = std::make_unique<VizierGRPCServer>(
+      port_, carnot_.get(), results_sink_server_.get(), carnot_->GetEngineState(),
+      tracepoint_manager_.get(), file_source_manager_.get());
 
   return Status::OK();
 }

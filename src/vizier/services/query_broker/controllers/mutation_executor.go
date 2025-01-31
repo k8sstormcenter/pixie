@@ -206,7 +206,6 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 			{
 				deleteFileSourcesReq.Names = append(deleteFileSourcesReq.Names, mut.DeleteFileSource.GlobPattern)
 			}
-
 		}
 	}
 

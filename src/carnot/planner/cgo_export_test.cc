@@ -311,7 +311,8 @@ TEST_F(PlannerExportTest, compile_file_source_def) {
   delete[] interface_result;
   ASSERT_OK(mutations_response_pb.status());
   ASSERT_EQ(mutations_response_pb.mutations().size(), 1);
-  EXPECT_THAT(mutations_response_pb.mutations()[0].file_source(), EqualsProto(kSingleFileSourceProgramPb));
+  EXPECT_THAT(mutations_response_pb.mutations()[0].file_source(),
+              EqualsProto(kSingleFileSourceProgramPb));
 }
 
 constexpr char kExportPxL[] = R"pxl(import px

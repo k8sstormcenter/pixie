@@ -17,6 +17,7 @@
  */
 
 #include <gmock/gmock.h>
+#include <utility>
 
 #include "src/common/testing/testing.h"
 #include "src/stirling/source_connectors/file_source/file_source_connector.h"
@@ -25,7 +26,8 @@ namespace px {
 namespace stirling {
 
 TEST(DynamicTraceConnectorTest, DataElementsFromJSON) {
-  const auto file_path = testing::BazelRunfilePath("src/stirling/source_connectors/file_source/testdata/test.json");
+  const auto file_path =
+      testing::BazelRunfilePath("src/stirling/source_connectors/file_source/testdata/test.json");
   auto stream = std::ifstream(file_path);
   auto result = DataElementsFromJSON(stream);
   ASSERT_OK(result);
@@ -45,7 +47,8 @@ TEST(DynamicTraceConnectorTest, DataElementsFromJSON) {
 }
 
 TEST(DynamicTraceConnectorTest, DataElementsFromJSON_UnsupportedTypes) {
-  const auto file_path = testing::BazelRunfilePath("src/stirling/source_connectors/file_source/testdata/unsupported.json");
+  const auto file_path = testing::BazelRunfilePath(
+      "src/stirling/source_connectors/file_source/testdata/unsupported.json");
   auto stream = std::ifstream(file_path);
   auto result = DataElementsFromJSON(stream);
   ASSERT_EQ(result.ok(), false);

@@ -26,9 +26,9 @@ namespace planner {
 namespace compiler {
 
 class FileSourceIR {
- /* public: */
+  /* public: */
 
- /* private: */
+  /* private: */
 };
 
 }  // namespace compiler

@@ -244,6 +244,7 @@ class MutationsIR {
                                   const std::string& table_name,
                                   int64_t ttl_ns);
 
+  void CreateDeleteFileSource(const std::string& glob_pattern);
   /**
    * @brief Create a TraceProgram for the MutationsIR w/ the specified UPID.
    *
@@ -350,6 +351,17 @@ class MutationsIR {
 
   std::vector<TracepointDeployment*> Deployments();
 
+  /**
+   * @brief Deletes the file source passed in.
+   *
+   * @param file_source_to_delete
+   */
+  void DeleteFileSource(const std::string& file_source_to_delete) {
+    file_sources_to_delete_.push_back(file_source_to_delete);
+  }
+
+  const std::vector<std::string>& FileSourcesToDelete() { return file_sources_to_delete_; }
+
  private:
   // All the new tracepoints added as part of this mutation. DeploymentSpecs are protobufs because
   // we only modify these upon inserting the new tracepoint, while the Tracepoint definition is
@@ -369,6 +381,7 @@ class MutationsIR {
   std::vector<plannerpb::ConfigUpdate> config_updates_;
 
   std::vector<file_source::ir::FileSourceDeployment> file_source_deployments_;
+  std::vector<std::string> file_sources_to_delete_;
 };
 
 }  // namespace compiler

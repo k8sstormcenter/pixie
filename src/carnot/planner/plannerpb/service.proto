@@ -132,10 +132,8 @@ message ConfigUpdate {
 }
 
 message DeleteFileSource {
-  // The glob pattern to use to find files to read.
+  // The glob pattern to use to find files to read. Also doubles as the name of the file source.
   string glob_pattern = 1;
-  // The table name to write the data to.
-  string table_name = 2;
 }
 
 // The definition of a mutation to perfom on Vizier. Mutations include operations

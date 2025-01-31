@@ -29,6 +29,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"px.dev/pixie/src/carnot/planner/file_source/ir"
 	"px.dev/pixie/src/common/base/statuspb"
 	"px.dev/pixie/src/utils"
@@ -377,7 +378,25 @@ func TestUpdateAgentFileSourceStatus_Terminated(t *testing.T) {
 
 	fileSourceMgr := file_source.NewManager(mockFileSourceStore, mockAgtMgr, 5*time.Second)
 	defer fileSourceMgr.Close()
+	agentUUID1 := uuid.Must(uuid.NewV4())
+	fsID := uuid.Must(uuid.NewV4())
+	agentUUID2 := uuid.Must(uuid.NewV4())
 
+	mockFileSourceStore.
+		EXPECT().
+		GetFileSourceStates(fsID).
+		Return([]*storepb.AgentFileSourceStatus{
+			{AgentID: utils.ProtoFromUUID(agentUUID1), State: statuspb.TERMINATED_STATE},
+			{AgentID: utils.ProtoFromUUID(agentUUID2), State: statuspb.RUNNING_STATE},
+		}, nil)
+
+	mockFileSourceStore.
+		EXPECT().
+		DeleteFileSource(fsID).
+		Return(nil)
+
+	err := fileSourceMgr.UpdateAgentFileSourceStatus(utils.ProtoFromUUID(fsID), utils.ProtoFromUUID(agentUUID2), statuspb.TERMINATED_STATE, nil)
+	require.NoError(t, err)
 }
 
 func TestTTLExpiration(t *testing.T) {

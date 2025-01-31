@@ -31,9 +31,7 @@ namespace agent {
 FileSourceManager::FileSourceManager(px::event::Dispatcher* dispatcher,
                                      stirling::Stirling* stirling,
                                      table_store::TableStore* table_store)
-    : dispatcher_(dispatcher),
-      stirling_(stirling),
-      table_store_(table_store) {
+    : dispatcher_(dispatcher), stirling_(stirling), table_store_(table_store) {
   file_source_monitor_timer_ =
       dispatcher_->CreateTimer(std::bind(&FileSourceManager::Monitor, this));
   // Kick off the background monitor.
@@ -51,13 +49,14 @@ std::string FileSourceManager::DebugString() const {
         "$0\t$1\t$2\t$3\t$4 seconds\n", id.str(), file_source.name,
         statuspb::LifeCycleState_Name(file_source.current_state),
         statuspb::LifeCycleState_Name(file_source.expected_state),
-        std::chrono::duration_cast<std::chrono::seconds>(now - file_source.last_updated_at).count());
+        std::chrono::duration_cast<std::chrono::seconds>(now - file_source.last_updated_at)
+            .count());
   }
   return ss.str();
 }
 
-Status FileSourceManager::HandleRegisterFileSourceRequest(
-    sole::uuid id, const messages::FileSourceMessage& req) {
+Status FileSourceManager::HandleRegisterFileSourceRequest(sole::uuid id,
+                                                          const messages::FileSourceMessage& req) {
   auto file_name = req.file_name();
   LOG(INFO) << "Registering file source: " << file_name;
 
@@ -76,8 +75,7 @@ Status FileSourceManager::HandleRegisterFileSourceRequest(
 }
 
 Status FileSourceManager::HandleRemoveFileSourceRequest(
-    sole::uuid id,
-    const messages::FileSourceMessage& /*msg*/) {
+    sole::uuid id, const messages::FileSourceMessage& /*msg*/) {
   std::lock_guard<std::mutex> lock(mu_);
   auto it = file_sources_.find(id);
   if (it == file_sources_.end()) {
@@ -167,7 +165,7 @@ Status FileSourceManager::UpdateSchema(const stirling::stirlingpb::Publish& publ
   LOG(INFO) << "Updating schema for file source";
   auto relation_info_vec = ConvertPublishPBToRelationInfo(publish_pb);
 
-  // TODO: Failure here can lead to an inconsistent schema state. We should
+  // TODO(ddelnano): Failure here can lead to an inconsistent schema state. We should
   // figure out how to handle this as part of the data model refactor project.
   for (const auto& relation_info : relation_info_vec) {
     table_store_->AddTable(table_store::Table::Create(relation_info.name, relation_info.relation),

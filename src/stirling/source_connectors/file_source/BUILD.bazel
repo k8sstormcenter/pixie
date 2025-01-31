@@ -37,11 +37,11 @@ pl_cc_library(
 pl_cc_test(
     name = "file_source_connector_test",
     srcs = ["file_source_connector_test.cc"],
-    deps = [
-        ":cc_library",
-    ],
     data = [
         "testdata/test.json",
         "testdata/unsupported.json",
-    ]
+    ],
+    deps = [
+        ":cc_library",
+    ],
 )

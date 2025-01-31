@@ -43,7 +43,8 @@ class FileSourceManager : public Manager::MessageHandler {
   FileSourceManager() = delete;
   FileSourceManager(px::event::Dispatcher* dispatcher, Info* agent_info,
                     Manager::VizierNATSConnector* nats_conn, stirling::Stirling* stirling,
-                    table_store::TableStore* table_store, RelationInfoManager* relation_info_manager);
+                    table_store::TableStore* table_store,
+                    RelationInfoManager* relation_info_manager);
 
   Status HandleMessage(std::unique_ptr<messages::VizierMessage> msg) override;
   std::string DebugString() const;

@@ -310,8 +310,7 @@ Status MutationsIR::ToProto(plannerpb::CompileMutationsResponse* pb) {
 void MutationsIR::EndProbe() { current_tracepoint_ = nullptr; }
 
 void MutationsIR::CreateFileSourceDeployment(const std::string& glob_pattern,
-                                                         const std::string& table_name,
-                                                         int64_t ttl_ns) {
+                                             const std::string& table_name, int64_t ttl_ns) {
   file_source::ir::FileSourceDeployment file_source;
   file_source.set_name(glob_pattern);
   file_source.set_glob_pattern(glob_pattern);

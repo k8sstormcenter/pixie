@@ -28,8 +28,8 @@
 
 #include "src/common/system/kernel_version.h"
 #include "src/stirling/stirling.h"
-#include "src/vizier/services/agent/pem/tracepoint_manager.h"
 #include "src/vizier/services/agent/pem/file_source_manager.h"
+#include "src/vizier/services/agent/pem/tracepoint_manager.h"
 #include "src/vizier/services/agent/shared/manager/manager.h"
 
 DECLARE_uint32(stirling_profiler_stack_trace_sample_period_ms);

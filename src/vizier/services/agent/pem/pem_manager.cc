@@ -78,6 +78,11 @@ Status PEMManager::PostRegisterHookImpl() {
                                           stirling_.get(), table_store(), relation_info_manager());
   PX_RETURN_IF_ERROR(RegisterMessageHandler(messages::VizierMessage::MsgCase::kTracepointMessage,
                                             tracepoint_manager_));
+  file_source_manager_ =
+      std::make_shared<FileSourceManager>(dispatcher(), info(), agent_nats_connector(),
+                                          stirling_.get(), table_store(), relation_info_manager());
+  PX_RETURN_IF_ERROR(RegisterMessageHandler(messages::VizierMessage::MsgCase::kFileSourceMessage,
+                                            file_source_manager_));
   return Status::OK();
 }
 

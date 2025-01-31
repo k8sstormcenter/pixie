@@ -847,7 +847,7 @@ Status StirlingImpl::RemoveTracepoint(sole::uuid trace_id) {
 
 Status StirlingImpl::RemoveFileSource(sole::uuid trace_id) {
   // Change the status of this trace to pending while we delete it.
-  UpdateDynamicTraceStatus(trace_id, error::ResourceUnavailable("file source removal in progress."));
+  UpdateFileSourceStatus(trace_id, error::ResourceUnavailable("file source removal in progress."));
 
   auto t = std::thread(&StirlingImpl::DestroyFileSourceConnector, this, trace_id);
   t.detach();

@@ -1020,7 +1020,6 @@ void StirlingImpl::RunCore() {
         // Phase 2: Push Data upstream.
         if (source->push_freq_mgr().Expired(now_plus_run_window) ||
             DataExceedsThreshold(source->data_tables())) {
-          LOG(INFO) << absl::Substitute("Pushing data for source connector: $0", source->name());
           source->PushData(data_push_callback_);
 
           // PushData() is normally a significant amount of work: update "time now".

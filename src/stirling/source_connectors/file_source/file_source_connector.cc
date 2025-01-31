@@ -77,18 +77,18 @@ StatusOr<BackedDataElements> DataElementsFromCSV(std::ifstream& file_name) {
 
 namespace {
 
-StatusOr<std::pair<BackedDataElements, std::ifstream>> DataElementsFromFile(const std::string& file_name) {
-  auto f = std::ifstream(file_name);
+StatusOr<std::pair<BackedDataElements, std::ifstream>> DataElementsFromFile(const std::filesystem::path& file_name) {
+  auto f = std::ifstream(file_name.string());
   if (!f.is_open()) {
-    return error::Internal("Failed to open file: $0 with error=$1", file_name, strerror(errno));
+    return error::Internal("Failed to open file: $0 with error=$1", file_name.string(), strerror(errno));
   }
 
   // get the file extension of the file
-  auto extension = file_name.substr(file_name.find_last_of(".") + 1);
+  auto extension = file_name.extension().string();
   BackedDataElements data_elements;
-  if (extension == "csv") {
+  if (extension == ".csv") {
     PX_ASSIGN_OR_RETURN(data_elements, DataElementsFromCSV(f));
-  } else if (extension == "json") {
+  } else if (extension == ".json") {
     PX_ASSIGN_OR_RETURN(data_elements, DataElementsFromJSON(f));
   } else {
     return error::Internal("Unsupported file type: $0", extension);
@@ -102,21 +102,21 @@ StatusOr<std::pair<BackedDataElements, std::ifstream>> DataElementsFromFile(cons
 
 StatusOr<std::unique_ptr<SourceConnector>> FileSourceConnector::Create(
     std::string_view source_name,
-    const std::string& file_name) {
+    const std::filesystem::path& file_name) {
 
-
-  PX_ASSIGN_OR_RETURN(auto data_elements_and_file, DataElementsFromFile(file_name));
+  auto host_path = px::system::Config::GetInstance().ToHostPath(file_name);
+  PX_ASSIGN_OR_RETURN(auto data_elements_and_file, DataElementsFromFile(host_path));
   auto& [data_elements, file] = data_elements_and_file;
 
   // Get just the filename and extension
-  auto name = file_name.substr(file_name.find_last_of("/") + 1);
+  auto name = host_path.filename().string();
   std::unique_ptr<DynamicDataTableSchema> table_schema =
       DynamicDataTableSchema::Create(name, "", std::move(data_elements));
-  return std::unique_ptr<SourceConnector>(new FileSourceConnector(source_name, file_name, std::move(file), std::move(table_schema)));
+  return std::unique_ptr<SourceConnector>(new FileSourceConnector(source_name, host_path, std::move(file), std::move(table_schema)));
 }
 
 FileSourceConnector::FileSourceConnector(
-    std::string_view source_name, std::string file_name, std::ifstream file,
+    std::string_view source_name, std::filesystem::path& file_name, std::ifstream file,
     std::unique_ptr<DynamicDataTableSchema> table_schema) 
     : SourceConnector(source_name, ArrayView<DataTableSchema>(&table_schema->Get(), 1)),
       name_(source_name),
@@ -156,7 +156,7 @@ void FileSourceConnector::TransferDataImpl(ConnectorContext* /* ctx */) {
     std::getline(file_, line);
     
     if (file_.eof()) {
-      LOG_EVERY_N(INFO, 100) << absl::Substitute("Reached EOF for file=$0 eof count=$1", file_name_, eof_count_);
+      LOG_EVERY_N(INFO, 100) << absl::Substitute("Reached EOF for file=$0 eof count=$1", file_name_.string(), eof_count_);
       eof_count_++;
       return;
     }

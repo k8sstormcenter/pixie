@@ -89,6 +89,7 @@ func NewMutationExecutor(
 		mdconf:            mdconf,
 		distributedState:  distributedState,
 		activeTracepoints: make(TracepointMap),
+		activeFileSources: make(FileSourceMap),
 	}
 }
 

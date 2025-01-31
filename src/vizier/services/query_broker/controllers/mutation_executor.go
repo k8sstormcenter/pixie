@@ -181,16 +181,20 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 		case *plannerpb.CompileMutation_FileSource:
 			{
 				name := mut.FileSource.GlobPattern
+				tableName := mut.FileSource.TableName
 				fileSourceReqs.Requests = append(fileSourceReqs.Requests, &ir.FileSourceDeployment{
 					Name:        name,
 					GlobPattern: name,
-					TableName:   mut.FileSource.TableName,
+					TableName:   tableName,
 					TTL:         mut.FileSource.TTL,
 				})
 				if _, ok := m.activeFileSources[name]; ok {
 					return nil, fmt.Errorf("file source with name '%s', already used", name)
 				}
-				outputTablesMap[name] = true
+				// TODO(ddelnano): Add unit tests that would have caught the bug with the
+				// file source output table issue. The line that caused the bug is left commented below:
+				// outputTablesMap[name] = true
+				outputTablesMap[tableName] = true
 
 				m.activeFileSources[name] = &FileSourceInfo{
 					GlobPattern: mut.FileSource.GlobPattern,

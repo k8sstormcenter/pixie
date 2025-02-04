@@ -48,13 +48,13 @@ DEFINE_int32(table_store_table_size_limit,
 namespace px {
 namespace table_store {
 
-Table::Cursor::Cursor(const Table* table, StartSpec start, StopSpec stop)
+Cursor::Cursor(const Table* table, StartSpec start, StopSpec stop)
     : table_(table), hints_(internal::BatchHints{}) {
   AdvanceToStart(start);
   StopStateFromSpec(std::move(stop));
 }
 
-void Table::Cursor::AdvanceToStart(const StartSpec& start) {
+void Cursor::AdvanceToStart(const StartSpec& start) {
   switch (start.type) {
     case StartSpec::StartType::StartAtTime: {
       last_read_row_id_ = table_->FindRowIDFromTimeFirstGreaterThanOrEqual(start.start_time) - 1;
@@ -71,7 +71,7 @@ void Table::Cursor::AdvanceToStart(const StartSpec& start) {
   }
 }
 
-void Table::Cursor::UpdateStopStateForStopAtTime() {
+void Cursor::UpdateStopStateForStopAtTime() {
   if (stop_.stop_row_id_final) {
     // Once stop_row_id is set, we know the stop time is already within the table so we don't have
     // to update it anymore.
@@ -85,7 +85,7 @@ void Table::Cursor::UpdateStopStateForStopAtTime() {
   }
 }
 
-void Table::Cursor::StopStateFromSpec(StopSpec&& stop) {
+void Cursor::StopStateFromSpec(StopSpec&& stop) {
   stop_.spec = std::move(stop);
   switch (stop_.spec.type) {
     case StopSpec::StopType::CurrentEndOfTable: {
@@ -110,7 +110,7 @@ void Table::Cursor::StopStateFromSpec(StopSpec&& stop) {
   }
 }
 
-bool Table::Cursor::NextBatchReady() {
+bool Cursor::NextBatchReady() {
   switch (stop_.spec.type) {
     case StopSpec::StopType::StopAtTimeOrEndOfTable:
     case StopSpec::StopType::CurrentEndOfTable: {
@@ -127,7 +127,7 @@ bool Table::Cursor::NextBatchReady() {
   return false;
 }
 
-bool Table::Cursor::Done() {
+bool Cursor::Done() {
   auto next_row_id = last_read_row_id_ + 1;
   switch (stop_.spec.type) {
     case StopSpec::StopType::StopAtTimeOrEndOfTable:
@@ -149,25 +149,25 @@ bool Table::Cursor::Done() {
   return false;
 }
 
-void Table::Cursor::UpdateStopSpec(Cursor::StopSpec stop) { StopStateFromSpec(std::move(stop)); }
+void Cursor::UpdateStopSpec(Cursor::StopSpec stop) { StopStateFromSpec(std::move(stop)); }
 
-internal::RowID* Table::Cursor::LastReadRowID() { return &last_read_row_id_; }
+internal::RowID* Cursor::LastReadRowID() { return &last_read_row_id_; }
 
-internal::BatchHints* Table::Cursor::Hints() { return &hints_; }
+internal::BatchHints* Cursor::Hints() { return &hints_; }
 
-std::optional<internal::RowID> Table::Cursor::StopRowID() const {
+std::optional<internal::RowID> Cursor::StopRowID() const {
   if (stop_.spec.type == StopSpec::StopType::Infinite) {
     return std::nullopt;
   }
   return stop_.stop_row_id;
 }
 
-StatusOr<std::unique_ptr<schema::RowBatch>> Table::Cursor::GetNextRowBatch(
+StatusOr<std::unique_ptr<schema::RowBatch>> Cursor::GetNextRowBatch(
     const std::vector<int64_t>& cols) {
   return table_->GetNextRowBatch(this, cols);
 }
 
-Table::Table(std::string_view table_name, const schema::Relation& relation, size_t max_table_size,
+HotColdTable::HotColdTable(std::string_view table_name, const schema::Relation& relation, size_t max_table_size,
              size_t compacted_batch_size)
     : metrics_(&(GetMetricsRegistry()), std::string(table_name)),
       rel_(relation),
@@ -189,7 +189,7 @@ Table::Table(std::string_view table_name, const schema::Relation& relation, size
       rel_, time_col_idx_);
 }
 
-Status Table::ToProto(table_store::schemapb::Table* table_proto) const {
+Status HotColdTable::ToProto(table_store::schemapb::Table* table_proto) const {
   CHECK(table_proto != nullptr);
   std::vector<int64_t> col_selector;
   for (int64_t i = 0; i < static_cast<int64_t>(rel_.NumColumns()); i++) {
@@ -209,7 +209,7 @@ Status Table::ToProto(table_store::schemapb::Table* table_proto) const {
   return Status::OK();
 }
 
-StatusOr<std::unique_ptr<schema::RowBatch>> Table::GetNextRowBatch(
+StatusOr<std::unique_ptr<schema::RowBatch>> HotColdTable::GetNextRowBatch(
     Cursor* cursor, const std::vector<int64_t>& cols) const {
   DCHECK(!cursor->Done()) << "Calling GetNextRowBatch on an exhausted Cursor";
   absl::base_internal::SpinLockHolder cold_lock(&cold_lock_);
@@ -237,7 +237,7 @@ StatusOr<std::unique_ptr<schema::RowBatch>> Table::GetNextRowBatch(
   return rb;
 }
 
-Status Table::ExpireRowBatches(int64_t row_batch_size) {
+Status HotColdTable::ExpireRowBatches(int64_t row_batch_size) {
   if (row_batch_size > max_table_size_) {
     return error::InvalidArgument("RowBatch size ($0) is bigger than maximum table size ($1).",
                                   row_batch_size, max_table_size_);
@@ -262,7 +262,7 @@ Status Table::ExpireRowBatches(int64_t row_batch_size) {
   return Status::OK();
 }
 
-Status Table::WriteRowBatch(const schema::RowBatch& rb) {
+Status HotColdTable::WriteRowBatch(const schema::RowBatch& rb) {
   // Don't write empty row batches.
   if (rb.num_columns() == 0 || rb.ColumnAt(0)->length() == 0) {
     return Status::OK();
@@ -274,7 +274,7 @@ Status Table::WriteRowBatch(const schema::RowBatch& rb) {
   return Status::OK();
 }
 
-Status Table::TransferRecordBatch(
+Status HotColdTable::TransferRecordBatch(
     std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch) {
   // Don't transfer over empty row batches.
   if (record_batch->empty() || record_batch->at(0)->Size() == 0) {
@@ -292,7 +292,7 @@ Status Table::TransferRecordBatch(
   return Status::OK();
 }
 
-Status Table::WriteHot(internal::RecordOrRowBatch&& record_or_row_batch) {
+Status HotColdTable::WriteHot(internal::RecordOrRowBatch&& record_or_row_batch) {
   // See BatchSizeAccountantNonMutableState for an explanation of the thread safety and necessity of
   // NonMutableState.
   auto batch_stats = internal::BatchSizeAccountant::CalcBatchStats(
@@ -321,7 +321,7 @@ Status Table::WriteHot(internal::RecordOrRowBatch&& record_or_row_batch) {
   return Status::OK();
 }
 
-Table::RowID Table::FirstRowID() const {
+Table::RowID HotColdTable::FirstRowID() const {
   absl::base_internal::SpinLockHolder cold_lock(&cold_lock_);
   if (cold_store_->Size() > 0) {
     return cold_store_->FirstRowID();
@@ -333,7 +333,7 @@ Table::RowID Table::FirstRowID() const {
   return -1;
 }
 
-Table::RowID Table::LastRowID() const {
+Table::RowID HotColdTable::LastRowID() const {
   absl::base_internal::SpinLockHolder cold_lock(&cold_lock_);
   absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
   if (hot_store_->Size() > 0) {
@@ -345,7 +345,7 @@ Table::RowID Table::LastRowID() const {
   return -1;
 }
 
-Table::Time Table::MaxTime() const {
+Table::Time HotColdTable::MaxTime() const {
   absl::base_internal::SpinLockHolder cold_lock(&cold_lock_);
   absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
   if (hot_store_->Size() > 0) {
@@ -357,7 +357,7 @@ Table::Time Table::MaxTime() const {
   return -1;
 }
 
-Table::RowID Table::FindRowIDFromTimeFirstGreaterThanOrEqual(Time time) const {
+Table::RowID HotColdTable::FindRowIDFromTimeFirstGreaterThanOrEqual(Time time) const {
   absl::base_internal::SpinLockHolder cold_lock(&cold_lock_);
   auto optional_row_id = cold_store_->FindRowIDFromTimeFirstGreaterThanOrEqual(time);
   if (optional_row_id.has_value()) {
@@ -371,7 +371,7 @@ Table::RowID Table::FindRowIDFromTimeFirstGreaterThanOrEqual(Time time) const {
   return next_row_id_;
 }
 
-Table::RowID Table::FindRowIDFromTimeFirstGreaterThan(Time time) const {
+Table::RowID HotColdTable::FindRowIDFromTimeFirstGreaterThan(Time time) const {
   absl::base_internal::SpinLockHolder cold_lock(&cold_lock_);
   auto optional_row_id = cold_store_->FindRowIDFromTimeFirstGreaterThan(time);
   if (optional_row_id.has_value()) {
@@ -385,9 +385,9 @@ Table::RowID Table::FindRowIDFromTimeFirstGreaterThan(Time time) const {
   return next_row_id_;
 }
 
-schema::Relation Table::GetRelation() const { return rel_; }
+schema::Relation HotColdTable::GetRelation() const { return rel_; }
 
-TableStats Table::GetTableStats() const {
+TableStats HotColdTable::GetTableStats() const {
   TableStats info;
   int64_t min_time = -1;
   int64_t num_batches = 0;
@@ -421,7 +421,7 @@ TableStats Table::GetTableStats() const {
   return info;
 }
 
-Status Table::CompactSingleBatchUnlocked(arrow::MemoryPool*) {
+Status HotColdTable::CompactSingleBatchUnlocked(arrow::MemoryPool*) {
   const auto& compaction_spec = batch_size_accountant_->GetNextCompactedBatchSpec();
 
   PX_RETURN_IF_ERROR(
@@ -456,7 +456,7 @@ Status Table::CompactSingleBatchUnlocked(arrow::MemoryPool*) {
   return Status::OK();
 }
 
-Status Table::CompactHotToCold(arrow::MemoryPool* mem_pool) {
+Status HotColdTable::CompactHotToCold(arrow::MemoryPool* mem_pool) {
   bool next_ready = false;
   {
     absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
@@ -476,7 +476,7 @@ Status Table::CompactHotToCold(arrow::MemoryPool* mem_pool) {
   return Status::OK();
 }
 
-StatusOr<bool> Table::ExpireCold() {
+StatusOr<bool> HotColdTable::ExpireCold() {
   absl::base_internal::SpinLockHolder cold_lock(&cold_lock_);
   if (cold_store_->Size() == 0) {
     return false;
@@ -487,7 +487,7 @@ StatusOr<bool> Table::ExpireCold() {
   return true;
 }
 
-Status Table::ExpireHot() {
+Status HotColdTable::ExpireHot() {
   absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
   if (hot_store_->Size() == 0) {
     return error::InvalidArgument("Failed to expire row batch, no row batches in table");
@@ -497,7 +497,7 @@ Status Table::ExpireHot() {
   return Status::OK();
 }
 
-Status Table::ExpireBatch() {
+Status HotColdTable::ExpireBatch() {
   PX_ASSIGN_OR_RETURN(auto expired_cold, ExpireCold());
   if (expired_cold) {
     return Status::OK();
@@ -507,7 +507,7 @@ Status Table::ExpireBatch() {
   return ExpireHot();
 }
 
-Status Table::UpdateTableMetricGauges() {
+Status HotColdTable::UpdateTableMetricGauges() {
   // Update table-level gauge values.
   auto stats = GetTableStats();
   // Set gauge values

@@ -80,7 +80,7 @@ class StoreWithRowTimeAccounting {
    * @param last_read_row_id, pointer to the unique RowID of the last read row. The outputted batch
    * should include only rows with a RowID greater than this RowID. After determining the output
    * batch, this pointer is updated to point to the RowID of the last row in the outputted batch.
-   * @param hints, pointer to a BatchHints object (usually from a Table::Cursor), that provides a
+   * @param hints, pointer to a BatchHints object (usually from a Cursor), that provides a
    * hint to the store about which batch should be next. If the hint is correct, no searching for
    * the right batch is required, otherwise searching is performed as usual. This is purely an
    * optimization and passing a `nullptr` for hints is accepted.

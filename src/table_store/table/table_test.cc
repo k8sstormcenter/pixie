@@ -37,7 +37,7 @@ namespace {
 // TOOD(zasgar): deduplicate this with exec/test_utils.
 std::shared_ptr<Table> TestTable() {
   schema::Relation rel({types::DataType::FLOAT64, types::DataType::INT64}, {"col1", "col2"});
-  auto table = Table::Create("test_table", rel);
+  auto table = HotColdTable::Create("test_table", rel);
 
   auto rb1 = schema::RowBatch(schema::RowDescriptor(rel.col_types()), 3);
   std::vector<types::Float64Value> col1_in1 = {0.5, 1.2, 5.3};
@@ -61,7 +61,7 @@ std::shared_ptr<Table> TestTable() {
 TEST(TableTest, basic_test) {
   schema::Relation rel({types::DataType::BOOLEAN, types::DataType::INT64}, {"col1", "col2"});
 
-  std::shared_ptr<Table> table_ptr = Table::Create("test_table", rel);
+  std::shared_ptr<Table> table_ptr = HotColdTable::Create("test_table", rel);
   Table& table = *table_ptr;
 
   auto rb1 = schema::RowBatch(schema::RowDescriptor(rel.col_types()), 3);
@@ -78,7 +78,7 @@ TEST(TableTest, basic_test) {
   EXPECT_OK(rb2.AddColumn(types::ToArrow(col2_in2, arrow::default_memory_pool())));
   EXPECT_OK(table.WriteRowBatch(rb2));
 
-  Table::Cursor cursor(table_ptr.get());
+  Cursor cursor(table_ptr.get());
 
   auto actual_rb1 = cursor.GetNextRowBatch(std::vector<int64_t>({0, 1})).ConsumeValueOrDie();
   EXPECT_TRUE(
@@ -97,7 +97,7 @@ TEST(TableTest, bytes_test) {
   auto rd = schema::RowDescriptor({types::DataType::INT64, types::DataType::STRING});
   schema::Relation rel(rd.types(), {"col1", "col2"});
 
-  std::shared_ptr<Table> table_ptr = Table::Create("test_table", rel);
+  std::shared_ptr<Table> table_ptr = HotColdTable::Create("test_table", rel);
   Table& table = *table_ptr;
 
   schema::RowBatch rb1(rd, 3);
@@ -188,7 +188,7 @@ TEST(TableTest, bytes_test_w_compaction) {
   // Make minimum batch size rb1_size + rb2_size so that compaction causes 2 of the 3 batches to
   // be compacted into cold.
   std::shared_ptr<Table> table_ptr =
-      std::make_shared<Table>("test_table", rel, 128 * 1024, rb1_size + rb2_size);
+      std::make_shared<HotColdTable>("test_table", rel, 128 * 1024, rb1_size + rb2_size);
   Table& table = *table_ptr;
 
   EXPECT_OK(table.WriteRowBatch(rb1));
@@ -208,7 +208,7 @@ TEST(TableTest, expiry_test) {
   auto rd = schema::RowDescriptor({types::DataType::INT64, types::DataType::STRING});
   schema::Relation rel(rd.types(), {"col1", "col2"});
 
-  Table table("test_table", rel, 80);
+  HotColdTable table("test_table", rel, 80);
 
   schema::RowBatch rb1(rd, 3);
   std::vector<types::Int64Value> col1_rb1 = {4, 5, 10};
@@ -354,7 +354,7 @@ TEST(TableTest, expiry_test_w_compaction) {
   wrapper_batch_1_2->push_back(col_wrapper_2_2);
   int64_t rb5_size = 5 * sizeof(int64_t) + 20 * sizeof(char) + 5 * sizeof(uint32_t);
 
-  Table table("test_table", rel, 80, 40);
+  HotColdTable table("test_table", rel, 80, 40);
   EXPECT_OK(table.WriteRowBatch(rb1));
   EXPECT_EQ(table.GetTableStats().bytes, rb1_size);
 
@@ -376,7 +376,7 @@ TEST(TableTest, batch_size_too_big) {
   auto rd = schema::RowDescriptor({types::DataType::INT64, types::DataType::STRING});
   schema::Relation rel(rd.types(), {"col1", "col2"});
 
-  Table table("test_table", rel, 10);
+  HotColdTable table("test_table", rel, 10);
 
   schema::RowBatch rb1(rd, 3);
   std::vector<types::Int64Value> col1_rb1 = {4, 5, 10};
@@ -394,7 +394,7 @@ TEST(TableTest, write_row_batch) {
   auto rd = schema::RowDescriptor({types::DataType::BOOLEAN, types::DataType::INT64});
   schema::Relation rel({types::DataType::BOOLEAN, types::DataType::INT64}, {"col1", "col2"});
 
-  std::shared_ptr<Table> table_ptr = Table::Create("test_table", rel);
+  std::shared_ptr<Table> table_ptr = HotColdTable::Create("test_table", rel);
   Table& table = *table_ptr;
 
   schema::RowBatch rb1(rd, 2);
@@ -407,7 +407,7 @@ TEST(TableTest, write_row_batch) {
 
   EXPECT_OK(table.WriteRowBatch(rb1));
 
-  Table::Cursor cursor(table_ptr.get());
+  Cursor cursor(table_ptr.get());
   auto rb_or_s = cursor.GetNextRowBatch({0, 1});
   ASSERT_OK(rb_or_s);
   auto actual_rb = rb_or_s.ConsumeValueOrDie();
@@ -418,7 +418,7 @@ TEST(TableTest, write_row_batch) {
 TEST(TableTest, hot_batches_test) {
   schema::Relation rel({types::DataType::BOOLEAN, types::DataType::INT64}, {"col1", "col2"});
 
-  std::shared_ptr<Table> table_ptr = Table::Create("table_name", rel);
+  std::shared_ptr<Table> table_ptr = HotColdTable::Create("table_name", rel);
   Table& table = *table_ptr;
 
   std::vector<types::BoolValue> col1_in1 = {true, false, true};
@@ -445,7 +445,7 @@ TEST(TableTest, hot_batches_test) {
   rb_wrapper_2->push_back(col2_in2_wrapper);
   EXPECT_OK(table.TransferRecordBatch(std::move(rb_wrapper_2)));
 
-  Table::Cursor cursor(table_ptr.get());
+  Cursor cursor(table_ptr.get());
   auto rb1 = cursor.GetNextRowBatch({0, 1}).ConsumeValueOrDie();
   EXPECT_TRUE(rb1->ColumnAt(0)->Equals(types::ToArrow(col1_in1, arrow::default_memory_pool())));
   EXPECT_TRUE(rb1->ColumnAt(1)->Equals(types::ToArrow(col2_in1, arrow::default_memory_pool())));
@@ -482,12 +482,12 @@ TEST(TableTest, hot_batches_w_compaction_test) {
   rb_wrapper_2->push_back(col1_in2_wrapper);
   rb_wrapper_2->push_back(col2_in2_wrapper);
 
-  Table table("test_table", rel, 128 * 1024, rb1_size);
+  HotColdTable table("test_table", rel, 128 * 1024, rb1_size);
 
   EXPECT_OK(table.TransferRecordBatch(std::move(rb_wrapper_1)));
   EXPECT_OK(table.TransferRecordBatch(std::move(rb_wrapper_2)));
 
-  Table::Cursor cursor(&table);
+  Cursor cursor(&table);
   auto rb1 = cursor.GetNextRowBatch({0, 1}).ConsumeValueOrDie();
   EXPECT_TRUE(rb1->ColumnAt(0)->Equals(types::ToArrow(col1_in1, arrow::default_memory_pool())));
   EXPECT_TRUE(rb1->ColumnAt(1)->Equals(types::ToArrow(col2_in1, arrow::default_memory_pool())));
@@ -502,7 +502,7 @@ TEST(TableTest, hot_batches_w_compaction_test) {
 TEST(TableTest, find_rowid_from_time_first_greater_than_or_equal) {
   schema::Relation rel(std::vector<types::DataType>({types::DataType::TIME64NS}),
                        std::vector<std::string>({"time_"}));
-  std::shared_ptr<Table> table_ptr = Table::Create("test_table", rel);
+  std::shared_ptr<Table> table_ptr = HotColdTable::Create("test_table", rel);
   Table& table = *table_ptr;
 
   std::vector<types::Time64NSValue> time_batch_1 = {2, 3, 4, 6};
@@ -579,7 +579,7 @@ TEST(TableTest, find_rowid_from_time_first_greater_than_or_equal_with_compaction
   schema::Relation rel(std::vector<types::DataType>({types::DataType::TIME64NS}),
                        std::vector<std::string>({"time_"}));
   int64_t compaction_size = 4 * sizeof(int64_t);
-  Table table("test_table", rel, 128 * 1024, compaction_size);
+  HotColdTable table("test_table", rel, 128 * 1024, compaction_size);
 
   std::vector<types::Time64NSValue> time_batch_1 = {2, 3, 4, 6};
   std::vector<types::Time64NSValue> time_batch_2 = {8, 8, 8};
@@ -721,7 +721,7 @@ TEST(TableTest, transfer_empty_record_batch_test) {
   schema::Relation rel({types::DataType::INT64}, {"col1"});
   schema::RowDescriptor rd({types::DataType::INT64});
 
-  std::shared_ptr<Table> table_ptr = Table::Create("test_table", rel);
+  std::shared_ptr<Table> table_ptr = HotColdTable::Create("test_table", rel);
   Table& table = *table_ptr;
 
   // ColumnWrapper with no columns should not be added to row batches.
@@ -743,7 +743,7 @@ TEST(TableTest, write_zero_row_row_batch) {
   schema::Relation rel({types::DataType::BOOLEAN, types::DataType::INT64}, {"col1", "col2"});
   schema::RowDescriptor rd({types::DataType::BOOLEAN, types::DataType::INT64});
 
-  std::shared_ptr<Table> table_ptr = Table::Create("test_table", rel);
+  std::shared_ptr<Table> table_ptr = HotColdTable::Create("test_table", rel);
 
   auto result = schema::RowBatch::WithZeroRows(rd, /*eow*/ false, /*eos*/ false);
   ASSERT_OK(result);
@@ -771,7 +771,7 @@ TEST(TableTest, threaded) {
   schema::Relation rel({types::DataType::TIME64NS}, {"time_"});
   schema::RowDescriptor rd({types::DataType::TIME64NS});
   std::shared_ptr<Table> table_ptr =
-      std::make_shared<Table>("test_table", rel, 8 * 1024 * 1024, 5 * 1024);
+      std::make_shared<HotColdTable>("test_table", rel, 8 * 1024 * 1024, 5 * 1024);
 
   int64_t max_time_counter = 1024 * 1024;
 
@@ -786,8 +786,8 @@ TEST(TableTest, threaded) {
   });
 
   // Create the cursor before the write thread starts, to ensure that we get every row of the table.
-  Table::Cursor cursor(table_ptr.get(), Table::Cursor::StartSpec{},
-                       Table::Cursor::StopSpec{Table::Cursor::StopSpec::StopType::Infinite});
+  Cursor cursor(table_ptr.get(), Cursor::StartSpec{},
+                       Cursor::StopSpec{Cursor::StopSpec::StopType::Infinite});
 
   std::thread writer_thread([table_ptr, done, max_time_counter]() {
     std::default_random_engine gen;
@@ -844,7 +844,7 @@ TEST(TableTest, threaded) {
     }
 
     // Now that the writer is finished move the stop of the cursor to the current end of the table.
-    cursor.UpdateStopSpec(Table::Cursor::StopSpec{Table::Cursor::StopSpec::CurrentEndOfTable});
+    cursor.UpdateStopSpec(Cursor::StopSpec{Cursor::StopSpec::CurrentEndOfTable});
 
     // Once the writer is finished, we loop over the remaining data in the table.
     while (time_counter < max_time_counter && !cursor.Done()) {
@@ -872,7 +872,7 @@ TEST(TableTest, NextBatch_generation_bug) {
   schema::Relation rel(rd.types(), {"col1", "col2"});
 
   int64_t rb1_size = 3 * sizeof(int64_t) + 12 * sizeof(char) + 3 * sizeof(uint32_t);
-  Table table("test_table", rel, rb1_size, rb1_size);
+  HotColdTable table("test_table", rel, rb1_size, rb1_size);
 
   schema::RowBatch rb1(rd, 3);
   std::vector<types::Int64Value> col1_rb1 = {4, 5, 10};
@@ -885,7 +885,7 @@ TEST(TableTest, NextBatch_generation_bug) {
   EXPECT_OK(table.WriteRowBatch(rb1));
   EXPECT_OK(table.CompactHotToCold(arrow::default_memory_pool()));
 
-  Table::Cursor cursor(&table, Table::Cursor::StartSpec{}, Table::Cursor::StopSpec{});
+  Cursor cursor(&table, Cursor::StartSpec{}, Cursor::StopSpec{});
   // Force cold expiration.
   EXPECT_OK(table.WriteRowBatch(rb1));
   // GetNextRowBatch should return invalidargument since the batch was expired.
@@ -919,12 +919,12 @@ TEST(TableTest, GetNextRowBatch_after_expiry) {
   rb_wrapper_2->push_back(col2_in2_wrapper);
   int64_t rb2_size = 2 * sizeof(bool) + 2 * sizeof(int64_t);
 
-  Table table("test_table", rel, rb1_size + rb2_size, rb1_size);
+  HotColdTable table("test_table", rel, rb1_size + rb2_size, rb1_size);
 
   EXPECT_OK(table.TransferRecordBatch(std::move(rb_wrapper_1)));
   EXPECT_OK(table.TransferRecordBatch(std::move(rb_wrapper_2)));
 
-  Table::Cursor cursor(&table);
+  Cursor cursor(&table);
 
   // This write will expire the first batch.
   auto rb_wrapper_1_copy = std::make_unique<types::ColumnWrapperRecordBatch>();
@@ -942,8 +942,8 @@ TEST(TableTest, GetNextRowBatch_after_expiry) {
 struct CursorTestCase {
   std::string name;
   std::vector<std::vector<int64_t>> initial_time_batches;
-  Table::Cursor::StartSpec start_spec;
-  Table::Cursor::StopSpec stop_spec;
+  Cursor::StartSpec start_spec;
+  Cursor::StopSpec stop_spec;
   struct Action {
     enum ActionType {
       ExpectBatch,
@@ -965,13 +965,13 @@ class CursorTableTest : public ::testing::Test,
 
     rel_ = std::make_unique<schema::Relation>(std::vector<types::DataType>{types::TIME64NS},
                                               std::vector<std::string>{"time_"});
-    table_ptr_ = Table::Create("test_table", *rel_);
+    table_ptr_ = HotColdTable::Create("test_table", *rel_);
 
     for (const auto& batch : test_case_.initial_time_batches) {
       WriteBatch(batch);
     }
 
-    cursor_ = std::make_unique<Table::Cursor>(table_ptr_.get(), test_case_.start_spec,
+    cursor_ = std::make_unique<Cursor>(table_ptr_.get(), test_case_.start_spec,
                                               test_case_.stop_spec);
   }
 
@@ -1002,7 +1002,7 @@ class CursorTableTest : public ::testing::Test,
   CursorTestCase test_case_;
   std::unique_ptr<schema::Relation> rel_;
   std::shared_ptr<Table> table_ptr_;
-  std::unique_ptr<Table::Cursor> cursor_;
+  std::unique_ptr<Cursor> cursor_;
 };
 
 TEST_P(CursorTableTest, cursor_test) {
@@ -1021,8 +1021,8 @@ TEST_P(CursorTableTest, cursor_test) {
   }
 }
 
-using StartType = Table::Cursor::StartSpec::StartType;
-using StopType = Table::Cursor::StopSpec::StopType;
+using StartType = Cursor::StartSpec::StartType;
+using StopType = Cursor::StopSpec::StopType;
 
 INSTANTIATE_TEST_SUITE_P(CursorTableTestSuite, CursorTableTest,
                          ::testing::ValuesIn(std::vector<CursorTestCase>{

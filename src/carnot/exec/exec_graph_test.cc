@@ -150,7 +150,7 @@ TEST_P(ExecGraphExecuteTest, execute) {
   table_store::schema::Relation rel(
       {types::DataType::INT64, types::DataType::BOOLEAN, types::DataType::FLOAT64},
       {"col1", "col2", "col3"});
-  auto table = Table::Create("test", rel);
+  auto table = HotColdTable::Create("test", rel);
 
   auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
   std::vector<types::Int64Value> col1_in1 = {1, 2, 3};
@@ -191,7 +191,7 @@ TEST_P(ExecGraphExecuteTest, execute) {
   auto output_table = exec_state_->table_store()->GetTable("output");
   std::vector<types::Float64Value> out_in1 = {4.8, 16.4, 26.4};
   std::vector<types::Float64Value> out_in2 = {14.8, 12.4};
-  table_store::Table::Cursor cursor(output_table);
+  table_store::Cursor cursor(output_table);
   EXPECT_TRUE(cursor.GetNextRowBatch({0}).ConsumeValueOrDie()->ColumnAt(0)->Equals(
       types::ToArrow(out_in1, arrow::default_memory_pool())));
   EXPECT_TRUE(cursor.GetNextRowBatch({0}).ConsumeValueOrDie()->ColumnAt(0)->Equals(
@@ -229,7 +229,7 @@ TEST_F(ExecGraphTest, execute_time) {
   table_store::schema::Relation rel(
       {types::DataType::TIME64NS, types::DataType::BOOLEAN, types::DataType::FLOAT64},
       {"col1", "col2", "col3"});
-  auto table = Table::Create("test", rel);
+  auto table = HotColdTable::Create("test", rel);
 
   auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
   std::vector<types::Time64NSValue> col1_in1 = {types::Time64NSValue(1), types::Time64NSValue(2),
@@ -272,7 +272,7 @@ TEST_F(ExecGraphTest, execute_time) {
   auto output_table = exec_state_->table_store()->GetTable("output");
   std::vector<types::Float64Value> out_in1 = {4.8, 16.4, 26.4};
   std::vector<types::Float64Value> out_in2 = {14.8, 12.4};
-  table_store::Table::Cursor cursor(output_table);
+  table_store::Cursor cursor(output_table);
   EXPECT_TRUE(cursor.GetNextRowBatch({0}).ConsumeValueOrDie()->ColumnAt(0)->Equals(
       types::ToArrow(out_in1, arrow::default_memory_pool())));
   EXPECT_TRUE(cursor.GetNextRowBatch({0}).ConsumeValueOrDie()->ColumnAt(0)->Equals(
@@ -298,7 +298,7 @@ TEST_F(ExecGraphTest, two_limits_dont_interfere) {
   table_store::schema::Relation rel(
       {types::DataType::INT64, types::DataType::BOOLEAN, types::DataType::FLOAT64},
       {"col1", "col2", "col3"});
-  auto table = Table::Create("test", rel);
+  auto table = HotColdTable::Create("test", rel);
 
   auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
   std::vector<types::Int64Value> col1_in1 = {1, 2, 3};
@@ -335,8 +335,8 @@ TEST_F(ExecGraphTest, two_limits_dont_interfere) {
   std::vector<types::Int64Value> out_col1 = {1, 2};
   std::vector<types::BoolValue> out_col2 = {true, false};
   std::vector<types::Float64Value> out_col3 = {1.4, 6.2};
-  table_store::Table::Cursor cursor1(output_table1);
-  table_store::Table::Cursor cursor2(output_table2);
+  table_store::Cursor cursor1(output_table1);
+  table_store::Cursor cursor2(output_table2);
 
   auto out_rb1 = cursor1.GetNextRowBatch(std::vector<int64_t>({0, 1, 2})).ConsumeValueOrDie();
   auto out_rb2 = cursor2.GetNextRowBatch(std::vector<int64_t>({0, 1, 2})).ConsumeValueOrDie();
@@ -366,7 +366,7 @@ TEST_F(ExecGraphTest, limit_w_multiple_srcs) {
   table_store::schema::Relation rel(
       {types::DataType::INT64, types::DataType::BOOLEAN, types::DataType::FLOAT64},
       {"col1", "col2", "col3"});
-  auto table = Table::Create("test", rel);
+  auto table = HotColdTable::Create("test", rel);
 
   auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
   std::vector<types::Int64Value> col1_in1 = {1, 2, 3};
@@ -402,7 +402,7 @@ TEST_F(ExecGraphTest, limit_w_multiple_srcs) {
   std::vector<types::Int64Value> out_col1 = {1, 2};
   std::vector<types::BoolValue> out_col2 = {true, false};
   std::vector<types::Float64Value> out_col3 = {1.4, 6.2};
-  table_store::Table::Cursor cursor(output_table);
+  table_store::Cursor cursor(output_table);
   auto out_rb = cursor.GetNextRowBatch(std::vector<int64_t>({0, 1, 2})).ConsumeValueOrDie();
   EXPECT_TRUE(out_rb->ColumnAt(0)->Equals(types::ToArrow(out_col1, arrow::default_memory_pool())));
   EXPECT_TRUE(out_rb->ColumnAt(1)->Equals(types::ToArrow(out_col2, arrow::default_memory_pool())));
@@ -427,7 +427,7 @@ TEST_F(ExecGraphTest, two_sequential_limits) {
   table_store::schema::Relation rel(
       {types::DataType::INT64, types::DataType::BOOLEAN, types::DataType::FLOAT64},
       {"col1", "col2", "col3"});
-  auto table = Table::Create("test", rel);
+  auto table = HotColdTable::Create("test", rel);
 
   auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
   std::vector<types::Int64Value> col1_in1 = {1, 2, 3};
@@ -464,7 +464,7 @@ TEST_F(ExecGraphTest, two_sequential_limits) {
   std::vector<types::Int64Value> out_col1 = {1, 2};
   std::vector<types::BoolValue> out_col2 = {true, false};
   std::vector<types::Float64Value> out_col3 = {1.4, 6.2};
-  table_store::Table::Cursor cursor(output_table);
+  table_store::Cursor cursor(output_table);
   auto out_rb = cursor.GetNextRowBatch({0, 1, 2}).ConsumeValueOrDie();
   EXPECT_TRUE(out_rb->ColumnAt(0)->Equals(types::ToArrow(out_col1, arrow::default_memory_pool())));
   EXPECT_TRUE(out_rb->ColumnAt(1)->Equals(types::ToArrow(out_col2, arrow::default_memory_pool())));
@@ -490,7 +490,7 @@ TEST_F(ExecGraphTest, execute_with_two_limits) {
   table_store::schema::Relation rel(
       {types::DataType::INT64, types::DataType::BOOLEAN, types::DataType::FLOAT64},
       {"col1", "col2", "col3"});
-  auto table = Table::Create("test", rel);
+  auto table = HotColdTable::Create("test", rel);
 
   auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
   std::vector<types::Int64Value> col1_in1 = {1, 2, 3};
@@ -526,10 +526,10 @@ TEST_F(ExecGraphTest, execute_with_two_limits) {
   auto output_table_1 = exec_state_->table_store()->GetTable("output1");
   auto output_table_2 = exec_state_->table_store()->GetTable("output2");
   std::vector<types::Float64Value> out_in1 = {1.4, 6.2};
-  table_store::Table::Cursor cursor1(output_table_1);
+  table_store::Cursor cursor1(output_table_1);
   EXPECT_TRUE(cursor1.GetNextRowBatch({2}).ConsumeValueOrDie()->ColumnAt(0)->Equals(
       types::ToArrow(out_in1, arrow::default_memory_pool())));
-  table_store::Table::Cursor cursor2(output_table_2);
+  table_store::Cursor cursor2(output_table_2);
   EXPECT_TRUE(cursor2.GetNextRowBatch({2}).ConsumeValueOrDie()->ColumnAt(0)->Equals(
       types::ToArrow(out_in1, arrow::default_memory_pool())));
 }

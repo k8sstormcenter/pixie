@@ -68,6 +68,194 @@ struct TableStats {
   int64_t min_time;
 };
 
+class Table;
+
+/**
+ * Cursor allows iterating the table, while guaranteeing that no row is returned twice (even when
+ * compactions occur between accesses). {Start,Stop}Spec specify what rows the cursor should begin
+ * and end at when iterating the cursor.
+ */
+class Cursor {
+ using Time = internal::Time;
+ using RowID = internal::RowID;
+
+ public:
+  /**
+   * StartSpec defines where a Cursor should begin within the table. Current options are to start
+   * at a given time, or start at the first row currently in the table.
+   */
+  struct StartSpec {
+    enum StartType {
+      StartAtTime,
+      CurrentStartOfTable,
+    };
+    StartType type = CurrentStartOfTable;
+    Time start_time = -1;
+  };
+
+  /**
+   * StopSpec defines when a Cursor should stop and be considered exhausted. Current options are
+   * to stop at a given time, stop at the last row currently in the table, or infinite (i.e. the
+   * Cursor never becomes exhausted).
+   */
+  struct StopSpec {
+    enum StopType {
+      // Iterating a StopAtTime cursor will return all records with `timestamp <= stop_time`.
+      // The cursor will not be considered `Done()` until a record with `timestamp > stop_time` is
+      // added to the table.
+      // Note that StopAtTime is the most expensive of the StopTypes because it requires holding a
+      // table lock very briefly on each call to `Done()` or `NextBatchReady()`
+      StopAtTime,
+      // Iterating a StopAtTimeOrEndOfTable cursor will return all records with `timestamp <=
+      // stop_time` that existed in the table at the time of cursor creation. The cursor will be
+      // considered `Done()` once all records with `timestamp <= stop_time` have been consumed or
+      // when the end of the table is reached (end of the table is determined at cursor creation
+      // time).
+      StopAtTimeOrEndOfTable,
+      // Iterating a CurrentEndOfTable cursor will return all records in the table at cursor
+      // creation time.
+      CurrentEndOfTable,
+      // An Infinite cursor will never be considered `Done()`.
+      Infinite,
+    };
+    StopType type = CurrentEndOfTable;
+    // Only valid for StopAtTime or StopAtTimeOrEndOfTable types.
+    Time stop_time = -1;
+  };
+
+  explicit Cursor(const Table* table) : Cursor(table, StartSpec{}, StopSpec{}) {}
+  Cursor(const Table* table, StartSpec start, StopSpec stop);
+
+  // In the case of StopType == Infinite or StopType == StopAtTime, this returns whether the table
+  // has the next batch ready. In the case of StopType == CurrentEndOfTable, this returns !Done().
+  // Note that `NextBatchReady() == true` doesn't guarantee that `GetNextRowBatch` will succeed.
+  // For instance, the desired row batch could have been expired between the call to
+  // `NextBatchReady()` and `GetNextRowBatch(...)`, and then the row batch after the expired one
+  // is past the stopping condition. In this case `GetNextRowBatch(...)` will return an error.
+  bool NextBatchReady();
+  StatusOr<std::unique_ptr<schema::RowBatch>> GetNextRowBatch(const std::vector<int64_t>& cols);
+  // In the case of StopType == Infinite, this function always returns false.
+  bool Done();
+  // Change the StopSpec of the cursor.
+  void UpdateStopSpec(StopSpec stop);
+
+ private:
+  void AdvanceToStart(const StartSpec& start);
+  void StopStateFromSpec(StopSpec&& stop);
+  void UpdateStopStateForStopAtTime();
+
+  // The following methods are made private so that they are only accessible from Table.
+  internal::RowID* LastReadRowID();
+  internal::BatchHints* Hints();
+  std::optional<internal::RowID> StopRowID() const;
+
+  struct StopState {
+    StopSpec spec;
+    RowID stop_row_id;
+    // If StopSpec.type is StopAtTime, then stop_row_id doesn't become finalized until the time is
+    // within the table. This bool keeps track of when that happens.
+    bool stop_row_id_final = false;
+  };
+  const Table* table_;
+  internal::BatchHints hints_;
+  RowID last_read_row_id_;
+  StopState stop_;
+
+  friend class Table;
+  friend class HotColdTable;
+};
+
+
+class Table : public NotCopyable {
+ public:
+  using RecordBatchPtr = internal::RecordBatchPtr;
+  using ArrowArrayPtr = internal::ArrowArrayPtr;
+  using ColdBatch = internal::ColdBatch;
+  using Time = internal::Time;
+  using TimeInterval = internal::TimeInterval;
+  using RowID = internal::RowID;
+  using RowIDInterval = internal::RowIDInterval;
+  using BatchID = internal::BatchID;
+
+  /* Table() = default; */
+  virtual ~Table() = default;
+
+  /**
+   * Get a RowBatch of data corresponding to the next data after the given cursor.
+   * @param cursor the Cursor to get the next row batch after.
+   * @param cols a vector of column indices to get data for.
+   * @return a unique ptr to a RowBatch with the requested data.
+   */
+  virtual StatusOr<std::unique_ptr<schema::RowBatch>> GetNextRowBatch(
+      Cursor* cursor, const std::vector<int64_t>& cols) const = 0;
+
+  /**
+   * Get the unique identifier of the first row in the table.
+   * If all the data is expired from the table, this returns the last row id that was in the table.
+   * @return unique identifier of the first row.
+   */
+  virtual RowID FirstRowID() const = 0;
+
+  /**
+   * Get the unique identifier of the last row in the table.
+   * If all the data is expired from the table, this returns the last row id that was in the table.
+   * @return unique identifier of the last row.
+   */
+  virtual RowID LastRowID() const = 0;
+
+  /**
+   * Find the unique identifier of the first row for which its corresponding time is greater than or
+   * equal to the given time.
+   * @param time the time to search for.
+   * @return unique identifier of the first row with time greater than or equal to the given time.
+   */
+  virtual RowID FindRowIDFromTimeFirstGreaterThanOrEqual(Time time) const = 0;
+
+  /**
+   * Find the unique identifier of the first row for which its corresponding time is greater than
+   * the given time.
+   * @param time the time to search for.
+   * @return unique identifier of the first row with time greater than the given time.
+   */
+  virtual RowID FindRowIDFromTimeFirstGreaterThan(Time time) const = 0;
+
+  /**
+   * Writes a row batch to the table.
+   * @param rb Rowbatch to write to the table.
+   */
+  virtual Status WriteRowBatch(const schema::RowBatch& rb) = 0;
+
+  /**
+   * Transfers the given record batch (from Stirling) into the Table.
+   *
+   * @param record_batch the record batch to be appended to the Table.
+   * @return status
+   */
+  virtual Status TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch) = 0;
+
+  virtual schema::Relation GetRelation() const = 0;
+
+  /**
+   * Covert the table and store in passed in proto.
+   * @param table_proto The table proto to write to.
+   * @return Status of conversion.
+   */
+  virtual Status ToProto(table_store::schemapb::Table* table_proto) const = 0;
+
+  virtual TableStats GetTableStats() const = 0;
+
+  /**
+   * Compacts hot batches into compacted_batch_size_ sized cold batches. Each call to
+   * CompactHotToCold will create a maximum of kMaxBatchesPerCompactionCall cold batches.
+   * @param mem_pool arrow MemoryPool to be used for creating new cold batches.
+   */
+  virtual Status CompactHotToCold(arrow::MemoryPool* mem_pool) = 0;
+
+  virtual Time MaxTime() const = 0;
+
+  friend class Cursor;
+};
+
 /**
  * Table stores data in two separate partitions, hot and cold. Hot data is "hot" from the
  * perspective of writes, in other words data is first written to the hot partitiion, and then later
@@ -101,7 +289,7 @@ struct TableStats {
  * that when GetNextRowBatch is called on the cursor it can work out that it needs to return a slice
  * of the batch with the original "second" batch's data.
  */
-class Table : public NotCopyable {
+class HotColdTable : public Table {
   using RecordBatchPtr = internal::RecordBatchPtr;
   using ArrowArrayPtr = internal::ArrowArrayPtr;
   using ColdBatch = internal::ColdBatch;
@@ -110,6 +298,9 @@ class Table : public NotCopyable {
   using RowID = internal::RowID;
   using RowIDInterval = internal::RowIDInterval;
   using BatchID = internal::BatchID;
+
+  // TODO(ddelnano): Maybe this should be removed
+  friend class Cursor;
 
   static inline constexpr int64_t kDefaultColdBatchMinSize = 64 * 1024;
 
@@ -120,99 +311,8 @@ class Table : public NotCopyable {
                                               const schema::Relation& relation) {
     // Create naked pointer, because std::make_shared() cannot access the private ctor.
     return std::shared_ptr<Table>(
-        new Table(table_name, relation, FLAGS_table_store_table_size_limit));
+        new HotColdTable(table_name, relation, FLAGS_table_store_table_size_limit));
   }
-
-  /**
-   * Cursor allows iterating the table, while guaranteeing that no row is returned twice (even when
-   * compactions occur between accesses). {Start,Stop}Spec specify what rows the cursor should begin
-   * and end at when iterating the cursor.
-   */
-  class Cursor {
-   public:
-    /**
-     * StartSpec defines where a Cursor should begin within the table. Current options are to start
-     * at a given time, or start at the first row currently in the table.
-     */
-    struct StartSpec {
-      enum StartType {
-        StartAtTime,
-        CurrentStartOfTable,
-      };
-      StartType type = CurrentStartOfTable;
-      Time start_time = -1;
-    };
-
-    /**
-     * StopSpec defines when a Cursor should stop and be considered exhausted. Current options are
-     * to stop at a given time, stop at the last row currently in the table, or infinite (i.e. the
-     * Cursor never becomes exhausted).
-     */
-    struct StopSpec {
-      enum StopType {
-        // Iterating a StopAtTime cursor will return all records with `timestamp <= stop_time`.
-        // The cursor will not be considered `Done()` until a record with `timestamp > stop_time` is
-        // added to the table.
-        // Note that StopAtTime is the most expensive of the StopTypes because it requires holding a
-        // table lock very briefly on each call to `Done()` or `NextBatchReady()`
-        StopAtTime,
-        // Iterating a StopAtTimeOrEndOfTable cursor will return all records with `timestamp <=
-        // stop_time` that existed in the table at the time of cursor creation. The cursor will be
-        // considered `Done()` once all records with `timestamp <= stop_time` have been consumed or
-        // when the end of the table is reached (end of the table is determined at cursor creation
-        // time).
-        StopAtTimeOrEndOfTable,
-        // Iterating a CurrentEndOfTable cursor will return all records in the table at cursor
-        // creation time.
-        CurrentEndOfTable,
-        // An Infinite cursor will never be considered `Done()`.
-        Infinite,
-      };
-      StopType type = CurrentEndOfTable;
-      // Only valid for StopAtTime or StopAtTimeOrEndOfTable types.
-      Time stop_time = -1;
-    };
-
-    explicit Cursor(const Table* table) : Cursor(table, StartSpec{}, StopSpec{}) {}
-    Cursor(const Table* table, StartSpec start, StopSpec stop);
-
-    // In the case of StopType == Infinite or StopType == StopAtTime, this returns whether the table
-    // has the next batch ready. In the case of StopType == CurrentEndOfTable, this returns !Done().
-    // Note that `NextBatchReady() == true` doesn't guarantee that `GetNextRowBatch` will succeed.
-    // For instance, the desired row batch could have been expired between the call to
-    // `NextBatchReady()` and `GetNextRowBatch(...)`, and then the row batch after the expired one
-    // is past the stopping condition. In this case `GetNextRowBatch(...)` will return an error.
-    bool NextBatchReady();
-    StatusOr<std::unique_ptr<schema::RowBatch>> GetNextRowBatch(const std::vector<int64_t>& cols);
-    // In the case of StopType == Infinite, this function always returns false.
-    bool Done();
-    // Change the StopSpec of the cursor.
-    void UpdateStopSpec(StopSpec stop);
-
-   private:
-    void AdvanceToStart(const StartSpec& start);
-    void StopStateFromSpec(StopSpec&& stop);
-    void UpdateStopStateForStopAtTime();
-
-    // The following methods are made private so that they are only accessible from Table.
-    internal::RowID* LastReadRowID();
-    internal::BatchHints* Hints();
-    std::optional<internal::RowID> StopRowID() const;
-
-    struct StopState {
-      StopSpec spec;
-      RowID stop_row_id;
-      // If StopSpec.type is StopAtTime, then stop_row_id doesn't become finalized until the time is
-      // within the table. This bool keeps track of when that happens.
-      bool stop_row_id_final = false;
-    };
-    const Table* table_;
-    internal::BatchHints hints_;
-    RowID last_read_row_id_;
-    StopState stop_;
-
-    friend class Table;
-  };
 
   /**
    * @brief Construct a new Table object along with its columns. Can be used to create
@@ -222,35 +322,35 @@ class Table : public NotCopyable {
    * @param max_table_size the maximum number of bytes that the table can hold. This is limitless
    * (-1) by default.
    */
-  explicit Table(std::string_view table_name, const schema::Relation& relation,
+  explicit HotColdTable(std::string_view table_name, const schema::Relation& relation,
                  size_t max_table_size)
-      : Table(table_name, relation, max_table_size, kDefaultColdBatchMinSize) {}
+      : HotColdTable(table_name, relation, max_table_size, kDefaultColdBatchMinSize) {}
 
-  Table(std::string_view table_name, const schema::Relation& relation, size_t max_table_size,
+  HotColdTable(std::string_view table_name, const schema::Relation& relation, size_t max_table_size,
         size_t compacted_batch_size_);
 
   /**
    * Get a RowBatch of data corresponding to the next data after the given cursor.
-   * @param cursor the Table::Cursor to get the next row batch after.
+   * @param cursor the Cursor to get the next row batch after.
    * @param cols a vector of column indices to get data for.
    * @return a unique ptr to a RowBatch with the requested data.
    */
   StatusOr<std::unique_ptr<schema::RowBatch>> GetNextRowBatch(
-      Cursor* cursor, const std::vector<int64_t>& cols) const;
+      Cursor* cursor, const std::vector<int64_t>& cols) const override;
 
   /**
    * Get the unique identifier of the first row in the table.
    * If all the data is expired from the table, this returns the last row id that was in the table.
    * @return unique identifier of the first row.
    */
-  RowID FirstRowID() const;
+  RowID FirstRowID() const override;
 
   /**
    * Get the unique identifier of the last row in the table.
    * If all the data is expired from the table, this returns the last row id that was in the table.
    * @return unique identifier of the last row.
    */
-  RowID LastRowID() const;
+  RowID LastRowID() const override;
 
   /**
    * Find the unique identifier of the first row for which its corresponding time is greater than or
@@ -258,7 +358,7 @@ class Table : public NotCopyable {
    * @param time the time to search for.
    * @return unique identifier of the first row with time greater than or equal to the given time.
    */
-  RowID FindRowIDFromTimeFirstGreaterThanOrEqual(Time time) const;
+  RowID FindRowIDFromTimeFirstGreaterThanOrEqual(Time time) const override;
 
   /**
    * Find the unique identifier of the first row for which its corresponding time is greater than
@@ -266,13 +366,13 @@ class Table : public NotCopyable {
    * @param time the time to search for.
    * @return unique identifier of the first row with time greater than the given time.
    */
-  RowID FindRowIDFromTimeFirstGreaterThan(Time time) const;
+  RowID FindRowIDFromTimeFirstGreaterThan(Time time) const override;
 
   /**
    * Writes a row batch to the table.
    * @param rb Rowbatch to write to the table.
    */
-  Status WriteRowBatch(const schema::RowBatch& rb);
+  Status WriteRowBatch(const schema::RowBatch& rb) override;
 
   /**
    * Transfers the given record batch (from Stirling) into the Table.
@@ -280,28 +380,29 @@ class Table : public NotCopyable {
    * @param record_batch the record batch to be appended to the Table.
    * @return status
    */
-  Status TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch);
+  Status TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch) override;
 
-  schema::Relation GetRelation() const;
-  StatusOr<std::vector<RecordBatchSPtr>> GetTableAsRecordBatches() const;
+  schema::Relation GetRelation() const override;
 
   /**
    * Covert the table and store in passed in proto.
    * @param table_proto The table proto to write to.
    * @return Status of conversion.
    */
-  Status ToProto(table_store::schemapb::Table* table_proto) const;
+  Status ToProto(table_store::schemapb::Table* table_proto) const override;
 
-  TableStats GetTableStats() const;
+  TableStats GetTableStats() const override;
 
   /**
    * Compacts hot batches into compacted_batch_size_ sized cold batches. Each call to
    * CompactHotToCold will create a maximum of kMaxBatchesPerCompactionCall cold batches.
    * @param mem_pool arrow MemoryPool to be used for creating new cold batches.
    */
-  Status CompactHotToCold(arrow::MemoryPool* mem_pool);
+  Status CompactHotToCold(arrow::MemoryPool* mem_pool) override;
 
  private:
+  Time MaxTime() const override;
+
   TableMetrics metrics_;
 
   schema::Relation rel_;
@@ -337,13 +438,12 @@ class Table : public NotCopyable {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(cold_lock_) ABSL_EXCLUSIVE_LOCKS_REQUIRED(hot_lock_);
   Status UpdateTableMetricGauges();
 
-  Time MaxTime() const;
-
   std::unique_ptr<internal::BatchSizeAccountant> batch_size_accountant_ ABSL_GUARDED_BY(hot_lock_);
 
   internal::ArrowArrayCompactor compactor_;
+};
 
-  friend class Cursor;
+class HotOnlyTable : public Table {
 };
 
 }  // namespace table_store

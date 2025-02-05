@@ -53,6 +53,8 @@ void constexpr_else_static_assert_false() {
   static_assert(always_false, "constexpr else block reached");
 }
 
+class HotOnlyStore;
+
 /**
  * StoreWithRowTimeAccounting stores a deque of batches (hot or cold) and keeps track of the first
  * and last unique RowID's for each batch, as well as the first and last times for each batch (if
@@ -74,6 +76,22 @@ class StoreWithRowTimeAccounting {
  public:
   StoreWithRowTimeAccounting(const schema::Relation& rel, int64_t time_col_idx)
       : rel_(rel), time_col_idx_(time_col_idx) {}
+
+  Status AddBatchSliceToRowBatch(const TBatch& batch, size_t row_offset, size_t batch_size,
+                                 const std::vector<int64_t>& cols,
+                                 schema::RowBatch* output_rb) const {
+    if constexpr (std::is_same_v<TBatch, ColdBatch>) {
+      for (auto col_idx : cols) {
+        auto arr = batch[col_idx]->Slice(row_offset, batch_size);
+        PX_RETURN_IF_ERROR(output_rb->AddColumn(arr));
+      }
+      return Status::OK();
+    } else if constexpr (std::is_same_v<TBatch, HotBatch>) {
+      return batch.AddBatchSliceToRowBatch(row_offset, batch_size, cols, output_rb);
+    } else {
+      constexpr_else_static_assert_false();
+    }
+  }
 
   /**
    * GetNextRowBatch returns the next row batch in this store after the given unique row id.
@@ -178,7 +196,10 @@ class StoreWithRowTimeAccounting {
    */
   template <typename... Args>
   TBatch& EmplaceBack(RowID first_row_id, Args... args) {
+    LOG(INFO) << "EmplaceBack first_row_id=" << first_row_id << " args...=" << sizeof...(args);
+    LOG(INFO) << "batches_size()=" << batches_.size();
     auto& batch = batches_.emplace_back(std::forward<Args>(args)...);
+    LOG(INFO) << "After batches_size()=" << batches_.size();
 
     row_ids_.emplace_back(first_row_id, first_row_id + BatchLength(batch) - 1);
     if (time_col_idx_ != -1) {
@@ -384,28 +405,14 @@ class StoreWithRowTimeAccounting {
     }
   }
 
-  Status AddBatchSliceToRowBatch(const TBatch& batch, size_t row_offset, size_t batch_size,
-                                 const std::vector<int64_t>& cols,
-                                 schema::RowBatch* output_rb) const {
-    if constexpr (std::is_same_v<TBatch, ColdBatch>) {
-      for (auto col_idx : cols) {
-        auto arr = batch[col_idx]->Slice(row_offset, batch_size);
-        PX_RETURN_IF_ERROR(output_rb->AddColumn(arr));
-      }
-      return Status::OK();
-    } else if constexpr (std::is_same_v<TBatch, HotBatch>) {
-      return batch.AddBatchSliceToRowBatch(row_offset, batch_size, cols, output_rb);
-    } else {
-      constexpr_else_static_assert_false();
-    }
-  }
-
   BatchID first_batch_id_ = 0;
   const schema::Relation& rel_;
   const int64_t time_col_idx_;
   std::deque<TBatch> batches_;
   std::deque<RowIDInterval> row_ids_;
   std::deque<TimeInterval> times_;
+
+  friend HotOnlyStore;
 };
 
 }  // namespace internal

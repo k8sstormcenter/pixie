@@ -93,6 +93,41 @@ TEST(TableTest, basic_test) {
       actual_rb2->ColumnAt(1)->Equals(types::ToArrow(col2_in2, arrow::default_memory_pool())));
 }
 
+TEST(TableTest, HotOnlyTable_basic_test) {
+  schema::Relation rel({types::DataType::BOOLEAN, types::DataType::INT64}, {"col1", "col2"});
+
+  std::shared_ptr<Table> table_ptr = HotOnlyTable::Create("test_table", rel);
+  Table& table = *table_ptr;
+
+  auto rb1 = schema::RowBatch(schema::RowDescriptor(rel.col_types()), 3);
+  std::vector<types::BoolValue> col1_in1 = {true, false, true};
+  std::vector<types::Int64Value> col2_in1 = {1, 2, 3};
+  EXPECT_OK(rb1.AddColumn(types::ToArrow(col1_in1, arrow::default_memory_pool())));
+  EXPECT_OK(rb1.AddColumn(types::ToArrow(col2_in1, arrow::default_memory_pool())));
+  EXPECT_OK(table.WriteRowBatch(rb1));
+
+  auto rb2 = schema::RowBatch(schema::RowDescriptor(rel.col_types()), 2);
+  std::vector<types::BoolValue> col1_in2 = {false, false};
+  std::vector<types::Int64Value> col2_in2 = {5, 6};
+  EXPECT_OK(rb2.AddColumn(types::ToArrow(col1_in2, arrow::default_memory_pool())));
+  EXPECT_OK(rb2.AddColumn(types::ToArrow(col2_in2, arrow::default_memory_pool())));
+  EXPECT_OK(table.WriteRowBatch(rb2));
+
+  Cursor cursor(table_ptr.get());
+
+  auto actual_rb1 = cursor.GetNextRowBatch(std::vector<int64_t>({0, 1})).ConsumeValueOrDie();
+  EXPECT_TRUE(
+      actual_rb1->ColumnAt(0)->Equals(types::ToArrow(col1_in1, arrow::default_memory_pool())));
+  EXPECT_TRUE(
+      actual_rb1->ColumnAt(1)->Equals(types::ToArrow(col2_in1, arrow::default_memory_pool())));
+
+  auto actual_rb2 = cursor.GetNextRowBatch(std::vector<int64_t>({0, 1})).ConsumeValueOrDie();
+  EXPECT_TRUE(
+      actual_rb2->ColumnAt(0)->Equals(types::ToArrow(col1_in2, arrow::default_memory_pool())));
+  EXPECT_TRUE(
+      actual_rb2->ColumnAt(1)->Equals(types::ToArrow(col2_in2, arrow::default_memory_pool())));
+}
+
 TEST(TableTest, bytes_test) {
   auto rd = schema::RowDescriptor({types::DataType::INT64, types::DataType::STRING});
   schema::Relation rel(rd.types(), {"col1", "col2"});

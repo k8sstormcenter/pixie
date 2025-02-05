@@ -177,7 +177,7 @@ class Table : public NotCopyable {
   using RowIDInterval = internal::RowIDInterval;
   using BatchID = internal::BatchID;
 
-  /* Table() = default; */
+  Table() = delete;
   virtual ~Table() = default;
 
   /**
@@ -252,6 +252,19 @@ class Table : public NotCopyable {
   virtual Status CompactHotToCold(arrow::MemoryPool* mem_pool) = 0;
 
   virtual Time MaxTime() const = 0;
+
+ protected:
+  Table(TableMetrics metrics, const schema::Relation& relation, size_t max_table_size)
+      : metrics_(metrics), rel_(relation), max_table_size_(max_table_size) {}
+  mutable absl::base_internal::SpinLock hot_lock_;
+
+  TableMetrics metrics_;
+
+  schema::Relation rel_;
+
+  int64_t max_table_size_ = 0;
+
+  int64_t time_col_idx_ = -1;
 
   friend class Cursor;
 };
@@ -403,18 +416,12 @@ class HotColdTable : public Table {
  private:
   Time MaxTime() const override;
 
-  TableMetrics metrics_;
-
-  schema::Relation rel_;
-
   mutable absl::base_internal::SpinLock stats_lock_;
   int64_t batches_expired_ ABSL_GUARDED_BY(stats_lock_) = 0;
   int64_t batches_added_ ABSL_GUARDED_BY(stats_lock_) = 0;
   int64_t bytes_added_ ABSL_GUARDED_BY(stats_lock_) = 0;
   int64_t compacted_batches_ ABSL_GUARDED_BY(stats_lock_) = 0;
-  int64_t max_table_size_ = 0;
   const int64_t compacted_batch_size_;
-  mutable absl::base_internal::SpinLock hot_lock_;
   std::unique_ptr<internal::StoreWithRowTimeAccounting<internal::StoreType::Hot>> hot_store_
       ABSL_GUARDED_BY(hot_lock_);
 
@@ -426,7 +433,6 @@ class HotColdTable : public Table {
   // Counter to assign a unique row ID to each row. Synchronized by hot_lock_ since its only
   // accessed on a hot write.
   int64_t next_row_id_ ABSL_GUARDED_BY(hot_lock_) = 0;
-  int64_t time_col_idx_ = -1;
 
   Status WriteHot(internal::RecordOrRowBatch&& record_or_row_batch);
 
@@ -444,6 +450,100 @@ class HotColdTable : public Table {
 };
 
 class HotOnlyTable : public Table {
+ using RowID = internal::RowID;
+ public:
+  using StopPosition = int64_t;
+  static inline std::shared_ptr<Table> Create(std::string_view table_name,
+                                              const schema::Relation& relation) {
+    // Create naked pointer, because std::make_shared() cannot access the private ctor.
+    return std::shared_ptr<Table>(
+        new HotOnlyTable(table_name, relation, FLAGS_table_store_table_size_limit));
+  }
+
+  /**
+   * @brief Construct a new Table object along with its columns. Can be used to create
+   * a table (along with columns) based on a subscription message from Stirling.
+   *
+   * @param relation the relation for the table.
+   * @param max_table_size the maximum number of bytes that the table can hold. This is limitless
+   * (-1) by default.
+   */
+  explicit HotOnlyTable(std::string_view table_name, const schema::Relation& relation,
+                 size_t max_table_size);
+
+  /**
+   * Get a RowBatch of data corresponding to the next data after the given cursor.
+   * @param cursor the Cursor to get the next row batch after.
+   * @param cols a vector of column indices to get data for.
+   * @return a unique ptr to a RowBatch with the requested data.
+   */
+  StatusOr<std::unique_ptr<schema::RowBatch>> GetNextRowBatch(
+      Cursor* cursor, const std::vector<int64_t>& cols) const override;
+
+  /**
+   * Get the unique identifier of the first row in the table.
+   * If all the data is expired from the table, this returns the last row id that was in the table.
+   * @return unique identifier of the first row.
+   */
+  RowID FirstRowID() const override;
+
+  /**
+   * Get the unique identifier of the last row in the table.
+   * If all the data is expired from the table, this returns the last row id that was in the table.
+   * @return unique identifier of the last row.
+   */
+  RowID LastRowID() const override;
+
+  /**
+   * Find the unique identifier of the first row for which its corresponding time is greater than or
+   * equal to the given time.
+   * @param time the time to search for.
+   * @return unique identifier of the first row with time greater than or equal to the given time.
+   */
+  RowID FindRowIDFromTimeFirstGreaterThanOrEqual(Time time) const override;
+
+  /**
+   * Find the unique identifier of the first row for which its corresponding time is greater than
+   * the given time.
+   * @param time the time to search for.
+   * @return unique identifier of the first row with time greater than the given time.
+   */
+  RowID FindRowIDFromTimeFirstGreaterThan(Time time) const override;
+
+  /**
+   * Writes a row batch to the table.
+   * @param rb Rowbatch to write to the table.
+   */
+  Status WriteRowBatch(const schema::RowBatch& rb) override;
+
+  /**
+   * Transfers the given record batch (from Stirling) into the Table.
+   *
+   * @param record_batch the record batch to be appended to the Table.
+   * @return status
+   */
+  Status TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch) override;
+
+  schema::Relation GetRelation() const override;
+
+  /**
+   * Covert the table and store in passed in proto.
+   * @param table_proto The table proto to write to.
+   * @return Status of conversion.
+   */
+  Status ToProto(table_store::schemapb::Table* table_proto) const override;
+
+  TableStats GetTableStats() const override;
+
+  /**
+   * Compacts hot batches into compacted_batch_size_ sized cold batches. Each call to
+   * CompactHotToCold will create a maximum of kMaxBatchesPerCompactionCall cold batches.
+   * @param mem_pool arrow MemoryPool to be used for creating new cold batches.
+   */
+  Status CompactHotToCold(arrow::MemoryPool* mem_pool) override;
+
+ private:
+  Time MaxTime() const override;
 };
 
 }  // namespace table_store

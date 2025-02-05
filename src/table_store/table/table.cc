@@ -169,9 +169,7 @@ StatusOr<std::unique_ptr<schema::RowBatch>> Cursor::GetNextRowBatch(
 
 HotColdTable::HotColdTable(std::string_view table_name, const schema::Relation& relation, size_t max_table_size,
              size_t compacted_batch_size)
-    : metrics_(&(GetMetricsRegistry()), std::string(table_name)),
-      rel_(relation),
-      max_table_size_(max_table_size),
+    : Table(TableMetrics(&(GetMetricsRegistry()), std::string(table_name)), relation, max_table_size),
       compacted_batch_size_(compacted_batch_size),
       // TODO(james): move mem_pool into constructor.
       compactor_(rel_, arrow::default_memory_pool()) {
@@ -527,6 +525,58 @@ Status HotColdTable::UpdateTableMetricGauges() {
   metrics_.retention_ns_gauge.Set(current_retention_ns);
   return Status::OK();
 }
+
+HotOnlyTable::HotOnlyTable(std::string_view table_name, const schema::Relation& relation, size_t max_table_size)
+    : Table(TableMetrics(&(GetMetricsRegistry()), std::string(table_name)), relation, max_table_size) {
+  absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
+  for (const auto& [i, col_name] : Enumerate(rel_.col_names())) {
+    if (col_name == "time_" && rel_.GetColumnType(i) == types::DataType::TIME64NS) {
+      time_col_idx_ = i;
+    }
+  }
+}
+
+StatusOr<std::unique_ptr<schema::RowBatch>> HotOnlyTable::GetNextRowBatch(
+    Cursor* /*cursor*/, const std::vector<int64_t>& /*cols*/) const {
+  return error::InvalidArgument("HotOnlyTable does not support GetNextRowBatch.");
+}
+
+Table::RowID HotOnlyTable::FirstRowID() const { return -1; }
+
+Table::RowID HotOnlyTable::LastRowID() const { return -1; }
+
+Table::RowID HotOnlyTable::FindRowIDFromTimeFirstGreaterThanOrEqual(Time /*time*/) const { return -1; }
+
+Table::RowID HotOnlyTable::FindRowIDFromTimeFirstGreaterThan(Time /*time*/) const { return -1; }
+
+Status HotOnlyTable::WriteRowBatch(const schema::RowBatch& /*rb*/) { return Status::OK(); }
+
+Status HotOnlyTable::TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> /*record_batch*/) {
+  return Status::OK();
+}
+
+Status HotOnlyTable::ToProto(table_store::schemapb::Table* /*table_proto*/) const { return Status::OK(); }
+
+schema::Relation HotOnlyTable::GetRelation() const { return rel_; }
+
+TableStats HotOnlyTable::GetTableStats() const {
+  TableStats info;
+  info.batches_added = 0;
+  info.batches_expired = 0;
+  info.bytes_added = 0;
+  info.num_batches = 0;
+  info.bytes = 0;
+  info.hot_bytes = 0;
+  info.cold_bytes = 0;
+  info.compacted_batches = 0;
+  info.max_table_size = max_table_size_;
+  info.min_time = -1;
+  return info;
+}
+
+Status HotOnlyTable::CompactHotToCold(arrow::MemoryPool* /*mem_pool*/) { return Status::OK(); }
+
+Table::Time HotOnlyTable::MaxTime() const { return -1; }
 
 }  // namespace table_store
 }  // namespace px

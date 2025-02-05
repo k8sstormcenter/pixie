@@ -163,6 +163,7 @@ class Cursor {
 
   friend class Table;
   friend class HotColdTable;
+  friend class HotOnlyTable;
 };
 
 
@@ -179,6 +180,8 @@ class Table : public NotCopyable {
 
   Table() = delete;
   virtual ~Table() = default;
+
+  schema::Relation GetRelation() const { return rel_; }
 
   /**
    * Get a RowBatch of data corresponding to the next data after the given cursor.
@@ -220,22 +223,6 @@ class Table : public NotCopyable {
   virtual RowID FindRowIDFromTimeFirstGreaterThan(Time time) const = 0;
 
   /**
-   * Writes a row batch to the table.
-   * @param rb Rowbatch to write to the table.
-   */
-  virtual Status WriteRowBatch(const schema::RowBatch& rb) = 0;
-
-  /**
-   * Transfers the given record batch (from Stirling) into the Table.
-   *
-   * @param record_batch the record batch to be appended to the Table.
-   * @return status
-   */
-  virtual Status TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch) = 0;
-
-  virtual schema::Relation GetRelation() const = 0;
-
-  /**
    * Covert the table and store in passed in proto.
    * @param table_proto The table proto to write to.
    * @return Status of conversion.
@@ -251,11 +238,120 @@ class Table : public NotCopyable {
    */
   virtual Status CompactHotToCold(arrow::MemoryPool* mem_pool) = 0;
 
-  virtual Time MaxTime() const = 0;
+  /**
+   * Transfers the given record batch (from Stirling) into the Table.
+   *
+   * @param record_batch the record batch to be appended to the Table.
+   * @return status
+   */
+  Status TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch) {
+    // Don't transfer over empty row batches.
+    if (record_batch->empty() || record_batch->at(0)->Size() == 0) {
+      return Status::OK();
+    }
+  
+    auto record_batch_w_cache = internal::RecordBatchWithCache{
+        std::move(record_batch),
+        std::vector<ArrowArrayPtr>(rel_.NumColumns()),
+        std::vector<bool>(rel_.NumColumns(), false),
+    };
+    internal::RecordOrRowBatch record_or_row_batch(std::move(record_batch_w_cache));
+  
+    PX_RETURN_IF_ERROR(WriteHot(std::move(record_or_row_batch)));
+    return Status::OK();
+  }
+
+  /**
+   * Writes a row batch to the table.
+   * @param rb Rowbatch to write to the table.
+   */
+  Status WriteRowBatch(const schema::RowBatch& rb) {
+    // Don't write empty row batches.
+    if (rb.num_columns() == 0 || rb.ColumnAt(0)->length() == 0) {
+      return Status::OK();
+    }
+  
+    internal::RecordOrRowBatch record_or_row_batch(rb);
+  
+    PX_RETURN_IF_ERROR(WriteHot(std::move(record_or_row_batch)));
+    return Status::OK();
+  }
 
  protected:
+
+  virtual Time MaxTime() const = 0;
+
+  virtual Status ExpireBatch() = 0;
+
+  virtual Status UpdateTableMetricGauges() = 0;
+
   Table(TableMetrics metrics, const schema::Relation& relation, size_t max_table_size)
       : metrics_(metrics), rel_(relation), max_table_size_(max_table_size) {}
+
+  Status ExpireHot() {
+    absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
+    if (hot_store_->Size() == 0) {
+      return error::InvalidArgument("Failed to expire row batch, no row batches in table");
+    }
+    hot_store_->PopFront();
+    batch_size_accountant_->ExpireHotBatch();
+    return Status::OK();
+  }
+
+  Status ExpireRowBatches(int64_t row_batch_size) {
+    if (row_batch_size > max_table_size_) {
+      return error::InvalidArgument("RowBatch size ($0) is bigger than maximum table size ($1).",
+                                    row_batch_size, max_table_size_);
+    }
+    int64_t bytes;
+    {
+      absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
+      bytes = batch_size_accountant_->HotBytes() + batch_size_accountant_->ColdBytes();
+    }
+    while (bytes + row_batch_size > max_table_size_) {
+      PX_RETURN_IF_ERROR(ExpireBatch());
+      {
+        absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
+        bytes = batch_size_accountant_->HotBytes() + batch_size_accountant_->ColdBytes();
+      }
+      {
+        absl::base_internal::SpinLockHolder lock(&stats_lock_);
+        batches_expired_++;
+        metrics_.batches_expired_counter.Increment();
+      }
+    }
+    return Status::OK();
+  }
+
+  Status WriteHot(internal::RecordOrRowBatch&& record_or_row_batch) {
+    // See BatchSizeAccountantNonMutableState for an explanation of the thread safety and necessity of
+    // NonMutableState.
+    auto batch_stats = internal::BatchSizeAccountant::CalcBatchStats(
+        ABSL_TS_UNCHECKED_READ(batch_size_accountant_)->NonMutableState(), record_or_row_batch);
+  
+    PX_RETURN_IF_ERROR(ExpireRowBatches(batch_stats.bytes));
+  
+    {
+      absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
+      auto batch_length = record_or_row_batch.Length();
+      batch_size_accountant_->NewHotBatch(std::move(batch_stats));
+      hot_store_->EmplaceBack(next_row_id_, std::move(record_or_row_batch));
+      next_row_id_ += batch_length;
+    }
+  
+    {
+      absl::base_internal::SpinLockHolder lock(&stats_lock_);
+      ++batches_added_;
+      metrics_.batches_added_counter.Increment();
+      bytes_added_ += batch_stats.bytes;
+      metrics_.bytes_added_counter.Increment(batch_stats.bytes);
+    }
+  
+    // Make sure locks are released for this call, since they are reacquired inside.
+    PX_RETURN_IF_ERROR(UpdateTableMetricGauges());
+    return Status::OK();
+  }
+
   mutable absl::base_internal::SpinLock hot_lock_;
 
   TableMetrics metrics_;
@@ -265,6 +361,21 @@ class Table : public NotCopyable {
   int64_t max_table_size_ = 0;
 
   int64_t time_col_idx_ = -1;
+
+  mutable absl::base_internal::SpinLock stats_lock_;
+  int64_t batches_expired_ ABSL_GUARDED_BY(stats_lock_) = 0;
+  int64_t batches_added_ ABSL_GUARDED_BY(stats_lock_) = 0;
+  int64_t bytes_added_ ABSL_GUARDED_BY(stats_lock_) = 0;
+  int64_t compacted_batches_ ABSL_GUARDED_BY(stats_lock_) = 0;
+
+  std::unique_ptr<internal::StoreWithRowTimeAccounting<internal::StoreType::Hot>> hot_store_
+      ABSL_GUARDED_BY(hot_lock_);
+
+  // Counter to assign a unique row ID to each row. Synchronized by hot_lock_ since its only
+  // accessed on a hot write.
+  int64_t next_row_id_ ABSL_GUARDED_BY(hot_lock_) = 0;
+
+  std::unique_ptr<internal::BatchSizeAccountant> batch_size_accountant_ ABSL_GUARDED_BY(hot_lock_);
 
   friend class Cursor;
 };
@@ -382,20 +493,12 @@ class HotColdTable : public Table {
   RowID FindRowIDFromTimeFirstGreaterThan(Time time) const override;
 
   /**
-   * Writes a row batch to the table.
-   * @param rb Rowbatch to write to the table.
-   */
-  Status WriteRowBatch(const schema::RowBatch& rb) override;
-
-  /**
    * Transfers the given record batch (from Stirling) into the Table.
    *
    * @param record_batch the record batch to be appended to the Table.
    * @return status
    */
-  Status TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch) override;
-
-  schema::Relation GetRelation() const override;
+  /* Status TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch) override; */
 
   /**
    * Covert the table and store in passed in proto.
@@ -416,35 +519,20 @@ class HotColdTable : public Table {
  private:
   Time MaxTime() const override;
 
-  mutable absl::base_internal::SpinLock stats_lock_;
-  int64_t batches_expired_ ABSL_GUARDED_BY(stats_lock_) = 0;
-  int64_t batches_added_ ABSL_GUARDED_BY(stats_lock_) = 0;
-  int64_t bytes_added_ ABSL_GUARDED_BY(stats_lock_) = 0;
-  int64_t compacted_batches_ ABSL_GUARDED_BY(stats_lock_) = 0;
+  Status ExpireBatch() override;
+
+  Status UpdateTableMetricGauges() override;
+
   const int64_t compacted_batch_size_;
-  std::unique_ptr<internal::StoreWithRowTimeAccounting<internal::StoreType::Hot>> hot_store_
-      ABSL_GUARDED_BY(hot_lock_);
 
   mutable absl::base_internal::SpinLock cold_lock_;
   std::unique_ptr<internal::StoreWithRowTimeAccounting<internal::StoreType::Cold>> cold_store_
       ABSL_GUARDED_BY(cold_lock_);
   std::deque<int64_t> cold_batch_bytes_ ABSL_GUARDED_BY(cold_lock_);
 
-  // Counter to assign a unique row ID to each row. Synchronized by hot_lock_ since its only
-  // accessed on a hot write.
-  int64_t next_row_id_ ABSL_GUARDED_BY(hot_lock_) = 0;
-
-  Status WriteHot(internal::RecordOrRowBatch&& record_or_row_batch);
-
-  Status ExpireBatch();
-  Status ExpireHot();
   StatusOr<bool> ExpireCold();
-  Status ExpireRowBatches(int64_t row_batch_size);
   Status CompactSingleBatchUnlocked(arrow::MemoryPool* mem_pool)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(cold_lock_) ABSL_EXCLUSIVE_LOCKS_REQUIRED(hot_lock_);
-  Status UpdateTableMetricGauges();
-
-  std::unique_ptr<internal::BatchSizeAccountant> batch_size_accountant_ ABSL_GUARDED_BY(hot_lock_);
 
   internal::ArrowArrayCompactor compactor_;
 };
@@ -511,20 +599,12 @@ class HotOnlyTable : public Table {
   RowID FindRowIDFromTimeFirstGreaterThan(Time time) const override;
 
   /**
-   * Writes a row batch to the table.
-   * @param rb Rowbatch to write to the table.
-   */
-  Status WriteRowBatch(const schema::RowBatch& rb) override;
-
-  /**
    * Transfers the given record batch (from Stirling) into the Table.
    *
    * @param record_batch the record batch to be appended to the Table.
    * @return status
    */
-  Status TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch) override;
-
-  schema::Relation GetRelation() const override;
+  /* Status TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch) override; */
 
   /**
    * Covert the table and store in passed in proto.
@@ -544,6 +624,12 @@ class HotOnlyTable : public Table {
 
  private:
   Time MaxTime() const override;
+
+  Status ExpireBatch() override;
+
+  Status UpdateTableMetricGauges() override;
+
+  friend class Cursor;
 };
 
 }  // namespace table_store

@@ -235,90 +235,6 @@ StatusOr<std::unique_ptr<schema::RowBatch>> HotColdTable::GetNextRowBatch(
   return rb;
 }
 
-Status HotColdTable::ExpireRowBatches(int64_t row_batch_size) {
-  if (row_batch_size > max_table_size_) {
-    return error::InvalidArgument("RowBatch size ($0) is bigger than maximum table size ($1).",
-                                  row_batch_size, max_table_size_);
-  }
-  int64_t bytes;
-  {
-    absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
-    bytes = batch_size_accountant_->HotBytes() + batch_size_accountant_->ColdBytes();
-  }
-  while (bytes + row_batch_size > max_table_size_) {
-    PX_RETURN_IF_ERROR(ExpireBatch());
-    {
-      absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
-      bytes = batch_size_accountant_->HotBytes() + batch_size_accountant_->ColdBytes();
-    }
-    {
-      absl::base_internal::SpinLockHolder lock(&stats_lock_);
-      batches_expired_++;
-      metrics_.batches_expired_counter.Increment();
-    }
-  }
-  return Status::OK();
-}
-
-Status HotColdTable::WriteRowBatch(const schema::RowBatch& rb) {
-  // Don't write empty row batches.
-  if (rb.num_columns() == 0 || rb.ColumnAt(0)->length() == 0) {
-    return Status::OK();
-  }
-
-  internal::RecordOrRowBatch record_or_row_batch(rb);
-
-  PX_RETURN_IF_ERROR(WriteHot(std::move(record_or_row_batch)));
-  return Status::OK();
-}
-
-Status HotColdTable::TransferRecordBatch(
-    std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch) {
-  // Don't transfer over empty row batches.
-  if (record_batch->empty() || record_batch->at(0)->Size() == 0) {
-    return Status::OK();
-  }
-
-  auto record_batch_w_cache = internal::RecordBatchWithCache{
-      std::move(record_batch),
-      std::vector<ArrowArrayPtr>(rel_.NumColumns()),
-      std::vector<bool>(rel_.NumColumns(), false),
-  };
-  internal::RecordOrRowBatch record_or_row_batch(std::move(record_batch_w_cache));
-
-  PX_RETURN_IF_ERROR(WriteHot(std::move(record_or_row_batch)));
-  return Status::OK();
-}
-
-Status HotColdTable::WriteHot(internal::RecordOrRowBatch&& record_or_row_batch) {
-  // See BatchSizeAccountantNonMutableState for an explanation of the thread safety and necessity of
-  // NonMutableState.
-  auto batch_stats = internal::BatchSizeAccountant::CalcBatchStats(
-      ABSL_TS_UNCHECKED_READ(batch_size_accountant_)->NonMutableState(), record_or_row_batch);
-
-  PX_RETURN_IF_ERROR(ExpireRowBatches(batch_stats.bytes));
-
-  {
-    absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
-    auto batch_length = record_or_row_batch.Length();
-    batch_size_accountant_->NewHotBatch(std::move(batch_stats));
-    hot_store_->EmplaceBack(next_row_id_, std::move(record_or_row_batch));
-    next_row_id_ += batch_length;
-  }
-
-  {
-    absl::base_internal::SpinLockHolder lock(&stats_lock_);
-    ++batches_added_;
-    metrics_.batches_added_counter.Increment();
-    bytes_added_ += batch_stats.bytes;
-    metrics_.bytes_added_counter.Increment(batch_stats.bytes);
-  }
-
-  // Make sure locks are released for this call, since they are reacquired inside.
-  PX_RETURN_IF_ERROR(UpdateTableMetricGauges());
-  return Status::OK();
-}
-
 Table::RowID HotColdTable::FirstRowID() const {
   absl::base_internal::SpinLockHolder cold_lock(&cold_lock_);
   if (cold_store_->Size() > 0) {
@@ -382,8 +298,6 @@ Table::RowID HotColdTable::FindRowIDFromTimeFirstGreaterThan(Time time) const {
   }
   return next_row_id_;
 }
-
-schema::Relation HotColdTable::GetRelation() const { return rel_; }
 
 TableStats HotColdTable::GetTableStats() const {
   TableStats info;
@@ -485,16 +399,6 @@ StatusOr<bool> HotColdTable::ExpireCold() {
   return true;
 }
 
-Status HotColdTable::ExpireHot() {
-  absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
-  if (hot_store_->Size() == 0) {
-    return error::InvalidArgument("Failed to expire row batch, no row batches in table");
-  }
-  hot_store_->PopFront();
-  batch_size_accountant_->ExpireHotBatch();
-  return Status::OK();
-}
-
 Status HotColdTable::ExpireBatch() {
   PX_ASSIGN_OR_RETURN(auto expired_cold, ExpireCold());
   if (expired_cold) {
@@ -534,49 +438,152 @@ HotOnlyTable::HotOnlyTable(std::string_view table_name, const schema::Relation& 
       time_col_idx_ = i;
     }
   }
+  batch_size_accountant_ = internal::BatchSizeAccountant::Create(rel_, 0);
+  // TODO(ddelnano): Move this into the base class constructor
+  hot_store_ = std::make_unique<internal::StoreWithRowTimeAccounting<internal::StoreType::Hot>>(
+      rel_, time_col_idx_);
 }
 
 StatusOr<std::unique_ptr<schema::RowBatch>> HotOnlyTable::GetNextRowBatch(
-    Cursor* /*cursor*/, const std::vector<int64_t>& /*cols*/) const {
-  return error::InvalidArgument("HotOnlyTable does not support GetNextRowBatch.");
+    Cursor* /*cursor*/, const std::vector<int64_t>& cols) const {
+  absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
+  if (hot_store_->Size() == 0) {
+    return error::InvalidArgument("Data after Cursor is not in the table.");
+  }
+  LOG(INFO) << "hot_store_->Size()=" << hot_store_->Size();
+  auto batch = hot_store_->PopFront();
+  LOG(INFO) << hot_store_->Size();
+  std::vector<types::DataType> col_types;
+  for (int64_t col_idx : cols) {
+    DCHECK(static_cast<size_t>(col_idx) < rel_.NumColumns());
+    col_types.push_back(rel_.col_types()[col_idx]);
+  }
+  auto batch_size = batch.Length();
+  auto rb = std::make_unique<schema::RowBatch>(schema::RowDescriptor(col_types), batch_size);
+  PX_RETURN_IF_ERROR(
+        hot_store_->AddBatchSliceToRowBatch(batch, 0, batch_size, cols, rb.get()));
+  return rb;
 }
 
-Table::RowID HotOnlyTable::FirstRowID() const { return -1; }
+Table::RowID HotOnlyTable::FirstRowID() const {
+  absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
+  if (hot_store_->Size() > 0) {
+    return hot_store_->FirstRowID();
+  }
+  return -1;
+}
 
-Table::RowID HotOnlyTable::LastRowID() const { return -1; }
+Table::RowID HotOnlyTable::LastRowID() const {
+  absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
+  if (hot_store_->Size() > 0) {
+    return hot_store_->LastRowID();
+  }
+  return -1;
+}
 
-Table::RowID HotOnlyTable::FindRowIDFromTimeFirstGreaterThanOrEqual(Time /*time*/) const { return -1; }
+Table::RowID HotOnlyTable::FindRowIDFromTimeFirstGreaterThanOrEqual(Time time) const {
+  absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
+  auto optional_row_id = hot_store_->FindRowIDFromTimeFirstGreaterThanOrEqual(time);
+  if (optional_row_id.has_value()) {
+    return optional_row_id.value();
+  }
+  return next_row_id_;
+}
 
-Table::RowID HotOnlyTable::FindRowIDFromTimeFirstGreaterThan(Time /*time*/) const { return -1; }
+Table::RowID HotOnlyTable::FindRowIDFromTimeFirstGreaterThan(Time time) const {
+  absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
+  auto optional_row_id = hot_store_->FindRowIDFromTimeFirstGreaterThan(time);
+  if (optional_row_id.has_value()) {
+    return optional_row_id.value();
+  }
+  return next_row_id_;
+}
 
-Status HotOnlyTable::WriteRowBatch(const schema::RowBatch& /*rb*/) { return Status::OK(); }
+Status HotOnlyTable::ToProto(table_store::schemapb::Table* table_proto) const {
+  CHECK(table_proto != nullptr);
+  std::vector<int64_t> col_selector;
+  for (int64_t i = 0; i < static_cast<int64_t>(rel_.NumColumns()); i++) {
+    col_selector.push_back(i);
+  }
 
-Status HotOnlyTable::TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> /*record_batch*/) {
+  Cursor cursor(this);
+  while (!cursor.Done()) {
+    PX_ASSIGN_OR_RETURN(auto cur_rb, cursor.GetNextRowBatch(col_selector));
+    auto eos = cursor.Done();
+    cur_rb->set_eow(eos);
+    cur_rb->set_eos(eos);
+    PX_RETURN_IF_ERROR(cur_rb->ToProto(table_proto->add_row_batches()));
+  }
+
+  PX_RETURN_IF_ERROR(rel_.ToProto(table_proto->mutable_relation()));
   return Status::OK();
 }
 
-Status HotOnlyTable::ToProto(table_store::schemapb::Table* /*table_proto*/) const { return Status::OK(); }
-
-schema::Relation HotOnlyTable::GetRelation() const { return rel_; }
-
 TableStats HotOnlyTable::GetTableStats() const {
   TableStats info;
-  info.batches_added = 0;
-  info.batches_expired = 0;
-  info.bytes_added = 0;
-  info.num_batches = 0;
-  info.bytes = 0;
-  info.hot_bytes = 0;
-  info.cold_bytes = 0;
-  info.compacted_batches = 0;
+  int64_t min_time = -1;
+  int64_t num_batches = 0;
+  int64_t hot_bytes = 0;
+  int64_t cold_bytes = 0;
+  {
+    absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
+    num_batches += hot_store_->Size();
+    hot_bytes = batch_size_accountant_->HotBytes();
+    if (min_time == -1) {
+      min_time = hot_store_->MinTime();
+    }
+  }
+  absl::base_internal::SpinLockHolder lock(&stats_lock_);
+
+  info.batches_added = batches_added_;
+  info.batches_expired = batches_expired_;
+  info.bytes_added = bytes_added_;
+  info.num_batches = num_batches;
+  info.bytes = hot_bytes + cold_bytes;
+  info.hot_bytes = hot_bytes;
+  info.cold_bytes = cold_bytes;
+  info.compacted_batches = compacted_batches_;
   info.max_table_size = max_table_size_;
-  info.min_time = -1;
+  info.min_time = min_time;
+
   return info;
 }
 
-Status HotOnlyTable::CompactHotToCold(arrow::MemoryPool* /*mem_pool*/) { return Status::OK(); }
+Status HotOnlyTable::CompactHotToCold(arrow::MemoryPool* /*mem_pool*/) {
+  return error::InvalidArgument("HotOnlyTable does not support CompactHotToCold.");
+}
 
-Table::Time HotOnlyTable::MaxTime() const { return -1; }
+Table::Time HotOnlyTable::MaxTime() const {
+  absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
+  if (hot_store_->Size() > 0) {
+    return hot_store_->MaxTime();
+  }
+  return -1;
+}
+
+Status HotOnlyTable::ExpireBatch() {
+  return ExpireHot();
+}
+
+Status HotOnlyTable::UpdateTableMetricGauges() {
+  // Update table-level gauge values.
+  auto stats = GetTableStats();
+  // Set gauge values
+  metrics_.hot_bytes_gauge.Set(stats.hot_bytes);
+  metrics_.num_batches_gauge.Set(stats.num_batches);
+  metrics_.max_table_size_gauge.Set(stats.max_table_size);
+  // Compute retention gauge
+  int64_t current_retention_ns = 0;
+  // If min_time is 0, there is no data in the table.
+  if (stats.min_time > 0) {
+    int64_t current_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                  std::chrono::system_clock::now().time_since_epoch())
+                                  .count();
+    current_retention_ns = current_time_ns - stats.min_time;
+  }
+  metrics_.retention_ns_gauge.Set(current_retention_ns);
+  return Status::OK();
+}
 
 }  // namespace table_store
 }  // namespace px

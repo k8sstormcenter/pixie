@@ -176,16 +176,16 @@ class StoreWithRowTimeAccounting {
    * PopFront removes the first batch in the store, and returns an rvalue reference to it.
    * @return rvalue reference to the removed batch.
    */
-  TBatch&& PopFront() {
+  TBatch PopFront() {
     DCHECK(!batches_.empty());
     first_batch_id_++;
 
     row_ids_.pop_front();
     if (time_col_idx_ != -1) times_.pop_front();
 
-    auto&& front = std::move(batches_.front());
+    auto front = std::move(batches_.front());
     batches_.pop_front();
-    return std::move(front);
+    return front;
   }
 
   /**
@@ -196,10 +196,7 @@ class StoreWithRowTimeAccounting {
    */
   template <typename... Args>
   TBatch& EmplaceBack(RowID first_row_id, Args... args) {
-    LOG(INFO) << "EmplaceBack first_row_id=" << first_row_id << " args...=" << sizeof...(args);
-    LOG(INFO) << "batches_size()=" << batches_.size();
     auto& batch = batches_.emplace_back(std::forward<Args>(args)...);
-    LOG(INFO) << "After batches_size()=" << batches_.size();
 
     row_ids_.emplace_back(first_row_id, first_row_id + BatchLength(batch) - 1);
     if (time_col_idx_ != -1) {

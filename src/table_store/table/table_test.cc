@@ -56,6 +56,27 @@ std::shared_ptr<Table> TestTable() {
   return table;
 }
 
+std::shared_ptr<Table> HotOnlyTestTable() {
+  schema::Relation rel({types::DataType::FLOAT64, types::DataType::INT64}, {"col1", "col2"});
+  auto table = HotOnlyTable::Create("test_table", rel);
+
+  auto rb1 = schema::RowBatch(schema::RowDescriptor(rel.col_types()), 3);
+  std::vector<types::Float64Value> col1_in1 = {0.5, 1.2, 5.3};
+  std::vector<types::Int64Value> col2_in1 = {1, 2, 3};
+  PX_CHECK_OK(rb1.AddColumn(types::ToArrow(col1_in1, arrow::default_memory_pool())));
+  PX_CHECK_OK(rb1.AddColumn(types::ToArrow(col2_in1, arrow::default_memory_pool())));
+  PX_CHECK_OK(table->WriteRowBatch(rb1));
+
+  auto rb2 = schema::RowBatch(schema::RowDescriptor(rel.col_types()), 2);
+  std::vector<types::Float64Value> col1_in2 = {0.1, 5.1};
+  std::vector<types::Int64Value> col2_in2 = {5, 6};
+  PX_CHECK_OK(rb2.AddColumn(types::ToArrow(col1_in2, arrow::default_memory_pool())));
+  PX_CHECK_OK(rb2.AddColumn(types::ToArrow(col2_in2, arrow::default_memory_pool())));
+  PX_CHECK_OK(table->WriteRowBatch(rb2));
+
+  return table;
+}
+
 }  // namespace
 
 TEST(TableTest, basic_test) {
@@ -133,6 +154,59 @@ TEST(TableTest, bytes_test) {
   schema::Relation rel(rd.types(), {"col1", "col2"});
 
   std::shared_ptr<Table> table_ptr = HotColdTable::Create("test_table", rel);
+  Table& table = *table_ptr;
+
+  schema::RowBatch rb1(rd, 3);
+  std::vector<types::Int64Value> col1_rb1 = {4, 5, 10};
+  std::vector<types::StringValue> col2_rb1 = {"hello", "abc", "defg"};
+  auto col1_rb1_arrow = types::ToArrow(col1_rb1, arrow::default_memory_pool());
+  auto col2_rb1_arrow = types::ToArrow(col2_rb1, arrow::default_memory_pool());
+  EXPECT_OK(rb1.AddColumn(col1_rb1_arrow));
+  EXPECT_OK(rb1.AddColumn(col2_rb1_arrow));
+  int64_t rb1_size = 3 * sizeof(int64_t) + 12 * sizeof(char) + 3 * sizeof(uint32_t);
+
+  EXPECT_OK(table.WriteRowBatch(rb1));
+  EXPECT_EQ(table.GetTableStats().bytes, rb1_size);
+
+  schema::RowBatch rb2(rd, 2);
+  std::vector<types::Int64Value> col1_rb2 = {4, 5};
+  std::vector<types::StringValue> col2_rb2 = {"a", "bc"};
+  auto col1_rb2_arrow = types::ToArrow(col1_rb2, arrow::default_memory_pool());
+  auto col2_rb2_arrow = types::ToArrow(col2_rb2, arrow::default_memory_pool());
+  EXPECT_OK(rb2.AddColumn(col1_rb2_arrow));
+  EXPECT_OK(rb2.AddColumn(col2_rb2_arrow));
+  int64_t rb2_size = 2 * sizeof(int64_t) + 3 * sizeof(char) + 2 * sizeof(uint32_t);
+
+  EXPECT_OK(table.WriteRowBatch(rb2));
+  EXPECT_EQ(table.GetTableStats().bytes, rb1_size + rb2_size);
+
+  std::vector<types::Int64Value> time_hot_col1 = {1, 5, 3};
+  std::vector<types::StringValue> time_hot_col2 = {"test", "abc", "de"};
+  auto wrapper_batch_1 = std::make_unique<types::ColumnWrapperRecordBatch>();
+  auto col_wrapper_1 = std::make_shared<types::Int64ValueColumnWrapper>(3);
+  col_wrapper_1->Clear();
+  for (const auto& num : time_hot_col1) {
+    col_wrapper_1->Append(num);
+  }
+  auto col_wrapper_2 = std::make_shared<types::StringValueColumnWrapper>(3);
+  col_wrapper_2->Clear();
+  for (const auto& num : time_hot_col2) {
+    col_wrapper_2->Append(num);
+  }
+  wrapper_batch_1->push_back(col_wrapper_1);
+  wrapper_batch_1->push_back(col_wrapper_2);
+  int64_t rb3_size = 3 * sizeof(int64_t) + 9 * sizeof(char) + 3 * sizeof(uint32_t);
+
+  EXPECT_OK(table.TransferRecordBatch(std::move(wrapper_batch_1)));
+
+  EXPECT_EQ(table.GetTableStats().bytes, rb1_size + rb2_size + rb3_size);
+}
+
+TEST(TableTest, HotOnlyTable_bytes_test) {
+  auto rd = schema::RowDescriptor({types::DataType::INT64, types::DataType::STRING});
+  schema::Relation rel(rd.types(), {"col1", "col2"});
+
+  std::shared_ptr<Table> table_ptr = HotOnlyTable::Create("test_table", rel);
   Table& table = *table_ptr;
 
   schema::RowBatch rb1(rd, 3);
@@ -450,10 +524,76 @@ TEST(TableTest, write_row_batch) {
   EXPECT_TRUE(actual_rb->ColumnAt(1)->Equals(col2_rb1_arrow));
 }
 
+TEST(TableTest, HotOnlyTable_write_row_batch) {
+  auto rd = schema::RowDescriptor({types::DataType::BOOLEAN, types::DataType::INT64});
+  schema::Relation rel({types::DataType::BOOLEAN, types::DataType::INT64}, {"col1", "col2"});
+
+  std::shared_ptr<Table> table_ptr = HotOnlyTable::Create("test_table", rel);
+  Table& table = *table_ptr;
+
+  schema::RowBatch rb1(rd, 2);
+  std::vector<types::BoolValue> col1_rb1 = {true, false};
+  std::vector<types::Int64Value> col2_rb1 = {1, 2};
+  auto col1_rb1_arrow = types::ToArrow(col1_rb1, arrow::default_memory_pool());
+  auto col2_rb1_arrow = types::ToArrow(col2_rb1, arrow::default_memory_pool());
+  EXPECT_OK(rb1.AddColumn(col1_rb1_arrow));
+  EXPECT_OK(rb1.AddColumn(col2_rb1_arrow));
+
+  EXPECT_OK(table.WriteRowBatch(rb1));
+
+  Cursor cursor(table_ptr.get());
+  auto rb_or_s = cursor.GetNextRowBatch({0, 1});
+  ASSERT_OK(rb_or_s);
+  auto actual_rb = rb_or_s.ConsumeValueOrDie();
+  EXPECT_TRUE(actual_rb->ColumnAt(0)->Equals(col1_rb1_arrow));
+  EXPECT_TRUE(actual_rb->ColumnAt(1)->Equals(col2_rb1_arrow));
+}
+
 TEST(TableTest, hot_batches_test) {
   schema::Relation rel({types::DataType::BOOLEAN, types::DataType::INT64}, {"col1", "col2"});
 
   std::shared_ptr<Table> table_ptr = HotColdTable::Create("table_name", rel);
+  Table& table = *table_ptr;
+
+  std::vector<types::BoolValue> col1_in1 = {true, false, true};
+  auto col1_in1_wrapper =
+      types::ColumnWrapper::FromArrow(types::ToArrow(col1_in1, arrow::default_memory_pool()));
+  std::vector<types::BoolValue> col1_in2 = {false, false};
+  auto col1_in2_wrapper =
+      types::ColumnWrapper::FromArrow(types::ToArrow(col1_in2, arrow::default_memory_pool()));
+
+  std::vector<types::Int64Value> col2_in1 = {1, 2, 3};
+  auto col2_in1_wrapper =
+      types::ColumnWrapper::FromArrow(types::ToArrow(col2_in1, arrow::default_memory_pool()));
+  std::vector<types::Int64Value> col2_in2 = {5, 6};
+  auto col2_in2_wrapper =
+      types::ColumnWrapper::FromArrow(types::ToArrow(col2_in2, arrow::default_memory_pool()));
+
+  auto rb_wrapper_1 = std::make_unique<types::ColumnWrapperRecordBatch>();
+  rb_wrapper_1->push_back(col1_in1_wrapper);
+  rb_wrapper_1->push_back(col2_in1_wrapper);
+  EXPECT_OK(table.TransferRecordBatch(std::move(rb_wrapper_1)));
+
+  auto rb_wrapper_2 = std::make_unique<types::ColumnWrapperRecordBatch>();
+  rb_wrapper_2->push_back(col1_in2_wrapper);
+  rb_wrapper_2->push_back(col2_in2_wrapper);
+  EXPECT_OK(table.TransferRecordBatch(std::move(rb_wrapper_2)));
+
+  Cursor cursor(table_ptr.get());
+  auto rb1 = cursor.GetNextRowBatch({0, 1}).ConsumeValueOrDie();
+  EXPECT_TRUE(rb1->ColumnAt(0)->Equals(types::ToArrow(col1_in1, arrow::default_memory_pool())));
+  EXPECT_TRUE(rb1->ColumnAt(1)->Equals(types::ToArrow(col2_in1, arrow::default_memory_pool())));
+
+  auto rb2 = cursor.GetNextRowBatch({0, 1}).ConsumeValueOrDie();
+  ASSERT_NE(rb2, nullptr);
+  EXPECT_TRUE(rb2->ColumnAt(0)->Equals(types::ToArrow(col1_in2, arrow::default_memory_pool())));
+  EXPECT_TRUE(rb2->ColumnAt(1)->Equals(types::ToArrow(col2_in2, arrow::default_memory_pool())));
+}
+
+TEST(TableTest, HotOnlyTable_hot_batches_test) {
+  schema::Relation rel({types::DataType::BOOLEAN, types::DataType::INT64}, {"col1", "col2"});
+
+  std::shared_ptr<Table> table_ptr = HotOnlyTable::Create("table_name", rel);
   Table& table = *table_ptr;
 
   std::vector<types::BoolValue> col1_in1 = {true, false, true};
@@ -752,6 +892,69 @@ TEST(TableTest, ToProto) {
   EXPECT_TRUE(differ.Compare(expected_proto, table_proto));
 }
 
+// TODO(ddelnano): Not sure if this matters since I believe StopSpec::Inifinite will hit
+// an error for this ToProto test.
+TEST(TableTest, DISABLED_HotOnlyTable_ToProto) {
+  auto table = HotOnlyTestTable();
+  table_store::schemapb::Table table_proto;
+  EXPECT_OK(table->ToProto(&table_proto));
+
+  std::string expected = R"(
+ relation {
+   columns {
+     column_name: "col1"
+     column_type: FLOAT64
+     column_semantic_type: ST_NONE
+   }
+   columns {
+     column_name: "col2"
+     column_type: INT64
+     column_semantic_type: ST_NONE
+   }
+ }
+ row_batches {
+   cols {
+     float64_data {
+       data: 0.5
+       data: 1.2
+       data: 5.3
+     }
+   }
+   cols {
+     int64_data {
+       data: 1
+       data: 2
+       data: 3
+     }
+   }
+   eow: false
+   eos: false
+   num_rows: 3
+ }
+ row_batches {
+   cols {
+     float64_data {
+       data: 0.1
+       data: 5.1
+     }
+   }
+   cols {
+     int64_data {
+       data: 5
+       data: 6
+     }
+   }
+   eow: true
+   eos: true
+   num_rows: 2
+ })";
+
+  google::protobuf::util::MessageDifferencer differ;
+  table_store::schemapb::Table expected_proto;
+  ASSERT_TRUE(google::protobuf::TextFormat::MergeFromString(expected, &expected_proto));
+  EXPECT_TRUE(differ.Compare(expected_proto, table_proto));
+}
+
 TEST(TableTest, transfer_empty_record_batch_test) {
   schema::Relation rel({types::DataType::INT64}, {"col1"});
   schema::RowDescriptor rd({types::DataType::INT64});
@@ -774,11 +977,48 @@ TEST(TableTest, transfer_empty_record_batch_test) {
   EXPECT_EQ(table.GetTableStats().batches_added, 0);
 }
 
+TEST(TableTest, HotOnlyTable_transfer_empty_record_batch_test) {
+  schema::Relation rel({types::DataType::INT64}, {"col1"});
+  schema::RowDescriptor rd({types::DataType::INT64});
+
+  std::shared_ptr<Table> table_ptr = HotOnlyTable::Create("test_table", rel);
+  Table& table = *table_ptr;
+
+  // ColumnWrapper with no columns should not be added to row batches.
+  auto wrapper_batch_1 = std::make_unique<types::ColumnWrapperRecordBatch>();
+  EXPECT_OK(table.TransferRecordBatch(std::move(wrapper_batch_1)));
+
+  EXPECT_EQ(table.GetTableStats().batches_added, 0);
+
+  // Column wrapper with empty columns should not be added to row batches.
+  auto wrapper_batch_2 = std::make_unique<types::ColumnWrapperRecordBatch>();
+  auto col_wrapper_2 = std::make_shared<types::Time64NSValueColumnWrapper>(0);
+  wrapper_batch_2->push_back(col_wrapper_2);
+  EXPECT_OK(table.TransferRecordBatch(std::move(wrapper_batch_2)));
+
+  EXPECT_EQ(table.GetTableStats().batches_added, 0);
+}
+
 TEST(TableTest, write_zero_row_row_batch) {
   schema::Relation rel({types::DataType::BOOLEAN, types::DataType::INT64}, {"col1", "col2"});
   schema::RowDescriptor rd({types::DataType::BOOLEAN, types::DataType::INT64});
 
   std::shared_ptr<Table> table_ptr = HotColdTable::Create("test_table", rel);
+
+  auto result = schema::RowBatch::WithZeroRows(rd, /*eow*/ false, /*eos*/ false);
+  ASSERT_OK(result);
+  auto rb_ptr = result.ConsumeValueOrDie();
+
+  EXPECT_OK(table_ptr->WriteRowBatch(*rb_ptr));
+  // Row batch with 0 rows won't be written.
+  EXPECT_EQ(table_ptr->GetTableStats().batches_added, 0);
+}
+
+TEST(TableTest, HotOnlyTable_write_zero_row_row_batch) {
+  schema::Relation rel({types::DataType::BOOLEAN, types::DataType::INT64}, {"col1", "col2"});
+  schema::RowDescriptor rd({types::DataType::BOOLEAN, types::DataType::INT64});
+
+  std::shared_ptr<Table> table_ptr = HotOnlyTable::Create("test_table", rel);
 
   auto result = schema::RowBatch::WithZeroRows(rd, /*eow*/ false, /*eos*/ false);
   ASSERT_OK(result);

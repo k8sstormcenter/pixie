@@ -26,7 +26,6 @@ namespace table_store {
 namespace internal {
 
 size_t RecordOrRowBatch::Length() const {
-  LOG(INFO) << "batch.index()=" << batch_.index();
   return std::visit(overloaded{
                         [this](const RecordBatchWithCache& record_batch_w_cache) {
                           const auto& record_batch = *record_batch_w_cache.record_batch;

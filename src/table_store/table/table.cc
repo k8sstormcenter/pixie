@@ -438,7 +438,7 @@ HotOnlyTable::HotOnlyTable(std::string_view table_name, const schema::Relation& 
       time_col_idx_ = i;
     }
   }
-  batch_size_accountant_ = internal::BatchSizeAccountant::Create(rel_, 0);
+  batch_size_accountant_ = internal::BatchSizeAccountant::Create(rel_, FLAGS_table_store_table_size_limit);
   // TODO(ddelnano): Move this into the base class constructor
   hot_store_ = std::make_unique<internal::StoreWithRowTimeAccounting<internal::StoreType::Hot>>(
       rel_, time_col_idx_);
@@ -450,9 +450,7 @@ StatusOr<std::unique_ptr<schema::RowBatch>> HotOnlyTable::GetNextRowBatch(
   if (hot_store_->Size() == 0) {
     return error::InvalidArgument("Data after Cursor is not in the table.");
   }
-  LOG(INFO) << "hot_store_->Size()=" << hot_store_->Size();
-  auto batch = hot_store_->PopFront();
-  LOG(INFO) << hot_store_->Size();
+  auto&& batch = hot_store_->PopFront();
   std::vector<types::DataType> col_types;
   for (int64_t col_idx : cols) {
     DCHECK(static_cast<size_t>(col_idx) < rel_.NumColumns());

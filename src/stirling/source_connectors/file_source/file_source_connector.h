@@ -24,11 +24,14 @@
 #include <vector>
 
 #include "src/stirling/core/source_connector.h"
+#include "src/stirling/utils/monitor.h"
 
 namespace px {
 namespace stirling {
 
 class FileSourceConnector : public SourceConnector {
+  using pos_type = std::ifstream::pos_type;
+
  public:
   static constexpr auto kSamplingPeriod = std::chrono::milliseconds{100};
   // Set this high enough to avoid the following error:
@@ -70,6 +73,8 @@ class FileSourceConnector : public SourceConnector {
   std::unique_ptr<DynamicDataTableSchema> table_schema_;
   absl::flat_hash_map<std::string, FileTransferSpec> transfer_specs_;
   int eof_count_ = 0;
+  pos_type last_pos_ = 0;
+  StirlingMonitor& monitor_ = *StirlingMonitor::GetInstance();
 };
 
 StatusOr<BackedDataElements> DataElementsFromJSON(std::ifstream& f_stream);

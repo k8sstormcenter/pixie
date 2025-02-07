@@ -42,6 +42,7 @@ pl_cc_bpf_test(
     args = stirling_profiler_java_args,
     data = agent_libs + [
         px_jattach,
+        "testdata/test.json",
         "//src/stirling/source_connectors/perf_profiler/testing/java:java_image_base-java-profiler-test-image-omit-frame-pointer.tar",
     ],
     flaky = True,

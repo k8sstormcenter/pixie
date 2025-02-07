@@ -52,7 +52,8 @@ TEST(DynamicTraceConnectorTest, DataElementsFromJSON_UnsupportedTypes) {
   auto stream = std::ifstream(file_path);
   auto result = DataElementsFromJSON(stream);
   ASSERT_EQ(result.ok(), false);
-  ASSERT_EQ(result.status().msg(), "Unable to parse JSON key 'unsupported': unsupported type: Object");
+  ASSERT_EQ(result.status().msg(),
+            "Unable to parse JSON key 'unsupported': unsupported type: Object");
 }
 
 }  // namespace stirling

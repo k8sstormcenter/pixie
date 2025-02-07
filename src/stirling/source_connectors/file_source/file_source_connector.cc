@@ -125,36 +125,85 @@ FileSourceConnector::FileSourceConnector(std::string_view source_name,
       name_(source_name),
       file_name_(file_name),
       file_(std::move(file)),
-      table_schema_(std::move(table_schema)) {}
+      table_schema_(std::move(table_schema)),
+      transfer_specs_({
+          {".json", {&FileSourceConnector::TransferDataFromJSON}},
+          {".csv", {&FileSourceConnector::TransferDataFromCSV}},
+      }) {}
 
 Status FileSourceConnector::InitImpl() {
   sampling_freq_mgr_.set_period(kSamplingPeriod);
   push_freq_mgr_.set_period(kPushPeriod);
-  /* auto callback_fn = absl::bind_front(&FileSourceConnector::HandleEvent, this); */
   return Status::OK();
 }
 
 Status FileSourceConnector::StopImpl() {
   LOG(INFO) << "Stopped called";
   file_.close();
-  // check failbit
-  /* if (file_.fail()) { */
-  /*   return error::Internal("Failed to close file: $0 with error=$1", file_name_,
-   * strerror(errno)); */
-  /* } */
   return Status::OK();
 }
 
 constexpr int kMaxLines = 1000;
 
+void FileSourceConnector::TransferDataFromJSON(DataTable::DynamicRecordBuilder* r, uint64_t nanos,
+                                               const std::string& line) {
+  rapidjson::Document d;
+  rapidjson::ParseResult ok = d.Parse(line.c_str());
+  if (!ok) {
+    LOG(ERROR) << absl::Substitute("Failed to parse JSON: $0 $1", line,
+                                   rapidjson::GetParseError_En(ok.Code()));
+    return;
+  }
+  const auto& columns = table_schema_->Get().elements();
+
+  for (size_t col = 0; col < columns.size(); col++) {
+    const auto& column = columns[col];
+    std::string key(column.name());
+    // time_ is inserted by stirling and not within the polled file
+    if (key == "time_") {
+      r->Append(col, types::Time64NSValue(nanos));
+      continue;
+    }
+    const auto& value = d[key.c_str()];
+    switch (column.type()) {
+      case types::DataType::INT64:
+        r->Append(col, types::Int64Value(value.GetInt()));
+        break;
+      case types::DataType::FLOAT64:
+        r->Append(col, types::Float64Value(value.GetDouble()));
+        break;
+      case types::DataType::STRING:
+        r->Append(col, types::StringValue(value.GetString()));
+        break;
+      case types::DataType::BOOLEAN:
+        r->Append(col, types::BoolValue(value.GetBool()));
+        break;
+      default:
+        LOG(FATAL) << absl::Substitute(
+            "Failed to insert field into DataTable: unsupported type '$0'",
+            types::DataType_Name(column.type()));
+    }
+  }
+  return;
+}
+
+void FileSourceConnector::TransferDataFromCSV(DataTable::DynamicRecordBuilder* r, uint64_t nanos,
+                                              const std::string& line) {
+  PX_UNUSED(r);
+  PX_UNUSED(nanos);
+  PX_UNUSED(line);
+  return;
+}
+
 void FileSourceConnector::TransferDataImpl(ConnectorContext* /* ctx */) {
   DCHECK_EQ(data_tables_.size(), 1U) << "Only one table is allowed per FileSourceConnector.";
   int i = 0;
-  rapidjson::Document d;
+  auto extension = file_name_.extension().string();
+  auto transfer_fn = transfer_specs_.at(extension).transfer_fn;
 
   auto now = std::chrono::system_clock::now();
   auto duration = now.time_since_epoch();
-  auto nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
+  uint64_t nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
   while (i < kMaxLines) {
     std::string line;
     std::getline(file_, line);
@@ -162,52 +211,14 @@ void FileSourceConnector::TransferDataImpl(ConnectorContext* /* ctx */) {
     if (file_.eof() || line.empty()) {
       file_.clear();
       LOG_EVERY_N(INFO, 100) << absl::Substitute("Reached EOF for file=$0 eof count=$1 pos=",
-                                                 file_name_.string(), eof_count_) << file_.tellg();
+                                                 file_name_.string(), eof_count_)
+                             << file_.tellg();
       eof_count_++;
       return;
     }
 
-    rapidjson::ParseResult ok = d.Parse(line.c_str());
-    if (!ok) {
-      LOG(ERROR) << absl::Substitute("Failed to parse JSON: $0 $1", line,
-                                     rapidjson::GetParseError_En(ok.Code()));
-      return;
-    }
-
     DataTable::DynamicRecordBuilder r(data_tables_[0]);
-    const auto& columns = table_schema_->Get().elements();
-
-    for (size_t col = 0; col < columns.size(); col++) {
-      const auto& column = columns[col];
-      std::string key(column.name());
-      // time_ is inserted by stirling and not within the polled file
-      if (key == "time_") {
-        r.Append(col, types::Time64NSValue(nanos));
-        continue;
-      }
-      const auto& value = d[key.c_str()];
-      switch (column.type()) {
-        case types::DataType::TIME64NS:
-          r.Append(col, types::Time64NSValue(nanos));
-          break;
-        case types::DataType::INT64:
-          r.Append(col, types::Int64Value(value.GetInt()));
-          break;
-        case types::DataType::FLOAT64:
-          r.Append(col, types::Float64Value(value.GetDouble()));
-          break;
-        case types::DataType::STRING:
-          r.Append(col, types::StringValue(value.GetString()));
-          break;
-        case types::DataType::BOOLEAN:
-          r.Append(col, types::BoolValue(value.GetBool()));
-          break;
-        default:
-          LOG(FATAL) << absl::Substitute(
-              "Failed to insert field into DataTable: unsupported type '$0'",
-              types::DataType_Name(column.type()));
-      }
-    }
+    transfer_fn(*this, &r, nanos, line);
     i++;
   }
 }

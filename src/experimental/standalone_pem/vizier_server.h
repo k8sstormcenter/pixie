@@ -85,6 +85,7 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
       auto file_source_deployments = mutations->FileSourceDeployments();
 
       bool tracepoints_running = true;
+      auto ntp_info = TracepointInfo{};
       for (size_t i = 0; i < deployments.size(); i++) {
         carnot::planner::dynamic_tracing::ir::logical::TracepointDeployment planner_tp;
         auto s = deployments[i]->ToProto(&planner_tp);
@@ -103,7 +104,6 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
           if (!s.ok()) {
             return ::grpc::Status(grpc::StatusCode::INTERNAL, "Failed to register tracepoint");
           }
-          auto ntp_info = TracepointInfo{};
           ntp_info.name = stirling_tp.name();
           ntp_info.id = tp_id;
           ntp_info.current_state = statuspb::PENDING_STATE;

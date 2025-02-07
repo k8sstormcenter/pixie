@@ -45,3 +45,16 @@ pl_cc_test(
         ":cc_library",
     ],
 )
+
+pl_cc_test(
+    name = "stirling_fs_test",
+    srcs = ["stirling_fs_test.cc"],
+    data = [
+        "testdata/test.json",
+        "testdata/unsupported.json",
+    ],
+    deps = [
+        ":cc_library",
+        "//src/stirling:cc_library",
+    ],
+)

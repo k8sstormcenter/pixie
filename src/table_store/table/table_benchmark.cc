@@ -134,11 +134,11 @@ static void BM_TableReadAllCold(benchmark::State& state) {
 }
 
 Cursor GetLastBatchCursor(Table* table, int64_t last_time, int64_t batch_length,
-                                 const std::vector<int64_t>& cols) {
-  Cursor cursor(table,
-                       Cursor::StartSpec{Cursor::StartSpec::StartType::StartAtTime,
-                                                last_time - 2 * batch_length},
-                       Cursor::StopSpec{});
+                          const std::vector<int64_t>& cols) {
+  Cursor cursor(
+      table,
+      Cursor::StartSpec{Cursor::StartSpec::StartType::StartAtTime, last_time - 2 * batch_length},
+      Cursor::StopSpec{});
   // Advance the cursor so that it points to the last batch and has BatchHints set.
   cursor.GetNextRowBatch(cols);
   return cursor;

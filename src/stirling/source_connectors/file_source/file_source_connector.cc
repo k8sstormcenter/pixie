@@ -162,8 +162,9 @@ void FileSourceConnector::TransferDataImpl(ConnectorContext* /* ctx */) {
     std::getline(file_, line);
 
     if (file_.eof() || line.empty()) {
-      LOG_EVERY_N(INFO, 100) << absl::Substitute("Reached EOF for file=$0 eof count=$1",
-                                                 file_name_.string(), eof_count_);
+      file_.clear();
+      LOG_EVERY_N(INFO, 100) << absl::Substitute("Reached EOF for file=$0 eof count=$1 pos=",
+                                                 file_name_.string(), eof_count_) << file_.tellg();
       eof_count_++;
       return;
     }

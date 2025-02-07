@@ -104,8 +104,9 @@ StatusOr<std::pair<BackedDataElements, std::ifstream>> DataElementsFromFile(
 }  // namespace
 
 StatusOr<std::unique_ptr<SourceConnector>> FileSourceConnector::Create(
-    std::string_view source_name, const std::filesystem::path& file_name) {
+    std::string_view source_name, const std::filesystem::path file_name) {
   auto host_path = px::system::Config::GetInstance().ToHostPath(file_name);
+  LOG(INFO) << "Creating file source connector for orig file: " << file_name.string() << " file: " << host_path.string();
   PX_ASSIGN_OR_RETURN(auto data_elements_and_file, DataElementsFromFile(host_path));
   auto& [data_elements, file] = data_elements_and_file;
 
@@ -114,7 +115,7 @@ StatusOr<std::unique_ptr<SourceConnector>> FileSourceConnector::Create(
   std::unique_ptr<DynamicDataTableSchema> table_schema =
       DynamicDataTableSchema::Create(name, "", std::move(data_elements));
   return std::unique_ptr<SourceConnector>(
-      new FileSourceConnector(source_name, host_path, std::move(file), std::move(table_schema)));
+      new FileSourceConnector(source_name, std::move(host_path), std::move(file), std::move(table_schema)));
 }
 
 FileSourceConnector::FileSourceConnector(std::string_view source_name,
@@ -124,7 +125,9 @@ FileSourceConnector::FileSourceConnector(std::string_view source_name,
       name_(source_name),
       file_name_(file_name),
       file_(std::move(file)),
-      table_schema_(std::move(table_schema)) {}
+      table_schema_(std::move(table_schema)) {
+        LOG(INFO) << "FileSourceConnector created for file: " << file_name_.string();
+      }
 
 Status FileSourceConnector::InitImpl() {
   sampling_freq_mgr_.set_period(kSamplingPeriod);
@@ -158,7 +161,7 @@ void FileSourceConnector::TransferDataImpl(ConnectorContext* /* ctx */) {
     std::string line;
     std::getline(file_, line);
 
-    if (file_.eof()) {
+    if (file_.eof() || line.empty()) {
       LOG_EVERY_N(INFO, 100) << absl::Substitute("Reached EOF for file=$0 eof count=$1",
                                                  file_name_.string(), eof_count_);
       eof_count_++;

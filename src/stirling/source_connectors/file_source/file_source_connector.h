@@ -40,7 +40,7 @@ class FileSourceConnector : public SourceConnector {
   static constexpr auto kPushPeriod = std::chrono::milliseconds{7000};
 
   static StatusOr<std::unique_ptr<SourceConnector> > Create(std::string_view source_name,
-                                                            const std::filesystem::path& file_name);
+                                                            const std::filesystem::path file_name);
 
   FileSourceConnector() = delete;
   ~FileSourceConnector() override = default;
@@ -55,7 +55,7 @@ class FileSourceConnector : public SourceConnector {
 
  private:
   std::string name_;
-  const std::filesystem::path& file_name_;
+  const std::filesystem::path file_name_;
   std::ifstream file_;
   std::unique_ptr<DynamicDataTableSchema> table_schema_;
   int eof_count_ = 0;

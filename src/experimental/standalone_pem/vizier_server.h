@@ -66,18 +66,6 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
 
     auto query_id = sole::uuid4();
 
-    auto log_source_mutation = false;
-    if (reader->query_str().find("LOG_SOURCE") != std::string::npos) {
-      messages::FileSourceMessage msg;
-      msg.set_file_name("/home/ddelnano/code/pixie-worktree/test.json");
-      auto s = file_source_manager_->HandleRegisterFileSourceRequest(query_id, msg);
-      if (!s.ok()) {
-        return ::grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Failed to register file source");
-      }
-      log_source_mutation = true;
-      sleep(10);
-    }
-
     auto compiler_state = engine_state_->CreateLocalExecutionCompilerState(0);
 
     // Handle mutations.
@@ -94,6 +82,7 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
 
       auto mutations = mutations_or_s.ConsumeValueOrDie();
       auto deployments = mutations->Deployments();
+      auto file_source_deployments = mutations->FileSourceDeployments();
 
       bool tracepoints_running = true;
       for (size_t i = 0; i < deployments.size(); i++) {
@@ -132,9 +121,33 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
         return ::grpc::Status::CANCELLED;
       }
 
-      auto m_info = mutation_resp.mutable_mutation_info();
-      m_info->mutable_status()->set_code(0);
-      response->Write(mutation_resp);
+      auto file_sources_running = true;
+      auto nfile_source_info = FileSourceInfo{};
+      for (size_t i = 0; i < file_source_deployments.size(); i++) {
+        auto file_source = file_source_deployments[i];
+        auto file_source_info = file_source_manager_->GetFileSourceInfo(file_source.glob_pattern());
+        if (file_source_info == nullptr) {
+          auto s = file_source_manager_->HandleRegisterFileSourceRequest(sole::uuid4(), file_source.glob_pattern());
+          if (!s.ok()) {
+            return ::grpc::Status(grpc::StatusCode::INTERNAL, "Failed to register file source");
+          }
+          nfile_source_info.name = file_source.glob_pattern();
+          nfile_source_info.current_state = statuspb::PENDING_STATE;
+          file_source_info = &nfile_source_info;
+        }
+        if (file_source_info->current_state != statuspb::RUNNING_STATE) {
+          file_sources_running = false;
+        }
+      }
+      if (!file_sources_running) {
+        auto m_info = mutation_resp.mutable_mutation_info();
+        m_info->mutable_status()->set_code(grpc::StatusCode::UNAVAILABLE);
+        response->Write(mutation_resp);
+        return ::grpc::Status::CANCELLED;
+      }
+      /* auto m_info = mutation_resp.mutable_mutation_info(); */
+      /* m_info->mutable_status()->set_code(0); */
+      /* response->Write(mutation_resp); */
     }
     LOG(INFO) << "Compiling and running query";
     // Send schema before sending query results.
@@ -194,16 +207,6 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
     auto s = carnot_->ExecuteQuery(reader->query_str(), query_id, px::CurrentTimeNS());
     if (s != Status::OK()) {
       return ::grpc::Status::CANCELLED;
-    }
-
-    if (log_source_mutation) {
-      LOG(INFO) << "Removing file source";
-      messages::FileSourceMessage msg;
-      msg.set_file_name("/home/ddelnano/code/pixie-worktree/test.json");
-      auto s = file_source_manager_->HandleRemoveFileSourceRequest(query_id, msg);
-      if (!s.ok()) {
-        return ::grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Failed to remove file source");
-      }
     }
 
     return ::grpc::Status::OK;

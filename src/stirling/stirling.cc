@@ -630,7 +630,7 @@ void StirlingImpl::DeployFileSourceConnector(sole::uuid id, std::string file_nam
     LOG(INFO) << s.ToString();
     return;
   }
-  LOG(INFO) << absl::Substitute("FileSourceConnector [$0]: Deployed BPF program in $1 ms.",
+  LOG(INFO) << absl::Substitute("FileSourceConnector [$0] created in $1 ms.",
                                 id.str(), timer.ElapsedTime_us() / 1000.0);
 
   stirlingpb::Publish publication;

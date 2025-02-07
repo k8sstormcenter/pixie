@@ -63,7 +63,8 @@ StatusOr<BackedDataElements> DataElementsFromJSON(std::ifstream& f_stream) {
     } else if (value.IsBool()) {
       col_type = types::DataType::BOOLEAN;
     } else {
-      return error::Internal("Unsupported type: $0", RapidJSONTypeToString(itr->value.GetType()));
+      return error::Internal("Unable to parse JSON key '$0': unsupported type: $1", name,
+                             RapidJSONTypeToString(itr->value.GetType()));
     }
     data_elements.emplace_back(name, "", col_type);
   }
@@ -106,7 +107,6 @@ StatusOr<std::pair<BackedDataElements, std::ifstream>> DataElementsFromFile(
 StatusOr<std::unique_ptr<SourceConnector>> FileSourceConnector::Create(
     std::string_view source_name, const std::filesystem::path file_name) {
   auto host_path = px::system::Config::GetInstance().ToHostPath(file_name);
-  LOG(INFO) << "Creating file source connector for orig file: " << file_name.string() << " file: " << host_path.string();
   PX_ASSIGN_OR_RETURN(auto data_elements_and_file, DataElementsFromFile(host_path));
   auto& [data_elements, file] = data_elements_and_file;
 
@@ -114,8 +114,8 @@ StatusOr<std::unique_ptr<SourceConnector>> FileSourceConnector::Create(
   auto name = host_path.filename().string();
   std::unique_ptr<DynamicDataTableSchema> table_schema =
       DynamicDataTableSchema::Create(name, "", std::move(data_elements));
-  return std::unique_ptr<SourceConnector>(
-      new FileSourceConnector(source_name, std::move(host_path), std::move(file), std::move(table_schema)));
+  return std::unique_ptr<SourceConnector>(new FileSourceConnector(
+      source_name, std::move(host_path), std::move(file), std::move(table_schema)));
 }
 
 FileSourceConnector::FileSourceConnector(std::string_view source_name,
@@ -125,9 +125,7 @@ FileSourceConnector::FileSourceConnector(std::string_view source_name,
       name_(source_name),
       file_name_(file_name),
       file_(std::move(file)),
-      table_schema_(std::move(table_schema)) {
-        LOG(INFO) << "FileSourceConnector created for file: " << file_name_.string();
-      }
+      table_schema_(std::move(table_schema)) {}
 
 Status FileSourceConnector::InitImpl() {
   sampling_freq_mgr_.set_period(kSamplingPeriod);
@@ -205,7 +203,9 @@ void FileSourceConnector::TransferDataImpl(ConnectorContext* /* ctx */) {
           r.Append(col, types::BoolValue(value.GetBool()));
           break;
         default:
-          LOG(FATAL) << "Unsupported type: " << types::DataType_Name(column.type());
+          LOG(FATAL) << absl::Substitute(
+              "Failed to insert field into DataTable: unsupported type '$0'",
+              types::DataType_Name(column.type()));
       }
     }
     i++;

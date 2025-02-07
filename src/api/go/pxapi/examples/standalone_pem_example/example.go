@@ -38,8 +38,8 @@ px.display(df.stream())
 	pxl = `
 import px
 import pxlog
-table = 'test.json'
-f = '/home/ddelnano/code/pixie-worktree/test.json'
+table = 'vector.json'
+f = '/home/ddelnano/code/pixie-worktree/vector.json'
 pxlog.FileSource(f, table, '5m')
 df = px.DataFrame(table)
 

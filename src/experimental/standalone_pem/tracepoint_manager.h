@@ -61,6 +61,7 @@ class TracepointManager {
   // active tracepoints.
   void Monitor();
   Status UpdateSchema(const stirling::stirlingpb::Publish& publish_proto);
+  Status BlockUntilRunning(TracepointInfo* info);
 
   px::event::Dispatcher* dispatcher_;
   stirling::Stirling* stirling_;

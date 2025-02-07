@@ -1062,7 +1062,7 @@ TEST(TableTest, threaded) {
 
   // Create the cursor before the write thread starts, to ensure that we get every row of the table.
   Cursor cursor(table_ptr.get(), Cursor::StartSpec{},
-                       Cursor::StopSpec{Cursor::StopSpec::StopType::Infinite});
+                Cursor::StopSpec{Cursor::StopSpec::StopType::Infinite});
 
   std::thread writer_thread([table_ptr, done, max_time_counter]() {
     std::default_random_engine gen;
@@ -1246,8 +1246,8 @@ class CursorTableTest : public ::testing::Test,
       WriteBatch(batch);
     }
 
-    cursor_ = std::make_unique<Cursor>(table_ptr_.get(), test_case_.start_spec,
-                                              test_case_.stop_spec);
+    cursor_ =
+        std::make_unique<Cursor>(table_ptr_.get(), test_case_.start_spec, test_case_.stop_spec);
   }
 
   void WriteBatch(const std::vector<int64_t>& times) {

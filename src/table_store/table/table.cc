@@ -167,9 +167,10 @@ StatusOr<std::unique_ptr<schema::RowBatch>> Cursor::GetNextRowBatch(
   return table_->GetNextRowBatch(this, cols);
 }
 
-HotColdTable::HotColdTable(std::string_view table_name, const schema::Relation& relation, size_t max_table_size,
-             size_t compacted_batch_size)
-    : Table(TableMetrics(&(GetMetricsRegistry()), std::string(table_name)), relation, max_table_size),
+HotColdTable::HotColdTable(std::string_view table_name, const schema::Relation& relation,
+                           size_t max_table_size, size_t compacted_batch_size)
+    : Table(TableMetrics(&(GetMetricsRegistry()), std::string(table_name)), relation,
+            max_table_size),
       compacted_batch_size_(compacted_batch_size),
       // TODO(james): move mem_pool into constructor.
       compactor_(rel_, arrow::default_memory_pool()) {
@@ -430,15 +431,18 @@ Status HotColdTable::UpdateTableMetricGauges() {
   return Status::OK();
 }
 
-HotOnlyTable::HotOnlyTable(std::string_view table_name, const schema::Relation& relation, size_t max_table_size)
-    : Table(TableMetrics(&(GetMetricsRegistry()), std::string(table_name)), relation, max_table_size) {
+HotOnlyTable::HotOnlyTable(std::string_view table_name, const schema::Relation& relation,
+                           size_t max_table_size)
+    : Table(TableMetrics(&(GetMetricsRegistry()), std::string(table_name)), relation,
+            max_table_size) {
   absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
   for (const auto& [i, col_name] : Enumerate(rel_.col_names())) {
     if (col_name == "time_" && rel_.GetColumnType(i) == types::DataType::TIME64NS) {
       time_col_idx_ = i;
     }
   }
-  batch_size_accountant_ = internal::BatchSizeAccountant::Create(rel_, FLAGS_table_store_table_size_limit);
+  batch_size_accountant_ =
+      internal::BatchSizeAccountant::Create(rel_, FLAGS_table_store_table_size_limit);
   // TODO(ddelnano): Move this into the base class constructor
   hot_store_ = std::make_unique<internal::StoreWithRowTimeAccounting<internal::StoreType::Hot>>(
       rel_, time_col_idx_);
@@ -458,8 +462,7 @@ StatusOr<std::unique_ptr<schema::RowBatch>> HotOnlyTable::GetNextRowBatch(
   }
   auto batch_size = batch.Length();
   auto rb = std::make_unique<schema::RowBatch>(schema::RowDescriptor(col_types), batch_size);
-  PX_RETURN_IF_ERROR(
-        hot_store_->AddBatchSliceToRowBatch(batch, 0, batch_size, cols, rb.get()));
+  PX_RETURN_IF_ERROR(hot_store_->AddBatchSliceToRowBatch(batch, 0, batch_size, cols, rb.get()));
   return rb;
 }
 
@@ -559,9 +562,7 @@ Table::Time HotOnlyTable::MaxTime() const {
   return -1;
 }
 
-Status HotOnlyTable::ExpireBatch() {
-  return ExpireHot();
-}
+Status HotOnlyTable::ExpireBatch() { return ExpireHot(); }
 
 Status HotOnlyTable::UpdateTableMetricGauges() {
   // Update table-level gauge values.

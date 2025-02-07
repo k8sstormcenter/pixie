@@ -127,7 +127,8 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
         auto file_source = file_source_deployments[i];
         auto file_source_info = file_source_manager_->GetFileSourceInfo(file_source.glob_pattern());
         if (file_source_info == nullptr) {
-          auto s = file_source_manager_->HandleRegisterFileSourceRequest(sole::uuid4(), file_source.glob_pattern());
+          auto s = file_source_manager_->HandleRegisterFileSourceRequest(
+              sole::uuid4(), file_source.glob_pattern());
           if (!s.ok()) {
             return ::grpc::Status(grpc::StatusCode::INTERNAL, "Failed to register file source");
           }

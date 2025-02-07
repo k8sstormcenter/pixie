@@ -55,8 +55,7 @@ std::string FileSourceManager::DebugString() const {
   return ss.str();
 }
 
-Status FileSourceManager::HandleRegisterFileSourceRequest(sole::uuid id,
-                                                          std::string file_name) {
+Status FileSourceManager::HandleRegisterFileSourceRequest(sole::uuid id, std::string file_name) {
   LOG(INFO) << "Registering file source: " << file_name;
 
   FileSourceInfo info;
@@ -168,9 +167,10 @@ Status FileSourceManager::UpdateSchema(const stirling::stirlingpb::Publish& publ
   // TODO(ddelnano): Failure here can lead to an inconsistent schema state. We should
   // figure out how to handle this as part of the data model refactor project.
   for (const auto& relation_info : relation_info_vec) {
-     LOG(INFO) << absl::Substitute("Adding table: $0", relation_info.name);
-    table_store_->AddTable(table_store::HotOnlyTable::Create(relation_info.name, relation_info.relation),
-                           relation_info.name, relation_info.id);
+    LOG(INFO) << absl::Substitute("Adding table: $0", relation_info.name);
+    table_store_->AddTable(
+        table_store::HotOnlyTable::Create(relation_info.name, relation_info.relation),
+        relation_info.name, relation_info.id);
   }
   return Status::OK();
 }

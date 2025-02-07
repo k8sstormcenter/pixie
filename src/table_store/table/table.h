@@ -76,8 +76,8 @@ class Table;
  * and end at when iterating the cursor.
  */
 class Cursor {
- using Time = internal::Time;
- using RowID = internal::RowID;
+  using Time = internal::Time;
+  using RowID = internal::RowID;
 
  public:
   /**
@@ -166,7 +166,6 @@ class Cursor {
   friend class HotOnlyTable;
 };
 
-
 class Table : public NotCopyable {
  public:
   using RecordBatchPtr = internal::RecordBatchPtr;
@@ -249,14 +248,14 @@ class Table : public NotCopyable {
     if (record_batch->empty() || record_batch->at(0)->Size() == 0) {
       return Status::OK();
     }
-  
+
     auto record_batch_w_cache = internal::RecordBatchWithCache{
         std::move(record_batch),
         std::vector<ArrowArrayPtr>(rel_.NumColumns()),
         std::vector<bool>(rel_.NumColumns(), false),
     };
     internal::RecordOrRowBatch record_or_row_batch(std::move(record_batch_w_cache));
-  
+
     PX_RETURN_IF_ERROR(WriteHot(std::move(record_or_row_batch)));
     return Status::OK();
   }
@@ -270,15 +269,14 @@ class Table : public NotCopyable {
     if (rb.num_columns() == 0 || rb.ColumnAt(0)->length() == 0) {
       return Status::OK();
     }
-  
+
     internal::RecordOrRowBatch record_or_row_batch(rb);
-  
+
     PX_RETURN_IF_ERROR(WriteHot(std::move(record_or_row_batch)));
     return Status::OK();
   }
 
  protected:
-
   virtual Time MaxTime() const = 0;
 
   virtual Status ExpireBatch() = 0;
@@ -324,13 +322,13 @@ class Table : public NotCopyable {
   }
 
   Status WriteHot(internal::RecordOrRowBatch&& record_or_row_batch) {
-    // See BatchSizeAccountantNonMutableState for an explanation of the thread safety and necessity of
-    // NonMutableState.
+    // See BatchSizeAccountantNonMutableState for an explanation of the thread safety and necessity
+    // of NonMutableState.
     auto batch_stats = internal::BatchSizeAccountant::CalcBatchStats(
         ABSL_TS_UNCHECKED_READ(batch_size_accountant_)->NonMutableState(), record_or_row_batch);
-  
+
     PX_RETURN_IF_ERROR(ExpireRowBatches(batch_stats.bytes));
-  
+
     {
       absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
       auto batch_length = record_or_row_batch.Length();
@@ -338,7 +336,7 @@ class Table : public NotCopyable {
       hot_store_->EmplaceBack(next_row_id_, std::move(record_or_row_batch));
       next_row_id_ += batch_length;
     }
-  
+
     {
       absl::base_internal::SpinLockHolder lock(&stats_lock_);
       ++batches_added_;
@@ -346,7 +344,7 @@ class Table : public NotCopyable {
       bytes_added_ += batch_stats.bytes;
       metrics_.bytes_added_counter.Increment(batch_stats.bytes);
     }
-  
+
     // Make sure locks are released for this call, since they are reacquired inside.
     PX_RETURN_IF_ERROR(UpdateTableMetricGauges());
     return Status::OK();
@@ -447,11 +445,11 @@ class HotColdTable : public Table {
    * (-1) by default.
    */
   explicit HotColdTable(std::string_view table_name, const schema::Relation& relation,
-                 size_t max_table_size)
+                        size_t max_table_size)
       : HotColdTable(table_name, relation, max_table_size, kDefaultColdBatchMinSize) {}
 
   HotColdTable(std::string_view table_name, const schema::Relation& relation, size_t max_table_size,
-        size_t compacted_batch_size_);
+               size_t compacted_batch_size_);
 
   /**
    * Get a RowBatch of data corresponding to the next data after the given cursor.
@@ -498,7 +496,8 @@ class HotColdTable : public Table {
    * @param record_batch the record batch to be appended to the Table.
    * @return status
    */
-  /* Status TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch) override; */
+  /* Status TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch)
+   * override; */
 
   /**
    * Covert the table and store in passed in proto.
@@ -538,7 +537,8 @@ class HotColdTable : public Table {
 };
 
 class HotOnlyTable : public Table {
- using RowID = internal::RowID;
+  using RowID = internal::RowID;
+
  public:
   using StopPosition = int64_t;
   static inline std::shared_ptr<Table> Create(std::string_view table_name,
@@ -557,7 +557,7 @@ class HotOnlyTable : public Table {
    * (-1) by default.
    */
   explicit HotOnlyTable(std::string_view table_name, const schema::Relation& relation,
-                 size_t max_table_size);
+                        size_t max_table_size);
 
   /**
    * Get a RowBatch of data corresponding to the next data after the given cursor.
@@ -604,7 +604,8 @@ class HotOnlyTable : public Table {
    * @param record_batch the record batch to be appended to the Table.
    * @return status
    */
-  /* Status TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch) override; */
+  /* Status TransferRecordBatch(std::unique_ptr<px::types::ColumnWrapperRecordBatch> record_batch)
+   * override; */
 
   /**
    * Covert the table and store in passed in proto.

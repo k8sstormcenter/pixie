@@ -138,15 +138,14 @@ Status FileSourceConnector::InitImpl() {
 }
 
 Status FileSourceConnector::StopImpl() {
-  LOG(INFO) << "Stopped called";
   file_.close();
   return Status::OK();
 }
 
 constexpr int kMaxLines = 1000;
 
-void FileSourceConnector::TransferDataFromJSON(DataTable::DynamicRecordBuilder* r, uint64_t nanos,
-                                               const std::string& line) {
+void FileSourceConnector::TransferDataFromJSON(DataTable::DynamicRecordBuilder* /*r*/,
+                                               uint64_t nanos, const std::string& line) {
   rapidjson::Document d;
   rapidjson::ParseResult ok = d.Parse(line.c_str());
   if (!ok) {
@@ -154,6 +153,7 @@ void FileSourceConnector::TransferDataFromJSON(DataTable::DynamicRecordBuilder* 
                                    rapidjson::GetParseError_En(ok.Code()));
     return;
   }
+  DataTable::DynamicRecordBuilder r(data_tables_[0]);
   const auto& columns = table_schema_->Get().elements();
 
   for (size_t col = 0; col < columns.size(); col++) {
@@ -161,22 +161,22 @@ void FileSourceConnector::TransferDataFromJSON(DataTable::DynamicRecordBuilder* 
     std::string key(column.name());
     // time_ is inserted by stirling and not within the polled file
     if (key == "time_") {
-      r->Append(col, types::Time64NSValue(nanos));
+      r.Append(col, types::Time64NSValue(nanos));
       continue;
     }
     const auto& value = d[key.c_str()];
     switch (column.type()) {
       case types::DataType::INT64:
-        r->Append(col, types::Int64Value(value.GetInt()));
+        r.Append(col, types::Int64Value(value.GetInt()));
         break;
       case types::DataType::FLOAT64:
-        r->Append(col, types::Float64Value(value.GetDouble()));
+        r.Append(col, types::Float64Value(value.GetDouble()));
         break;
       case types::DataType::STRING:
-        r->Append(col, types::StringValue(value.GetString()));
+        r.Append(col, types::StringValue(value.GetString()));
         break;
       case types::DataType::BOOLEAN:
-        r->Append(col, types::BoolValue(value.GetBool()));
+        r.Append(col, types::BoolValue(value.GetBool()));
         break;
       default:
         LOG(FATAL) << absl::Substitute(
@@ -204,23 +204,31 @@ void FileSourceConnector::TransferDataImpl(ConnectorContext* /* ctx */) {
   auto now = std::chrono::system_clock::now();
   auto duration = now.time_since_epoch();
   uint64_t nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
+  auto before_pos = file_.tellg();
   while (i < kMaxLines) {
     std::string line;
     std::getline(file_, line);
 
     if (file_.eof() || line.empty()) {
       file_.clear();
-      LOG_EVERY_N(INFO, 100) << absl::Substitute("Reached EOF for file=$0 eof count=$1 pos=",
-                                                 file_name_.string(), eof_count_)
-                             << file_.tellg();
-      eof_count_++;
-      return;
+      auto after_pos = file_.tellg();
+      if (after_pos == last_pos_) {
+        LOG_EVERY_N(INFO, 100) << absl::Substitute("Reached EOF for file=$0 eof count=$1 pos=",
+                                                   file_name_.string(), eof_count_)
+                               << after_pos;
+        eof_count_++;
+        return;
+      }
+      last_pos_ = after_pos;
+      monitor_.AppendStreamStatusRecord(file_name_, after_pos - before_pos, "");
     }
 
-    DataTable::DynamicRecordBuilder r(data_tables_[0]);
-    transfer_fn(*this, &r, nanos, line);
+    transfer_fn(*this, nullptr, nanos, line);
     i++;
   }
+  auto after_pos = file_.tellg();
+  last_pos_ = after_pos;
+  monitor_.AppendStreamStatusRecord(file_name_, after_pos - before_pos, "");
 }
 
 }  // namespace stirling

@@ -45,8 +45,9 @@ class FileSourceManager {
                     table_store::TableStore* table_store);
 
   std::string DebugString() const;
-  Status HandleRegisterFileSourceRequest(sole::uuid id, const messages::FileSourceMessage& req);
+  Status HandleRegisterFileSourceRequest(sole::uuid id, std::string file_name);
   Status HandleRemoveFileSourceRequest(sole::uuid id, const messages::FileSourceMessage& req);
+  FileSourceInfo* GetFileSourceInfo(std::string name);
 
  private:
   // The tracepoint Monitor that is responsible for watching and updating the state of
@@ -61,6 +62,8 @@ class FileSourceManager {
   event::TimerUPtr file_source_monitor_timer_;
   mutable std::mutex mu_;
   absl::flat_hash_map<sole::uuid, FileSourceInfo> file_sources_;
+  // File source name to UUID.
+  absl::flat_hash_map<std::string, sole::uuid> file_source_name_map_;
 };
 
 }  // namespace agent

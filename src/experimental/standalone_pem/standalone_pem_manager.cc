@@ -72,7 +72,7 @@ StandalonePEMManager::StandalonePEMManager(sole::uuid agent_id, std::string_view
       api_(std::make_unique<px::event::APIImpl>(time_system_.get())),
       dispatcher_(api_->AllocateDispatcher("manager")),
       table_store_(std::make_shared<table_store::TableStore>()),
-      func_context_(this, /* mds_stub= */ nullptr, /* mdtp_stub= */ nullptr,
+      func_context_(this, /* mds_stub= */ nullptr, /* mdtp_stub= */ nullptr, /* mdfs_stub= */ nullptr,
                     /* cronscript_stub= */ nullptr, table_store_, [](grpc::ClientContext*) {}),
       stirling_(px::stirling::Stirling::Create(px::stirling::CreateSourceRegistryFromFlag())),
       results_sink_server_(std::make_unique<StandaloneGRPCResultSinkServer>()) {
@@ -213,19 +213,19 @@ Status StandalonePEMManager::InitSchemas() {
       // Special case to set the max size of the http_events table differently from the other
       // tables. For now, the min cold batch size is set to 256kB to be consistent with previous
       // behaviour.
-      table_ptr = std::make_shared<table_store::Table>(relation_info.name, relation_info.relation,
+      table_ptr = std::make_shared<table_store::HotColdTable>(relation_info.name, relation_info.relation,
                                                        http_table_size, 256 * 1024);
     } else if (relation_info.name == "stirling_error") {
-      table_ptr = std::make_shared<table_store::Table>(relation_info.name, relation_info.relation,
+      table_ptr = std::make_shared<table_store::HotColdTable>(relation_info.name, relation_info.relation,
                                                        stirling_error_table_size);
     } else if (relation_info.name == "probe_status") {
-      table_ptr = std::make_shared<table_store::Table>(relation_info.name, relation_info.relation,
+      table_ptr = std::make_shared<table_store::HotColdTable>(relation_info.name, relation_info.relation,
                                                        probe_status_table_size);
     } else if (relation_info.name == "proc_exit_events") {
-      table_ptr = std::make_shared<table_store::Table>(relation_info.name, relation_info.relation,
+      table_ptr = std::make_shared<table_store::HotColdTable>(relation_info.name, relation_info.relation,
                                                        proc_exit_events_table_size);
     } else {
-      table_ptr = std::make_shared<table_store::Table>(relation_info.name, relation_info.relation,
+      table_ptr = std::make_shared<table_store::HotColdTable>(relation_info.name, relation_info.relation,
                                                        other_table_size);
     }
 

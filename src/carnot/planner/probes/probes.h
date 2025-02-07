@@ -350,6 +350,8 @@ class MutationsIR {
 
   std::vector<TracepointDeployment*> Deployments();
 
+  std::vector<file_source::ir::FileSourceDeployment> FileSourceDeployments();
+
   /**
    * @brief Deletes the file source passed in.
    *

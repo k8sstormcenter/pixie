@@ -56,8 +56,7 @@ std::string FileSourceManager::DebugString() const {
 }
 
 Status FileSourceManager::HandleRegisterFileSourceRequest(sole::uuid id,
-                                                          const messages::FileSourceMessage& req) {
-  auto file_name = req.file_name();
+                                                          std::string file_name) {
   LOG(INFO) << "Registering file source: " << file_name;
 
   FileSourceInfo info;
@@ -70,6 +69,7 @@ Status FileSourceManager::HandleRegisterFileSourceRequest(sole::uuid id,
   {
     std::lock_guard<std::mutex> lock(mu_);
     file_sources_[id] = std::move(info);
+    file_source_name_map_[file_name] = id;
   }
   return Status::OK();
 }
@@ -168,10 +168,26 @@ Status FileSourceManager::UpdateSchema(const stirling::stirlingpb::Publish& publ
   // TODO(ddelnano): Failure here can lead to an inconsistent schema state. We should
   // figure out how to handle this as part of the data model refactor project.
   for (const auto& relation_info : relation_info_vec) {
-    table_store_->AddTable(table_store::Table::Create(relation_info.name, relation_info.relation),
+     LOG(INFO) << absl::Substitute("Adding table: $0", relation_info.name);
+    table_store_->AddTable(table_store::HotOnlyTable::Create(relation_info.name, relation_info.relation),
                            relation_info.name, relation_info.id);
   }
   return Status::OK();
+}
+
+FileSourceInfo* FileSourceManager::GetFileSourceInfo(std::string name) {
+  std::lock_guard<std::mutex> lock(mu_);
+  auto pair = file_source_name_map_.find(name);
+  if (pair == file_source_name_map_.end()) {
+    return nullptr;
+  }
+
+  auto id_pair = file_sources_.find(pair->second);
+  if (id_pair == file_sources_.end()) {
+    return nullptr;
+  }
+
+  return &id_pair->second;
 }
 
 }  // namespace agent

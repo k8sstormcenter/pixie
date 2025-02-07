@@ -30,10 +30,18 @@ import (
 
 // Define PxL script with one table output.
 var (
+	stream = `
+import px
+df = px.DataFrame('http_events')
+px.display(df.stream())
+`
 	pxl = `
 import px
-#LOG_SOURCE
-df = px.DataFrame(table='test.json')
+import pxlog
+table = 'test.json'
+f = '/home/ddelnano/code/pixie-worktree/test.json'
+pxlog.FileSource(f, table, '5m')
+df = px.DataFrame(table)
 
 px.display(df)`
 	bpftrace = `

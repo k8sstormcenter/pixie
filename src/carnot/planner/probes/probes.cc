@@ -108,6 +108,14 @@ std::vector<TracepointDeployment*> MutationsIR::Deployments() {
   return deployments;
 }
 
+std::vector<file_source::ir::FileSourceDeployment> MutationsIR::FileSourceDeployments() {
+  std::vector<file_source::ir::FileSourceDeployment> file_source_deployments;
+  for (size_t i = 0; i < file_source_deployments_.size(); i++) {
+    file_source_deployments.push_back(file_source_deployments_[i]);
+  }
+  return file_source_deployments;
+}
+
 std::shared_ptr<TracepointIR> MutationsIR::StartProbe(const std::string& function_name) {
   auto tracepoint_ir = std::make_shared<TracepointIR>(function_name);
   probes_pool_.push_back(tracepoint_ir);

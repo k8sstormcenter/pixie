@@ -54,10 +54,21 @@ class FileSourceConnector : public SourceConnector {
   void TransferDataImpl(ConnectorContext* ctx) override;
 
  private:
+  void TransferDataFromJSON(DataTable::DynamicRecordBuilder* builder, uint64_t nanos,
+                            const std::string& line);
+  void TransferDataFromCSV(DataTable::DynamicRecordBuilder* builder, uint64_t nanos,
+                           const std::string& line);
+
+  struct FileTransferSpec {
+    std::function<void(FileSourceConnector&, DataTable::DynamicRecordBuilder*, uint64_t nanos,
+                       const std::string&)>
+        transfer_fn;
+  };
   std::string name_;
   const std::filesystem::path file_name_;
   std::ifstream file_;
   std::unique_ptr<DynamicDataTableSchema> table_schema_;
+  absl::flat_hash_map<std::string, FileTransferSpec> transfer_specs_;
   int eof_count_ = 0;
 };
 

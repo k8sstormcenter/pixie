@@ -67,6 +67,7 @@ StatusOr<std::shared_ptr<EndpointConfig>> EndpointConfig::Create(
 
 Status ExportToOTel(const OTelData& data, const pypa::AstPtr& ast, Dataframe* df) {
   auto op = df->op();
+  // TODO(ddelnano): Create MemorySinkIR with DF as parent.
   return op->graph()->CreateNode<OTelExportSinkIR>(ast, op, data).status();
 }
 

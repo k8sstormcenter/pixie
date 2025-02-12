@@ -67,7 +67,25 @@ Status OTelExportSinkNode::InitImpl(const plan::Operator& plan_node) {
   return Status::OK();
 }
 
-Status OTelExportSinkNode::PrepareImpl(ExecState*) { return Status::OK(); }
+// Make this a const std::string
+const std::string kSinkResultsTableName = "sink_results";
+/* constexpr std::string_view kSinkResultsTableName  = "sink_results"; */
+
+Status OTelExportSinkNode::PrepareImpl(ExecState* exec_state) {
+  auto sink_results = exec_state->table_store()->GetTable(kSinkResultsTableName);
+  if (sink_results == nullptr) {
+    std::vector<std::string> col_names = {"bytes_transferred", "destination", "stream_id"};
+    table_store::schema::Relation rel(
+        {types::DataType::INT64, types::DataType::STRING, types::DataType::STRING},
+        col_names);
+    auto table = table_store::HotColdTable::Create(kSinkResultsTableName, rel);
+    exec_state->table_store()->AddTable(kSinkResultsTableName, table);
+    table_ = table.get();
+  } else {
+    table_ = sink_results;
+  }
+  return Status::OK();
+}
 
 Status OTelExportSinkNode::OpenImpl(ExecState* exec_state) {
   if (plan_node_->metrics().size()) {
@@ -447,6 +465,21 @@ Status OTelExportSinkNode::ConsumeNextImpl(ExecState* exec_state, const RowBatch
   }
   if (rb.eos()) {
     sent_eos_ = true;
+  }
+  if (table_ != nullptr) {
+    LOG(INFO) << absl::Substitute("Writing num bytes $0 to sink results table", rb.NumBytes());
+    std::vector<types::Int64Value> col1_in1 = {rb.NumBytes()};
+    std::vector<types::StringValue> col2_in2 = {"otel"};
+    std::vector<types::StringValue> col3_in2 = {"file source"};
+    std::vector<std::string> col_names = {"bytes_transferred", "destination", "stream_id"};
+    table_store::schema::Relation rel(
+        {types::DataType::INT64, types::DataType::STRING, types::DataType::STRING},
+        col_names);
+    auto rb_sink_stats = RowBatch(RowDescriptor(rel.col_types()), 1);
+    PX_RETURN_IF_ERROR(rb_sink_stats.AddColumn(types::ToArrow(col1_in1, arrow::default_memory_pool())));
+    PX_RETURN_IF_ERROR(rb_sink_stats.AddColumn(types::ToArrow(col2_in2, arrow::default_memory_pool())));
+    PX_RETURN_IF_ERROR(rb_sink_stats.AddColumn(types::ToArrow(col3_in2, arrow::default_memory_pool())));
+    PX_RETURN_IF_ERROR(table_->WriteRowBatch(rb_sink_stats));
   }
   return Status::OK();
 }

@@ -150,7 +150,7 @@ TEST_P(ExecGraphExecuteTest, execute) {
   table_store::schema::Relation rel(
       {types::DataType::INT64, types::DataType::BOOLEAN, types::DataType::FLOAT64},
       {"col1", "col2", "col3"});
-  auto table = HotColdTable::Create("test", rel);
+  auto table = table_store::HotColdTable::Create("test", rel);
 
   auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
   std::vector<types::Int64Value> col1_in1 = {1, 2, 3};
@@ -229,7 +229,7 @@ TEST_F(ExecGraphTest, execute_time) {
   table_store::schema::Relation rel(
       {types::DataType::TIME64NS, types::DataType::BOOLEAN, types::DataType::FLOAT64},
       {"col1", "col2", "col3"});
-  auto table = HotColdTable::Create("test", rel);
+  auto table = table_store::HotColdTable::Create("test", rel);
 
   auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
   std::vector<types::Time64NSValue> col1_in1 = {types::Time64NSValue(1), types::Time64NSValue(2),
@@ -298,7 +298,7 @@ TEST_F(ExecGraphTest, two_limits_dont_interfere) {
   table_store::schema::Relation rel(
       {types::DataType::INT64, types::DataType::BOOLEAN, types::DataType::FLOAT64},
       {"col1", "col2", "col3"});
-  auto table = HotColdTable::Create("test", rel);
+  auto table = table_store::HotColdTable::Create("test", rel);
 
   auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
   std::vector<types::Int64Value> col1_in1 = {1, 2, 3};
@@ -366,7 +366,7 @@ TEST_F(ExecGraphTest, limit_w_multiple_srcs) {
   table_store::schema::Relation rel(
       {types::DataType::INT64, types::DataType::BOOLEAN, types::DataType::FLOAT64},
       {"col1", "col2", "col3"});
-  auto table = HotColdTable::Create("test", rel);
+  auto table = table_store::HotColdTable::Create("test", rel);
 
   auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
   std::vector<types::Int64Value> col1_in1 = {1, 2, 3};
@@ -427,7 +427,7 @@ TEST_F(ExecGraphTest, two_sequential_limits) {
   table_store::schema::Relation rel(
       {types::DataType::INT64, types::DataType::BOOLEAN, types::DataType::FLOAT64},
       {"col1", "col2", "col3"});
-  auto table = HotColdTable::Create("test", rel);
+  auto table = table_store::HotColdTable::Create("test", rel);
 
   auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
   std::vector<types::Int64Value> col1_in1 = {1, 2, 3};
@@ -490,7 +490,7 @@ TEST_F(ExecGraphTest, execute_with_two_limits) {
   table_store::schema::Relation rel(
       {types::DataType::INT64, types::DataType::BOOLEAN, types::DataType::FLOAT64},
       {"col1", "col2", "col3"});
-  auto table = HotColdTable::Create("test", rel);
+  auto table = table_store::HotColdTable::Create("test", rel);
 
   auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
   std::vector<types::Int64Value> col1_in1 = {1, 2, 3};
@@ -532,6 +532,139 @@ TEST_F(ExecGraphTest, execute_with_two_limits) {
   table_store::Cursor cursor2(output_table_2);
   EXPECT_TRUE(cursor2.GetNextRowBatch({2}).ConsumeValueOrDie()->ColumnAt(0)->Equals(
       types::ToArrow(out_in1, arrow::default_memory_pool())));
+}
+
+TEST_F(ExecGraphTest, execute_with_timed_sink_node_no_prior_results_table) {
+  planpb::PlanFragment pf_pb;
+  ASSERT_TRUE(
+      TextFormat::MergeFromString(planpb::testutils::kPlanWithOTelExport, &pf_pb));
+  std::shared_ptr<plan::PlanFragment> plan_fragment_ = std::make_shared<plan::PlanFragment>(1);
+  ASSERT_OK(plan_fragment_->Init(pf_pb));
+
+  auto plan_state = std::make_unique<plan::PlanState>(func_registry_.get());
+
+  auto schema = std::make_shared<table_store::schema::Schema>();
+  schema->AddRelation(
+      1, table_store::schema::Relation(
+             std::vector<types::DataType>(
+                 {types::DataType::STRING, types::DataType::BOOLEAN, types::DataType::FLOAT64}),
+             std::vector<std::string>({"a", "b", "c"})));
+
+  table_store::schema::Relation rel(
+      {types::DataType::STRING, types::DataType::BOOLEAN, types::DataType::FLOAT64},
+      {"col1", "col2", "col3"});
+  auto table = table_store::HotColdTable::Create("test", rel);
+
+  auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
+  std::vector<types::StringValue> col1_in1 = {"service a", "service b", "service c"};
+  std::vector<types::BoolValue> col2_in1 = {true, false, true};
+  std::vector<types::Float64Value> col3_in1 = {1.4, 6.2, 10.2};
+
+  EXPECT_OK(rb1.AddColumn(types::ToArrow(col1_in1, arrow::default_memory_pool())));
+  EXPECT_OK(rb1.AddColumn(types::ToArrow(col2_in1, arrow::default_memory_pool())));
+  EXPECT_OK(rb1.AddColumn(types::ToArrow(col3_in1, arrow::default_memory_pool())));
+  EXPECT_OK(table->WriteRowBatch(rb1));
+
+  auto rb2 = RowBatch(RowDescriptor(rel.col_types()), 2);
+  std::vector<types::StringValue> col1_in2 = {"service a", "service b"};
+  std::vector<types::BoolValue> col2_in2 = {false, false};
+  std::vector<types::Float64Value> col3_in2 = {3.4, 1.2};
+  EXPECT_OK(rb2.AddColumn(types::ToArrow(col1_in2, arrow::default_memory_pool())));
+  EXPECT_OK(rb2.AddColumn(types::ToArrow(col2_in2, arrow::default_memory_pool())));
+  EXPECT_OK(rb2.AddColumn(types::ToArrow(col3_in2, arrow::default_memory_pool())));
+  EXPECT_OK(table->WriteRowBatch(rb2));
+
+  auto table_store = std::make_shared<table_store::TableStore>();
+  table_store->AddTable("numbers", table);
+  auto exec_state_ = std::make_unique<ExecState>(
+      func_registry_.get(), table_store, MockResultSinkStubGenerator, MockMetricsStubGenerator,
+      MockTraceStubGenerator, sole::uuid4(), nullptr);
+
+  ExecutionGraph e;
+  auto s = e.Init(schema.get(), plan_state.get(), exec_state_.get(), plan_fragment_.get(),
+                  /* collect_exec_node_stats */ false);
+
+  EXPECT_OK(e.Execute());
+
+  auto output_table_1 = exec_state_->table_store()->GetTable("sink_results");
+  EXPECT_NE(output_table_1, nullptr);
+  std::vector<types::Int64Value> out1_in1 = {54};
+  std::vector<types::Int64Value> out1_in2 = {36};
+  table_store::Cursor cursor1(output_table_1);
+  auto rb_out1 = cursor1.GetNextRowBatch({0}).ConsumeValueOrDie();
+  EXPECT_TRUE(rb_out1->ColumnAt(0)->Equals(types::ToArrow(out1_in1, arrow::default_memory_pool())));
+  auto rb_out2 = cursor1.GetNextRowBatch({0}).ConsumeValueOrDie();
+  EXPECT_TRUE(rb_out2->ColumnAt(0)->Equals(types::ToArrow(out1_in2, arrow::default_memory_pool())));
+}
+
+TEST_F(ExecGraphTest, execute_with_timed_sink_node_prior_results_table) {
+  planpb::PlanFragment pf_pb;
+  ASSERT_TRUE(
+      TextFormat::MergeFromString(planpb::testutils::kPlanWithOTelExport, &pf_pb));
+  std::shared_ptr<plan::PlanFragment> plan_fragment_ = std::make_shared<plan::PlanFragment>(1);
+  ASSERT_OK(plan_fragment_->Init(pf_pb));
+
+  auto plan_state = std::make_unique<plan::PlanState>(func_registry_.get());
+
+  auto schema = std::make_shared<table_store::schema::Schema>();
+  schema->AddRelation(
+      1, table_store::schema::Relation(
+             std::vector<types::DataType>(
+                 {types::DataType::STRING, types::DataType::BOOLEAN, types::DataType::FLOAT64}),
+             std::vector<std::string>({"a", "b", "c"})));
+
+  table_store::schema::Relation rel(
+      {types::DataType::STRING, types::DataType::BOOLEAN, types::DataType::FLOAT64},
+      {"col1", "col2", "col3"});
+  auto table = table_store::HotColdTable::Create("test", rel);
+
+  auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
+  std::vector<types::StringValue> col1_in1 = {"service a", "service b", "service c"};
+  std::vector<types::BoolValue> col2_in1 = {true, false, true};
+  std::vector<types::Float64Value> col3_in1 = {1.4, 6.2, 10.2};
+
+  EXPECT_OK(rb1.AddColumn(types::ToArrow(col1_in1, arrow::default_memory_pool())));
+  EXPECT_OK(rb1.AddColumn(types::ToArrow(col2_in1, arrow::default_memory_pool())));
+  EXPECT_OK(rb1.AddColumn(types::ToArrow(col3_in1, arrow::default_memory_pool())));
+  EXPECT_OK(table->WriteRowBatch(rb1));
+
+  auto rb2 = RowBatch(RowDescriptor(rel.col_types()), 2);
+  std::vector<types::StringValue> col1_in2 = {"service a", "service b"};
+  std::vector<types::BoolValue> col2_in2 = {false, false};
+  std::vector<types::Float64Value> col3_in2 = {3.4, 1.2};
+  EXPECT_OK(rb2.AddColumn(types::ToArrow(col1_in2, arrow::default_memory_pool())));
+  EXPECT_OK(rb2.AddColumn(types::ToArrow(col2_in2, arrow::default_memory_pool())));
+  EXPECT_OK(rb2.AddColumn(types::ToArrow(col3_in2, arrow::default_memory_pool())));
+  EXPECT_OK(table->WriteRowBatch(rb2));
+
+  std::vector<std::string> sink_results_col_names = {"bytes_transferred", "destination", "stream_id"};
+  table_store::schema::Relation sink_results_rel(
+      {types::DataType::INT64, types::DataType::STRING, types::DataType::STRING},
+      sink_results_col_names);
+  auto sink_results_table = table_store::HotColdTable::Create("sink_results", sink_results_rel);
+
+  auto table_store = std::make_shared<table_store::TableStore>();
+  table_store->AddTable("numbers", table);
+  table_store->AddTable("sink_results", sink_results_table);
+  auto exec_state_ = std::make_unique<ExecState>(
+      func_registry_.get(), table_store, MockResultSinkStubGenerator, MockMetricsStubGenerator,
+      MockTraceStubGenerator, sole::uuid4(), nullptr);
+
+  ExecutionGraph e;
+  auto s = e.Init(schema.get(), plan_state.get(), exec_state_.get(), plan_fragment_.get(),
+                  /* collect_exec_node_stats */ false);
+
+  EXPECT_OK(e.Execute());
+
+  auto output_table_1 = exec_state_->table_store()->GetTable("sink_results");
+  EXPECT_NE(output_table_1, nullptr);
+  std::vector<types::Int64Value> out1_in1 = {54};
+  std::vector<types::Int64Value> out1_in2 = {36};
+  table_store::Cursor cursor1(output_table_1);
+  auto rb_out1 = cursor1.GetNextRowBatch({0}).ConsumeValueOrDie();
+  EXPECT_TRUE(rb_out1->ColumnAt(0)->Equals(types::ToArrow(out1_in1, arrow::default_memory_pool())));
+  auto rb_out2 = cursor1.GetNextRowBatch({0}).ConsumeValueOrDie();
+  EXPECT_TRUE(rb_out2->ColumnAt(0)->Equals(types::ToArrow(out1_in2, arrow::default_memory_pool())));
 }
 
 class YieldingExecGraphTest : public BaseExecGraphTest {

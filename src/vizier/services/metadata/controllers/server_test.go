@@ -68,7 +68,7 @@ import (
 )
 
 func testTableInfos() []*storepb.TableInfo {
-	tableInfos := make([]*storepb.TableInfo, 2)
+	tableInfos := make([]*storepb.TableInfo, 3)
 
 	schema1Cols := make([]*storepb.TableInfo_ColumnInfo, 3)
 	schema1Cols[0] = &storepb.TableInfo_ColumnInfo{
@@ -102,6 +102,17 @@ func testTableInfos() []*storepb.TableInfo {
 		Name:    "table2",
 		Columns: schema2Cols,
 		Desc:    "table 2 desc",
+	}
+	schema3Cols := make([]*storepb.TableInfo_ColumnInfo, 1)
+	schema3Cols[0] = &storepb.TableInfo_ColumnInfo{
+		Name:     "t3Col1",
+		DataType: 1,
+	}
+	tableInfos[2] = &storepb.TableInfo{
+		Name:       "table3",
+		Columns:    schema3Cols,
+		Desc:       "table 3 desc",
+		MutationId: "mutation id",
 	}
 	return tableInfos
 }
@@ -252,7 +263,7 @@ func TestGetSchemas(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, resp)
 
-	assert.Equal(t, 2, len(resp.Schema.RelationMap))
+	assert.Equal(t, 3, len(resp.Schema.RelationMap))
 	assert.Equal(t, "table 1 desc", resp.Schema.RelationMap["table1"].Desc)
 	assert.Equal(t, 3, len(resp.Schema.RelationMap["table1"].Columns))
 	assert.Equal(t, "t1Col1", resp.Schema.RelationMap["table1"].Columns[0].ColumnName)
@@ -838,6 +849,9 @@ func TestGetAgentUpdates(t *testing.T) {
 			"table2": {
 				AgentID: []*uuidpb.UUID{u1pb},
 			},
+			"table3": {
+				AgentID: []*uuidpb.UUID{u1pb, u2pb},
+			},
 		},
 	}
 
@@ -1019,7 +1033,7 @@ func TestGetAgentUpdates(t *testing.T) {
 	assert.Equal(t, 1, len(r1.AgentUpdates))
 	assert.Equal(t, updates1[2], r1.AgentUpdates[0])
 	// Check schemas
-	assert.Equal(t, 2, len(r1.AgentSchemas))
+	assert.Equal(t, 3, len(r1.AgentSchemas))
 	assert.Equal(t, "table1", r1.AgentSchemas[0].Name)
 	assert.Equal(t, 3, len(r1.AgentSchemas[0].Relation.Columns))
 	assert.Equal(t, 2, len(r1.AgentSchemas[0].AgentList))
@@ -1029,6 +1043,12 @@ func TestGetAgentUpdates(t *testing.T) {
 	assert.Equal(t, 2, len(r1.AgentSchemas[1].Relation.Columns))
 	assert.Equal(t, 1, len(r1.AgentSchemas[1].AgentList))
 	assert.Equal(t, u1pb, r1.AgentSchemas[1].AgentList[0])
+	assert.Equal(t, "table3", r1.AgentSchemas[2].Name)
+	assert.Equal(t, 1, len(r1.AgentSchemas[2].Relation.Columns))
+	assert.Equal(t, 2, len(r1.AgentSchemas[2].AgentList))
+	assert.Equal(t, u1pb, r1.AgentSchemas[2].AgentList[0])
+	assert.Equal(t, u2pb, r1.AgentSchemas[2].AgentList[1])
+	assert.Equal(t, "mutation id", r1.AgentSchemas[2].Relation.MutationId)
 
 	// Check empty message
 	r2 := resps[2]

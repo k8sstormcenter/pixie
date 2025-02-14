@@ -86,6 +86,7 @@ func (a *AgentsInfoImpl) UpdateAgentsInfo(update *metadatapb.AgentUpdatesRespons
 	if update.AgentSchemasUpdated {
 		log.Infof("Updating schemas to %d tables", len(update.AgentSchemas))
 		a.pendingDs.SchemaInfo = update.AgentSchemas
+		log.Infof("AgentSchemas: %v\n", update.AgentSchemas)
 	}
 
 	carnotInfoMap := make(map[uuid.UUID]*distributedpb.CarnotInfo)

@@ -232,7 +232,7 @@ class StirlingImpl final : public Stirling {
 
  private:
   // Adds a source to Stirling, and updates all state accordingly.
-  Status AddSource(std::unique_ptr<SourceConnector> source);
+  Status AddSource(std::unique_ptr<SourceConnector> source, std::optional<std::string> mutation_id = {});
 
   // Removes a source and all its info classes from stirling.
   Status RemoveSource(std::string_view source_name);
@@ -451,7 +451,7 @@ std::unique_ptr<ConnectorContext> StirlingImpl::GetContext() {
   return std::unique_ptr<ConnectorContext>(new SystemWideStandaloneContext());
 }
 
-Status StirlingImpl::AddSource(std::unique_ptr<SourceConnector> source) {
+Status StirlingImpl::AddSource(std::unique_ptr<SourceConnector> source, std::optional<std::string> mutation_id) {
   PX_RETURN_IF_ERROR(source->Init());
 
   absl::base_internal::SpinLockHolder lock(&info_class_mgrs_lock_);
@@ -462,6 +462,9 @@ Status StirlingImpl::AddSource(std::unique_ptr<SourceConnector> source) {
     LOG(INFO) << absl::Substitute("Adding info class: [$0/$1]", source->name(), schema.name());
     auto mgr = std::make_unique<InfoClassManager>(schema);
     mgr->SetSourceConnector(source.get());
+    if (mutation_id.has_value()) {
+      mgr->SetMutationId(mutation_id.value());
+    }
     data_tables.push_back(mgr->data_table());
     info_class_mgrs_.push_back(std::move(mgr));
   }
@@ -624,7 +627,7 @@ void StirlingImpl::DeployFileSourceConnector(sole::uuid id, std::string file_nam
   }
 
   timer.Start();
-  auto s = AddSource(std::move(source));
+  auto s = AddSource(std::move(source), id.str());
   if (!s.ok()) {
     UpdateFileSourceStatus(id, s);
     LOG(INFO) << s.ToString();
@@ -670,7 +673,7 @@ void StirlingImpl::DeployDynamicTraceConnector(
   timer.Start();
   // Next, try adding the source (this actually tries to deploy BPF code).
   // On failure, set status and exit, but do this outside the lock for efficiency reasons.
-  RETURN_IF_ERROR(AddSource(std::move(source)));
+  RETURN_IF_ERROR(AddSource(std::move(source), trace_id.str()));
   LOG(INFO) << absl::Substitute("DynamicTrace [$0]: Deployed BPF program in $1 ms.", trace_id.str(),
                                 timer.ElapsedTime_us() / 1000.0);
 

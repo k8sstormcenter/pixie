@@ -124,6 +124,7 @@ class Relation {
   ColDescArray col_desc_;
   ColSemanticTypeArray col_semantic_types_;
   ColPatternTypeArray col_pattern_types_;
+  std::optional<std::string> mutation_id_;
 };
 
 }  // namespace schema

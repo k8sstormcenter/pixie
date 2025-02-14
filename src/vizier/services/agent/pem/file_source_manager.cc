@@ -196,6 +196,7 @@ void FileSourceManager::Monitor() {
     ToProto(id, update_msg->mutable_id());
     update_msg->set_state(file_source.current_state);
     probe_status.ToProto(update_msg->mutable_status());
+    VLOG(1) << "Sending file source info update message: " << msg.DebugString();
     auto s = nats_conn_->Publish(msg);
     if (!s.ok()) {
       LOG(ERROR) << "Failed to update nats";
@@ -211,7 +212,7 @@ Status FileSourceManager::UpdateSchema(const stirling::stirlingpb::Publish& publ
   // figure out how to handle this as part of the data model refactor project.
   for (const auto& relation_info : relation_info_vec) {
     if (!relation_info_manager_->HasRelation(relation_info.name)) {
-      table_store_->AddTable(table_store::Table::Create(relation_info.name, relation_info.relation),
+      table_store_->AddTable(table_store::HotOnlyTable::Create(relation_info.name, relation_info.relation),
                              relation_info.name, relation_info.id);
       PX_RETURN_IF_ERROR(relation_info_manager_->AddRelationInfo(relation_info));
     } else {

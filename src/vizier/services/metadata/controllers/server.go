@@ -101,6 +101,9 @@ func convertToRelationMap(computedSchema *storepb.ComputedSchema) (*schemapb.Sch
 			Columns: columnPbs,
 			Desc:    schema.Desc,
 		}
+		if schema.MutationId != "" {
+			schemaPb.MutationId = schema.MutationId
+		}
 		respSchemaPb.RelationMap[schema.Name] = schemaPb
 	}
 
@@ -123,6 +126,9 @@ func convertToSchemaInfo(computedSchema *storepb.ComputedSchema) ([]*distributed
 		}
 		schemaPb := &schemapb.Relation{
 			Columns: columnPbs,
+		}
+		if schema.MutationId != "" {
+			schemaPb.MutationId = schema.MutationId
 		}
 
 		agentIDs, ok := computedSchema.TableNameToAgentIDs[schema.Name]

@@ -150,7 +150,9 @@ class GetTables final : public carnot::udf::UDTF<GetTables> {
     return MakeArray(ColInfo("table_name", types::DataType::STRING, types::PatternType::GENERAL,
                              "The table name"),
                      ColInfo("table_desc", types::DataType::STRING, types::PatternType::GENERAL,
-                             "Description of the table"));
+                             "Description of the table"),
+                     ColInfo("table_metadata", types::DataType::STRING, types::PatternType::GENERAL,
+                             "Metadata of the table in JSON"));
   }
 
   Status Init(FunctionContext*) {
@@ -165,7 +167,7 @@ class GetTables final : public carnot::udf::UDTF<GetTables> {
     }
 
     for (const auto& [table_name, rel] : resp.schema().relation_map()) {
-      table_info_.emplace_back(table_name, rel.desc());
+      table_info_.emplace_back(table_name, rel.desc(), rel.mutation_id());
     }
     return Status::OK();
   }
@@ -177,6 +179,7 @@ class GetTables final : public carnot::udf::UDTF<GetTables> {
     const auto& r = table_info_[idx_];
     rw->Append<IndexOf("table_name")>(r.table_name);
     rw->Append<IndexOf("table_desc")>(r.table_desc);
+    rw->Append<IndexOf("table_metadata")>(r.table_metadata);
 
     idx_++;
     return idx_ < static_cast<int>(table_info_.size());
@@ -184,10 +187,11 @@ class GetTables final : public carnot::udf::UDTF<GetTables> {
 
  private:
   struct TableInfo {
-    TableInfo(const std::string& table_name, const std::string& table_desc)
-        : table_name(table_name), table_desc(table_desc) {}
+    TableInfo(const std::string& table_name, const std::string& table_desc, const std::string& table_metadata)
+        : table_name(table_name), table_desc(table_desc), table_metadata(table_metadata) {}
     std::string table_name;
     std::string table_desc;
+    std::string table_metadata;
   };
 
   int idx_ = 0;

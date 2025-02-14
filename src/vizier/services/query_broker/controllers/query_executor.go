@@ -329,6 +329,8 @@ func (q *QueryExecutorImpl) runMutation(ctx context.Context, resultCh chan<- *vi
 
 func (q *QueryExecutorImpl) compilePlan(ctx context.Context, resultCh chan<- *vizierpb.ExecuteScriptResponse, req *plannerpb.QueryRequest, planOpts *planpb.PlanOptions, distributedState *distributedpb.DistributedState) (*distributedpb.DistributedPlan, error) {
 	info := q.agentsTracker.GetAgentInfo()
+	log.Infof("Agent info: %v\n", info)
+	log.Infof("distributedState: %v\n", distributedState)
 	if info == nil {
 		return nil, status.Error(codes.Unavailable, "not ready yet")
 	}

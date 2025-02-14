@@ -106,6 +106,8 @@ message TableInfo {
   bool tabletized = 5;
   // The tabletization key of this schema.
   string tabletization_key = 6;
+  // ID of the mutation that created this schema, empty if unrelated to a mutation.
+  string mutation_id = 8;
 }
 
 // ComputedSchema describes the schema available on Vizier.

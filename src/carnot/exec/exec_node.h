@@ -142,7 +142,7 @@ class ExecNode {
    * @param input_descriptors The input column schema of row batches.
    * @return
    */
-  Status Init(const plan::Operator& plan_node,
+  virtual Status Init(const plan::Operator& plan_node,
               const table_store::schema::RowDescriptor& output_descriptor,
               std::vector<table_store::schema::RowDescriptor> input_descriptors,
               bool collect_exec_stats = false) {
@@ -158,7 +158,7 @@ class ExecNode {
    * @param exec_state The execution state.
    * @return The status of the prepare.
    */
-  Status Prepare(ExecState* exec_state) {
+  virtual Status Prepare(ExecState* exec_state) {
     DCHECK(is_initialized_);
     return PrepareImpl(exec_state);
   }
@@ -210,7 +210,7 @@ class ExecNode {
    * @param rb The input row batch.
    * @return The Status of consumption.
    */
-  Status ConsumeNext(ExecState* exec_state, const table_store::schema::RowBatch& rb,
+  virtual Status ConsumeNext(ExecState* exec_state, const table_store::schema::RowBatch& rb,
                      size_t parent_index) {
     DCHECK(is_initialized_);
     DCHECK(type() == ExecNodeType::kSinkNode || type() == ExecNodeType::kProcessingNode);
@@ -377,9 +377,88 @@ class SourceNode : public ExecNode {
  * For example: MemorySink.
  */
 class SinkNode : public ExecNode {
+ const std::string kSinkResultsTableName = "sink_results";
+ const std::vector<std::string> sink_results_col_names = {"bytes_transferred", "destination", "stream_id"};
+
  public:
-  SinkNode() : ExecNode(ExecNodeType::kSinkNode) {}
+  SinkNode() : ExecNode(ExecNodeType::kSinkNode),
+   rel_({types::DataType::INT64, types::DataType::INT64, types::DataType::STRING},
+     sink_results_col_names) {}
+
   virtual ~SinkNode() = default;
+
+  void SetUpStreamResultsTable(ExecState* exec_state) {
+    auto sink_results = exec_state->table_store()->GetTable(kSinkResultsTableName);
+    if (sink_results != nullptr) {
+      table_ = sink_results;
+    } else {
+      auto table = table_store::HotColdTable::Create(kSinkResultsTableName, rel_);
+      exec_state->table_store()->AddTable(kSinkResultsTableName, table);
+      table_ = table.get();
+    }
+  }
+
+  /**
+   * Init is called with plan & schema information.
+   * @param plan_node the plan class of the node.
+   * @param output_descriptor The output column schema of row batches.
+   * @param input_descriptors The input column schema of row batches.
+   * @return
+   */
+  Status Init(const plan::Operator& plan_node,
+              const table_store::schema::RowDescriptor& output_descriptor,
+              std::vector<table_store::schema::RowDescriptor> input_descriptors,
+              bool collect_exec_stats = false) override {
+    DCHECK(type() == ExecNodeType::kSinkNode);
+    const auto* sink_op =  static_cast<const plan::SinkOperator*>(&plan_node);
+    context_ = sink_op->context();
+    destination_ = plan_node.op_type();
+    return ExecNode::Init(plan_node, output_descriptor, input_descriptors,
+                      collect_exec_stats);
+  }
+
+  /**
+   * Setup internal data structures, perform validation, etc.
+   * @param exec_state The execution state.
+   * @return The status of the prepare.
+   */
+  Status Prepare(ExecState* exec_state) override {
+    if (context_.find("mutation_id") != context_.end()) {
+      SetUpStreamResultsTable(exec_state);
+    }
+    return ExecNode::Prepare(exec_state);
+  }
+
+  Status RecordSinkResults(const table_store::schema::RowBatch& rb) {
+    if (table_ != nullptr) {
+      auto mutation_id = context_["mutation_id"];
+      std::vector<types::Int64Value> col1_in1 = {rb.NumBytes()};
+      std::vector<types::Int64Value> col2_in2 = {destination_};
+      std::vector<types::StringValue> col3_in2 = {mutation_id};
+      auto rb_sink_stats = table_store::schema::RowBatch(table_store::schema::RowDescriptor(rel_.col_types()), 1);
+      PX_RETURN_IF_ERROR(rb_sink_stats.AddColumn(types::ToArrow(col1_in1, arrow::default_memory_pool())));
+      PX_RETURN_IF_ERROR(rb_sink_stats.AddColumn(types::ToArrow(col2_in2, arrow::default_memory_pool())));
+      PX_RETURN_IF_ERROR(rb_sink_stats.AddColumn(types::ToArrow(col3_in2, arrow::default_memory_pool())));
+      PX_RETURN_IF_ERROR(table_->WriteRowBatch(rb_sink_stats));
+    }
+    return Status::OK();
+  }
+
+  Status ConsumeNext(ExecState* exec_state, const table_store::schema::RowBatch& rb,
+                     size_t parent_index) override {
+    auto s = ExecNode::ConsumeNext(exec_state, rb, parent_index);
+    if (!s.ok()) {
+      return s;
+    }
+    PX_RETURN_IF_ERROR(RecordSinkResults(rb));
+    return s;
+  }
+
+ private:
+  std::map<std::string, std::string> context_;
+  planpb::OperatorType destination_;
+  table_store::Table* table_;
+  table_store::schema::Relation rel_;
 };
 
 }  // namespace exec

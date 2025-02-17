@@ -150,6 +150,7 @@ message Operator {
     // OTelExportSinkOperator writes the input table to an OpenTelemetry endpoint.
     OTelExportSinkOperator otel_sink_op = 14 [ (gogoproto.customname) = "OTelSinkOp" ];
   }
+  map<string, string> context = 15;
 }
 
 // Fetches data from in-memory source.

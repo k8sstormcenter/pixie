@@ -46,8 +46,13 @@ namespace plan {
 using px::Status;
 
 template <typename TOp, typename TProto>
-std::unique_ptr<Operator> CreateOperator(int64_t id, const TProto& pb) {
-  auto op = std::make_unique<TOp>(id);
+std::unique_ptr<Operator> CreateOperator(int64_t id, const TProto& pb, std::map<std::string, std::string> context = {}) {
+  std::unique_ptr<TOp> op;
+  if constexpr (std::is_base_of_v<SinkOperator, TOp>) {
+    op = std::make_unique<TOp>(id, context);
+  } else {
+    op = std::make_unique<TOp>(id);
+  }
   auto s = op->Init(pb);
   // On init failure, return null;
   if (!s.ok()) {
@@ -58,6 +63,8 @@ std::unique_ptr<Operator> CreateOperator(int64_t id, const TProto& pb) {
 }
 
 std::unique_ptr<Operator> Operator::FromProto(const planpb::Operator& pb, int64_t id) {
+  auto pb_context = pb.context();
+  std::map<std::string, std::string> context(pb_context.begin(), pb_context.end());
   switch (pb.op_type()) {
     case planpb::MEMORY_SOURCE_OPERATOR:
       return CreateOperator<MemorySourceOperator>(id, pb.mem_source_op());
@@ -66,7 +73,7 @@ std::unique_ptr<Operator> Operator::FromProto(const planpb::Operator& pb, int64_
     case planpb::AGGREGATE_OPERATOR:
       return CreateOperator<AggregateOperator>(id, pb.agg_op());
     case planpb::MEMORY_SINK_OPERATOR:
-      return CreateOperator<MemorySinkOperator>(id, pb.mem_sink_op());
+      return CreateOperator<MemorySinkOperator>(id, pb.mem_sink_op(), context);
     case planpb::GRPC_SOURCE_OPERATOR:
       return CreateOperator<GRPCSourceOperator>(id, pb.grpc_source_op());
     case planpb::GRPC_SINK_OPERATOR:
@@ -84,7 +91,7 @@ std::unique_ptr<Operator> Operator::FromProto(const planpb::Operator& pb, int64_
     case planpb::EMPTY_SOURCE_OPERATOR:
       return CreateOperator<EmptySourceOperator>(id, pb.empty_source_op());
     case planpb::OTEL_EXPORT_SINK_OPERATOR:
-      return CreateOperator<OTelExportSinkOperator>(id, pb.otel_sink_op());
+      return CreateOperator<OTelExportSinkOperator>(id, pb.otel_sink_op(), context);
     default:
       LOG(FATAL) << absl::Substitute("Unknown operator type: $0",
                                      magic_enum::enum_name(pb.op_type()));

@@ -40,22 +40,6 @@ struct SpanConfig {
 class OTelExportSinkNode : public SinkNode {
  public:
   virtual ~OTelExportSinkNode() = default;
-  /**
-   * Init is called with plan & schema information.
-   * @param plan_node the plan class of the node.
-   * @param output_descriptor The output column schema of row batches.
-   * @param input_descriptors The input column schema of row batches.
-   * @return
-   */
-  Status Init(const plan::Operator& plan_node,
-              const table_store::schema::RowDescriptor& output_descriptor,
-              std::vector<table_store::schema::RowDescriptor> input_descriptors,
-              bool collect_exec_stats = false) {
-    PX_UNUSED(collect_exec_stats);
-    LOG(INFO) << "OTelExportSinkNode::Init";
-    return SinkNode::Init(plan_node, output_descriptor, input_descriptors,
-                true);
-  }
 
  protected:
   std::string DebugStringImpl() override;
@@ -79,7 +63,6 @@ class OTelExportSinkNode : public SinkNode {
   std::unique_ptr<plan::OTelExportSinkOperator> plan_node_;
 
   std::unique_ptr<SpanConfig> span_config_;
-  table_store::Table* table_;
 };
 
 }  // namespace exec

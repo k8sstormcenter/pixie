@@ -80,6 +80,25 @@ class Operator : public PlanNode {
   bool is_initialized_ = false;
 };
 
+class SinkOperator : public Operator {
+ public:
+  explicit SinkOperator(int64_t id, planpb::OperatorType op_type, std::map<std::string, std::string> context)
+      : Operator(id, op_type), context_(context) {}
+
+  std::string DebugString() const override { return absl::StrCat("SinkOperator: ", id_); }
+
+  StatusOr<table_store::schema::Relation> OutputRelation(
+      const table_store::schema::Schema& /*schema*/, const PlanState& /*state*/,
+      const std::vector<int64_t>& /*input_ids*/) const override {
+    return error::Unimplemented("Derived sink operator must implement OutputRelation");
+  }
+
+  std::map<std::string, std::string> context() const { return context_; }
+
+ protected:
+  std::map<std::string, std::string> context_;
+};
+
 class MemorySourceOperator : public Operator {
  public:
   explicit MemorySourceOperator(int64_t id) : Operator(id, planpb::MEMORY_SOURCE_OPERATOR) {}
@@ -153,9 +172,9 @@ class AggregateOperator : public Operator {
   planpb::AggregateOperator pb_;
 };
 
-class MemorySinkOperator : public Operator {
+class MemorySinkOperator : public SinkOperator {
  public:
-  explicit MemorySinkOperator(int64_t id) : Operator(id, planpb::MEMORY_SINK_OPERATOR) {}
+  explicit MemorySinkOperator(int64_t id, std::map<std::string, std::string> context) : SinkOperator(id, planpb::MEMORY_SINK_OPERATOR, context) {}
   ~MemorySinkOperator() override = default;
 
   StatusOr<table_store::schema::Relation> OutputRelation(
@@ -185,9 +204,9 @@ class GRPCSourceOperator : public Operator {
   planpb::GRPCSourceOperator pb_;
 };
 
-class GRPCSinkOperator : public Operator {
+class GRPCSinkOperator : public SinkOperator {
  public:
-  explicit GRPCSinkOperator(int64_t id) : Operator(id, planpb::GRPC_SINK_OPERATOR) {}
+  explicit GRPCSinkOperator(int64_t id, std::map<std::string, std::string> context) : SinkOperator(id, planpb::GRPC_SINK_OPERATOR, context) {}
   ~GRPCSinkOperator() override = default;
 
   StatusOr<table_store::schema::Relation> OutputRelation(
@@ -359,9 +378,9 @@ class EmptySourceOperator : public Operator {
   std::vector<int64_t> column_idxs_;
 };
 
-class OTelExportSinkOperator : public Operator {
+class OTelExportSinkOperator : public SinkOperator {
  public:
-  explicit OTelExportSinkOperator(int64_t id) : Operator(id, planpb::OTEL_EXPORT_SINK_OPERATOR) {}
+  explicit OTelExportSinkOperator(int64_t id, std::map<std::string, std::string> context) : SinkOperator(id, planpb::OTEL_EXPORT_SINK_OPERATOR, context) {}
   ~OTelExportSinkOperator() override = default;
 
   StatusOr<table_store::schema::Relation> OutputRelation(

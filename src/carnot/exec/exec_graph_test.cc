@@ -639,7 +639,7 @@ TEST_F(ExecGraphTest, execute_with_timed_sink_node_prior_results_table) {
 
   std::vector<std::string> sink_results_col_names = {"bytes_transferred", "destination", "stream_id"};
   table_store::schema::Relation sink_results_rel(
-      {types::DataType::INT64, types::DataType::STRING, types::DataType::STRING},
+      {types::DataType::INT64, types::DataType::INT64, types::DataType::STRING},
       sink_results_col_names);
   auto sink_results_table = table_store::HotColdTable::Create("sink_results", sink_results_rel);
 
@@ -660,11 +660,15 @@ TEST_F(ExecGraphTest, execute_with_timed_sink_node_prior_results_table) {
   EXPECT_NE(output_table_1, nullptr);
   std::vector<types::Int64Value> out1_in1 = {54};
   std::vector<types::Int64Value> out1_in2 = {36};
+  std::vector<types::Int64Value> out2_in1 = {planpb::OperatorType::OTEL_EXPORT_SINK_OPERATOR};
+  std::vector<types::Int64Value> out2_in2 = {planpb::OperatorType::OTEL_EXPORT_SINK_OPERATOR};
   table_store::Cursor cursor1(output_table_1);
-  auto rb_out1 = cursor1.GetNextRowBatch({0}).ConsumeValueOrDie();
+  auto rb_out1 = cursor1.GetNextRowBatch({0, 1}).ConsumeValueOrDie();
   EXPECT_TRUE(rb_out1->ColumnAt(0)->Equals(types::ToArrow(out1_in1, arrow::default_memory_pool())));
-  auto rb_out2 = cursor1.GetNextRowBatch({0}).ConsumeValueOrDie();
+  EXPECT_TRUE(rb_out1->ColumnAt(1)->Equals(types::ToArrow(out2_in1, arrow::default_memory_pool())));
+  auto rb_out2 = cursor1.GetNextRowBatch({0, 1}).ConsumeValueOrDie();
   EXPECT_TRUE(rb_out2->ColumnAt(0)->Equals(types::ToArrow(out1_in2, arrow::default_memory_pool())));
+  EXPECT_TRUE(rb_out2->ColumnAt(1)->Equals(types::ToArrow(out2_in2, arrow::default_memory_pool())));
 }
 
 class YieldingExecGraphTest : public BaseExecGraphTest {

@@ -1067,6 +1067,19 @@ TEST_F(LogicalPlannerTest, FileSource) {
   /* EXPECT_THAT(resp.mutations()[0].trace(), EqualsProto(kBPFTwoTraceProgramsPb)); */
 }
 
+constexpr char kFileSourcePipeline[] = R"pxl(
+import pxlog
+import px
+
+glob_pattern= '/var/log/kern.log'
+table_name='table'
+ttl='10m'
+fs = pxlog.FileSource(glob_pattern, table_name, ttl)
+
+df = px.DataFrame(table=table_name)
+df.stream()
+)pxl";
+
 }  // namespace planner
 }  // namespace carnot
 }  // namespace px

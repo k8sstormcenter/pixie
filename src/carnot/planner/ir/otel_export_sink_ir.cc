@@ -164,6 +164,7 @@ Status OTelExportSinkIR::ProcessConfig(const OTelData& data) {
 }
 
 Status OTelExportSinkIR::ToProto(planpb::Operator* op) const {
+  PX_RETURN_IF_ERROR(SinkOperatorIR::ToProto(op));
   op->set_op_type(planpb::OTEL_EXPORT_SINK_OPERATOR);
   auto otel_op = op->mutable_otel_sink_op();
   *otel_op->mutable_endpoint_config() = data_.endpoint_config;
@@ -335,6 +336,7 @@ Status OTelExportSinkIR::ToProto(planpb::Operator* op) const {
 
 Status OTelExportSinkIR::CopyFromNodeImpl(const IRNode* node,
                                           absl::flat_hash_map<const IRNode*, IRNode*>*) {
+  PX_RETURN_IF_ERROR(SinkOperatorIR::CopyFromNodeImpl(node, nullptr));
   const OTelExportSinkIR* source = static_cast<const OTelExportSinkIR*>(node);
   return ProcessConfig(source->data_);
 }

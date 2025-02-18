@@ -1044,41 +1044,81 @@ import pxlog
 import px
 
 glob_pattern= '/var/log/kern.log'
-table_name='table'
+table_name='kern.log'
 ttl='10m'
 pxlog.FileSource(glob_pattern, table_name, ttl)
 
 df = px.DataFrame(table=table_name)
-df.stream()
+px.export(df, px.otel.Data(
+  endpoint=px.otel.Endpoint(url="px.dev:55555"),
+  resource={
+      'service.name' : df.service,
+  },
+  data=[
+    px.otel.metric.Gauge(
+      name='resp_latency',
+      value=df.resp_latency_ns,
+    )
+  ]
+))
 )pxl";
 
-TEST_F(LogicalPlannerTest, FileSource) {
+TEST_F(LogicalPlannerTest, FileSourceMutation) {
   auto planner = LogicalPlanner::Create(info_).ConsumeValueOrDie();
+  auto state = testutils::CreateTwoPEMsOneKelvinPlannerState(testutils::kFileSourceSchema);
   plannerpb::CompileMutationsRequest req;
   req.set_query_str(kFileSourceQuery);
-  *req.mutable_logical_planner_state() =
-      testutils::CreateTwoPEMsOneKelvinPlannerState(testutils::kHttpEventsSchema);
+  *req.mutable_logical_planner_state() = state;
   auto log_ir_or_s = planner->CompileTrace(req);
   ASSERT_OK(log_ir_or_s);
   auto log_ir = log_ir_or_s.ConsumeValueOrDie();
   plannerpb::CompileMutationsResponse resp;
   ASSERT_OK(log_ir->ToProto(&resp));
-  /* ASSERT_EQ(resp.mutations_size(), 1); */
+  ASSERT_EQ(resp.mutations_size(), 1);
   /* EXPECT_THAT(resp.mutations()[0].trace(), EqualsProto(kBPFTwoTraceProgramsPb)); */
 }
 
-constexpr char kFileSourcePipeline[] = R"pxl(
-import pxlog
-import px
+TEST_F(LogicalPlannerTest, FileSourcePlan) {
+  auto planner = LogicalPlanner::Create(info_).ConsumeValueOrDie();
+  auto state = testutils::CreateTwoPEMsOneKelvinPlannerState(testutils::kFileSourceSchema);
+  // Correspond to the two pems in the planner state
+  std::vector<int64_t> agent_ids = {1, 2};
+  auto plan_or_s = planner->Plan(MakeQueryRequest(state, kFileSourceQuery));
+  EXPECT_OK(plan_or_s);
+  auto plan = plan_or_s.ConsumeValueOrDie();
+  EXPECT_OK(plan->ToProto());
 
-glob_pattern= '/var/log/kern.log'
-table_name='table'
-ttl='10m'
-fs = pxlog.FileSource(glob_pattern, table_name, ttl)
-
-df = px.DataFrame(table=table_name)
-df.stream()
-)pxl";
+  auto otel_export_matched = false;
+  auto grpc_sink_matched = false;
+  for (const auto& id : plan->dag().TopologicalSort()) {
+    auto subgraph = plan->Get(id)->plan();
+    auto otel_export = subgraph->FindNodesOfType(IRNodeType::kOTelExportSink);
+    auto grpc_sink = subgraph->FindNodesOfType(IRNodeType::kGRPCSink);
+    if (otel_export.empty() && grpc_sink.empty()) {
+      continue;
+    }
+    if (!otel_export.empty()) {
+      EXPECT_EQ(1, otel_export.size());
+      planpb::Operator op;
+      auto otel_export_ir = static_cast<OTelExportSinkIR*>(otel_export[0]);
+      EXPECT_OK(otel_export_ir->ToProto(&op));
+      EXPECT_EQ(1, op.context().size());
+      otel_export_matched = true;
+    }
+    if (!grpc_sink.empty()) {
+      EXPECT_EQ(1, grpc_sink.size());
+      for (auto agent_id : agent_ids) {
+        planpb::Operator op;
+        auto grpc_sink_ir = static_cast<GRPCSinkIR*>(grpc_sink[0]);
+        EXPECT_OK(grpc_sink_ir->ToProto(&op, agent_id));
+        EXPECT_EQ(1, op.context().size());
+      }
+      grpc_sink_matched = true;
+    }
+  }
+  EXPECT_TRUE(otel_export_matched);
+  EXPECT_TRUE(grpc_sink_matched);
+}
 
 }  // namespace planner
 }  // namespace carnot

@@ -43,9 +43,9 @@ namespace planner {
  * 1. SetDistributedID(string): Set the name of the node same as the query broker.
  * 2. SetDestinationAddress(string): the GRPC address where batches should be sent.
  */
-class GRPCSinkIR : public OperatorIR {
+class GRPCSinkIR : public SinkOperatorIR {
  public:
-  explicit GRPCSinkIR(int64_t id) : OperatorIR(id, IRNodeType::kGRPCSink) {}
+  explicit GRPCSinkIR(int64_t id, std::string mutation_id) : SinkOperatorIR(id, IRNodeType::kGRPCSink, mutation_id) {}
 
   enum GRPCSinkType {
     kTypeNotSet = 0,

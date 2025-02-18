@@ -128,16 +128,22 @@ StatusOr<QLObjectPtr> DataFrameConstructor(CompilerState* compiler_state, IR* gr
                         ParseAllTimeFormats(compiler_state->time_now().val, end_time));
     mem_source_op->SetTimeStopNS(end_time_ns);
   }
+  StringIR* mutation_id_ir = nullptr;
+  if (!NoneObject::IsNoneObject(args.GetArg("mutation_id"))) {
+    PX_ASSIGN_OR_RETURN(mutation_id_ir, GetArgAs<StringIR>(ast, args, "mutation_id"));
+  }
   auto relation_map = compiler_state->relation_map();
   std::optional<std::string> mutation_id = std::nullopt;
+  if (mutation_id_ir != nullptr) {
+    mutation_id = mutation_id_ir->str();
+  }
   for (const auto& [table_name, relation] : *relation_map) {
-    if (table_name == table->str()) {
+    if (table_name == table->str() && mutation_id == std::nullopt) {
       mutation_id = relation.mutation_id();
-      std::optional mut(mutation_id);
-      graph->RecordMutationId(mut);
       break;
     }
   }
+  graph->RecordMutationId(mutation_id);
   return Dataframe::Create(compiler_state, mem_source_op, visitor, mutation_id);
 }
 
@@ -437,8 +443,8 @@ Status Dataframe::Init() {
   PX_ASSIGN_OR_RETURN(
       std::shared_ptr<FuncObject> constructor_fn,
       FuncObject::Create(
-          name(), {"table", "select", "start_time", "end_time"},
-          {{"select", "[]"}, {"start_time", "None"}, {"end_time", "None"}},
+          name(), {"table", "select", "start_time", "end_time", "mutation_id"},
+          {{"select", "[]"}, {"start_time", "None"}, {"end_time", "None"}, {"mutation_id", "None"}},
           /* has_variable_len_args */ false,
           /* has_variable_len_kwargs */ false,
           std::bind(&DataFrameConstructor, compiler_state_, graph(), std::placeholders::_1,

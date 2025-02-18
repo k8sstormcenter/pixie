@@ -45,7 +45,8 @@ namespace planner {
  */
 class GRPCSinkIR : public SinkOperatorIR {
  public:
-  explicit GRPCSinkIR(int64_t id, std::string mutation_id) : SinkOperatorIR(id, IRNodeType::kGRPCSink, mutation_id) {}
+  explicit GRPCSinkIR(int64_t id, std::string mutation_id)
+      : SinkOperatorIR(id, IRNodeType::kGRPCSink, mutation_id) {}
 
   enum GRPCSinkType {
     kTypeNotSet = 0,

@@ -190,7 +190,6 @@ func TestCreateFileSource(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func TestGetFileSources(t *testing.T) {

@@ -34,7 +34,6 @@ pl_cc_proto_library(
     ],
 )
 
-# TODO(ddelnano): ./scripts/update_go_protos.sh doesn't seem to work with this file
 pl_go_proto_library(
     name = "logical_pl_go_proto",
     importpath = "px.dev/pixie/src/carnot/planner/file_source/ir",

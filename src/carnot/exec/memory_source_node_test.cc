@@ -59,7 +59,8 @@ class MemorySourceNodeTest : public ::testing::Test {
                                       {"col1", "time_"});
 
     int64_t compaction_size = 2 * sizeof(bool) + 2 * sizeof(int64_t);
-    cpu_table_ = std::make_shared<table_store::HotColdTable>("cpu", rel, 128 * 1024, compaction_size);
+    cpu_table_ =
+        std::make_shared<table_store::HotColdTable>("cpu", rel, 128 * 1024, compaction_size);
     exec_state_->table_store()->AddTable("cpu", cpu_table_);
 
     auto rb1 = RowBatch(RowDescriptor(rel.col_types()), 3);
@@ -458,7 +459,8 @@ class ParamMemorySourceNodeTest : public ::testing::Test,
         std::vector<types::DataType>{types::DataType::TIME64NS}, std::vector<std::string>{"time_"});
 
     int64_t compaction_size = 2 * sizeof(int64_t);
-    cpu_table_ = std::make_shared<table_store::HotColdTable>("cpu", *rel_, 128 * 1024, compaction_size);
+    cpu_table_ =
+        std::make_shared<table_store::HotColdTable>("cpu", *rel_, 128 * 1024, compaction_size);
     exec_state_->table_store()->AddTable("cpu", cpu_table_);
 
     planpb::Operator op;

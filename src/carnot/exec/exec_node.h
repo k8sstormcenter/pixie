@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -143,9 +144,9 @@ class ExecNode {
    * @return
    */
   virtual Status Init(const plan::Operator& plan_node,
-              const table_store::schema::RowDescriptor& output_descriptor,
-              std::vector<table_store::schema::RowDescriptor> input_descriptors,
-              bool collect_exec_stats = false) {
+                      const table_store::schema::RowDescriptor& output_descriptor,
+                      std::vector<table_store::schema::RowDescriptor> input_descriptors,
+                      bool collect_exec_stats = false) {
     is_initialized_ = true;
     output_descriptor_ = std::make_unique<table_store::schema::RowDescriptor>(output_descriptor);
     input_descriptors_ = input_descriptors;
@@ -211,7 +212,7 @@ class ExecNode {
    * @return The Status of consumption.
    */
   virtual Status ConsumeNext(ExecState* exec_state, const table_store::schema::RowBatch& rb,
-                     size_t parent_index) {
+                             size_t parent_index) {
     DCHECK(is_initialized_);
     DCHECK(type() == ExecNodeType::kSinkNode || type() == ExecNodeType::kProcessingNode);
     if (rb.eos() && !rb.eow()) {
@@ -377,13 +378,15 @@ class SourceNode : public ExecNode {
  * For example: MemorySink.
  */
 class SinkNode : public ExecNode {
- const std::string kSinkResultsTableName = "sink_results";
- const std::vector<std::string> sink_results_col_names = {"bytes_transferred", "destination", "stream_id"};
+  const std::string kSinkResultsTableName = "sink_results";
+  const std::vector<std::string> sink_results_col_names = {"bytes_transferred", "destination",
+                                                           "stream_id"};
 
  public:
-  SinkNode() : ExecNode(ExecNodeType::kSinkNode),
-   rel_({types::DataType::INT64, types::DataType::INT64, types::DataType::STRING},
-     sink_results_col_names) {}
+  SinkNode()
+      : ExecNode(ExecNodeType::kSinkNode),
+        rel_({types::DataType::INT64, types::DataType::INT64, types::DataType::STRING},
+             sink_results_col_names) {}
 
   virtual ~SinkNode() = default;
 
@@ -410,11 +413,10 @@ class SinkNode : public ExecNode {
               std::vector<table_store::schema::RowDescriptor> input_descriptors,
               bool collect_exec_stats = false) override {
     DCHECK(type() == ExecNodeType::kSinkNode);
-    const auto* sink_op =  static_cast<const plan::SinkOperator*>(&plan_node);
+    const auto* sink_op = static_cast<const plan::SinkOperator*>(&plan_node);
     context_ = sink_op->context();
     destination_ = plan_node.op_type();
-    return ExecNode::Init(plan_node, output_descriptor, input_descriptors,
-                      collect_exec_stats);
+    return ExecNode::Init(plan_node, output_descriptor, input_descriptors, collect_exec_stats);
   }
 
   /**
@@ -435,10 +437,14 @@ class SinkNode : public ExecNode {
       std::vector<types::Int64Value> col1_in1 = {rb.NumBytes()};
       std::vector<types::Int64Value> col2_in2 = {destination_};
       std::vector<types::StringValue> col3_in2 = {mutation_id};
-      auto rb_sink_stats = table_store::schema::RowBatch(table_store::schema::RowDescriptor(rel_.col_types()), 1);
-      PX_RETURN_IF_ERROR(rb_sink_stats.AddColumn(types::ToArrow(col1_in1, arrow::default_memory_pool())));
-      PX_RETURN_IF_ERROR(rb_sink_stats.AddColumn(types::ToArrow(col2_in2, arrow::default_memory_pool())));
-      PX_RETURN_IF_ERROR(rb_sink_stats.AddColumn(types::ToArrow(col3_in2, arrow::default_memory_pool())));
+      auto rb_sink_stats =
+          table_store::schema::RowBatch(table_store::schema::RowDescriptor(rel_.col_types()), 1);
+      PX_RETURN_IF_ERROR(
+          rb_sink_stats.AddColumn(types::ToArrow(col1_in1, arrow::default_memory_pool())));
+      PX_RETURN_IF_ERROR(
+          rb_sink_stats.AddColumn(types::ToArrow(col2_in2, arrow::default_memory_pool())));
+      PX_RETURN_IF_ERROR(
+          rb_sink_stats.AddColumn(types::ToArrow(col3_in2, arrow::default_memory_pool())));
       PX_RETURN_IF_ERROR(table_->WriteRowBatch(rb_sink_stats));
     }
     return Status::OK();

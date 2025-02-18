@@ -20,6 +20,7 @@
 
 #include <stddef.h>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -82,7 +83,8 @@ class Operator : public PlanNode {
 
 class SinkOperator : public Operator {
  public:
-  explicit SinkOperator(int64_t id, planpb::OperatorType op_type, std::map<std::string, std::string> context)
+  explicit SinkOperator(int64_t id, planpb::OperatorType op_type,
+                        std::map<std::string, std::string> context)
       : Operator(id, op_type), context_(context) {}
 
   std::string DebugString() const override { return absl::StrCat("SinkOperator: ", id_); }
@@ -174,7 +176,8 @@ class AggregateOperator : public Operator {
 
 class MemorySinkOperator : public SinkOperator {
  public:
-  explicit MemorySinkOperator(int64_t id, std::map<std::string, std::string> context) : SinkOperator(id, planpb::MEMORY_SINK_OPERATOR, context) {}
+  explicit MemorySinkOperator(int64_t id, std::map<std::string, std::string> context)
+      : SinkOperator(id, planpb::MEMORY_SINK_OPERATOR, context) {}
   ~MemorySinkOperator() override = default;
 
   StatusOr<table_store::schema::Relation> OutputRelation(
@@ -206,7 +209,8 @@ class GRPCSourceOperator : public Operator {
 
 class GRPCSinkOperator : public SinkOperator {
  public:
-  explicit GRPCSinkOperator(int64_t id, std::map<std::string, std::string> context) : SinkOperator(id, planpb::GRPC_SINK_OPERATOR, context) {}
+  explicit GRPCSinkOperator(int64_t id, std::map<std::string, std::string> context)
+      : SinkOperator(id, planpb::GRPC_SINK_OPERATOR, context) {}
   ~GRPCSinkOperator() override = default;
 
   StatusOr<table_store::schema::Relation> OutputRelation(
@@ -380,7 +384,8 @@ class EmptySourceOperator : public Operator {
 
 class OTelExportSinkOperator : public SinkOperator {
  public:
-  explicit OTelExportSinkOperator(int64_t id, std::map<std::string, std::string> context) : SinkOperator(id, planpb::OTEL_EXPORT_SINK_OPERATOR, context) {}
+  explicit OTelExportSinkOperator(int64_t id, std::map<std::string, std::string> context)
+      : SinkOperator(id, planpb::OTEL_EXPORT_SINK_OPERATOR, context) {}
   ~OTelExportSinkOperator() override = default;
 
   StatusOr<table_store::schema::Relation> OutputRelation(

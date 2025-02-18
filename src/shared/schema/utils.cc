@@ -41,13 +41,13 @@ RelationInfo ConvertInfoClassPBToRelationInfo(
     mutation_id = schema.mutation_id();
   }
   if (info_class_pb.schema().tabletized()) {
-    return RelationInfo(schema.name(), info_class_pb.id(),
-                        schema.desc(), schema.tabletization_key(),
-                        mutation_id,
+    return RelationInfo(schema.name(), info_class_pb.id(), schema.desc(),
+                        schema.tabletization_key(), mutation_id,
                         InfoClassProtoToRelation(info_class_pb));
   }
   return RelationInfo(info_class_pb.schema().name(), info_class_pb.id(),
-                      info_class_pb.schema().desc(), mutation_id, InfoClassProtoToRelation(info_class_pb));
+                      info_class_pb.schema().desc(), mutation_id,
+                      InfoClassProtoToRelation(info_class_pb));
 }
 
 }  // namespace

@@ -232,7 +232,8 @@ class StirlingImpl final : public Stirling {
 
  private:
   // Adds a source to Stirling, and updates all state accordingly.
-  Status AddSource(std::unique_ptr<SourceConnector> source, std::optional<std::string> mutation_id = {});
+  Status AddSource(std::unique_ptr<SourceConnector> source,
+                   std::optional<std::string> mutation_id = {});
 
   // Removes a source and all its info classes from stirling.
   Status RemoveSource(std::string_view source_name);
@@ -451,7 +452,8 @@ std::unique_ptr<ConnectorContext> StirlingImpl::GetContext() {
   return std::unique_ptr<ConnectorContext>(new SystemWideStandaloneContext());
 }
 
-Status StirlingImpl::AddSource(std::unique_ptr<SourceConnector> source, std::optional<std::string> mutation_id) {
+Status StirlingImpl::AddSource(std::unique_ptr<SourceConnector> source,
+                               std::optional<std::string> mutation_id) {
   PX_RETURN_IF_ERROR(source->Init());
 
   absl::base_internal::SpinLockHolder lock(&info_class_mgrs_lock_);

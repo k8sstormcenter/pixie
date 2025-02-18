@@ -184,7 +184,8 @@ class OperatorIR : public IRNode {
 
 class SinkOperatorIR : public OperatorIR {
  protected:
-  explicit SinkOperatorIR(int64_t id, IRNodeType type, std::string mutation_id) : OperatorIR(id, type), mutation_id_(mutation_id) {}
+  explicit SinkOperatorIR(int64_t id, IRNodeType type, std::string mutation_id)
+      : OperatorIR(id, type), mutation_id_(mutation_id) {}
 
   virtual Status ToProto(planpb::Operator* op) const {
     if (mutation_id_.empty()) {
@@ -199,7 +200,7 @@ class SinkOperatorIR : public OperatorIR {
    * @brief Override of CopyFromNode that adds special handling for Operators.
    */
   virtual Status CopyFromNodeImpl(const IRNode* node,
-                      absl::flat_hash_map<const IRNode*, IRNode*>*) {
+                                  absl::flat_hash_map<const IRNode*, IRNode*>*) {
     const SinkOperatorIR* source = static_cast<const SinkOperatorIR*>(node);
     mutation_id_ = source->mutation_id_;
     return Status::OK();

@@ -41,15 +41,19 @@ StatusOr<std::shared_ptr<Dataframe>> GetAsDataFrame(QLObjectPtr obj) {
 }
 
 StatusOr<std::shared_ptr<Dataframe>> Dataframe::Create(CompilerState* compiler_state,
-                                                       OperatorIR* op, ASTVisitor* visitor, std::optional<std::string> mutation_id) {
-  std::shared_ptr<Dataframe> df(new Dataframe(compiler_state, op, op->graph(), visitor, mutation_id));
+                                                       OperatorIR* op, ASTVisitor* visitor,
+                                                       std::optional<std::string> mutation_id) {
+  std::shared_ptr<Dataframe> df(
+      new Dataframe(compiler_state, op, op->graph(), visitor, mutation_id));
   PX_RETURN_IF_ERROR(df->Init());
   return df;
 }
 
 StatusOr<std::shared_ptr<Dataframe>> Dataframe::Create(CompilerState* compiler_state, IR* graph,
-                                                       ASTVisitor* visitor, std::optional<std::string> mutation_id) {
-  std::shared_ptr<Dataframe> df(new Dataframe(compiler_state, nullptr, graph, visitor, mutation_id));
+                                                       ASTVisitor* visitor,
+                                                       std::optional<std::string> mutation_id) {
+  std::shared_ptr<Dataframe> df(
+      new Dataframe(compiler_state, nullptr, graph, visitor, mutation_id));
   PX_RETURN_IF_ERROR(df->Init());
   return df;
 }

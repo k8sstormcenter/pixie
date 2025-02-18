@@ -187,7 +187,8 @@ class GetTables final : public carnot::udf::UDTF<GetTables> {
 
  private:
   struct TableInfo {
-    TableInfo(const std::string& table_name, const std::string& table_desc, const std::string& table_metadata)
+    TableInfo(const std::string& table_name, const std::string& table_desc,
+              const std::string& table_metadata)
         : table_name(table_name), table_desc(table_desc), table_metadata(table_metadata) {}
     std::string table_name;
     std::string table_desc;

@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include <string>
+
 #include <gmock/gmock.h>
 #include <memory>
 #include <sole.hpp>

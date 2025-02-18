@@ -46,7 +46,8 @@ namespace plan {
 using px::Status;
 
 template <typename TOp, typename TProto>
-std::unique_ptr<Operator> CreateOperator(int64_t id, const TProto& pb, std::map<std::string, std::string> context = {}) {
+std::unique_ptr<Operator> CreateOperator(int64_t id, const TProto& pb,
+                                         std::map<std::string, std::string> context = {}) {
   std::unique_ptr<TOp> op;
   if constexpr (std::is_base_of_v<SinkOperator, TOp>) {
     op = std::make_unique<TOp>(id, context);

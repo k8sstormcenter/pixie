@@ -18,6 +18,7 @@
 
 #include "src/carnot/exec/grpc_sink_node.h"
 
+#include <map>
 #include <utility>
 #include <vector>
 

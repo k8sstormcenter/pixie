@@ -43,10 +43,12 @@ class Dataframe : public QLObject {
       /* name */ "DataFrame",
       /* type */ QLObjectType::kDataframe,
   };
-  static StatusOr<std::shared_ptr<Dataframe>> Create(CompilerState* compiler_state, OperatorIR* op,
-                                                     ASTVisitor* visitor, std::optional<std::string> mutation_id = std::nullopt);
-  static StatusOr<std::shared_ptr<Dataframe>> Create(CompilerState* compiler_state, IR* graph,
-                                                     ASTVisitor* visitor, std::optional<std::string> mutation_id = std::nullopt);
+  static StatusOr<std::shared_ptr<Dataframe>> Create(
+      CompilerState* compiler_state, OperatorIR* op, ASTVisitor* visitor,
+      std::optional<std::string> mutation_id = std::nullopt);
+  static StatusOr<std::shared_ptr<Dataframe>> Create(
+      CompilerState* compiler_state, IR* graph, ASTVisitor* visitor,
+      std::optional<std::string> mutation_id = std::nullopt);
   static bool IsDataframe(const QLObjectPtr& object) {
     return object->type() == DataframeType.type();
   }
@@ -433,7 +435,8 @@ class Dataframe : public QLObject {
         graph_(graph),
         mutation_id_(std::nullopt) {}
 
-  explicit Dataframe(CompilerState* compiler_state, OperatorIR* op, IR* graph, ASTVisitor* visitor, std::optional<std::string> mutation_id)
+  explicit Dataframe(CompilerState* compiler_state, OperatorIR* op, IR* graph, ASTVisitor* visitor,
+                     std::optional<std::string> mutation_id)
       : QLObject(DataframeType, op ? op->ast() : nullptr, visitor),
         compiler_state_(compiler_state),
         op_(op),

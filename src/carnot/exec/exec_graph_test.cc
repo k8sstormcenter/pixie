@@ -536,8 +536,7 @@ TEST_F(ExecGraphTest, execute_with_two_limits) {
 
 TEST_F(ExecGraphTest, execute_with_timed_sink_node_no_prior_results_table) {
   planpb::PlanFragment pf_pb;
-  ASSERT_TRUE(
-      TextFormat::MergeFromString(planpb::testutils::kPlanWithOTelExport, &pf_pb));
+  ASSERT_TRUE(TextFormat::MergeFromString(planpb::testutils::kPlanWithOTelExport, &pf_pb));
   std::shared_ptr<plan::PlanFragment> plan_fragment_ = std::make_shared<plan::PlanFragment>(1);
   ASSERT_OK(plan_fragment_->Init(pf_pb));
 
@@ -599,8 +598,7 @@ TEST_F(ExecGraphTest, execute_with_timed_sink_node_no_prior_results_table) {
 
 TEST_F(ExecGraphTest, execute_with_timed_sink_node_prior_results_table) {
   planpb::PlanFragment pf_pb;
-  ASSERT_TRUE(
-      TextFormat::MergeFromString(planpb::testutils::kPlanWithOTelExport, &pf_pb));
+  ASSERT_TRUE(TextFormat::MergeFromString(planpb::testutils::kPlanWithOTelExport, &pf_pb));
   std::shared_ptr<plan::PlanFragment> plan_fragment_ = std::make_shared<plan::PlanFragment>(1);
   ASSERT_OK(plan_fragment_->Init(pf_pb));
 
@@ -637,7 +635,8 @@ TEST_F(ExecGraphTest, execute_with_timed_sink_node_prior_results_table) {
   EXPECT_OK(rb2.AddColumn(types::ToArrow(col3_in2, arrow::default_memory_pool())));
   EXPECT_OK(table->WriteRowBatch(rb2));
 
-  std::vector<std::string> sink_results_col_names = {"bytes_transferred", "destination", "stream_id"};
+  std::vector<std::string> sink_results_col_names = {"bytes_transferred", "destination",
+                                                     "stream_id"};
   table_store::schema::Relation sink_results_rel(
       {types::DataType::INT64, types::DataType::INT64, types::DataType::STRING},
       sink_results_col_names);

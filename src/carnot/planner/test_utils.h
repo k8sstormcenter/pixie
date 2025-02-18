@@ -286,6 +286,95 @@ relation_map {
 }
 )proto";
 
+constexpr char kFileSourceSchema[] = R"proto(
+relation_map {
+  key: "kern.log"
+  value {
+    columns {
+      column_name: "time_"
+      column_type: TIME64NS
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "upid"
+      column_type: UINT128
+      column_semantic_type: ST_UPID
+    }
+    columns {
+      column_name: "service"
+      column_type: STRING
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "resp_latency_ns"
+      column_type: INT64
+      column_semantic_type: ST_DURATION_NS
+    }
+    mutation_id: "mutation"
+  }
+}
+relation_map {
+  key: "cpu"
+  value {
+    columns {
+      column_name: "count"
+      column_type: INT64
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "cpu0"
+      column_type: FLOAT64
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "cpu1"
+      column_type: FLOAT64
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "cpu2"
+      column_type: FLOAT64
+      column_semantic_type: ST_NONE
+    }
+  }
+}
+relation_map {
+  key: "process_stats"
+  value {
+    columns {
+      column_name: "upid"
+      column_type: UINT128
+      column_semantic_type: ST_UPID
+    }
+    columns {
+      column_name: "cpu_ktime_ns"
+      column_type: INT64
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "cpu_utime_ns"
+      column_type: INT64
+      column_semantic_type: ST_NONE
+    }
+  }
+}
+relation_map {
+  key: "only_pem1"
+  value {
+    columns {
+      column_name: "time_"
+      column_type: TIME64NS
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "upid"
+      column_type: UINT128
+      column_semantic_type: ST_NONE
+    }
+  }
+}
+)proto";
+
 constexpr char kConnStatsSchema[] = R"proto(
 relation_map {
   key: "conn_stats"

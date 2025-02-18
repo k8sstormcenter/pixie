@@ -139,9 +139,9 @@ struct OTelData {
  * Represents a configuration to transform a DataFrame into OpenTelemetry
  * data.
  */
-class OTelExportSinkIR : public OperatorIR {
+class OTelExportSinkIR : public SinkOperatorIR {
  public:
-  explicit OTelExportSinkIR(int64_t id) : OperatorIR(id, IRNodeType::kOTelExportSink) {}
+  explicit OTelExportSinkIR(int64_t id, std::string mutation_id) : SinkOperatorIR(id, IRNodeType::kOTelExportSink, mutation_id) {}
 
   Status Init(OperatorIR* parent, const OTelData& data) {
     PX_RETURN_IF_ERROR(ProcessConfig(data));

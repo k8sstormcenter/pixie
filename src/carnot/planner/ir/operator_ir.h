@@ -181,6 +181,34 @@ class OperatorIR : public IRNode {
   std::vector<TypePtr> parent_types_;
   bool parent_types_set_ = false;
 };
+
+class SinkOperatorIR : public OperatorIR {
+ protected:
+  explicit SinkOperatorIR(int64_t id, IRNodeType type, std::string mutation_id) : OperatorIR(id, type), mutation_id_(mutation_id) {}
+
+  virtual Status ToProto(planpb::Operator* op) const {
+    if (mutation_id_.empty()) {
+      return Status::OK();
+    }
+    auto context = op->mutable_context();
+    context->insert({"mutation_id", mutation_id_});
+    return Status::OK();
+  }
+
+  /**
+   * @brief Override of CopyFromNode that adds special handling for Operators.
+   */
+  virtual Status CopyFromNodeImpl(const IRNode* node,
+                      absl::flat_hash_map<const IRNode*, IRNode*>*) {
+    const SinkOperatorIR* source = static_cast<const SinkOperatorIR*>(node);
+    mutation_id_ = source->mutation_id_;
+    return Status::OK();
+  }
+
+ private:
+  std::string mutation_id_;
+};
+
 }  // namespace planner
 }  // namespace carnot
 }  // namespace px

@@ -49,6 +49,7 @@ namespace planner {
 
 class ExpressionIR;
 class OperatorIR;
+class SinkOperatorIR;
 
 /**
  * IR contains the intermediate representation of the query
@@ -77,7 +78,13 @@ class IR {
   template <typename TOperator>
   StatusOr<TOperator*> MakeNode(int64_t id, const pypa::AstPtr& ast) {
     id_node_counter = std::max(id + 1, id_node_counter);
-    auto node = std::make_unique<TOperator>(id);
+    std::unique_ptr<TOperator> node;
+    if constexpr (std::is_base_of_v<SinkOperatorIR, TOperator>) {
+      auto mutation_id = mutation_id_.value_or("");
+      node = std::make_unique<TOperator>(id, mutation_id);
+    } else {
+      node = std::make_unique<TOperator>(id);
+    }
     dag_.AddNode(node->id());
     node->set_graph(this);
     if (ast != nullptr) {
@@ -123,6 +130,9 @@ class IR {
     }
     // Use the source's ID if we are copying in to a different graph.
     auto new_node_id = this == source->graph() ? id_node_counter : source->id();
+    if (this != source->graph()) {
+      mutation_id_ = source->graph()->mutation_id();
+    }
     DCHECK(!HasNode(new_node_id)) << source->DebugString();
     PX_ASSIGN_OR_RETURN(IRNode * new_node, MakeNodeWithType(source->type(), new_node_id));
     PX_RETURN_IF_ERROR(new_node->CopyFromNode(source, copied_nodes_map));
@@ -258,6 +268,15 @@ class IR {
     return nodes;
   }
 
+  void RecordMutationId(std::optional<std::string> mutation_id) {
+    DCHECK(!mutation_id_.has_value()) << "Mutation ID should only be set once.";
+    mutation_id_ = mutation_id;
+  }
+
+  std::optional<std::string> mutation_id() {
+    return mutation_id_;
+  }
+
   friend std::ostream& operator<<(std::ostream& os, const std::shared_ptr<IR>&) {
     return os << "ir";
   }
@@ -270,6 +289,7 @@ class IR {
   plan::DAG dag_;
   std::unordered_map<int64_t, IRNodePtr> id_node_map_;
   int64_t id_node_counter = 0;
+  std::optional<std::string> mutation_id_ = std::nullopt;
 };
 
 Status ResolveOperatorType(OperatorIR* op, CompilerState* compiler_state);

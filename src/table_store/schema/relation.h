@@ -118,6 +118,8 @@ class Relation {
     return out << relation.DebugString();
   }
 
+  std::optional<std::string> mutation_id() const { return mutation_id_; }
+
  private:
   ColTypeArray col_types_;
   ColNameArray col_names_;

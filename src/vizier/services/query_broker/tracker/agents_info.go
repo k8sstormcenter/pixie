@@ -200,12 +200,13 @@ func makeAgentCarnotInfo(agentID uuid.UUID, asid uint32, agentMetadata *distribu
 
 func makeKelvinCarnotInfo(agentID uuid.UUID, grpcAddress string, asid uint32) *distributedpb.CarnotInfo {
 	return &distributedpb.CarnotInfo{
-		QueryBrokerAddress:   agentID.String(),
-		AgentID:              utils.ProtoFromUUID(agentID),
-		ASID:                 asid,
-		HasGRPCServer:        true,
-		GRPCAddress:          grpcAddress,
-		HasDataStore:         false,
+		QueryBrokerAddress: agentID.String(),
+		AgentID:            utils.ProtoFromUUID(agentID),
+		ASID:               asid,
+		HasGRPCServer:      true,
+		GRPCAddress:        grpcAddress,
+		HasDataStore:       false,
+		// HasDataStore:         true,
 		ProcessesData:        true,
 		AcceptsRemoteSources: true,
 		// When we support persistent storage, Kelvins will also have MetadataInfo.

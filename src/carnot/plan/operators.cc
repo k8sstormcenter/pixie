@@ -45,15 +45,23 @@ namespace plan {
 
 using px::Status;
 
-template <typename TOp, typename TProto>
+// enable_if std::is_base_of_v<SinkOperator, TOp>
+template <typename TOp, typename TProto, typename = std::enable_if_t<std::is_base_of_v<SinkOperator, TOp>>>
 std::unique_ptr<Operator> CreateOperator(int64_t id, const TProto& pb,
-                                         std::map<std::string, std::string> context = {}) {
-  std::unique_ptr<TOp> op;
-  if constexpr (std::is_base_of_v<SinkOperator, TOp>) {
-    op = std::make_unique<TOp>(id, context);
-  } else {
-    op = std::make_unique<TOp>(id);
+                                         std::map<std::string, std::string> context) {
+  auto op = std::make_unique<TOp>(id, context);
+  auto s = op->Init(pb);
+  // On init failure, return null;
+  if (!s.ok()) {
+    LOG(ERROR) << "Failed to initialize operator with err: " << s.msg();
+    return nullptr;
   }
+  return op;
+}
+
+template <typename TOp, typename TProto>
+std::unique_ptr<Operator> CreateOperator(int64_t id, const TProto& pb) {
+  auto op = std::make_unique<TOp>(id);
   auto s = op->Init(pb);
   // On init failure, return null;
   if (!s.ok()) {
@@ -78,7 +86,7 @@ std::unique_ptr<Operator> Operator::FromProto(const planpb::Operator& pb, int64_
     case planpb::GRPC_SOURCE_OPERATOR:
       return CreateOperator<GRPCSourceOperator>(id, pb.grpc_source_op());
     case planpb::GRPC_SINK_OPERATOR:
-      return CreateOperator<GRPCSinkOperator>(id, pb.grpc_sink_op());
+      return CreateOperator<GRPCSinkOperator>(id, pb.grpc_sink_op(), context);
     case planpb::FILTER_OPERATOR:
       return CreateOperator<FilterOperator>(id, pb.filter_op());
     case planpb::LIMIT_OPERATOR:

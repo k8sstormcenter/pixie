@@ -183,6 +183,11 @@ class OperatorIR : public IRNode {
 };
 
 class SinkOperatorIR : public OperatorIR {
+ public:
+  std::string DebugString() const {
+    return absl::Substitute("$0(id=$1, mutation_id=$2)", type_string(), id(), mutation_id_);
+  }
+
  protected:
   explicit SinkOperatorIR(int64_t id, IRNodeType type, std::string mutation_id)
       : OperatorIR(id, type), mutation_id_(mutation_id) {}

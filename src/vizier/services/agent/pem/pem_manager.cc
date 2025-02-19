@@ -21,6 +21,7 @@
 #include "src/common/system/config.h"
 #include "src/vizier/services/agent/shared/manager/exec.h"
 #include "src/vizier/services/agent/shared/manager/manager.h"
+#include <google/protobuf/text_format.h>
 
 DEFINE_int32(
     table_store_data_limit, gflags::Int32FromEnv("PL_TABLE_STORE_DATA_LIMIT_MB", 1024 + 256),
@@ -92,9 +93,14 @@ Status PEMManager::StopImpl(std::chrono::milliseconds) {
   return Status::OK();
 }
 
+using ::google::protobuf::TextFormat;
+
 Status PEMManager::InitSchemas() {
   px::stirling::stirlingpb::Publish publish_pb;
   stirling_->GetPublishProto(&publish_pb);
+  std::string out;
+  TextFormat::PrintToString(publish_pb, &out);
+  LOG(INFO) << "PublishProto " << out;
   auto relation_info_vec = ConvertPublishPBToRelationInfo(publish_pb);
 
   const int64_t memory_limit = FLAGS_table_store_data_limit * 1024 * 1024;

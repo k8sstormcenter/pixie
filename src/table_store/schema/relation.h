@@ -43,6 +43,7 @@ class Relation {
   Relation();
   // Constructor for Relation that initializes with a list of column types.
   explicit Relation(ColTypeArray col_types, ColNameArray col_names);
+  explicit Relation(ColTypeArray col_types, ColNameArray col_names, std::optional<std::string> mutation_id);
   explicit Relation(ColTypeArray col_types, ColNameArray col_names, ColDescArray col_desc);
   explicit Relation(ColTypeArray col_types, ColNameArray col_names,
                     ColSemanticTypeArray col_semantic_types);

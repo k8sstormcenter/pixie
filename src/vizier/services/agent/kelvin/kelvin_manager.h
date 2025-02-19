@@ -60,6 +60,7 @@ class KelvinManager : public Manager {
   static services::shared::agent::AgentCapabilities Capabilities() {
     services::shared::agent::AgentCapabilities capabilities;
     capabilities.set_collects_data(false);
+    /* capabilities.set_stores_data(true); */
     return capabilities;
   }
 

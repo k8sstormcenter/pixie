@@ -38,6 +38,11 @@ Relation::Relation() = default;
 Relation::Relation(ColTypeArray col_types, ColNameArray col_names)
     : Relation(col_types, col_names, ColDescArray(col_types.size(), "")) {}
 
+Relation::Relation(ColTypeArray col_types, ColNameArray col_names, std::optional<std::string> mutation_id)
+    : Relation(col_types, col_names, ColDescArray(col_types.size(), "")) {
+        mutation_id_ = mutation_id;
+    }
+
 Relation::Relation(ColTypeArray col_types, ColNameArray col_names, ColDescArray col_desc)
     : Relation(col_types, col_names, col_desc,
                ColSemanticTypeArray(col_types.size(), types::ST_NONE)) {}

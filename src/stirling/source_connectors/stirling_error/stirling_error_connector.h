@@ -26,6 +26,7 @@
 #include "src/common/base/base.h"
 #include "src/stirling/core/source_connector.h"
 #include "src/stirling/source_connectors/stirling_error/probe_status_table.h"
+#include "src/stirling/source_connectors/stirling_error/sink_results_table.h"
 #include "src/stirling/source_connectors/stirling_error/stirling_error_table.h"
 #include "src/stirling/source_connectors/stirling_error/stream_status_table.h"
 #include "src/stirling/utils/monitor.h"
@@ -39,7 +40,7 @@ class StirlingErrorConnector : public SourceConnector {
   static constexpr auto kSamplingPeriod = std::chrono::milliseconds{1000};
   static constexpr auto kPushPeriod = std::chrono::milliseconds{1000};
   static constexpr auto kTables =
-      MakeArray(kStirlingErrorTable, kProbeStatusTable, kStreamStatusTable);
+      MakeArray(kStirlingErrorTable, kProbeStatusTable, kStreamStatusTable, kSinkResultsTable);
   static constexpr uint32_t kStirlingErrorTableNum = TableNum(kTables, kStirlingErrorTable);
   static constexpr uint32_t kProbeStatusTableNum = TableNum(kTables, kProbeStatusTable);
   static constexpr uint32_t kStreamStatusTableNum = TableNum(kTables, kStreamStatusTable);

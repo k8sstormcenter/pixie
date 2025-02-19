@@ -378,6 +378,7 @@ class SourceNode : public ExecNode {
  * For example: MemorySink.
  */
 class SinkNode : public ExecNode {
+  const std::string kContextKey = "mutation_id";
   const std::string kSinkResultsTableName = "sink_results";
   const std::vector<std::string> sink_results_col_names = {"bytes_transferred", "destination",
                                                            "stream_id"};
@@ -425,15 +426,15 @@ class SinkNode : public ExecNode {
    * @return The status of the prepare.
    */
   Status Prepare(ExecState* exec_state) override {
-    if (context_.find("mutation_id") != context_.end()) {
+    if (context_.find(kContextKey) != context_.end()) {
       SetUpStreamResultsTable(exec_state);
     }
     return ExecNode::Prepare(exec_state);
   }
 
   Status RecordSinkResults(const table_store::schema::RowBatch& rb) {
-    if (table_ != nullptr) {
-      auto mutation_id = context_["mutation_id"];
+    if (table_ != nullptr && context_.find(kContextKey) != context_.end()) {
+      auto mutation_id = context_[kContextKey];
       std::vector<types::Int64Value> col1_in1 = {rb.NumBytes()};
       std::vector<types::Int64Value> col2_in2 = {destination_};
       std::vector<types::StringValue> col3_in2 = {mutation_id};

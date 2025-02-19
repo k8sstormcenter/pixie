@@ -273,7 +273,7 @@ class IR {
     mutation_id_ = mutation_id;
   }
 
-  std::optional<std::string> mutation_id() { return mutation_id_; }
+  std::optional<std::string> mutation_id() const { return mutation_id_; }
 
   friend std::ostream& operator<<(std::ostream& os, const std::shared_ptr<IR>&) {
     return os << "ir";

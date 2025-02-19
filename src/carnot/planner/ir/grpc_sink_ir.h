@@ -111,6 +111,17 @@ class GRPCSinkIR : public SinkOperatorIR {
     destination_ssl_targetname_ = ssl_targetname;
   }
 
+  std::string DebugString() const override {
+    auto sink_op_str = SinkOperatorIR::DebugString();
+    std::vector<int64_t> agent_ids;
+    for (const auto& [agent_id, _] : agent_id_to_destination_id_) {
+      agent_ids.push_back(agent_id);
+    }
+    return absl::Substitute("$0(id=$1, destination_id=$2, destination_address=$3, sink_type=$4, agent_ids=$5 sink_op=$6)",
+                            type_string(), id(), destination_id_, destination_address_,
+                            sink_type_, absl::StrJoin(agent_ids, ","), sink_op_str);
+  }
+
   const std::string& destination_address() const { return destination_address_; }
   bool DestinationAddressSet() const { return destination_address_ != ""; }
   const std::string& destination_ssl_targetname() const { return destination_ssl_targetname_; }

@@ -380,13 +380,13 @@ class SourceNode : public ExecNode {
 class SinkNode : public ExecNode {
   const std::string kContextKey = "mutation_id";
   const std::string kSinkResultsTableName = "sink_results";
-  const std::vector<std::string> sink_results_col_names = {"bytes_transferred", "destination",
+  const std::vector<std::string> sink_results_col_names = {"time_", "bytes_transferred", "destination",
                                                            "stream_id"};
 
  public:
   SinkNode()
       : ExecNode(ExecNodeType::kSinkNode),
-        rel_({types::DataType::INT64, types::DataType::INT64, types::DataType::STRING},
+        rel_({types::DataType::TIME64NS, types::DataType::INT64, types::DataType::INT64, types::DataType::STRING},
              sink_results_col_names) {}
 
   virtual ~SinkNode() = default;
@@ -432,20 +432,23 @@ class SinkNode : public ExecNode {
     return ExecNode::Prepare(exec_state);
   }
 
-  Status RecordSinkResults(const table_store::schema::RowBatch& rb) {
+  Status RecordSinkResults(const table_store::schema::RowBatch& rb, types::Time64NSValue time_now) {
     if (table_ != nullptr && context_.find(kContextKey) != context_.end()) {
       auto mutation_id = context_[kContextKey];
-      std::vector<types::Int64Value> col1_in1 = {rb.NumBytes()};
-      std::vector<types::Int64Value> col2_in2 = {destination_};
-      std::vector<types::StringValue> col3_in2 = {mutation_id};
+      std::vector<types::Time64NSValue> col1_in1 = {time_now};
+      std::vector<types::Int64Value> col2_in1 = {rb.NumBytes()};
+      std::vector<types::Int64Value> col3_in1 = {destination_};
+      std::vector<types::StringValue> col4_in1 = {mutation_id};
       auto rb_sink_stats =
           table_store::schema::RowBatch(table_store::schema::RowDescriptor(rel_.col_types()), 1);
       PX_RETURN_IF_ERROR(
           rb_sink_stats.AddColumn(types::ToArrow(col1_in1, arrow::default_memory_pool())));
       PX_RETURN_IF_ERROR(
-          rb_sink_stats.AddColumn(types::ToArrow(col2_in2, arrow::default_memory_pool())));
+          rb_sink_stats.AddColumn(types::ToArrow(col2_in1, arrow::default_memory_pool())));
       PX_RETURN_IF_ERROR(
-          rb_sink_stats.AddColumn(types::ToArrow(col3_in2, arrow::default_memory_pool())));
+          rb_sink_stats.AddColumn(types::ToArrow(col3_in1, arrow::default_memory_pool())));
+      PX_RETURN_IF_ERROR(
+          rb_sink_stats.AddColumn(types::ToArrow(col4_in1, arrow::default_memory_pool())));
       PX_RETURN_IF_ERROR(table_->WriteRowBatch(rb_sink_stats));
     }
     return Status::OK();
@@ -457,7 +460,7 @@ class SinkNode : public ExecNode {
     if (!s.ok()) {
       return s;
     }
-    PX_RETURN_IF_ERROR(RecordSinkResults(rb));
+    PX_RETURN_IF_ERROR(RecordSinkResults(rb, exec_state->time_now()));
     return s;
   }
 

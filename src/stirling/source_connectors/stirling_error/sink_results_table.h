@@ -28,8 +28,7 @@ namespace stirling {
 
 // clang-format off
 constexpr DataElement kSinkResultsElements[] = {
-  // TODO(ddelnano): Determine how to have the compiler inject this during execution time
-  /* canonical_data_elements::kTime, */
+  canonical_data_elements::kTime,
   {"bytes_transferred", "",
    types::DataType::INT64, types::SemanticType::ST_NONE, types::PatternType::GENERAL},
   {"destination", "The planpb::OperatorType enum of the sink",

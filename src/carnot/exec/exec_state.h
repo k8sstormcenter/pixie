@@ -82,7 +82,8 @@ class ExecState {
         model_pool_(model_pool),
         grpc_router_(grpc_router),
         add_auth_to_grpc_client_context_func_(add_auth_func),
-        exec_metrics_(exec_metrics) {}
+        exec_metrics_(exec_metrics),
+        time_now_(px::CurrentTimeNS()) {}
 
   ~ExecState() {
     if (grpc_router_ != nullptr) {
@@ -202,6 +203,8 @@ class ExecState {
 
   ExecMetrics* exec_metrics() { return exec_metrics_; }
 
+  types::Time64NSValue time_now() const { return time_now_; }
+
  private:
   udf::Registry* func_registry_;
   std::shared_ptr<table_store::TableStore> table_store_;
@@ -239,6 +242,8 @@ class ExecState {
   absl::flat_hash_map<std::string,
                       opentelemetry::proto::collector::trace::v1::TraceService::StubInterface*>
       trace_service_stub_map_;
+
+  types::Time64NSValue time_now_;
 };
 
 }  // namespace exec

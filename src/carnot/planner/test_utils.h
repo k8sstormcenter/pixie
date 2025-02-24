@@ -1233,6 +1233,229 @@ schema_info {
 }
 )proto";
 
+constexpr char kThreePEMsOneKelvinAllHasDataStoreDistributedState[] = R"proto(
+carnot_info {
+  query_broker_address: "pem1"
+  agent_id {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000001
+  }
+  has_grpc_server: false
+  has_data_store: true
+  processes_data: true
+  accepts_remote_sources: false
+  asid: 123
+  table_info {
+    table: "table"
+  }
+}
+carnot_info {
+  query_broker_address: "pem2"
+  agent_id {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000002
+  }
+  has_grpc_server: false
+  has_data_store: true
+  processes_data: true
+  accepts_remote_sources: false
+  asid: 789
+  table_info {
+    table: "table"
+  }
+}
+carnot_info {
+  query_broker_address: "pem3"
+  agent_id {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000003
+  }
+  has_grpc_server: false
+  has_data_store: true
+  processes_data: true
+  accepts_remote_sources: false
+  asid: 111
+  table_info {
+    table: "table"
+  }
+}
+carnot_info {
+  query_broker_address: "kelvin"
+  agent_id {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000004
+  }
+  grpc_address: "1111"
+  has_grpc_server: true
+  has_data_store: true
+  processes_data: true
+  accepts_remote_sources: true
+  asid: 456
+  ssl_targetname: "kelvin.pl.svc"
+}
+schema_info {
+  name: "table"
+  relation {
+    columns {
+      column_name: "time_"
+      column_type: TIME64NS
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "cpu_cycles"
+      column_type: INT64
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "upid"
+      column_type: UINT128
+      column_semantic_type: ST_NONE
+    }
+  }
+  agent_list {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000001
+  }
+  agent_list {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000002
+  }
+  agent_list {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000003
+  }
+  agent_list {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000004
+  }
+}
+schema_info {
+  name: "cql_events"
+  relation {
+    columns {
+      column_name: "time_"
+      column_type: TIME64NS
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "upid"
+      column_type: UINT128
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "remote_addr"
+      column_type: STRING
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "remote_port"
+      column_type: INT64
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "trace_role"
+      column_type: INT64
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "latency"
+      column_type: INT64
+      column_semantic_type: ST_NONE
+    }
+  }
+  agent_list {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000001
+  }
+  agent_list {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000002
+  }
+  agent_list {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000003
+  }
+}
+schema_info {
+  name: "http_events"
+  relation {
+    columns {
+      column_name: "time_"
+      column_type: TIME64NS
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "upid"
+      column_type: UINT128
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "local_addr"
+      column_type: STRING
+      column_semantic_type: ST_NONE
+    }
+  }
+  agent_list {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000001
+  }
+  agent_list {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000002
+  }
+  agent_list {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000003
+  }
+}
+schema_info {
+  name: "process_stats"
+  relation {
+    columns {
+      column_name: "time_"
+      column_type: TIME64NS
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "upid"
+      column_type: UINT128
+      column_semantic_type: ST_NONE
+    }
+  }
+  agent_list {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000001
+  }
+  agent_list {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000002
+  }
+  agent_list {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000003
+  }
+}
+schema_info {
+  name: "only_pem1"
+  relation {
+    columns {
+      column_name: "time_"
+      column_type: TIME64NS
+      column_semantic_type: ST_NONE
+    }
+    columns {
+      column_name: "upid"
+      column_type: UINT128
+      column_semantic_type: ST_NONE
+    }
+  }
+  agent_list {
+    high_bits: 0x0000000100000000
+    low_bits: 0x0000000000000001
+  }
+}
+)proto";
+
 constexpr char kOnePEMOneKelvinDistributedState[] = R"proto(
 carnot_info {
   agent_id {

@@ -129,7 +129,7 @@ func (a *AgentsInfoImpl) UpdateAgentsInfo(update *metadatapb.AgentUpdatesRespons
 			} else {
 				// this is a Kelvin
 				kelvinGRPCAddress := agent.Info.IPAddress
-				carnotInfoMap[agentUUID] = makeKelvinCarnotInfo(agentUUID, kelvinGRPCAddress, agent.ASID)
+				carnotInfoMap[agentUUID] = makeKelvinCarnotInfo(agentUUID, kelvinGRPCAddress, agent.ASID, agent.Info.Capabilities.StoresData)
 			}
 		}
 		// case 2: agent data info update
@@ -198,15 +198,14 @@ func makeAgentCarnotInfo(agentID uuid.UUID, asid uint32, agentMetadata *distribu
 	}
 }
 
-func makeKelvinCarnotInfo(agentID uuid.UUID, grpcAddress string, asid uint32) *distributedpb.CarnotInfo {
+func makeKelvinCarnotInfo(agentID uuid.UUID, grpcAddress string, asid uint32, storesData bool) *distributedpb.CarnotInfo {
 	return &distributedpb.CarnotInfo{
-		QueryBrokerAddress: agentID.String(),
-		AgentID:            utils.ProtoFromUUID(agentID),
-		ASID:               asid,
-		HasGRPCServer:      true,
-		GRPCAddress:        grpcAddress,
-		HasDataStore:       false,
-		// HasDataStore:         true,
+		QueryBrokerAddress:   agentID.String(),
+		AgentID:              utils.ProtoFromUUID(agentID),
+		ASID:                 asid,
+		HasGRPCServer:        true,
+		GRPCAddress:          grpcAddress,
+		HasDataStore:         storesData,
 		ProcessesData:        true,
 		AcceptsRemoteSources: true,
 		// When we support persistent storage, Kelvins will also have MetadataInfo.

@@ -236,6 +236,10 @@ Status Manager::RegisterBackgroundHelpers() {
   heartbeat_handler_ = std::make_shared<HeartbeatMessageHandler>(
       dispatcher_.get(), mds_manager_.get(), relation_info_manager_.get(), &info_,
       agent_nats_connector_.get());
+  if (info_.capabilities.stores_data()) {
+    LOG(INFO) << "Creating results table";
+    PX_RETURN_IF_ERROR(heartbeat_handler_->CreateSinkResultsTable(table_store()));
+  }
 
   auto heartbeat_nack_handler = std::make_shared<HeartbeatNackMessageHandler>(
       dispatcher_.get(), &info_, agent_nats_connector_.get(),

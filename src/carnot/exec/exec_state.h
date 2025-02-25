@@ -194,6 +194,8 @@ class ExecState {
     metadata_state_ = metadata_state;
   }
 
+  md::UPID GetAgentUPID() const { return metadata_state_->agent_upid(); }
+
   GRPCRouter* grpc_router() { return grpc_router_; }
 
   void AddAuthToGRPCClientContext(grpc::ClientContext* ctx) {

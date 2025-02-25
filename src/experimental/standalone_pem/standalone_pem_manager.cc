@@ -103,8 +103,11 @@ StandalonePEMManager::StandalonePEMManager(sole::uuid agent_id, std::string_view
                                        std::move(clients_config), std::move(server_config))
                 .ConsumeValueOrDie();
 
+  const std::string proc_pid_path = std::string("/proc/") + std::to_string(info_.pid);
+  PX_ASSIGN_OR_RETURN(auto start_time, system::GetPIDStartTimeTicks(proc_pid_path));
+
   mds_manager_ = std::make_unique<px::md::StandaloneAgentMetadataStateManager>(
-      info_.hostname, info_.asid, info_.pid, info_.agent_id, time_system_.get());
+      info_.hostname, info_.asid, info_.pid, start_time, info_.agent_id, time_system_.get());
 
   tracepoint_manager_ =
       std::make_unique<TracepointManager>(dispatcher_.get(), stirling_.get(), table_store_.get());

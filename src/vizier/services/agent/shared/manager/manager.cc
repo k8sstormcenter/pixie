@@ -299,8 +299,11 @@ Status Manager::PostRegisterHook(uint32_t asid) {
   LOG_IF(FATAL, info_.asid != 0) << "Attempted to register existing agent with new ASID";
   info_.asid = asid;
 
+  const std::string proc_pid_path = std::string("/proc/") + std::to_string(info_.pid);
+  PX_ASSIGN_OR_RETURN(auto start_time, system::GetPIDStartTimeTicks(proc_pid_path));
+
   mds_manager_ = std::make_unique<px::md::AgentMetadataStateManagerImpl>(
-      info_.hostname, info_.asid, info_.pid, info_.pod_name, info_.agent_id,
+      info_.hostname, info_.asid, info_.pid, start_time, info_.pod_name, info_.agent_id,
       info_.capabilities.collects_data(), px::system::Config::GetInstance(),
       agent_metadata_filter_.get(), sole::rebuild(FLAGS_vizier_id), FLAGS_vizier_name,
       FLAGS_vizier_namespace, time_system_.get());

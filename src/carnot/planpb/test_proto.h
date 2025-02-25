@@ -1040,6 +1040,10 @@ constexpr char kPlanWithOTelExport[] = R"proto(
     id: 1
     op {
       op_type: MEMORY_SOURCE_OPERATOR
+      context: {
+        key: "mutation_id"
+        value:  "mutation"
+      }
       mem_source_op {
         name: "numbers"
         column_idxs: 0

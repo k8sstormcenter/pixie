@@ -76,7 +76,7 @@ std::unique_ptr<Operator> Operator::FromProto(const planpb::Operator& pb, int64_
   std::map<std::string, std::string> context(pb_context.begin(), pb_context.end());
   switch (pb.op_type()) {
     case planpb::MEMORY_SOURCE_OPERATOR:
-      return CreateOperator<MemorySourceOperator>(id, pb.mem_source_op());
+      return CreateOperator<MemorySourceOperator>(id, pb.mem_source_op(), context);
     case planpb::MAP_OPERATOR:
       return CreateOperator<MapOperator>(id, pb.map_op());
     case planpb::AGGREGATE_OPERATOR:

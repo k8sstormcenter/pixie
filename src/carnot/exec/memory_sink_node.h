@@ -34,9 +34,9 @@ namespace px {
 namespace carnot {
 namespace exec {
 
-class MemorySinkNode : public SinkNode {
+class MemorySinkNode : public PipelineNode {
  public:
-  MemorySinkNode() = default;
+  MemorySinkNode() : PipelineNode(ExecNodeType::kSinkNode) {}
   virtual ~MemorySinkNode() = default;
 
   std::string TableName() const { return plan_node_->TableName(); }

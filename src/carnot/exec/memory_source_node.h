@@ -39,7 +39,7 @@ namespace exec {
 using table_store::Table;
 using table_store::schema::RowBatch;
 
-class MemorySourceNode : public SourceNode {
+class MemorySourceNode : public PipelineSourceNode {
  public:
   MemorySourceNode() = default;
   virtual ~MemorySourceNode() = default;

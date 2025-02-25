@@ -99,6 +99,9 @@ message PlanNode {
 
 enum OperatorType {
   OPERATOR_TYPE_UNKNOWN = 0;
+  // Fake operator types. To be changed later
+  BPF_SOURCE_OPERATOR = 1;
+  FILE_SOURCE_OPERATOR = 2;
   // Source operators are rangs 1000 - 2000.
   MEMORY_SOURCE_OPERATOR = 1000;
   GRPC_SOURCE_OPERATOR = 1100;

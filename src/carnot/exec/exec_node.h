@@ -283,7 +283,7 @@ class ExecNode {
    * @param rb The row batch to send.
    * @return Status of children execution.
    */
-  Status SendRowBatchToChildren(ExecState* exec_state, const table_store::schema::RowBatch& rb) {
+  virtual Status SendRowBatchToChildren(ExecState* exec_state, const table_store::schema::RowBatch& rb) {
     stats_->ResumeChildTimer();
     for (size_t i = 0; i < children_.size(); ++i) {
       PX_RETURN_IF_ERROR(children_[i]->ConsumeNext(exec_state, rb, parent_ids_for_children_[i]));
@@ -374,22 +374,22 @@ class SourceNode : public ExecNode {
 };
 
 /**
- * Sink node is the base class for anything that consumes records and writes to some sink.
- * For example: MemorySink.
+ * Pipeline node is the base class for anything that consumes warrants recording pipeline results.
+ * For example: MemorySink, MemorySource, OTelExportSink
  */
-class SinkNode : public ExecNode {
+class PipelineNode : public ExecNode {
   const std::string kContextKey = "mutation_id";
   const std::string kSinkResultsTableName = "sink_results";
   const std::vector<std::string> sink_results_col_names = {"time_", "upid", "bytes_transferred", "destination",
                                                            "stream_id"};
 
  public:
-  SinkNode()
-      : ExecNode(ExecNodeType::kSinkNode),
+  explicit PipelineNode(ExecNodeType node_type)
+      : ExecNode(node_type),
         rel_({types::DataType::TIME64NS, types::DataType::UINT128, types::DataType::INT64, types::DataType::INT64, types::DataType::STRING},
              sink_results_col_names) {}
 
-  virtual ~SinkNode() = default;
+  virtual ~PipelineNode() = default;
 
   void SetUpStreamResultsTable(ExecState* exec_state) {
     auto sink_results = exec_state->table_store()->GetTable(kSinkResultsTableName);
@@ -413,10 +413,18 @@ class SinkNode : public ExecNode {
               const table_store::schema::RowDescriptor& output_descriptor,
               std::vector<table_store::schema::RowDescriptor> input_descriptors,
               bool collect_exec_stats = false) override {
-    DCHECK(type() == ExecNodeType::kSinkNode);
+    DCHECK(type() == ExecNodeType::kSinkNode || type() == ExecNodeType::kSourceNode);
     const auto* sink_op = static_cast<const plan::SinkOperator*>(&plan_node);
     context_ = sink_op->context();
-    destination_ = plan_node.op_type();
+    auto op_type = plan_node.op_type();
+    destination_ = op_type;
+    if (op_type == planpb::MEMORY_SOURCE_OPERATOR) {
+      const auto* memory_source_op = static_cast<const plan::MemorySourceOperator*>(&plan_node);
+      auto table_name = memory_source_op->TableName();
+      if (absl::EndsWith(table_name, "_events")) {
+        destination_ = planpb::OperatorType::BPF_SOURCE_OPERATOR;
+      }
+    }
     return ExecNode::Init(plan_node, output_descriptor, input_descriptors, collect_exec_stats);
   }
 
@@ -467,12 +475,54 @@ class SinkNode : public ExecNode {
     return s;
   }
 
+  /**
+   * Send data to children row batches.
+   * @param exec_state The exec state.
+   * @param rb The row batch to send.
+   * @return Status of children execution.
+   */
+  Status SendRowBatchToChildren(ExecState* exec_state, const table_store::schema::RowBatch& rb) override {
+    auto s = ExecNode::SendRowBatchToChildren(exec_state, rb);
+    if (!s.ok()) {
+      return s;
+    }
+    PX_RETURN_IF_ERROR(RecordSinkResults(rb, exec_state->time_now(), exec_state->GetAgentUPID().value()));
+    return s;
+  }
+
  private:
   std::map<std::string, std::string> context_;
   planpb::OperatorType destination_;
   table_store::Table* table_;
   table_store::schema::Relation rel_;
 };
+
+/**
+ * Source node is the base class for anything that produces records from some source.
+ * For example: MemorySource.
+ */
+class PipelineSourceNode : public PipelineNode {
+ public:
+  PipelineSourceNode() : PipelineNode(ExecNodeType::kSourceNode) {}
+  virtual ~PipelineSourceNode() = default;
+
+  bool HasBatchesRemaining() { return !sent_eos_; }
+  virtual bool NextBatchReady() = 0;
+  int64_t BytesProcessed() const { return bytes_processed_; }
+  int64_t RowsProcessed() const { return rows_processed_; }
+  Status SendEndOfStream(ExecState* exec_state) {
+    // TODO(philkuz) this part is not tracked w/ the timer. Need to include this in NVI or cut
+    // losses.
+    PX_ASSIGN_OR_RETURN(auto rb, table_store::schema::RowBatch::WithZeroRows(
+                                     *output_descriptor_, /*eow*/ true, /*eos*/ true));
+    return SendRowBatchToChildren(exec_state, *rb);
+  }
+
+ protected:
+  int64_t rows_processed_ = 0;
+  int64_t bytes_processed_ = 0;
+};
+
 
 }  // namespace exec
 }  // namespace carnot

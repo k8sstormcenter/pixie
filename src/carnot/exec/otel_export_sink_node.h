@@ -37,8 +37,9 @@ struct SpanConfig {
   std::string name;
 };
 
-class OTelExportSinkNode : public SinkNode {
+class OTelExportSinkNode : public PipelineNode {
  public:
+  OTelExportSinkNode() : PipelineNode(ExecNodeType::kSinkNode) {}
   virtual ~OTelExportSinkNode() = default;
 
  protected:

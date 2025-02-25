@@ -101,9 +101,10 @@ class SinkOperator : public Operator {
   std::map<std::string, std::string> context_;
 };
 
-class MemorySourceOperator : public Operator {
+class MemorySourceOperator : public SinkOperator {
  public:
-  explicit MemorySourceOperator(int64_t id) : Operator(id, planpb::MEMORY_SOURCE_OPERATOR) {}
+  explicit MemorySourceOperator(int64_t id, std::map<std::string, std::string> context)
+      : SinkOperator(id, planpb::MEMORY_SOURCE_OPERATOR, context) {}
   ~MemorySourceOperator() override = default;
   StatusOr<table_store::schema::Relation> OutputRelation(
       const table_store::schema::Schema& schema, const PlanState& state,

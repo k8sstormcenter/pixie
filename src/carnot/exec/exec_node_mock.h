@@ -62,9 +62,9 @@ class MockSourceNode : public SourceNode {
   void SendEOS() { sent_eos_ = true; }
 };
 
-class MockSinkNode : public PipelineNode {
+class MockSinkNode : public ExecNode {
  public:
-  MockSinkNode() : PipelineNode(ExecNodeType::kSinkNode) {}
+  MockSinkNode() : ExecNode (ExecNodeType::kSinkNode) {}
 
   MOCK_METHOD0(DebugStringImpl, std::string());
   MOCK_METHOD1(InitImpl, Status(const plan::Operator& plan_node));

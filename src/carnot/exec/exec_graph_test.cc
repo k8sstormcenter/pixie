@@ -200,6 +200,9 @@ TEST_P(ExecGraphExecuteTest, execute) {
                   /* collect_exec_node_stats */ false, calls_to_generate);
 
   EXPECT_OK(e.Execute());
+  auto stats = e.GetStats();
+  EXPECT_EQ(stats.bytes_processed, 85);
+  EXPECT_EQ(stats.rows_processed, 5);
 
   auto output_table = exec_state_->table_store()->GetTable("output");
   std::vector<types::Float64Value> out_in1 = {4.8, 16.4, 26.4};

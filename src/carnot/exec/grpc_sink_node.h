@@ -51,10 +51,10 @@ constexpr float kBatchSizeFactor = 0.9f;
 // Number of times to retry connecting to grpc before giving up.
 constexpr size_t kGRPCRetries = 3;
 
-class GRPCSinkNode : public PipelineNode {
+class GRPCSinkNode : public ExecNode {
  public:
   GRPCSinkNode(size_t max_batch_size, float batch_size_factor)
-      : PipelineNode(ExecNodeType::kSinkNode),
+      : ExecNode(ExecNodeType::kSinkNode),
         max_batch_size_(max_batch_size), batch_size_factor_(batch_size_factor) {}
   GRPCSinkNode() : GRPCSinkNode(kMaxBatchSize, kBatchSizeFactor) {}
   virtual ~GRPCSinkNode() = default;

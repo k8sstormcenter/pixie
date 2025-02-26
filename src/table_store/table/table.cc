@@ -450,18 +450,20 @@ HotOnlyTable::HotOnlyTable(std::string_view table_name, const schema::Relation& 
 
 StatusOr<std::unique_ptr<schema::RowBatch>> HotOnlyTable::GetNextRowBatch(
     Cursor* /*cursor*/, const std::vector<int64_t>& cols) const {
-  absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
-  if (hot_store_->Size() == 0) {
-    return error::InvalidArgument("Data after Cursor is not in the table.");
-  }
-  auto&& batch = hot_store_->PopFront();
   std::vector<types::DataType> col_types;
   for (int64_t col_idx : cols) {
     DCHECK(static_cast<size_t>(col_idx) < rel_.NumColumns());
     col_types.push_back(rel_.col_types()[col_idx]);
   }
+  const auto row_desc = schema::RowDescriptor(col_types);
+  absl::base_internal::SpinLockHolder hot_lock(&hot_lock_);
+  if (hot_store_->Size() == 0) {
+    return schema::RowBatch::WithZeroRows(row_desc, /* eow */ true,
+                                  /* eos */ true);
+  }
+  auto&& batch = hot_store_->PopFront();
   auto batch_size = batch.Length();
-  auto rb = std::make_unique<schema::RowBatch>(schema::RowDescriptor(col_types), batch_size);
+  auto rb = std::make_unique<schema::RowBatch>(row_desc, batch_size);
   PX_RETURN_IF_ERROR(hot_store_->AddBatchSliceToRowBatch(batch, 0, batch_size, cols, rb.get()));
   return rb;
 }
@@ -551,7 +553,8 @@ TableStats HotOnlyTable::GetTableStats() const {
 }
 
 Status HotOnlyTable::CompactHotToCold(arrow::MemoryPool* /*mem_pool*/) {
-  return error::InvalidArgument("HotOnlyTable does not support CompactHotToCold.");
+  LOG(INFO) << "Skipping compaction for HotOnlyTable";
+  return Status::OK();
 }
 
 Table::Time HotOnlyTable::MaxTime() const {

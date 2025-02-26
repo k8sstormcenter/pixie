@@ -25,7 +25,7 @@
 namespace px {
 namespace stirling {
 
-TEST(DynamicTraceConnectorTest, DataElementsFromJSON) {
+TEST(FileSourceConnectorTest, DataElementsFromJSON) {
   const auto file_path =
       testing::BazelRunfilePath("src/stirling/source_connectors/file_source/testdata/test.json");
   auto stream = std::ifstream(file_path);
@@ -46,7 +46,7 @@ TEST(DynamicTraceConnectorTest, DataElementsFromJSON) {
   EXPECT_EQ(elements.elements()[4].type(), types::DataType::STRING);
 }
 
-TEST(DynamicTraceConnectorTest, DataElementsFromJSON_UnsupportedTypes) {
+TEST(FileSourceConnectorTest, DataElementsFromJSON_UnsupportedTypes) {
   const auto file_path = testing::BazelRunfilePath(
       "src/stirling/source_connectors/file_source/testdata/unsupported.json");
   auto stream = std::ifstream(file_path);

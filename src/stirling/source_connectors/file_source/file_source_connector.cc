@@ -217,10 +217,8 @@ void FileSourceConnector::TransferDataImpl(ConnectorContext* /* ctx */) {
                                                    file_name_.string(), eof_count_)
                                << after_pos;
         eof_count_++;
-        return;
       }
-      last_pos_ = after_pos;
-      monitor_.AppendStreamStatusRecord(file_name_, after_pos - before_pos, "");
+      break;
     }
 
     transfer_fn(*this, nullptr, nanos, line);

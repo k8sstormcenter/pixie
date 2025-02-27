@@ -1018,7 +1018,10 @@ class GetFileSourceStatus final : public carnot::udf::UDTF<GetFileSourceStatus> 
   static constexpr auto Executor() { return carnot::udfspb::UDTFSourceExecutor::UDTF_ONE_KELVIN; }
 
   static constexpr auto OutputRelation() {
-    return MakeArray(ColInfo("file_source_id", types::DataType::UINT128,
+    // TODO(ddelnano): Change the file_source_id column to a UINT128 once the pxl lookup from
+    // px/pipeline_flow_graph works. That script has a UINT128 stored as a string and needs to
+    // be joined with this column
+    return MakeArray(ColInfo("file_source_id", types::DataType::STRING,
                              types::PatternType::GENERAL, "The id of the file source"),
                      ColInfo("name", types::DataType::STRING, types::PatternType::GENERAL,
                              "The name of the file source"),
@@ -1097,7 +1100,7 @@ class GetFileSourceStatus final : public carnot::udf::UDTF<GetFileSourceStatus> 
     rapidjson::Writer<rapidjson::StringBuffer> tables_writer(tables_sb);
     tables.Accept(tables_writer);
 
-    rw->Append<IndexOf("file_source_id")>(absl::MakeUint128(u.ab, u.cd));
+    rw->Append<IndexOf("file_source_id")>(u.str());
     rw->Append<IndexOf("name")>(file_source_info.name());
     rw->Append<IndexOf("state")>(state);
 

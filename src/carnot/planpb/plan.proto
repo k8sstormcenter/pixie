@@ -99,9 +99,6 @@ message PlanNode {
 
 enum OperatorType {
   OPERATOR_TYPE_UNKNOWN = 0;
-  // Fake operator types. To be changed later
-  BPF_SOURCE_OPERATOR = 1;
-  FILE_SOURCE_OPERATOR = 2;
   // Source operators are rangs 1000 - 2000.
   MEMORY_SOURCE_OPERATOR = 1000;
   GRPC_SOURCE_OPERATOR = 1100;
@@ -118,6 +115,7 @@ enum OperatorType {
   MEMORY_SINK_OPERATOR = 9000;
   GRPC_SINK_OPERATOR = 9100;
   OTEL_EXPORT_SINK_OPERATOR = 9200;
+  // TODO(ddelnano): 10001 - 11000 are reserved for future use (sink_results table)
 }
 
 // The Logical operation performed. Each operator needs and entry in this

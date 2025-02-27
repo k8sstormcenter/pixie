@@ -29,6 +29,18 @@
 #include "src/common/perf/perf.h"
 #include "src/table_store/table_store.h"
 
+namespace px::carnot::exec {
+// Forward declaration so enum_range can be specialized.
+enum class SinkResultsDestType : uint64_t;
+
+}  // namespace px::carot::exec
+
+template <>
+struct magic_enum::customize::enum_range<px::carnot::exec::SinkResultsDestType> {
+  static constexpr int min = 1000;
+  static constexpr int max = 11000;
+};
+
 namespace px {
 namespace carnot {
 namespace exec {
@@ -128,6 +140,20 @@ struct ExecNodeStats {
   absl::flat_hash_map<std::string, std::string> extra_info;
 };
 
+enum class SinkResultsDestType : uint64_t {
+  amqp_events = 10001, // TODO(ddelnano): This is set to not collide with the planpb::OperatorType enum
+  cql_events,
+  dns_events,
+  http_events,
+  kafka_events, // Won't work since table is suffixed with ".beta"
+  mongodb_events,
+  mux_events,
+  mysql_events,
+  nats_events, // Won't work since table is suffixed with ".beta"
+  pgsql_events,
+  redis_events,
+};
+
 /**
  * This is the base class for the execution nodes in Carnot.
  */
@@ -160,12 +186,13 @@ class ExecNode {
       const auto* sink_op = static_cast<const plan::SinkOperator*>(&plan_node);
       context_ = sink_op->context();
       auto op_type = plan_node.op_type();
-      destination_ = op_type;
+      destination_ = static_cast<uint64_t>(op_type);
       if (op_type == planpb::MEMORY_SOURCE_OPERATOR) {
         const auto* memory_source_op = static_cast<const plan::MemorySourceOperator*>(&plan_node);
         auto table_name = memory_source_op->TableName();
-        if (absl::EndsWith(table_name, "_events")) {
-          destination_ = planpb::OperatorType::BPF_SOURCE_OPERATOR;
+        auto protocol_events = magic_enum::enum_cast<SinkResultsDestType>(table_name);
+        if (protocol_events.has_value()) {
+          destination_ = static_cast<uint64_t>(protocol_events.value());
         }
       }
     }
@@ -412,7 +439,7 @@ class ExecNode {
   std::map<std::string, std::string> context_;
 
   // The operator type of the current node
-  planpb::OperatorType destination_;
+  uint64_t destination_;
 
   table_store::Table* table_;
   table_store::schema::Relation rel_;

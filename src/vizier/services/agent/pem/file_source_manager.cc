@@ -87,7 +87,7 @@ Status FileSourceManager::HandleRegisterFileSourceRequest(
     const messages::RegisterFileSourceRequest& req) {
   auto glob_pattern = req.file_source_deployment().glob_pattern();
   PX_ASSIGN_OR_RETURN(auto id, ParseUUID(req.id()));
-  LOG(INFO) << "Registering file source: " << glob_pattern;
+  LOG(INFO) << "Registering file source: " << glob_pattern << " uuid string=" << id.str();
 
   FileSourceInfo info;
   info.name = glob_pattern;

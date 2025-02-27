@@ -134,8 +134,8 @@ struct ExecNodeStats {
 class ExecNode {
   const std::string kContextKey = "mutation_id";
   const std::string kSinkResultsTableName = "sink_results";
-  const std::vector<std::string> sink_results_col_names = {"time_", "upid", "bytes_transferred", "destination",
-                                                           "stream_id"};
+  const std::vector<std::string> sink_results_col_names = {"time_", "upid", "bytes_transferred",
+                                                           "destination", "stream_id"};
 
  public:
   ExecNode() = delete;
@@ -152,7 +152,11 @@ class ExecNode {
                       const table_store::schema::RowDescriptor& output_descriptor,
                       std::vector<table_store::schema::RowDescriptor> input_descriptors,
                       bool collect_exec_stats = false) {
-    if (type() == ExecNodeType::kSinkNode || type() == ExecNodeType::kSourceNode) {
+    auto op_type = plan_node.op_type();
+    // TODO(ddelnano): Replace this with a template based compile time check
+    // to ensure that there can't be segfaults on the subsequent static_casts
+    if (op_type == planpb::MEMORY_SOURCE_OPERATOR || op_type == planpb::GRPC_SINK_OPERATOR ||
+        op_type == planpb::MEMORY_SINK_OPERATOR || op_type == planpb::OTEL_EXPORT_SINK_OPERATOR) {
       const auto* sink_op = static_cast<const plan::SinkOperator*>(&plan_node);
       context_ = sink_op->context();
       auto op_type = plan_node.op_type();
@@ -162,8 +166,6 @@ class ExecNode {
         auto table_name = memory_source_op->TableName();
         if (absl::EndsWith(table_name, "_events")) {
           destination_ = planpb::OperatorType::BPF_SOURCE_OPERATOR;
-        } else if (absl::EndsWith(table_name, "_fs")) {
-          destination_ = planpb::OperatorType::FILE_SOURCE_OPERATOR;
         }
       }
     }
@@ -246,7 +248,8 @@ class ExecNode {
     stats_->ResumeTotalTimer();
     PX_RETURN_IF_ERROR(ConsumeNextImpl(exec_state, rb, parent_index));
     stats_->StopTotalTimer();
-    PX_RETURN_IF_ERROR(RecordSinkResults(rb, exec_state->time_now(), exec_state->GetAgentUPID().value()));
+    PX_RETURN_IF_ERROR(
+        RecordSinkResults(rb, exec_state->time_now(), exec_state->GetAgentUPID().value()));
     return Status::OK();
   }
 
@@ -307,7 +310,8 @@ class ExecNode {
    * @param rb The row batch to send.
    * @return Status of children execution.
    */
-  virtual Status SendRowBatchToChildren(ExecState* exec_state, const table_store::schema::RowBatch& rb) {
+  virtual Status SendRowBatchToChildren(ExecState* exec_state,
+                                        const table_store::schema::RowBatch& rb) {
     stats_->ResumeChildTimer();
     for (size_t i = 0; i < children_.size(); ++i) {
       PX_RETURN_IF_ERROR(children_[i]->ConsumeNext(exec_state, rb, parent_ids_for_children_[i]));
@@ -318,13 +322,15 @@ class ExecNode {
       DCHECK(!sent_eos_);
       sent_eos_ = true;
     }
-    PX_RETURN_IF_ERROR(RecordSinkResults(rb, exec_state->time_now(), exec_state->GetAgentUPID().value()));
+    PX_RETURN_IF_ERROR(
+        RecordSinkResults(rb, exec_state->time_now(), exec_state->GetAgentUPID().value()));
     return Status::OK();
   }
 
   explicit ExecNode(ExecNodeType type)
       : type_(type),
-        rel_({types::DataType::TIME64NS, types::DataType::UINT128, types::DataType::INT64, types::DataType::INT64, types::DataType::STRING},
+        rel_({types::DataType::TIME64NS, types::DataType::UINT128, types::DataType::INT64,
+              types::DataType::INT64, types::DataType::STRING},
              sink_results_col_names) {}
 
   // Defines the protected implementations of the non-virtual interface functions
@@ -350,7 +356,6 @@ class ExecNode {
   bool sent_eos_ = false;
 
  private:
-
   void SetUpStreamResultsTable(ExecState* exec_state) {
     auto sink_results = exec_state->table_store()->GetTable(kSinkResultsTableName);
     if (sink_results != nullptr) {
@@ -362,7 +367,8 @@ class ExecNode {
     }
   }
 
-  Status RecordSinkResults(const table_store::schema::RowBatch& rb, const types::Time64NSValue time_now, const types::UInt128Value upid) {
+  Status RecordSinkResults(const table_store::schema::RowBatch& rb,
+                           const types::Time64NSValue time_now, const types::UInt128Value upid) {
     if (table_ != nullptr && context_.find(kContextKey) != context_.end()) {
       auto mutation_id = context_[kContextKey];
       std::vector<types::Time64NSValue> col1_in1 = {time_now};

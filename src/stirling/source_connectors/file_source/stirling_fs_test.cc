@@ -77,7 +77,7 @@ class StirlingFileSourceTest : public ::testing::Test {
     return {};
   }
 
-  void DeployFileSource(std::string file_name) {
+  void DeployFileSource(std::string file_name, bool trigger_stop = true) {
     sole::uuid id = sole::uuid4();
     stirling_->RegisterFileSource(id, file_name);
 
@@ -97,12 +97,14 @@ class StirlingFileSourceTest : public ::testing::Test {
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
-    ASSERT_OK(stirling_->RemoveFileSource(id));
+    if (trigger_stop) {
+      ASSERT_OK(stirling_->RemoveFileSource(id));
 
-    // Should get removed.
-    EXPECT_EQ(WaitForStatus(id).code(), px::statuspb::Code::NOT_FOUND);
+     // Should get removed.
+     EXPECT_EQ(WaitForStatus(id).code(), px::statuspb::Code::NOT_FOUND);
 
-    stirling_->Stop();
+     stirling_->Stop();
+    }
   }
 
   std::unique_ptr<Stirling> stirling_;
@@ -127,6 +129,84 @@ TEST_F(FileSourceJSONTest, ParsesJSONFile) {
     auto col_wrapper = rb->at(i);
     // The JSON file has 10 lines.
     EXPECT_EQ(col_wrapper->Size(), 10);
+  }
+}
+
+TEST_F(FileSourceJSONTest, ContinuesReadingAfterEOFReached) {
+  std::string file_name = "./test.json";
+  std::ofstream ofs(file_name, std::ios::app);
+  if (!ofs) {
+    LOG(FATAL) << absl::Substitute("Failed to open file= $0 received error=$1", kFilePath, strerror(errno));
+  }
+  // FileSourceConnector parses the first line to infer the file's schema, an empty file will cause an error.
+  ofs << R"({"id": 0, "active": false, "score": 6.28, "name": "item0"})" << std::endl;
+
+  DeployFileSource(file_name, false);
+  EXPECT_THAT(record_batches_, SizeIs(1));
+  auto& rb = record_batches_[0];
+  // Expect there to be 5 columns. time_ and the 4 cols from the JSON file.
+  EXPECT_EQ(rb->size(), 5);
+
+  for (size_t i = 0; i < rb->size(); ++i) {
+    auto col_wrapper = rb->at(i);
+    // The file's first row batch has 1 line
+    EXPECT_EQ(col_wrapper->Size(), 1);
+  }
+
+  ofs << R"({"id": 1, "active": false, "score": 6.28, "name": "item1"})" << std::endl;
+  ofs.flush();
+  ofs.close();
+
+  while (record_batches_.size() < 2) {
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    LOG(INFO) << "Waiting for more data...";
+  }
+
+  auto& rb2 = record_batches_[1];
+  for (size_t i = 0; i < rb2->size(); ++i) {
+    auto col_wrapper = rb2->at(i);
+    // The file's second row batch has 1 line
+    EXPECT_EQ(col_wrapper->Size(), 1);
+  }
+}
+
+TEST_F(FileSourceJSONTest, ContinuesReadingAfterFileRotation) {
+  std::string file_name = "./test2.json";
+  std::ofstream ofs(file_name, std::ios::app);
+  if (!ofs) {
+    LOG(FATAL) << absl::Substitute("Failed to open file= $0 received error=$1", kFilePath, strerror(errno));
+  }
+  // FileSourceConnector parses the first line to infer the file's schema, an empty file will cause an error.
+  ofs << R"({"id": 0, "active": false, "score": 6.28, "name": "item0"})" << std::endl;
+  ofs << R"({"id": 1, "active": false, "score": 6.28, "name": "item1"})" << std::endl;
+
+  DeployFileSource(file_name, false);
+  EXPECT_THAT(record_batches_, SizeIs(1));
+  auto& rb = record_batches_[0];
+  // Expect there to be 5 columns. time_ and the 4 cols from the JSON file.
+  EXPECT_EQ(rb->size(), 5);
+
+  for (size_t i = 0; i < rb->size(); ++i) {
+    auto col_wrapper = rb->at(i);
+    // The file's first row batch has 2 lines
+    EXPECT_EQ(col_wrapper->Size(), 2);
+  }
+
+  std::ofstream ofs2(file_name, std::ios::trunc);
+  ofs2 << R"({"id": 2, "active": false, "score": 6.28, "name": "item2"})" << std::endl;
+  ofs2.flush();
+  ofs.close();
+
+  while (record_batches_.size() < 2) {
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    LOG(INFO) << "Waiting for more data...";
+  }
+
+  auto& rb2 = record_batches_[1];
+  for (size_t i = 0; i < rb2->size(); ++i) {
+    auto col_wrapper = rb2->at(i);
+    // The file's second row batch has 1 line
+    EXPECT_EQ(col_wrapper->Size(), 1);
   }
 }
 

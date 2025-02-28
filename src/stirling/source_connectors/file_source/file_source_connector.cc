@@ -217,6 +217,15 @@ void FileSourceConnector::TransferDataImpl(ConnectorContext* /* ctx */) {
                                                    file_name_.string(), eof_count_)
                                << after_pos;
         eof_count_++;
+
+        // TODO(ddlenano): Using a file's inode is a better way to detect file rotation. For now,
+        // this will suffice.
+        std::ifstream s(file_name_, std::ios::ate | std::ios::binary);
+        if (s.tellg() < after_pos) {
+          LOG(INFO) << "Detected file rotation, resetting file position";
+          file_.close();
+          file_.open(file_name_, std::ios::in);
+        }
       }
       break;
     }

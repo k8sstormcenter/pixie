@@ -174,7 +174,7 @@ class ExecNode {
    * @param input_descriptors The input column schema of row batches.
    * @return
    */
-  virtual Status Init(const plan::Operator& plan_node,
+  Status Init(const plan::Operator& plan_node,
                       const table_store::schema::RowDescriptor& output_descriptor,
                       std::vector<table_store::schema::RowDescriptor> input_descriptors,
                       bool collect_exec_stats = false) {
@@ -208,7 +208,7 @@ class ExecNode {
    * @param exec_state The execution state.
    * @return The status of the prepare.
    */
-  virtual Status Prepare(ExecState* exec_state) {
+  Status Prepare(ExecState* exec_state) {
     DCHECK(is_initialized_);
     if (context_.find(kContextKey) != context_.end()) {
       SetUpStreamResultsTable(exec_state);
@@ -263,7 +263,7 @@ class ExecNode {
    * @param rb The input row batch.
    * @return The Status of consumption.
    */
-  virtual Status ConsumeNext(ExecState* exec_state, const table_store::schema::RowBatch& rb,
+  Status ConsumeNext(ExecState* exec_state, const table_store::schema::RowBatch& rb,
                              size_t parent_index) {
     DCHECK(is_initialized_);
     DCHECK(type() == ExecNodeType::kSinkNode || type() == ExecNodeType::kProcessingNode);
@@ -337,7 +337,7 @@ class ExecNode {
    * @param rb The row batch to send.
    * @return Status of children execution.
    */
-  virtual Status SendRowBatchToChildren(ExecState* exec_state,
+  Status SendRowBatchToChildren(ExecState* exec_state,
                                         const table_store::schema::RowBatch& rb) {
     stats_->ResumeChildTimer();
     for (size_t i = 0; i < children_.size(); ++i) {
@@ -479,6 +479,16 @@ class SourceNode : public ExecNode {
  protected:
   int64_t rows_processed_ = 0;
   int64_t bytes_processed_ = 0;
+};
+
+/**
+ * Sink node is the base class for anything that consumes records and writes to some sink.
+ * For example: MemorySink.
+ */
+class SinkNode : public ExecNode {
+ public:
+  SinkNode() : ExecNode(ExecNodeType::kSinkNode) {}
+  virtual ~SinkNode() = default;
 };
 
 }  // namespace exec

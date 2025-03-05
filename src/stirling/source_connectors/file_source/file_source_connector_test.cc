@@ -56,5 +56,19 @@ TEST(FileSourceConnectorTest, DataElementsFromJSON_UnsupportedTypes) {
             "Unable to parse JSON key 'unsupported': unsupported type: Object");
 }
 
+TEST(FileSourceConnectorTest, DataElementsForUnstructuredFile) {
+
+  const auto file_path = testing::BazelRunfilePath(
+      "src/stirling/source_connectors/file_source/testdata/kern.log");
+  auto stream = std::ifstream(file_path);
+  auto result = DataElementsForUnstructuredFile();
+  ASSERT_OK(result);
+  BackedDataElements elements = std::move(result.ValueOrDie());
+  EXPECT_EQ(elements.elements()[0].name(), "time_");
+  EXPECT_EQ(elements.elements()[0].type(), types::DataType::TIME64NS);
+  EXPECT_EQ(elements.elements()[1].name(), "raw_line");
+  EXPECT_EQ(elements.elements()[1].type(), types::DataType::STRING);
+}
+
 }  // namespace stirling
 }  // namespace px

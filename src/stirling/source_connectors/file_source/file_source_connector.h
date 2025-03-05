@@ -79,6 +79,7 @@ class FileSourceConnector : public SourceConnector {
 
 StatusOr<BackedDataElements> DataElementsFromJSON(std::ifstream& f_stream);
 StatusOr<BackedDataElements> DataElementsFromCSV(std::ifstream& f_stream);
+StatusOr<BackedDataElements> DataElementsForUnstructuredFile();
 
 }  // namespace stirling
 }  // namespace px

@@ -77,10 +77,17 @@ StatusOr<BackedDataElements> DataElementsFromCSV(std::ifstream& file_name) {
   return BackedDataElements(0);
 }
 
+StatusOr<BackedDataElements> DataElementsForUnstructuredFile() {
+  BackedDataElements data_elements(2);
+  data_elements.emplace_back("time_", "", types::DataType::TIME64NS);
+  data_elements.emplace_back("raw_line", "", types::DataType::STRING);
+  return data_elements;
+}
+
 namespace {
 
 StatusOr<std::pair<BackedDataElements, std::ifstream>> DataElementsFromFile(
-    const std::filesystem::path& file_name) {
+    const std::filesystem::path& file_name, bool allow_unstructured = false) {
   auto f = std::ifstream(file_name.string());
   if (!f.is_open()) {
     return error::Internal("Failed to open file: $0 with error=$1", file_name.string(),
@@ -95,7 +102,12 @@ StatusOr<std::pair<BackedDataElements, std::ifstream>> DataElementsFromFile(
   } else if (extension == ".json") {
     PX_ASSIGN_OR_RETURN(data_elements, DataElementsFromJSON(f));
   } else {
-    return error::Internal("Unsupported file type: $0", extension);
+    if (allow_unstructured) {
+      LOG(WARNING) << absl::Substitute("Unsupported file type: $0, treating each line as a single column", extension);
+      PX_ASSIGN_OR_RETURN(data_elements, DataElementsForUnstructuredFile());
+    } else {
+      return error::Internal("Unsupported file type: $0", extension);
+    }
   }
 
   f.seekg(0, std::ios::beg);

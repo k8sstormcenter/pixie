@@ -100,9 +100,27 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 	if err != nil {
 		return nil, err
 	}
+	var otelConfig *distributedpb.OTelEndpointConfig
+	if convertedReq.Configs != nil && convertedReq.Configs.OTelEndpointConfig != nil {
+		otelConfig = &distributedpb.OTelEndpointConfig{
+			URL:      convertedReq.Configs.OTelEndpointConfig.URL,
+			Headers:  convertedReq.Configs.OTelEndpointConfig.Headers,
+			Insecure: convertedReq.Configs.OTelEndpointConfig.Insecure,
+			Timeout:  convertedReq.Configs.OTelEndpointConfig.Timeout,
+		}
+	}
+	var pluginConfig *distributedpb.PluginConfig
+	if req.Configs != nil && req.Configs.PluginConfig != nil {
+		pluginConfig = &distributedpb.PluginConfig{
+			StartTimeNs: req.Configs.PluginConfig.StartTimeNs,
+			EndTimeNs:   req.Configs.PluginConfig.EndTimeNs,
+		}
+	}
 	convertedReq.LogicalPlannerState = &distributedpb.LogicalPlannerState{
-		DistributedState: m.distributedState,
-		PlanOptions:      planOpts,
+		DistributedState:   m.distributedState,
+		PlanOptions:        planOpts,
+		OTelEndpointConfig: otelConfig,
+		PluginConfig:       pluginConfig,
 	}
 
 	mutations, err := m.planner.CompileMutations(convertedReq)

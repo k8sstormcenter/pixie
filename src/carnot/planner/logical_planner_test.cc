@@ -946,7 +946,13 @@ px.export(df, px.otel.Data(
     px.otel.metric.Gauge(
       name='resp_latency',
       value=df.resp_latency_ns,
-    )
+    ),
+    px.otel.log.Log(
+      time=df.time_,
+      severity_number=px.otel.log.SEVERITY_NUMBER_INFO,
+      severity_text="info",
+      body=df.service,
+    ),
   ]
 ))
 )pxl";

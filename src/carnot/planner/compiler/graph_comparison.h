@@ -261,7 +261,7 @@ struct PlanGraphMatcher {
   }
 
   virtual void DescribeTo(::std::ostream* os) const {
-    *os << "equals to text probobuf: " << expected_plan_.DebugString();
+    *os << "equals to text protobuf: " << expected_plan_.DebugString();
   }
 
   virtual void DescribeNegationTo(::std::ostream* os) const {

@@ -16,8 +16,16 @@ def get_memory_source_sink_results(df, min_asid):
     file_sources = px.GetFileSourceStatus()
     file_sources.stream_id = file_sources.file_source_id
 
+    tracepoint_sources = px.GetTracepointStatus()
+    tracepoint_sources.stream_id = tracepoint_sources.tracepoint_id_str
+    
     df = df[df.destination > bpf_source_op_start or df.destination == memory_source_op]
-    df = df.merge(file_sources, how='left', left_on='stream_id', right_on='file_source_id')
+    file_sources_df = df.merge(file_sources, how='left', left_on='stream_id', right_on='file_source_id')
+    file_sources_df = file_sources_df['time_', 'upid', 'pod', 'name', 'bytes_transferred', 'destination', 'stream_id_x', 'stream_id_y', 'match']
+    tracepoint_sources_df = df.merge(tracepoint_sources, how='left', left_on='stream_id', right_on='tracepoint_id_str')
+    tracepoint_sources_df = tracepoint_sources_df['time_', 'upid', 'pod', 'name', 'bytes_transferred', 'destination', 'stream_id_x', 'stream_id_y', 'match']
+
+    df = file_sources_df.append(tracepoint_sources_df)
 
     # stream_id_y is the column from the file_sources UDTF after the merge
     df.is_bpf_source = df.stream_id_y == ""
@@ -67,7 +75,8 @@ def pipeline_flow_graph(start_time: str):
     )
 
     df = df.append(mem_source_sink_results)
-
+    df = df[px.substring(df.from_entity, 0, 7) != "unknown"]
     df.total_time = px.abs(px.parse_duration(start_time)) / px.pow(10, 9)
     df.bytes_throughput = df.total_bytes / df.total_time
     return df
+

@@ -899,6 +899,8 @@ class GetTracepointStatus final : public carnot::udf::UDTF<GetTracepointStatus> 
   static constexpr auto OutputRelation() {
     return MakeArray(ColInfo("tracepoint_id", types::DataType::UINT128, types::PatternType::GENERAL,
                              "The id of the tracepoint"),
+                     ColInfo("tracepoint_id_str", types::DataType::STRING, types::PatternType::GENERAL,
+                             "The string id of the tracepoint"),
                      ColInfo("name", types::DataType::STRING, types::PatternType::GENERAL,
                              "The name of the tracepoint"),
                      ColInfo("state", types::DataType::STRING, types::PatternType::GENERAL,
@@ -977,6 +979,7 @@ class GetTracepointStatus final : public carnot::udf::UDTF<GetTracepointStatus> 
     tables.Accept(tables_writer);
 
     rw->Append<IndexOf("tracepoint_id")>(absl::MakeUint128(u.ab, u.cd));
+    rw->Append<IndexOf("tracepoint_id_str")>(u.str());
     rw->Append<IndexOf("name")>(tracepoint_info.name());
     rw->Append<IndexOf("state")>(state);
 

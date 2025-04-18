@@ -464,6 +464,7 @@ StatusOr<std::unique_ptr<schema::RowBatch>> HotOnlyTable::GetNextRowBatch(
   auto&& batch = hot_store_->PopFront();
   auto batch_size = batch.Length();
   auto rb = std::make_unique<schema::RowBatch>(row_desc, batch_size);
+  batch_size_accountant_->ExpireHotBatch();
   PX_RETURN_IF_ERROR(hot_store_->AddBatchSliceToRowBatch(batch, 0, batch_size, cols, rb.get()));
   return rb;
 }

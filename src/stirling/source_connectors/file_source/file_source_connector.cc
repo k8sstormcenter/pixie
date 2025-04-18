@@ -87,7 +87,7 @@ StatusOr<BackedDataElements> DataElementsForUnstructuredFile() {
 namespace {
 
 StatusOr<std::pair<BackedDataElements, std::ifstream>> DataElementsFromFile(
-    const std::filesystem::path& file_name, bool allow_unstructured = false) {
+    const std::filesystem::path& file_name, bool allow_unstructured = true) {
   auto f = std::ifstream(file_name.string());
   if (!f.is_open()) {
     return error::Internal("Failed to open file: $0 with error=$1", file_name.string(),
@@ -106,6 +106,7 @@ StatusOr<std::pair<BackedDataElements, std::ifstream>> DataElementsFromFile(
       LOG(WARNING) << absl::Substitute("Unsupported file type: $0, treating each line as a single column", extension);
       PX_ASSIGN_OR_RETURN(data_elements, DataElementsForUnstructuredFile());
     } else {
+      // TODO(ddelnano): If file extension is blank this isn't a helpful error message.
       return error::Internal("Unsupported file type: $0", extension);
     }
   }
@@ -141,6 +142,8 @@ FileSourceConnector::FileSourceConnector(std::string_view source_name,
       transfer_specs_({
           {".json", {&FileSourceConnector::TransferDataFromJSON}},
           {".csv", {&FileSourceConnector::TransferDataFromCSV}},
+          {"", {&FileSourceConnector::TransferDataFromUnstructuredFile}},
+          {".log", {&FileSourceConnector::TransferDataFromUnstructuredFile}},
       }) {}
 
 Status FileSourceConnector::InitImpl() {
@@ -196,6 +199,14 @@ void FileSourceConnector::TransferDataFromJSON(DataTable::DynamicRecordBuilder* 
             types::DataType_Name(column.type()));
     }
   }
+  return;
+}
+
+void FileSourceConnector::TransferDataFromUnstructuredFile(DataTable::DynamicRecordBuilder* /*r*/,
+                                               uint64_t nanos, const std::string& line) {
+  DataTable::DynamicRecordBuilder r(data_tables_[0]);
+  r.Append(0, types::Time64NSValue(nanos));
+  r.Append(1, types::StringValue(line));
   return;
 }
 

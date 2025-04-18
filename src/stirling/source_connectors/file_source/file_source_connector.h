@@ -57,6 +57,8 @@ class FileSourceConnector : public SourceConnector {
   void TransferDataImpl(ConnectorContext* ctx) override;
 
  private:
+  void TransferDataFromUnstructuredFile(DataTable::DynamicRecordBuilder* builder, uint64_t nanos,
+                            const std::string& line);
   void TransferDataFromJSON(DataTable::DynamicRecordBuilder* builder, uint64_t nanos,
                             const std::string& line);
   void TransferDataFromCSV(DataTable::DynamicRecordBuilder* builder, uint64_t nanos,

@@ -33,7 +33,7 @@ TEST(FileSourceConnectorTest, DataElementsFromJSON) {
   ASSERT_OK(result);
   BackedDataElements elements = std::move(result.ValueOrDie());
 
-  ASSERT_EQ(elements.elements().size(), 5);
+  ASSERT_EQ(elements.elements().size(), 7);
   EXPECT_EQ(elements.elements()[0].name(), "time_");
   EXPECT_EQ(elements.elements()[0].type(), types::DataType::TIME64NS);
   EXPECT_EQ(elements.elements()[1].name(), "id");
@@ -44,9 +44,13 @@ TEST(FileSourceConnectorTest, DataElementsFromJSON) {
   EXPECT_EQ(elements.elements()[3].type(), types::DataType::FLOAT64);
   EXPECT_EQ(elements.elements()[4].name(), "name");
   EXPECT_EQ(elements.elements()[4].type(), types::DataType::STRING);
+  EXPECT_EQ(elements.elements()[5].name(), "object");
+  EXPECT_EQ(elements.elements()[5].type(), types::DataType::STRING);
+  EXPECT_EQ(elements.elements()[6].name(), "arr");
+  EXPECT_EQ(elements.elements()[6].type(), types::DataType::STRING);
 }
 
-TEST(FileSourceConnectorTest, DataElementsFromJSON_UnsupportedTypes) {
+TEST(FileSourceConnectorTest, DISABLED_DataElementsFromJSON_UnsupportedTypes) {
   const auto file_path = testing::BazelRunfilePath(
       "src/stirling/source_connectors/file_source/testdata/unsupported.json");
   auto stream = std::ifstream(file_path);

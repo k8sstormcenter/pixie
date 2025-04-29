@@ -62,6 +62,10 @@ StatusOr<BackedDataElements> DataElementsFromJSON(std::ifstream& f_stream) {
       col_type = types::DataType::STRING;
     } else if (value.IsBool()) {
       col_type = types::DataType::BOOLEAN;
+    } else if (value.IsObject()) {
+      col_type = types::DataType::STRING;
+    } else if (value.IsArray()) {
+      col_type = types::DataType::STRING;
     } else {
       return error::Internal("Unable to parse JSON key '$0': unsupported type: $1", name,
                              RapidJSONTypeToString(itr->value.GetType()));
@@ -188,7 +192,14 @@ void FileSourceConnector::TransferDataFromJSON(DataTable::DynamicRecordBuilder* 
         r.Append(col, types::Float64Value(value.GetDouble()));
         break;
       case types::DataType::STRING:
-        r.Append(col, types::StringValue(value.GetString()));
+        if (value.IsArray() || value.IsObject()) {
+          rapidjson::StringBuffer buffer;
+          rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+          value.Accept(writer);
+          r.Append(col, types::StringValue(buffer.GetString()));
+        } else {
+          r.Append(col, types::StringValue(value.GetString()));
+        }
         break;
       case types::DataType::BOOLEAN:
         r.Append(col, types::BoolValue(value.GetBool()));

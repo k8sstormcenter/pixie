@@ -26,6 +26,8 @@
 
 using px::StatusOr;
 
+constexpr size_t kMaxStringBytes = std::numeric_limits<size_t>::max();
+
 namespace px {
 namespace stirling {
 
@@ -196,9 +198,9 @@ void FileSourceConnector::TransferDataFromJSON(DataTable::DynamicRecordBuilder* 
           rapidjson::StringBuffer buffer;
           rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
           value.Accept(writer);
-          r.Append(col, types::StringValue(buffer.GetString()));
+          r.Append(col, types::StringValue(buffer.GetString()), kMaxStringBytes);
         } else {
-          r.Append(col, types::StringValue(value.GetString()));
+          r.Append(col, types::StringValue(value.GetString()), kMaxStringBytes);
         }
         break;
       case types::DataType::BOOLEAN:
@@ -217,7 +219,7 @@ void FileSourceConnector::TransferDataFromUnstructuredFile(DataTable::DynamicRec
                                                uint64_t nanos, const std::string& line) {
   DataTable::DynamicRecordBuilder r(data_tables_[0]);
   r.Append(0, types::Time64NSValue(nanos));
-  r.Append(1, types::StringValue(line));
+  r.Append(1, types::StringValue(line), kMaxStringBytes);
   return;
 }
 

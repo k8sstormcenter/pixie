@@ -122,8 +122,8 @@ TEST_F(FileSourceJSONTest, ParsesJSONFile) {
   DeployFileSource(kFilePath);
   EXPECT_THAT(record_batches_, SizeIs(1));
   auto& rb = record_batches_[0];
-  // Expect there to be 5 columns. time_ and the 4 cols from the JSON file.
-  EXPECT_EQ(rb->size(), 5);
+  // Expect there to be 7 columns. time_ and the 4 cols from the JSON file.
+  EXPECT_EQ(rb->size(), 7);
 
   for (size_t i = 0; i < rb->size(); ++i) {
     auto col_wrapper = rb->at(i);
@@ -139,21 +139,28 @@ TEST_F(FileSourceJSONTest, ContinuesReadingAfterEOFReached) {
     LOG(FATAL) << absl::Substitute("Failed to open file= $0 received error=$1", kFilePath, strerror(errno));
   }
   // FileSourceConnector parses the first line to infer the file's schema, an empty file will cause an error.
-  ofs << R"({"id": 0, "active": false, "score": 6.28, "name": "item0"})" << std::endl;
+  ofs << R"({"id": 0, "active": false, "score": 6.28, "name": "item0", "object": {"a": 1, "b": 2}, "arr": [0, 1, 2]})" << std::endl;
 
   DeployFileSource(file_name, false);
   EXPECT_THAT(record_batches_, SizeIs(1));
   auto& rb = record_batches_[0];
-  // Expect there to be 5 columns. time_ and the 4 cols from the JSON file.
-  EXPECT_EQ(rb->size(), 5);
+  // Expect there to be 7 columns. time_ and the 4 cols from the JSON file.
+  EXPECT_EQ(rb->size(), 7);
 
   for (size_t i = 0; i < rb->size(); ++i) {
     auto col_wrapper = rb->at(i);
+    if (i == 5) {
+      LOG(INFO) << col_wrapper->Get<types::StringValue>(0);
+      EXPECT_EQ(col_wrapper->Get<types::StringValue>(0), R"({"a":1,"b":2})");
+    } else if (i == 6) {
+      LOG(INFO) << col_wrapper->Get<types::StringValue>(0);
+      EXPECT_EQ(col_wrapper->Get<types::StringValue>(0), R"([0,1,2])");
+    }
     // The file's first row batch has 1 line
     EXPECT_EQ(col_wrapper->Size(), 1);
   }
 
-  ofs << R"({"id": 1, "active": false, "score": 6.28, "name": "item1"})" << std::endl;
+  ofs << R"({"id": 1, "active": false, "score": 6.28, "name": "item1", "object": {"a": 1, "b": 2}, "arr": [0, 1, 2]})" << std::endl;
   ofs.flush();
   ofs.close();
 
@@ -177,14 +184,14 @@ TEST_F(FileSourceJSONTest, ContinuesReadingAfterFileRotation) {
     LOG(FATAL) << absl::Substitute("Failed to open file= $0 received error=$1", kFilePath, strerror(errno));
   }
   // FileSourceConnector parses the first line to infer the file's schema, an empty file will cause an error.
-  ofs << R"({"id": 0, "active": false, "score": 6.28, "name": "item0"})" << std::endl;
-  ofs << R"({"id": 1, "active": false, "score": 6.28, "name": "item1"})" << std::endl;
+  ofs << R"({"id": 0, "active": false, "score": 6.28, "name": "item0", "object": {"a": 1, "b": 2}, "arr": [0, 1, 2]})" << std::endl;
+  ofs << R"({"id": 1, "active": false, "score": 6.28, "name": "item1", "object": {"a": 1, "b": 2}, "arr": [0, 1, 2]})" << std::endl;
 
   DeployFileSource(file_name, false);
   EXPECT_THAT(record_batches_, SizeIs(1));
   auto& rb = record_batches_[0];
-  // Expect there to be 5 columns. time_ and the 4 cols from the JSON file.
-  EXPECT_EQ(rb->size(), 5);
+  // Expect there to be 7 columns. time_ and the 4 cols from the JSON file.
+  EXPECT_EQ(rb->size(), 7);
 
   for (size_t i = 0; i < rb->size(); ++i) {
     auto col_wrapper = rb->at(i);
@@ -193,7 +200,7 @@ TEST_F(FileSourceJSONTest, ContinuesReadingAfterFileRotation) {
   }
 
   std::ofstream ofs2(file_name, std::ios::trunc);
-  ofs2 << R"({"id": 2, "active": false, "score": 6.28, "name": "item2"})" << std::endl;
+  ofs2 << R"({"id": 2, "active": false, "score": 6.28, "name": "item2", "object": {"a": 1, "b": 2}, "arr": [0, 1, 2]})" << std::endl;
   ofs2.flush();
   ofs.close();
 

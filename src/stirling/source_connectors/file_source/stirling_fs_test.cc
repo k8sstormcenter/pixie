@@ -122,8 +122,8 @@ TEST_F(FileSourceJSONTest, ParsesJSONFile) {
   DeployFileSource(kFilePath);
   EXPECT_THAT(record_batches_, SizeIs(1));
   auto& rb = record_batches_[0];
-  // Expect there to be 7 columns. time_ and the 4 cols from the JSON file.
-  EXPECT_EQ(rb->size(), 7);
+  // Expect there to be 8 columns. time_ and the 4 cols from the JSON file.
+  EXPECT_EQ(rb->size(), 8);
 
   for (size_t i = 0; i < rb->size(); ++i) {
     auto col_wrapper = rb->at(i);
@@ -144,15 +144,19 @@ TEST_F(FileSourceJSONTest, ContinuesReadingAfterEOFReached) {
   DeployFileSource(file_name, false);
   EXPECT_THAT(record_batches_, SizeIs(1));
   auto& rb = record_batches_[0];
-  // Expect there to be 7 columns. time_ and the 4 cols from the JSON file.
-  EXPECT_EQ(rb->size(), 7);
+  // Expect there to be 8 columns. time_ and the 4 cols from the JSON file.
+  EXPECT_EQ(rb->size(), 8);
 
   for (size_t i = 0; i < rb->size(); ++i) {
     auto col_wrapper = rb->at(i);
-    if (i == 5) {
+    // TODO(ddelnano): Clean up these log messages and add better assertions for uint128 case
+    if (i == 1) {
+      LOG(INFO) << col_wrapper->Get<types::UInt128Value>(0).val;
+      LOG(INFO) << col_wrapper->Get<types::UInt128Value>(1).val;
+    } else if (i == 6) {
       LOG(INFO) << col_wrapper->Get<types::StringValue>(0);
       EXPECT_EQ(col_wrapper->Get<types::StringValue>(0), R"({"a":1,"b":2})");
-    } else if (i == 6) {
+    } else if (i == 7) {
       LOG(INFO) << col_wrapper->Get<types::StringValue>(0);
       EXPECT_EQ(col_wrapper->Get<types::StringValue>(0), R"([0,1,2])");
     }
@@ -190,8 +194,8 @@ TEST_F(FileSourceJSONTest, ContinuesReadingAfterFileRotation) {
   DeployFileSource(file_name, false);
   EXPECT_THAT(record_batches_, SizeIs(1));
   auto& rb = record_batches_[0];
-  // Expect there to be 7 columns. time_ and the 4 cols from the JSON file.
-  EXPECT_EQ(rb->size(), 7);
+  // Expect there to be 8 columns. time_ and the 4 cols from the JSON file.
+  EXPECT_EQ(rb->size(), 8);
 
   for (size_t i = 0; i < rb->size(); ++i) {
     auto col_wrapper = rb->at(i);

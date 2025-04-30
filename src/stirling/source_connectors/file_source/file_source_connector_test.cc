@@ -33,21 +33,23 @@ TEST(FileSourceConnectorTest, DataElementsFromJSON) {
   ASSERT_OK(result);
   BackedDataElements elements = std::move(result.ValueOrDie());
 
-  ASSERT_EQ(elements.elements().size(), 7);
+  ASSERT_EQ(elements.elements().size(), 8);
   EXPECT_EQ(elements.elements()[0].name(), "time_");
   EXPECT_EQ(elements.elements()[0].type(), types::DataType::TIME64NS);
-  EXPECT_EQ(elements.elements()[1].name(), "id");
-  EXPECT_EQ(elements.elements()[1].type(), types::DataType::INT64);
-  EXPECT_EQ(elements.elements()[2].name(), "active");
-  EXPECT_EQ(elements.elements()[2].type(), types::DataType::BOOLEAN);
-  EXPECT_EQ(elements.elements()[3].name(), "score");
-  EXPECT_EQ(elements.elements()[3].type(), types::DataType::FLOAT64);
-  EXPECT_EQ(elements.elements()[4].name(), "name");
-  EXPECT_EQ(elements.elements()[4].type(), types::DataType::STRING);
-  EXPECT_EQ(elements.elements()[5].name(), "object");
+  EXPECT_EQ(elements.elements()[1].name(), "uuid");
+  EXPECT_EQ(elements.elements()[1].type(), types::DataType::UINT128);
+  EXPECT_EQ(elements.elements()[2].name(), "id");
+  EXPECT_EQ(elements.elements()[2].type(), types::DataType::INT64);
+  EXPECT_EQ(elements.elements()[3].name(), "active");
+  EXPECT_EQ(elements.elements()[3].type(), types::DataType::BOOLEAN);
+  EXPECT_EQ(elements.elements()[4].name(), "score");
+  EXPECT_EQ(elements.elements()[4].type(), types::DataType::FLOAT64);
+  EXPECT_EQ(elements.elements()[5].name(), "name");
   EXPECT_EQ(elements.elements()[5].type(), types::DataType::STRING);
-  EXPECT_EQ(elements.elements()[6].name(), "arr");
+  EXPECT_EQ(elements.elements()[6].name(), "object");
   EXPECT_EQ(elements.elements()[6].type(), types::DataType::STRING);
+  EXPECT_EQ(elements.elements()[7].name(), "arr");
+  EXPECT_EQ(elements.elements()[7].type(), types::DataType::STRING);
 }
 
 TEST(FileSourceConnectorTest, DISABLED_DataElementsFromJSON_UnsupportedTypes) {
@@ -70,8 +72,10 @@ TEST(FileSourceConnectorTest, DataElementsForUnstructuredFile) {
   BackedDataElements elements = std::move(result.ValueOrDie());
   EXPECT_EQ(elements.elements()[0].name(), "time_");
   EXPECT_EQ(elements.elements()[0].type(), types::DataType::TIME64NS);
-  EXPECT_EQ(elements.elements()[1].name(), "raw_line");
-  EXPECT_EQ(elements.elements()[1].type(), types::DataType::STRING);
+  EXPECT_EQ(elements.elements()[1].name(), "uuid");
+  EXPECT_EQ(elements.elements()[1].type(), types::DataType::UINT128);
+  EXPECT_EQ(elements.elements()[2].name(), "raw_line");
+  EXPECT_EQ(elements.elements()[2].type(), types::DataType::STRING);
 }
 
 }  // namespace stirling

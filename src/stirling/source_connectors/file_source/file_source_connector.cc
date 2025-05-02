@@ -47,10 +47,12 @@ StatusOr<BackedDataElements> DataElementsFromJSON(std::ifstream& f_stream) {
     return error::Internal("Failed to parse JSON: $0 $1", line,
                            rapidjson::GetParseError_En(ok.Code()));
   }
-  auto elements = d.MemberCount() + 1;  // Add additional columns for time_
+  auto elements = d.MemberCount() + 2;  // Add additional columns for time_
   BackedDataElements data_elements(elements);
 
   data_elements.emplace_back("time_", "", types::DataType::TIME64NS);
+  // TODO(ddelnano): Make it configurable to request a UUID in PxL rather than creating it by default.
+  data_elements.emplace_back("uuid", "", types::DataType::UINT128);
   for (rapidjson::Value::ConstMemberIterator itr = d.MemberBegin(); itr != d.MemberEnd(); ++itr) {
     auto name = itr->name.GetString();
     const auto& value = itr->value;
@@ -84,8 +86,9 @@ StatusOr<BackedDataElements> DataElementsFromCSV(std::ifstream& file_name) {
 }
 
 StatusOr<BackedDataElements> DataElementsForUnstructuredFile() {
-  BackedDataElements data_elements(2);
+  BackedDataElements data_elements(3);
   data_elements.emplace_back("time_", "", types::DataType::TIME64NS);
+  data_elements.emplace_back("uuid", "", types::DataType::UINT128);
   data_elements.emplace_back("raw_line", "", types::DataType::STRING);
   return data_elements;
 }
@@ -184,6 +187,10 @@ void FileSourceConnector::TransferDataFromJSON(DataTable::DynamicRecordBuilder* 
     if (key == "time_") {
       r.Append(col, types::Time64NSValue(nanos));
       continue;
+    } else if (key == "uuid") {
+      sole::uuid u = sole::uuid4();
+      r.Append(col, types::UInt128Value(u.ab, u.cd));
+      continue;
     }
     const auto& value = d[key.c_str()];
     switch (column.type()) {
@@ -219,7 +226,9 @@ void FileSourceConnector::TransferDataFromUnstructuredFile(DataTable::DynamicRec
                                                uint64_t nanos, const std::string& line) {
   DataTable::DynamicRecordBuilder r(data_tables_[0]);
   r.Append(0, types::Time64NSValue(nanos));
-  r.Append(1, types::StringValue(line), kMaxStringBytes);
+  sole::uuid u = sole::uuid4();
+  r.Append(1, types::UInt128Value(u.ab, u.cd));
+  r.Append(2, types::StringValue(line), kMaxStringBytes);
   return;
 }
 

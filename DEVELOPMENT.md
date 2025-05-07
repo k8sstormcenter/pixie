@@ -10,15 +10,130 @@ This document outlines the process for setting up the development environment fo
 
 ## Setting up the Environment
 
-Decide first if you d like a full buildsystem (chef-vm) or a containerized dev environment.
-### VM as buildsystem
-Uses a Ubuntu 24.04 as base to run chef to setup all dependencies.
-The initial compilation is CPU intense and 16vcpu are recommended.
-on GCP a balanced disk of 500 GB and a vm type that supports nested virtualization should be chosen
-N2... works well. 
-1) Install chef and some deps
+Decide first if you'd like a full buildsystem (on a VM) or a containerized dev environment.
 
-2) Make Minikube run and deploy a vanilla pixie
+### VM as buildsystem
+
+This utilizes `chef` to setup all dependencies and is based on `ubuntu`. The VM type must support nested virtualization for `minikube` to work.
+
+
+The following specifics were tested on GCP on a Ubuntu 24.04 (May 2025): The initial compilation is CPU intense and `16vcpu` were a good trade-off, a balanced disk of 500 GB seems convienent and overall `n2-standard-16` works well. 
+
+> [!Warning]
+>  The first build takes several hours and at least 160 Gb of space
+> Turn on nested virtualization during provisioning and avoid the use of `spot` VMs for the first build to avoid the very long first build interrupting. If you create the VMs as templates from an image, you can later switch to more cost-effective `spot` instances.
+
+
+
+```yaml
+advancedMachineFeatures:
+  enableNestedVirtualization: true
+```
+
+1) Install chef and some dependencies
+
+WIP: this needs to be retested after moving it into `chef` rather than doing by hand or via init-script:
+While we re-test, you may run the following install manually 
+```bash
+sudo apt update 
+sudo apt install -y git coreutils mkcert libnss3-tools libvirt-daemon-system libvirt-clients qemu-kvm virt-manager
+```
+
+
+```bash
+curl -L https://chefdownload-community.chef.io/install.sh | sudo bash
+```
+You may find it helpful to use a terminal manager like `screen` or `tmux`, esp to detach the builds.
+```bash
+sudo apt install -y screen
+```
+Now, on this VM, clone pixie (or your fork of it)
+
+```bash
+git clone https://github.com/pixie-io/pixie.git
+cd pixie/tools/chef
+sudo chef-solo -c solo.rb -j node_workstation.json
+sudo usermod -aG libvirt $USER
+```
+
+Make permanent the env loading via your bashrc
+```sh
+echo "source /opt/px_dev/pxenv.inc " >> ~/.bashrc
+```
+
+
+In order to very significantly speed up your work, you may opt for a local cache directory. This can be shared between users of the VM, if both are part of the same group.
+Create a cache dir under <directory-path> like /tmp/bazel
+```sh
+sudo groupadd bazelcache
+sudo usermod -aG bazelcache $USER
+sudo mkdir -p <directory-path>
+sudo chown -R :bazelcache <directory-path>
+sudo chmod 2775 <directory-path>
+```
+
+Edit the <directory-path> into the .bazelrc and put the it into your homedir:
+```
+# Global bazelrc file, see https://docs.bazel.build/versions/master/guide.html#bazelrc.
+
+# Use local Cache directory if building on a VM:
+# On Chef VM, create a directory and comment in the following line:
+ build --disk_cache=/tmp/bazel/ # Optional for multi-user cache: Make this directory owned by a group name e.g. "bazelcache"
+```
+
+```sh
+cp .bazelrc ~/.
+```
+
+1) Create/Use a registry you control and login
+   
+```sh
+docker login ghcr.io/<myregistry>
+```
+
+3) Make Minikube run and deploy a vanilla pixie
+
+If you added your user to the libvirt group (`sudo usermod -aG libvirt $USER`), starting the development environment on this VM will now work (if you did this interactively: you need to refresh your group membership, e.g. by logout/login). The following command will, amongst other things, start minikube
+```sh
+make dev-env-start
+```
+
+Onto this minikube, we first deploy the upstream pixie (`vizier`, `kelvin` and `pem`) using the remote cloud  `export PX_CLOUD_ADDR=getcosmic.ai` . Follow https://docs.px.dev/installing-pixie/install-schemes/cli , to install the  `px` command line interface and login:
+```sh
+px auth login
+```
+
+Once logged in to pixie, we found that limiting the memory is useful, thus after login, set the deploy option like so:
+```sh
+px deploy -p=1Gi
+```
+For reference and further information https://docs.px.dev/installing-pixie/install-guides/hosted-pixie/cosmic-cloud
+
+4) Once you make changes to the source code, or switch to another source code version, use Skaffold to deploy (after you have the vanilla setup working on minikube)
+
+Now, ensure that you have commented in the bazelcache-directory into the bazel config.
+```
+
+```
+ 
+Check that your docker login token is still valid, then
+
+```sh
+> skaffold run -f skaffold/skaffold_vizier.yaml -p x86_64_sysroot --default-repo=ghcr.io/<myregistry>
+```
+
+Optional: you can set default-repo on config, so that you don't need to pass it as an argument everytime
+```sh
+> skaffold config set default-repo ghcr.io/<myregistry> 
+> skaffold run -f skaffold/skaffold_vizier.yaml -p x86_64_sysroot
+```
+
+1) Golden image
+
+Once all the above is working and the first cache has been built, bake an image of your VM for safekeeping.
+
+
+
 
 ### Containerized Devenv
 To set up the developer environment required to start building Pixie's components, run the `run_docker.sh` script. The following script will run the Docker container and dump you out inside the docker container console from which you can run all the necessary tools to build, test, and deploy Pixie in development mode.
@@ -149,3 +264,10 @@ You will be able to run any of the CLI commands using `bazel run`.
 
 - `bazel run //src/pixie_cli:px -- deploy` will be equivalent to `px deploy`
 - `bazel run //src/pixie_cli:px -- run px/cluster` is the same as `px run px/cluster`
+
+
+# Using a Custom Pixie without Development Environment
+This section is on deploying pixie when it is in a state where parts are official and parts are self-developped, without setting up the Development environment
+
+First, get yourself a kubernetes and have helm, kubectl and your favourite tools in your favourite places.
+

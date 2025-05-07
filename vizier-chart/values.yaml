@@ -1,0 +1,5 @@
+deployKey: 
+clusterName: honeypixie
+devCloudNamespace: plc
+namespace: pl
+imageTag: 2025-05-07_08-37-30.237_UTC

@@ -1363,7 +1363,7 @@ spec:
         envFrom:
         - configMapRef:
             name: pl-tls-config
-        image: '{{ if .Values.registry }}{{ .Values.registry }}/ghcr.io/k8sstormcenter/vizier-kelvin_image:{{ .Values.imageTag }}{{else}}gcr.io/pixie-oss/pixie-prod/vizier-kelvin_image:0.14.15{{end}}'
+        image: '{{ if .Values.registry }}{{ .Values.registry }}/ghcr.io/k8sstormcenter/vizier-kelvin_image:{{ .Values.imageTag }}{{else}}ghcr.io/k8sstormcenter/vizier-kelvin_image:{{ .Values.imageTag }}{{end}}'
         name: app
         ports:
         - containerPort: 59300
@@ -1567,7 +1567,7 @@ spec:
         - configMapRef:
             name: pl-cluster-config
             optional: true
-        image: '{{ if .Values.registry }}{{ .Values.registry }}/ghcr.io/k8sstormcenter/vizier-cloud_connector_server_image:{{ .Values.imageTag }}{{else}}gcr.io/pixie-oss/pixie-prod/vizier-cloud_connector_server_image:0.14.15{{end}}'
+        image: '{{ if .Values.registry }}{{ .Values.registry }}/ghcr.io/k8sstormcenter/vizier-cloud_connector_server_image:{{ .Values.imageTag }}{{else}}ghcr.io/k8sstormcenter/vizier-cloud_connector_server_image:{{ .Values.imageTag }}{{end}}'
         livenessProbe:
           httpGet:
             path: /healthz
@@ -1732,7 +1732,7 @@ spec:
         envFrom:
         - configMapRef:
             name: pl-tls-config
-        image: '{{ if .Values.registry }}{{ .Values.registry }}/ghcr.io/k8sstormcenter/vizier-metadata_server_image:{{ .Values.imageTag }}{{else}}gcr.io/pixie-oss/pixie-prod/vizier-metadata_server_image:0.14.15{{end}}'
+        image: '{{ if .Values.registry }}{{ .Values.registry }}/ghcr.io/k8sstormcenter/vizier-metadata_server_image:{{ .Values.imageTag }}{{else}}ghcr.io/k8sstormcenter/vizier-metadata_server_image:{{ .Values.imageTag }}{{end}}'
         livenessProbe:
           httpGet:
             path: /healthz
@@ -1923,7 +1923,7 @@ spec:
         envFrom:
         - configMapRef:
             name: pl-tls-config
-        image: '{{ if .Values.registry }}{{ .Values.registry }}/ghcr.io/k8sstormcenter/vizier-query_broker_server_image:{{ .Values.imageTag }}{{else}}gcr.io/pixie-oss/pixie-prod/vizier-query_broker_server_image:0.14.15{{end}}'
+        image: '{{ if .Values.registry }}{{ .Values.registry }}/ghcr.io/k8sstormcenter/vizier-query_broker_server_image:{{ .Values.imageTag }}{{else}}ghcr.io/k8sstormcenter/vizier-query_broker_server_image:{{ .Values.imageTag }}{{end}}'
         livenessProbe:
           httpGet:
             path: /healthz
@@ -2142,7 +2142,7 @@ spec:
               optional: true
         - name: PL_CLOCK_CONVERTER
           value: {{ if .Values.clockConverter }}"{{ .Values.clockConverter }}"{{else}}"default"{{end}}
-        image: '{{ if .Values.registry }}{{ .Values.registry }}/ghcr.io/k8sstormcenter/vizier-pem_image:{{ .Values.imageTag }}{{else}}gcr.io/pixie-oss/pixie-prod/vizier-pem_image:0.14.15{{end}}'
+        image: '{{ if .Values.registry }}{{ .Values.registry }}/ghcr.io/k8sstormcenter/vizier-pem_image:{{ .Values.imageTag }}{{else}}ghcr.io/k8sstormcenter/vizier-pem_image:{{ .Values.imageTag }}{{end}}'
         name: pem
         resources:
           limits:
@@ -2264,7 +2264,7 @@ spec:
         - configMapRef:
             name: pl-cluster-config
             optional: true
-        image: '{{ if .Values.registry }}{{ .Values.registry }}/ghcr.io/k8sstormcenter/vizier-cert_provisioner_image:{{ .Values.imageTag }}{{else}}gcr.io/pixie-oss/pixie-prod/vizier-cert_provisioner_image:0.14.15{{end}}'
+        image: '{{ if .Values.registry }}{{ .Values.registry }}/ghcr.io/k8sstormcenter/vizier-cert_provisioner_image:{{ .Values.imageTag }}{{else}}ghcr.io/k8sstormcenter/vizier-cert_provisioner_image:{{ .Values.imageTag }}{{end}}'
         name: provisioner
         securityContext:
           allowPrivilegeEscalation: false

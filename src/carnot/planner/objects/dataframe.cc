@@ -41,15 +41,19 @@ StatusOr<std::shared_ptr<Dataframe>> GetAsDataFrame(QLObjectPtr obj) {
 }
 
 StatusOr<std::shared_ptr<Dataframe>> Dataframe::Create(CompilerState* compiler_state,
-                                                       OperatorIR* op, ASTVisitor* visitor) {
-  std::shared_ptr<Dataframe> df(new Dataframe(compiler_state, op, op->graph(), visitor));
+                                                       OperatorIR* op, ASTVisitor* visitor,
+                                                       std::optional<std::string> mutation_id) {
+  std::shared_ptr<Dataframe> df(
+      new Dataframe(compiler_state, op, op->graph(), visitor, mutation_id));
   PX_RETURN_IF_ERROR(df->Init());
   return df;
 }
 
 StatusOr<std::shared_ptr<Dataframe>> Dataframe::Create(CompilerState* compiler_state, IR* graph,
-                                                       ASTVisitor* visitor) {
-  std::shared_ptr<Dataframe> df(new Dataframe(compiler_state, nullptr, graph, visitor));
+                                                       ASTVisitor* visitor,
+                                                       std::optional<std::string> mutation_id) {
+  std::shared_ptr<Dataframe> df(
+      new Dataframe(compiler_state, nullptr, graph, visitor, mutation_id));
   PX_RETURN_IF_ERROR(df->Init());
   return df;
 }
@@ -124,7 +128,23 @@ StatusOr<QLObjectPtr> DataFrameConstructor(CompilerState* compiler_state, IR* gr
                         ParseAllTimeFormats(compiler_state->time_now().val, end_time));
     mem_source_op->SetTimeStopNS(end_time_ns);
   }
-  return Dataframe::Create(compiler_state, mem_source_op, visitor);
+  StringIR* mutation_id_ir = nullptr;
+  if (!NoneObject::IsNoneObject(args.GetArg("mutation_id"))) {
+    PX_ASSIGN_OR_RETURN(mutation_id_ir, GetArgAs<StringIR>(ast, args, "mutation_id"));
+  }
+  auto relation_map = compiler_state->relation_map();
+  std::optional<std::string> mutation_id = std::nullopt;
+  if (mutation_id_ir != nullptr) {
+    mutation_id = mutation_id_ir->str();
+  }
+  for (const auto& [table_name, relation] : *relation_map) {
+    if (table_name == table->str() && mutation_id == std::nullopt) {
+      mutation_id = relation.mutation_id();
+      break;
+    }
+  }
+  graph->RecordMutationId(mutation_id);
+  return Dataframe::Create(compiler_state, mem_source_op, visitor, mutation_id);
 }
 
 StatusOr<std::vector<ColumnIR*>> ProcessCols(IR* graph, const pypa::AstPtr& ast, QLObjectPtr obj,
@@ -174,7 +194,7 @@ StatusOr<QLObjectPtr> JoinHandler(CompilerState* compiler_state, IR* graph, Oper
   PX_ASSIGN_OR_RETURN(JoinIR * join_op,
                       graph->CreateNode<JoinIR>(ast, std::vector<OperatorIR*>{op, right}, how_type,
                                                 left_on_cols, right_on_cols, suffix_strs));
-  return Dataframe::Create(compiler_state, join_op, visitor);
+  return Dataframe::Create(compiler_state, join_op, visitor, graph->mutation_id());
 }
 
 StatusOr<FuncIR*> ParseNameTuple(IR* ir, const pypa::AstPtr& ast,
@@ -235,7 +255,7 @@ StatusOr<QLObjectPtr> AggHandler(CompilerState* compiler_state, IR* graph, Opera
   PX_ASSIGN_OR_RETURN(
       BlockingAggIR * agg_op,
       graph->CreateNode<BlockingAggIR>(ast, op, std::vector<ColumnIR*>{}, aggregate_expressions));
-  return Dataframe::Create(compiler_state, agg_op, visitor);
+  return Dataframe::Create(compiler_state, agg_op, visitor, graph->mutation_id());
 }
 
 StatusOr<QLObjectPtr> MapAssignHandler(const pypa::AstPtr& ast, const ParsedArgs&, ASTVisitor*) {
@@ -252,7 +272,7 @@ StatusOr<QLObjectPtr> DropHandler(CompilerState* compiler_state, IR* graph, Oper
   PX_ASSIGN_OR_RETURN(std::vector<std::string> columns,
                       ParseAsListOfStrings(args.GetArg("columns"), "columns"));
   PX_ASSIGN_OR_RETURN(DropIR * drop_op, graph->CreateNode<DropIR>(ast, op, columns));
-  return Dataframe::Create(compiler_state, drop_op, visitor);
+  return Dataframe::Create(compiler_state, drop_op, visitor, graph->mutation_id());
 }
 
 // Handles the head() DataFrame logic.
@@ -267,7 +287,7 @@ StatusOr<QLObjectPtr> LimitHandler(CompilerState* compiler_state, IR* graph, Ope
 
   PX_ASSIGN_OR_RETURN(LimitIR * limit_op,
                       graph->CreateNode<LimitIR>(ast, op, limit_value, pem_only_val));
-  return Dataframe::Create(compiler_state, limit_op, visitor);
+  return Dataframe::Create(compiler_state, limit_op, visitor, graph->mutation_id());
 }
 
 class SubscriptHandler {
@@ -315,7 +335,7 @@ StatusOr<QLObjectPtr> SubscriptHandler::EvalFilter(CompilerState* compiler_state
                                                    OperatorIR* op, const pypa::AstPtr& ast,
                                                    ExpressionIR* expr, ASTVisitor* visitor) {
   PX_ASSIGN_OR_RETURN(FilterIR * filter_op, graph->CreateNode<FilterIR>(ast, op, expr));
-  return Dataframe::Create(compiler_state, filter_op, visitor);
+  return Dataframe::Create(compiler_state, filter_op, visitor, graph->mutation_id());
 }
 
 StatusOr<QLObjectPtr> SubscriptHandler::EvalColumn(IR* graph, OperatorIR*, const pypa::AstPtr&,
@@ -349,7 +369,7 @@ StatusOr<QLObjectPtr> SubscriptHandler::EvalKeep(CompilerState* compiler_state, 
 
   PX_ASSIGN_OR_RETURN(MapIR * map_op, graph->CreateNode<MapIR>(ast, op, keep_exprs,
                                                                /* keep_input_columns */ false));
-  return Dataframe::Create(compiler_state, map_op, visitor);
+  return Dataframe::Create(compiler_state, map_op, visitor, graph->mutation_id());
 }
 
 // Handles the groupby() method.
@@ -367,7 +387,7 @@ StatusOr<QLObjectPtr> GroupByHandler(CompilerState* compiler_state, IR* graph, O
   }
 
   PX_ASSIGN_OR_RETURN(GroupByIR * group_by_op, graph->CreateNode<GroupByIR>(ast, op, groups));
-  return Dataframe::Create(compiler_state, group_by_op, visitor);
+  return Dataframe::Create(compiler_state, group_by_op, visitor, graph->mutation_id());
 }
 
 // Handles the append() dataframe method and creates the union node.
@@ -380,7 +400,7 @@ StatusOr<QLObjectPtr> UnionHandler(CompilerState* compiler_state, IR* graph, Ope
     parents.push_back(casted);
   }
   PX_ASSIGN_OR_RETURN(UnionIR * union_op, graph->CreateNode<UnionIR>(ast, parents));
-  return Dataframe::Create(compiler_state, union_op, visitor);
+  return Dataframe::Create(compiler_state, union_op, visitor, graph->mutation_id());
 }
 
 // Handles the rolling() dataframe method.
@@ -405,7 +425,7 @@ StatusOr<QLObjectPtr> RollingHandler(CompilerState* compiler_state, IR* graph, O
 
   PX_ASSIGN_OR_RETURN(RollingIR * rolling_op,
                       graph->CreateNode<RollingIR>(ast, op, window_col, window_size));
-  return Dataframe::Create(compiler_state, rolling_op, visitor);
+  return Dataframe::Create(compiler_state, rolling_op, visitor, graph->mutation_id());
 }
 
 /**
@@ -416,15 +436,15 @@ StatusOr<QLObjectPtr> StreamHandler(CompilerState* compiler_state, IR* graph, Op
                                     const pypa::AstPtr& ast, const ParsedArgs&,
                                     ASTVisitor* visitor) {
   PX_ASSIGN_OR_RETURN(StreamIR * stream_op, graph->CreateNode<StreamIR>(ast, op));
-  return Dataframe::Create(compiler_state, stream_op, visitor);
+  return Dataframe::Create(compiler_state, stream_op, visitor, graph->mutation_id());
 }
 
 Status Dataframe::Init() {
   PX_ASSIGN_OR_RETURN(
       std::shared_ptr<FuncObject> constructor_fn,
       FuncObject::Create(
-          name(), {"table", "select", "start_time", "end_time"},
-          {{"select", "[]"}, {"start_time", "None"}, {"end_time", "None"}},
+          name(), {"table", "select", "start_time", "end_time", "mutation_id"},
+          {{"select", "[]"}, {"start_time", "None"}, {"end_time", "None"}, {"mutation_id", "None"}},
           /* has_variable_len_args */ false,
           /* has_variable_len_kwargs */ false,
           std::bind(&DataFrameConstructor, compiler_state_, graph(), std::placeholders::_1,
@@ -628,7 +648,7 @@ StatusOr<std::shared_ptr<Dataframe>> Dataframe::FromColumnAssignment(CompilerSta
   ColExpressionVector map_exprs{{col_name, expr}};
   PX_ASSIGN_OR_RETURN(MapIR * ir_node, graph_->CreateNode<MapIR>(expr_node, op(), map_exprs,
                                                                  /*keep_input_cols*/ true));
-  return Dataframe::Create(compiler_state, ir_node, ast_visitor());
+  return Dataframe::Create(compiler_state, ir_node, ast_visitor(), graph_->mutation_id());
 }
 
 }  // namespace compiler

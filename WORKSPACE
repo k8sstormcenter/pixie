@@ -204,7 +204,7 @@ bind(
 )
 
 # gazelle:repo bazel_gazelle
-# Gazelle depes need to be loaded last to make sure they don't override our dependencies.
+# Gazelle deps need to be loaded last to make sure they don't override our dependencies.
 # The first one wins when it comes to package declaration.
 load("@bazel_gazelle//:deps.bzl", "gazelle_dependencies")
 

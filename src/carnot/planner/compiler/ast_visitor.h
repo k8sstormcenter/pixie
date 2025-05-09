@@ -33,6 +33,7 @@
 #include "src/carnot/funcs/builtins/math_ops.h"
 #include "src/carnot/planner/ast/ast_visitor.h"
 #include "src/carnot/planner/compiler_state/compiler_state.h"
+#include "src/carnot/planner/file_source/log_module.h"
 #include "src/carnot/planner/ir/ast_utils.h"
 #include "src/carnot/planner/ir/ir.h"
 #include "src/carnot/planner/objects/dataframe.h"

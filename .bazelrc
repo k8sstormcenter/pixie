@@ -4,7 +4,7 @@
 build --incompatible_strict_action_env
 
 # Use cache
-build --disk_cache=/tmp/bazel/cache
+# build --disk_cache=/tmp/bazel/cache # must not be merged dev only settng
 
 # Only pass through GH_API_KEY for stamped builds.
 # This is still not ideal as it still busts the cache of stamped builds.

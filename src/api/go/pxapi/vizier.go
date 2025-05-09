@@ -20,6 +20,7 @@ package pxapi
 
 import (
 	"context"
+	"strings"
 
 	"px.dev/pixie/src/api/go/pxapi/errdefs"
 	"px.dev/pixie/src/api/proto/vizierpb"
@@ -40,6 +41,7 @@ func (v *VizierClient) ExecuteScript(ctx context.Context, pxl string, mux TableM
 		ClusterID:         v.vizierID,
 		QueryStr:          pxl,
 		EncryptionOptions: v.encOpts,
+		Mutation:          strings.Contains(pxl, "import pxlog") || strings.Contains(pxl, "import pxtrace"),
 	}
 	origCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)

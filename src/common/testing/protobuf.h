@@ -66,7 +66,7 @@ struct ProtoMatcher {
   }
 
   virtual void DescribeTo(::std::ostream* os) const {
-    *os << "equals to text probobuf: " << expected_text_pb_;
+    *os << "equals to text protobuf: " << expected_text_pb_;
   }
 
   virtual void DescribeNegationTo(::std::ostream* os) const {
@@ -97,7 +97,7 @@ struct PartiallyEqualsProtoMatcher : public ProtoMatcher {
   }
 
   void DescribeTo(::std::ostream* os) const override {
-    *os << "partially equals to text probobuf: " << expected_text_pb_;
+    *os << "partially equals to text protobuf: " << expected_text_pb_;
   }
 
   void DescribeNegationTo(::std::ostream* os) const override {

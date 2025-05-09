@@ -32,8 +32,12 @@ void InfoClassManager::InitContext(ConnectorContext* ctx) { source_->InitContext
 stirlingpb::InfoClass InfoClassManager::ToProto() const {
   stirlingpb::InfoClass info_class_proto;
 
-  info_class_proto.mutable_schema()->CopyFrom(schema_.ToProto());
+  auto schema = info_class_proto.mutable_schema();
+  schema->CopyFrom(schema_.ToProto());
   info_class_proto.set_id(id());
+  if (mutation_id_.has_value()) {
+    schema->set_mutation_id(mutation_id_.value());
+  }
 
   return info_class_proto;
 }

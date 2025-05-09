@@ -50,11 +50,13 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
  public:
   VizierServer() = delete;
   VizierServer(carnot::Carnot* carnot, px::vizier::agent::StandaloneGRPCResultSinkServer* svr,
-               px::carnot::EngineState* engine_state, TracepointManager* tp_manager) {
+               px::carnot::EngineState* engine_state, TracepointManager* tp_manager,
+               FileSourceManager* file_source_manager) {
     carnot_ = carnot;
     sink_server_ = svr;
     engine_state_ = engine_state;
     tp_manager_ = tp_manager;
+    file_source_manager_ = file_source_manager;
   }
 
   ::grpc::Status ExecuteScript(
@@ -63,6 +65,7 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
     LOG(INFO) << "Executing Script";
 
     auto query_id = sole::uuid4();
+
     auto compiler_state = engine_state_->CreateLocalExecutionCompilerState(0);
 
     // Handle mutations.
@@ -79,8 +82,10 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
 
       auto mutations = mutations_or_s.ConsumeValueOrDie();
       auto deployments = mutations->Deployments();
+      auto file_source_deployments = mutations->FileSourceDeployments();
 
       bool tracepoints_running = true;
+      auto ntp_info = TracepointInfo{};
       for (size_t i = 0; i < deployments.size(); i++) {
         carnot::planner::dynamic_tracing::ir::logical::TracepointDeployment planner_tp;
         auto s = deployments[i]->ToProto(&planner_tp);
@@ -99,7 +104,6 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
           if (!s.ok()) {
             return ::grpc::Status(grpc::StatusCode::INTERNAL, "Failed to register tracepoint");
           }
-          auto ntp_info = TracepointInfo{};
           ntp_info.name = stirling_tp.name();
           ntp_info.id = tp_id;
           ntp_info.current_state = statuspb::PENDING_STATE;
@@ -117,9 +121,34 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
         return ::grpc::Status::CANCELLED;
       }
 
-      auto m_info = mutation_resp.mutable_mutation_info();
-      m_info->mutable_status()->set_code(0);
-      response->Write(mutation_resp);
+      auto file_sources_running = true;
+      auto nfile_source_info = FileSourceInfo{};
+      for (size_t i = 0; i < file_source_deployments.size(); i++) {
+        auto file_source = file_source_deployments[i];
+        auto file_source_info = file_source_manager_->GetFileSourceInfo(file_source.glob_pattern());
+        if (file_source_info == nullptr) {
+          auto s = file_source_manager_->HandleRegisterFileSourceRequest(
+              sole::uuid4(), file_source.glob_pattern());
+          if (!s.ok()) {
+            return ::grpc::Status(grpc::StatusCode::INTERNAL, "Failed to register file source");
+          }
+          nfile_source_info.name = file_source.glob_pattern();
+          nfile_source_info.current_state = statuspb::PENDING_STATE;
+          file_source_info = &nfile_source_info;
+        }
+        if (file_source_info->current_state != statuspb::RUNNING_STATE) {
+          file_sources_running = false;
+        }
+      }
+      if (!file_sources_running) {
+        auto m_info = mutation_resp.mutable_mutation_info();
+        m_info->mutable_status()->set_code(grpc::StatusCode::UNAVAILABLE);
+        response->Write(mutation_resp);
+        return ::grpc::Status::CANCELLED;
+      }
+      /* auto m_info = mutation_resp.mutable_mutation_info(); */
+      /* m_info->mutable_status()->set_code(0); */
+      /* response->Write(mutation_resp); */
     }
     LOG(INFO) << "Compiling and running query";
     // Send schema before sending query results.
@@ -201,6 +230,7 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
   px::vizier::agent::StandaloneGRPCResultSinkServer* sink_server_;
   px::carnot::EngineState* engine_state_;
   TracepointManager* tp_manager_;
+  FileSourceManager* file_source_manager_;
 };
 
 class VizierGRPCServer {
@@ -208,8 +238,10 @@ class VizierGRPCServer {
   VizierGRPCServer() = delete;
   VizierGRPCServer(int port, carnot::Carnot* carnot,
                    px::vizier::agent::StandaloneGRPCResultSinkServer* svr,
-                   carnot::EngineState* engine_state, TracepointManager* tp_manager)
-      : vizier_server_(std::make_unique<VizierServer>(carnot, svr, engine_state, tp_manager)) {
+                   carnot::EngineState* engine_state, TracepointManager* tp_manager,
+                   FileSourceManager* file_source_manager)
+      : vizier_server_(std::make_unique<VizierServer>(carnot, svr, engine_state, tp_manager,
+                                                      file_source_manager)) {
     grpc::ServerBuilder builder;
 
     std::string uri = absl::Substitute("0.0.0.0:$0", port);

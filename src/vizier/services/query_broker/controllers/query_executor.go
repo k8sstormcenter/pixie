@@ -89,6 +89,7 @@ type DataPrivacy interface {
 // MutationExecFactory is a function that creates a new MutationExecutorImpl.
 type MutationExecFactory func(Planner,
 	metadatapb.MetadataTracepointServiceClient,
+	metadatapb.MetadataFileSourceServiceClient,
 	metadatapb.MetadataConfigServiceClient,
 	*distributedpb.DistributedState) MutationExecutor
 
@@ -100,6 +101,7 @@ type QueryExecutorImpl struct {
 	dataPrivacy         DataPrivacy
 	natsConn            *nats.Conn
 	mdtp                metadatapb.MetadataTracepointServiceClient
+	mdfs                metadatapb.MetadataFileSourceServiceClient
 	mdconf              metadatapb.MetadataConfigServiceClient
 	resultForwarder     QueryResultForwarder
 	planner             Planner
@@ -127,6 +129,7 @@ func NewQueryExecutorFromServer(s *Server, mutExecFactory MutationExecFactory) Q
 		s.dataPrivacy,
 		s.natsConn,
 		s.mdtp,
+		s.mdfs,
 		s.mdconf,
 		s.resultForwarder,
 		s.planner,
@@ -142,6 +145,7 @@ func NewQueryExecutor(
 	dataPrivacy DataPrivacy,
 	natsConn *nats.Conn,
 	mdtp metadatapb.MetadataTracepointServiceClient,
+	mdfs metadatapb.MetadataFileSourceServiceClient,
 	mdconf metadatapb.MetadataConfigServiceClient,
 	resultForwarder QueryResultForwarder,
 	planner Planner,
@@ -154,6 +158,7 @@ func NewQueryExecutor(
 		dataPrivacy:         dataPrivacy,
 		natsConn:            natsConn,
 		mdtp:                mdtp,
+		mdfs:                mdfs,
 		mdconf:              mdconf,
 		resultForwarder:     resultForwarder,
 		planner:             planner,
@@ -292,7 +297,7 @@ func (q *QueryExecutorImpl) getPlanOpts(queryStr string) (*planpb.PlanOptions, e
 }
 
 func (q *QueryExecutorImpl) runMutation(ctx context.Context, resultCh chan<- *vizierpb.ExecuteScriptResponse, req *vizierpb.ExecuteScriptRequest, planOpts *planpb.PlanOptions, distributedState *distributedpb.DistributedState) error {
-	mutationExec := q.mutationExecFactory(q.planner, q.mdtp, q.mdconf, distributedState)
+	mutationExec := q.mutationExecFactory(q.planner, q.mdtp, q.mdfs, q.mdconf, distributedState)
 
 	s, err := mutationExec.Execute(ctx, req, planOpts)
 	if err != nil {

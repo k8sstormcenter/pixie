@@ -42,6 +42,7 @@
 #include "src/carnot/planpb/plan.pb.h"
 #include "src/carnot/planpb/test_proto.h"
 #include "src/carnot/udf/registry.h"
+#include "src/common/testing/event/simulated_time_system.h"
 #include "src/common/testing/testing.h"
 #include "src/common/uuid/uuid_utils.h"
 #include "src/shared/types/types.h"
@@ -101,6 +102,14 @@ class OTelExportSinkNodeTest : public ::testing::Test {
           return std::move(logs_mock_unique_);
         },
         sole::uuid4(), nullptr, nullptr, [](grpc::ClientContext*) {});
+
+    auto time_system = std::make_unique<event::SimulatedTimeSystem>(
+        std::chrono::steady_clock::now(), std::chrono::system_clock::now());
+
+    auto metadata_state = std::make_shared<md::AgentMetadataState>(
+        "myhost", 1, 963, 0, sole::uuid4(), "mypod", sole::uuid4(), "myvizier", "myviziernamespace",
+        time_system.get());
+    exec_state_->set_metadata_state(metadata_state);
   }
 
  protected:
@@ -136,7 +145,8 @@ metrics {
   planpb::OTelExportSinkOperator otel_sink_op;
 
   EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(operator_pb_txt, &otel_sink_op));
-  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1);
+  std::map<std::string, std::string> context;
+  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1, context);
   auto s = plan_node->Init(otel_sink_op);
   RowDescriptor input_rd({types::TIME64NS, types::FLOAT64});
   RowDescriptor output_rd({});
@@ -185,7 +195,8 @@ metrics {
   planpb::OTelExportSinkOperator otel_sink_op;
 
   EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(operator_pb_txt, &otel_sink_op));
-  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1);
+  std::map<std::string, std::string> context;
+  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1, context);
   auto s = plan_node->Init(otel_sink_op);
   RowDescriptor input_rd({types::TIME64NS, types::FLOAT64, types::STRING});
   RowDescriptor output_rd({});
@@ -250,7 +261,8 @@ TEST_P(OTelMetricsTest, process_data) {
   planpb::OTelExportSinkOperator otel_sink_op;
 
   EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(tc.operator_proto, &otel_sink_op));
-  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1);
+  std::map<std::string, std::string> context;
+  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1, context);
   auto s = plan_node->Init(otel_sink_op);
 
   // Load a RowBatch to get the Input RowDescriptor.
@@ -1033,7 +1045,8 @@ TEST_P(OTelSpanTest, process_data) {
   planpb::OTelExportSinkOperator otel_sink_op;
 
   EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(tc.operator_proto, &otel_sink_op));
-  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1);
+  std::map<std::string, std::string> context;
+  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1, context);
   auto s = plan_node->Init(otel_sink_op);
 
   // Load a RowBatch to get the Input RowDescriptor.
@@ -1530,7 +1543,8 @@ TEST_P(SpanIDTests, generate_ids) {
   planpb::OTelExportSinkOperator otel_sink_op;
 
   EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(tc.operator_proto, &otel_sink_op));
-  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1);
+  std::map<std::string, std::string> context;
+  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1, context);
   auto s = plan_node->Init(otel_sink_op);
 
   // Load a RowBatch to get the Input RowDescriptor.
@@ -1686,7 +1700,8 @@ spans {
   parent_span_id_column_index: -1
 })pb";
   EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(operator_proto, &otel_sink_op));
-  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1);
+  std::map<std::string, std::string> context;
+  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1, context);
   auto s = plan_node->Init(otel_sink_op);
   std::string row_batch = R"pb(
 cols { time64ns_data { data: 10 data: 20 } }
@@ -1724,7 +1739,8 @@ metrics {
   gauge { int_column_index: 1 }
 })pb";
   EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(operator_proto, &otel_sink_op));
-  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1);
+  std::map<std::string, std::string> context;
+  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1, context);
   auto s = plan_node->Init(otel_sink_op);
   std::string row_batch = R"pb(
 cols { time64ns_data { data: 10 data: 11 } }
@@ -1774,7 +1790,8 @@ spans {
   parent_span_id_column_index: -1
 })pb";
   EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(operator_proto, &otel_sink_op));
-  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1);
+  std::map<std::string, std::string> context;
+  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1, context);
   auto s = plan_node->Init(otel_sink_op);
   std::string row_batch = R"pb(
 cols { time64ns_data { data: 10 data: 20 } }
@@ -1825,7 +1842,8 @@ metrics {
   gauge { int_column_index: 1 }
 })pb";
   EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(operator_proto, &otel_sink_op));
-  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1);
+  std::map<std::string, std::string> context;
+  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1, context);
   auto s = plan_node->Init(otel_sink_op);
   std::string row_batch = R"pb(
 cols { time64ns_data { data: 10 data: 11 } }
@@ -1871,7 +1889,8 @@ TEST_P(OTelLogTest, process_data) {
   planpb::OTelExportSinkOperator otel_sink_op;
 
   EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(tc.operator_proto, &otel_sink_op));
-  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1);
+  std::map<std::string, std::string> context;
+  auto plan_node = std::make_unique<plan::OTelExportSinkOperator>(1, context);
   auto s = plan_node->Init(otel_sink_op);
 
   // Load a RowBatch to get the Input RowDescriptor.

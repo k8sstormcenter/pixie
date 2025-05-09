@@ -54,7 +54,7 @@ struct BlockingSplitPlan {
   std::unique_ptr<IR> before_blocking;
   // The plan that occcurs after and including blocking nodes.
   std::unique_ptr<IR> after_blocking;
-  // The that has both the before and after blocking nodes.
+  // The plan that has both the before and after blocking nodes.
   std::unique_ptr<IR> original_plan;
 };
 

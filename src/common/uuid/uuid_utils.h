@@ -49,6 +49,10 @@ inline void ClearUUID(sole::uuid* uuid) {
   uuid->cd = 0;
 }
 
+inline bool operator==(const px::uuidpb::UUID& lhs, const px::uuidpb::UUID& rhs) {
+  return lhs.low_bits() == rhs.low_bits() && lhs.high_bits() == rhs.high_bits();
+}
+
 }  // namespace px
 
 // Allow UUID to be logged.

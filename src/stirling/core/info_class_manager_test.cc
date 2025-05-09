@@ -27,6 +27,7 @@ namespace stirling {
 using types::DataType;
 using types::PatternType;
 
+// TODO(ddelnano): Add test regarding ToProto and SetMutationId.
 TEST(InfoClassInfoSchemaTest, infoclass_mgr_proto_getters_test) {
   InfoClassManager info_class_mgr(SeqGenConnector::kSeq0Table);
   auto source = SeqGenConnector::Create("sequences");

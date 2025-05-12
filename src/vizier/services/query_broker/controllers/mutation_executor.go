@@ -30,6 +30,7 @@ import (
 	"px.dev/pixie/src/api/proto/uuidpb"
 	"px.dev/pixie/src/api/proto/vizierpb"
 	"px.dev/pixie/src/carnot/planner/distributedpb"
+	"px.dev/pixie/src/carnot/planner/file_source/ir"
 	"px.dev/pixie/src/carnot/planner/plannerpb"
 	"px.dev/pixie/src/carnot/planpb"
 	"px.dev/pixie/src/common/base/statuspb"
@@ -40,6 +41,7 @@ import (
 
 // TracepointMap stores a map from the name to tracepoint info.
 type TracepointMap map[string]*TracepointInfo
+type FileSourceMap map[string]*FileSourceInfo
 
 // MutationExecutor is the interface for running script mutations.
 type MutationExecutor interface {
@@ -51,8 +53,10 @@ type MutationExecutor interface {
 type MutationExecutorImpl struct {
 	planner           Planner
 	mdtp              metadatapb.MetadataTracepointServiceClient
+	mdfs              metadatapb.MetadataFileSourceServiceClient
 	mdconf            metadatapb.MetadataConfigServiceClient
 	activeTracepoints TracepointMap
+	activeFileSources FileSourceMap
 	outputTables      []string
 	distributedState  *distributedpb.DistributedState
 }
@@ -64,19 +68,29 @@ type TracepointInfo struct {
 	Status *statuspb.Status
 }
 
+type FileSourceInfo struct {
+	GlobPattern string
+	TableName   string
+	ID          uuid.UUID
+	Status      *statuspb.Status
+}
+
 // NewMutationExecutor creates a new mutation executor.
 func NewMutationExecutor(
 	planner Planner,
 	mdtp metadatapb.MetadataTracepointServiceClient,
+	mdfs metadatapb.MetadataFileSourceServiceClient,
 	mdconf metadatapb.MetadataConfigServiceClient,
 	distributedState *distributedpb.DistributedState,
 ) MutationExecutor {
 	return &MutationExecutorImpl{
 		planner:           planner,
 		mdtp:              mdtp,
+		mdfs:              mdfs,
 		mdconf:            mdconf,
 		distributedState:  distributedState,
 		activeTracepoints: make(TracepointMap),
+		activeFileSources: make(FileSourceMap),
 	}
 }
 
@@ -87,9 +101,27 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 	if err != nil {
 		return nil, err
 	}
+	var otelConfig *distributedpb.OTelEndpointConfig
+	if convertedReq.Configs != nil && convertedReq.Configs.OTelEndpointConfig != nil {
+		otelConfig = &distributedpb.OTelEndpointConfig{
+			URL:      convertedReq.Configs.OTelEndpointConfig.URL,
+			Headers:  convertedReq.Configs.OTelEndpointConfig.Headers,
+			Insecure: convertedReq.Configs.OTelEndpointConfig.Insecure,
+			Timeout:  convertedReq.Configs.OTelEndpointConfig.Timeout,
+		}
+	}
+	var pluginConfig *distributedpb.PluginConfig
+	if req.Configs != nil && req.Configs.PluginConfig != nil {
+		pluginConfig = &distributedpb.PluginConfig{
+			StartTimeNs: req.Configs.PluginConfig.StartTimeNs,
+			EndTimeNs:   req.Configs.PluginConfig.EndTimeNs,
+		}
+	}
 	convertedReq.LogicalPlannerState = &distributedpb.LogicalPlannerState{
-		DistributedState: m.distributedState,
-		PlanOptions:      planOpts,
+		DistributedState:   m.distributedState,
+		PlanOptions:        planOpts,
+		OTelEndpointConfig: otelConfig,
+		PluginConfig:       pluginConfig,
 	}
 
 	mutations, err := m.planner.CompileMutations(convertedReq)
@@ -118,6 +150,12 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 		Names: make([]string, 0),
 	}
 	configmapReqs := make([]*metadatapb.UpdateConfigRequest, 0)
+	fileSourceReqs := &metadatapb.RegisterFileSourceRequest{
+		Requests: make([]*ir.FileSourceDeployment, 0),
+	}
+	deleteFileSourcesReq := &metadatapb.RemoveFileSourceRequest{
+		Names: make([]string, 0),
+	}
 
 	outputTablesMap := make(map[string]bool)
 	// TODO(zasgar): We should make sure that we don't simultaneously add and delete the tracepoint.
@@ -158,6 +196,34 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 					Value:        mut.ConfigUpdate.Value,
 					AgentPodName: mut.ConfigUpdate.AgentPodName,
 				})
+			}
+		case *plannerpb.CompileMutation_FileSource:
+			{
+				name := mut.FileSource.GlobPattern
+				tableName := mut.FileSource.TableName
+				fileSourceReqs.Requests = append(fileSourceReqs.Requests, &ir.FileSourceDeployment{
+					Name:        name,
+					GlobPattern: name,
+					TableName:   tableName,
+					TTL:         mut.FileSource.TTL,
+				})
+				if _, ok := m.activeFileSources[name]; ok {
+					return nil, fmt.Errorf("file source with name '%s', already used", name)
+				}
+				// TODO(ddelnano): Add unit tests that would have caught the bug with the
+				// file source output table issue. The line that caused the bug is left commented below:
+				// outputTablesMap[name] = true
+				outputTablesMap[tableName] = true
+
+				m.activeFileSources[name] = &FileSourceInfo{
+					GlobPattern: mut.FileSource.GlobPattern,
+					ID:          uuid.Nil,
+					Status:      nil,
+				}
+			}
+		case *plannerpb.CompileMutation_DeleteFileSource:
+			{
+				deleteFileSourcesReq.Names = append(deleteFileSourcesReq.Names, mut.DeleteFileSource.GlobPattern)
 			}
 		}
 	}
@@ -210,6 +276,44 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 		}
 	}
 
+	if len(fileSourceReqs.Requests) > 0 {
+		resp, err := m.mdfs.RegisterFileSource(ctx, fileSourceReqs)
+		if err != nil {
+			log.WithError(err).
+				Errorf("Failed to register file sources")
+			return nil, ErrFileSourceRegistrationFailed
+		}
+		if resp.Status != nil && resp.Status.ErrCode != statuspb.OK {
+			log.WithField("status", resp.Status.String()).
+				Errorf("Failed to register file sources with bad status")
+			return resp.Status, ErrFileSourceRegistrationFailed
+		}
+
+		// Update the internal stat of the file sources.
+		for _, fs := range resp.FileSources {
+			id := utils.UUIDFromProtoOrNil(fs.ID)
+			m.activeFileSources[fs.Name].ID = id
+			m.activeFileSources[fs.Name].Status = fs.Status
+		}
+	}
+	if len(deleteFileSourcesReq.Names) > 0 {
+		delResp, err := m.mdfs.RemoveFileSource(ctx, deleteFileSourcesReq)
+		if err != nil {
+			log.WithError(err).
+				Errorf("Failed to delete tracepoints")
+			return nil, ErrFileSourceDeletionFailed
+		}
+		if delResp.Status != nil && delResp.Status.ErrCode != statuspb.OK {
+			log.WithField("status", delResp.Status.String()).
+				Errorf("Failed to delete tracepoints with bad status")
+			return delResp.Status, ErrFileSourceDeletionFailed
+		}
+		// Remove the tracepoints we considered deleted.
+		for _, fsName := range deleteFileSourcesReq.Names {
+			delete(m.activeFileSources, fsName)
+		}
+	}
+
 	m.outputTables = make([]string, 0)
 	for k := range outputTablesMap {
 		m.outputTables = append(m.outputTables, k)
@@ -220,11 +324,17 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 
 // MutationInfo returns the summarized mutation information.
 func (m *MutationExecutorImpl) MutationInfo(ctx context.Context) (*vizierpb.MutationInfo, error) {
-	req := &metadatapb.GetTracepointInfoRequest{
+	tpReq := &metadatapb.GetTracepointInfoRequest{
 		IDs: make([]*uuidpb.UUID, 0),
 	}
 	for _, tp := range m.activeTracepoints {
-		req.IDs = append(req.IDs, utils.ProtoFromUUID(tp.ID))
+		tpReq.IDs = append(tpReq.IDs, utils.ProtoFromUUID(tp.ID))
+	}
+	fsReq := &metadatapb.GetFileSourceInfoRequest{
+		IDs: make([]*uuidpb.UUID, 0),
+	}
+	for _, fs := range m.activeFileSources {
+		fsReq.IDs = append(fsReq.IDs, utils.ProtoFromUUID(fs.ID))
 	}
 	aCtx, err := authcontext.FromContext(ctx)
 	if err != nil {
@@ -232,31 +342,56 @@ func (m *MutationExecutorImpl) MutationInfo(ctx context.Context) (*vizierpb.Muta
 	}
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("bearer %s", aCtx.AuthToken))
 
-	resp, err := m.mdtp.GetTracepointInfo(ctx, req)
+	tpResp, err := m.mdtp.GetTracepointInfo(ctx, tpReq)
 	if err != nil {
 		return nil, err
 	}
+	fsResp, err := m.mdfs.GetFileSourceInfo(ctx, fsReq)
+	if err != nil {
+		return nil, err
+	}
+	tps := len(tpResp.Tracepoints)
 	mutationInfo := &vizierpb.MutationInfo{
 		Status: &vizierpb.Status{Code: 0},
-		States: make([]*vizierpb.MutationInfo_MutationState, len(resp.Tracepoints)),
+		States: make([]*vizierpb.MutationInfo_MutationState, tps+len(fsResp.FileSources)),
 	}
 
-	ready := true
-	for idx, tp := range resp.Tracepoints {
+	tpReady := true
+	for idx, tp := range tpResp.Tracepoints {
 		mutationInfo.States[idx] = &vizierpb.MutationInfo_MutationState{
 			ID:    utils.UUIDFromProtoOrNil(tp.ID).String(),
 			State: convertLifeCycleStateToVizierLifeCycleState(tp.State),
 			Name:  tp.Name,
 		}
 		if tp.State != statuspb.RUNNING_STATE {
-			ready = false
+			tpReady = false
 		}
 	}
 
-	if !ready {
+	fsReady := true
+	for idx, fs := range fsResp.FileSources {
+		mutationInfo.States[idx+tps] = &vizierpb.MutationInfo_MutationState{
+			ID:    utils.UUIDFromProtoOrNil(fs.ID).String(),
+			State: convertLifeCycleStateToVizierLifeCycleState(fs.State),
+			Name:  fs.Name,
+		}
+		if fs.State != statuspb.RUNNING_STATE {
+			fsReady = false
+		}
+	}
+
+	if !tpReady {
 		mutationInfo.Status = &vizierpb.Status{
 			Code:    int32(codes.Unavailable),
 			Message: "probe installation in progress",
+		}
+		return mutationInfo, nil
+	}
+
+	if !fsReady {
+		mutationInfo.Status = &vizierpb.Status{
+			Code:    int32(codes.Unavailable),
+			Message: "file source installation in progress",
 		}
 		return mutationInfo, nil
 	}

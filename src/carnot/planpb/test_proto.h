@@ -1024,6 +1024,72 @@ constexpr char kPlanWithTwoSourcesWithLimits[] = R"proto(
   }
 )proto";
 
+constexpr char kPlanWithOTelExport[] = R"proto(
+  id: 1,
+  dag {
+    nodes {
+      id: 1
+      sorted_children: 2
+    }
+    nodes {
+      id: 2
+      sorted_parents: 1
+    }
+  }
+  nodes {
+    id: 1
+    op {
+      op_type: MEMORY_SOURCE_OPERATOR
+      context: {
+        key: "mutation_id"
+        value:  "mutation"
+      }
+      mem_source_op {
+        name: "numbers"
+        column_idxs: 0
+        column_types: INT64
+        column_names: "a"
+        column_idxs: 1
+        column_types: BOOLEAN
+        column_names: "b"
+        column_idxs: 2
+        column_types: FLOAT64
+        column_names: "c"
+      }
+    }
+  }
+  nodes {
+    id: 2
+    op {
+      op_type: OTEL_EXPORT_SINK_OPERATOR
+      context: {
+        key: "mutation_id"
+        value:  "mutation"
+      }
+      otel_sink_op {
+        endpoint_config {
+          url: "0.0.0.0:55690"
+          headers {
+            key: "apikey"
+            value: "12345"
+          }
+          timeout: 5
+        }
+        resource {
+          attributes {
+            name: "service.name"
+            column {
+              column_type: STRING
+              column_index: 1
+              can_be_json_encoded_array: true
+            }
+          }
+        }
+      }
+    }
+  }
+)proto";
+
 constexpr char kOneLimit3Sources[] = R"proto(
   id: 1,
   dag {

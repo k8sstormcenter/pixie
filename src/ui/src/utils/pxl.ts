@@ -20,6 +20,8 @@
 const pxlMutations = [
   'from pxtrace',
   'import pxtrace',
+  'from pxlog',
+  'import pxlog',
   'import pxconfig',
 ];
 

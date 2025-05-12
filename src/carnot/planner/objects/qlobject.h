@@ -66,6 +66,7 @@ enum class QLObjectType {
   kExporter,
   kOTelEndpoint,
   kOTelDataContainer,
+  kLogModule,
 };
 
 std::string QLObjectTypeString(QLObjectType type);

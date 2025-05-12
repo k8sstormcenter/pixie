@@ -23,6 +23,7 @@ pl_proto_library(
     deps = [
         "//src/api/proto/uuidpb:uuid_pl_proto",
         "//src/carnot/planner/dynamic_tracing/ir/logicalpb:logical_pl_proto",
+        "//src/carnot/planner/file_source/ir:logical_pl_proto",
         "//src/common/base/statuspb:status_pl_proto",
         "//src/shared/k8s/metadatapb:metadata_pl_proto",
         "//src/shared/types/typespb:types_pl_proto",
@@ -37,6 +38,7 @@ pl_cc_proto_library(
     deps = [
         "//src/api/proto/uuidpb:uuid_pl_cc_proto",
         "//src/carnot/planner/dynamic_tracing/ir/logicalpb:logical_pl_cc_proto",
+        "//src/carnot/planner/file_source/ir:logical_pl_cc_proto",
         "//src/common/base/statuspb:status_pl_cc_proto",
         "//src/shared/k8s/metadatapb:metadata_pl_cc_proto",
         "//src/shared/types/typespb/wrapper:cc_library",
@@ -52,6 +54,7 @@ pl_go_proto_library(
     deps = [
         "//src/api/proto/uuidpb:uuid_pl_go_proto",
         "//src/carnot/planner/dynamic_tracing/ir/logicalpb:logical_pl_go_proto",
+        "//src/carnot/planner/file_source/ir:logical_pl_go_proto",
         "//src/common/base/statuspb:status_pl_go_proto",
         "//src/shared/k8s/metadatapb:metadata_pl_go_proto",
         "//src/shared/types/typespb:types_pl_go_proto",

@@ -14,39 +14,49 @@ Decide first if you'd like a full buildsystem (on a VM) or a containerized dev e
 
 ### VM as buildsystem
 
-This utilizes `chef` to setup all dependencies and is based on `ubuntu`. The VM type must support nested virtualization for `minikube` to work.
-
-
-The following specifics were tested on GCP on a Ubuntu 24.04 (May 2025): The initial compilation is CPU intense and `16vcpu` were a good trade-off, a balanced disk of 500 GB seems convienent and overall `n2-standard-16` works well. 
-
-> [!Warning]
->  The first build takes several hours and at least 160 Gb of space
-> Turn on nested virtualization during provisioning and avoid the use of `spot` VMs for the first build to avoid the very long first build interrupting. If you create the VMs as templates from an image, you can later switch to more cost-effective `spot` instances.
-
-
+This utilizes `chef` to setup all dependencies and is based on `ubuntu`.
+> [!Important]
+>  The below description defaults to using a `minikube` on this VM for the developer to have an `all-in-one` setup. The VM type must support nested virtualization for `minikube` to work. Please confirm that the nested virtualization really is turned on before you continue, not all VM-types support it.
+>  If you `bring-your-own-k8s`, you may disregard this.
 
 ```yaml
 advancedMachineFeatures:
   enableNestedVirtualization: true
 ```
 
-1) Install chef and some dependencies
+The following specifics were tested on GCP on a Ubuntu 24.04 (May 2025). Please see the latest [packer file](https://github.com/pixie-io/pixie/blob/main/tools/chef/Makefile#L56) for the current supported Ubuntu version: The initial compilation is CPU intense and `16vcpu` were a good trade-off, a balanced disk of 500 GB seems convenient and overall `n2-standard-16` works well.
 
-WIP: this needs to be retested after moving it into `chef` rather than doing by hand or via init-script:
-While we re-test, you may run the following install manually 
-```bash
-sudo apt update 
-sudo apt install -y git coreutils mkcert libnss3-tools libvirt-daemon-system libvirt-clients qemu-kvm virt-manager
-```
+> [!Warning]
+>  The first `full build` takes several hours and at least 160 Gb of space
+>  The first `vizier build` on these parameters takes approx. 1 hr and 45 Gb of space.
 
+
+
+
+
+#### 1) Install chef and some dependencies
+
+First, install `chef` to cook your `recipies`:
 
 ```bash
 curl -L https://chefdownload-community.chef.io/install.sh | sudo bash
 ```
 You may find it helpful to use a terminal manager like `screen` or `tmux`, esp to detach the builds.
 ```bash
-sudo apt install -y screen
+sudo apt install -y screen git
 ```
+
+In order to very significantly speed up your work, you may opt for a local cache directory. This can be shared between users of the VM, if both are part of the same group.
+Create a cache dir under <directory-path> such as e.g. /tmp/bazel
+```sh
+sudo groupadd bazelcache
+sudo usermod -aG bazelcache $USER
+sudo mkdir -p <directory-path>
+sudo chown -R :bazelcache <directory-path>
+sudo chmod -R 2775 <directory-path>
+```
+
+
 Now, on this VM, clone pixie (or your fork of it)
 
 ```bash
@@ -62,17 +72,9 @@ echo "source /opt/px_dev/pxenv.inc " >> ~/.bashrc
 ```
 
 
-In order to very significantly speed up your work, you may opt for a local cache directory. This can be shared between users of the VM, if both are part of the same group.
-Create a cache dir under <directory-path> like /tmp/bazel
-```sh
-sudo groupadd bazelcache
-sudo usermod -aG bazelcache $USER
-sudo mkdir -p <directory-path>
-sudo chown -R :bazelcache <directory-path>
-sudo chmod 2775 <directory-path>
-```
+#### 2) If using cache, tell bazel about it
 
-Edit the <directory-path> into the .bazelrc and put the it into your homedir:
+Edit the `<directory-path>` into the .bazelrc and put it into your homedir:
 ```
 # Global bazelrc file, see https://docs.bazel.build/versions/master/guide.html#bazelrc.
 
@@ -85,20 +87,26 @@ Edit the <directory-path> into the .bazelrc and put the it into your homedir:
 cp .bazelrc ~/.
 ```
 
-1) Create/Use a registry you control and login
-   
+#### 3) Create/Use a registry you control and login
+
 ```sh
 docker login ghcr.io/<myregistry>
 ```
 
-3) Make Minikube run and deploy a vanilla pixie
+#### 4) Prepare your kubernetes
+
+> [!Important]
+>  The below description defaults to using a `minikube` on this VM for the developer to have an `all-in-one` setup.
+>  If you `bring-your-own-k8s`, please prepare your preferred setup and go to Step 5
 
 If you added your user to the libvirt group (`sudo usermod -aG libvirt $USER`), starting the development environment on this VM will now work (if you did this interactively: you need to refresh your group membership, e.g. by logout/login). The following command will, amongst other things, start minikube
 ```sh
 make dev-env-start
 ```
 
-Onto this minikube, we first deploy the upstream pixie (`vizier`, `kelvin` and `pem`) using the remote cloud  `export PX_CLOUD_ADDR=getcosmic.ai` . Follow https://docs.px.dev/installing-pixie/install-schemes/cli , to install the  `px` command line interface and login:
+#### 5) Deploy a vanilla pixie
+
+First deploy the upstream pixie (`vizier`, `kelvin` and `pem`) using the hosted cloud. Follow [these instructions](https://docs.px.dev/installing-pixie/install-schemes/cli) to install the `px` command line interface and Pixie:
 ```sh
 px auth login
 ```
@@ -107,28 +115,54 @@ Once logged in to pixie, we found that limiting the memory is useful, thus after
 ```sh
 px deploy -p=1Gi
 ```
-For reference and further information https://docs.px.dev/installing-pixie/install-guides/hosted-pixie/cosmic-cloud
+For reference and further information https://docs.px.dev/installing-pixie/install-guides/hosted-pixie/cosmic-cloud.
 
-4) Once you make changes to the source code, or switch to another source code version, use Skaffold to deploy (after you have the vanilla setup working on minikube)
+Optional on `minikube`:
 
-Now, ensure that you have commented in the bazelcache-directory into the bazel config.
+You may encounter the following WARNING, which is related to the kernel headers missing on the minikube node (this is not your VM node). This is safe to ignore if Pixie starts up properly and your cluster is queryable from Pixie's [Live UI](https://docs.px.dev/using-pixie/using-live-ui). Please see [pixie-issue2051](https://github.com/pixie-io/pixie/issues/2051) for further details.
+```
+ERR: Detected missing kernel headers on your cluster's nodes. This may cause issues with the Pixie agent. Please install kernel headers on all nodes.
 ```
 
+#### 6) Skaffold deploy your changes
+
+Once you make changes to the source code, or switch to another source code version, use Skaffold to deploy (after you have the vanilla setup working on minikube)
+
+Ensure that you have commented in the bazelcache-directory into the bazel config (see Step 2).
+
+
+Review the compilation-mode suits your purposes:
 ```
- 
+cat skaffold/skaffold_vizier.yaml
+# Note: You will want to stick with a sysroot based build (-p x86_64_sysroot or -p aarch64_sysroot),
+# but you may want to change the --complication_mode setting based on your needs.
+# opt builds remove assert/debug checks, while dbg builds work with debuggers (gdb).
+# See the bazel docs for more details https://bazel.build/docs/user-manual#compilation-mode
+- name: x86_64_sysroot
+  patches:
+  - op: add
+    path: /build/artifacts/context=./bazel/args
+    value:
+    - --config=x86_64_sysroot
+    - --compilation_mode=dbg
+#    - --compilation_mode=opt
+```
+
+Optional: you can make permanent your <default-repo> in the skaffold config:
+```sh
+skaffold config set default-repo <myregistry>
+skaffold run -f skaffold/skaffold_vizier.yaml -p x86_64_sysroot
+```
+
 Check that your docker login token is still valid, then
 
 ```sh
-> skaffold run -f skaffold/skaffold_vizier.yaml -p x86_64_sysroot --default-repo=ghcr.io/<myregistry>
+skaffold run -f skaffold/skaffold_vizier.yaml -p x86_64_sysroot --default-repo=<myregistry>
 ```
 
-Optional: you can set default-repo on config, so that you don't need to pass it as an argument everytime
-```sh
-> skaffold config set default-repo ghcr.io/<myregistry> 
-> skaffold run -f skaffold/skaffold_vizier.yaml -p x86_64_sysroot
-```
 
-1) Golden image
+
+#### 7) Golden Image
 
 Once all the above is working and the first cache has been built, bake an image of your VM for safekeeping.
 

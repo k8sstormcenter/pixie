@@ -1964,7 +1964,8 @@ spec:
         envFrom:
         - configMapRef:
             name: pl-tls-config
-        image: '{{ if .Values.registry }}{{ .Values.registry }}/{{ .Values.imageRegistry }}/vizier-metadata_server_image:{{ .Values.imageTag }}{{else}}{{ .Values.imageRegistry }}/vizier-metadata_server_image:{{ .Values.imageTag }}{{end}}'
+        image: '{{ .Values.imageRegistry }}/vizier-metadata_server_image:{{ .Values.imageTag }}'
+        imagePullPolicy: Always
         livenessProbe:
           httpGet:
             path: /healthz
@@ -2179,7 +2180,8 @@ spec:
               optional: true
         - name: PL_CLOCK_CONVERTER
           value: {{ if .Values.clockConverter }}"{{ .Values.clockConverter }}"{{else}}"default"{{end}}
-        image: '{{ if .Values.registry }}{{ .Values.registry }}/{{ .Values.imageRegistry }}/vizier-pem_image:{{ .Values.imageTag }}{{else}}{{ .Values.imageRegistry }}/vizier-pem_image:{{ .Values.imageTag }}{{end}}'
+        image: '{{ .Values.imageRegistry }}/vizier-pem_image:{{ .Values.imageTag }}'
+        imagePullPolicy: Always
         name: pem
         resources:
           limits:
@@ -2301,7 +2303,8 @@ spec:
         - configMapRef:
             name: pl-cluster-config
             optional: true
-        image: '{{ if .Values.registry }}{{ .Values.registry }}/{{ .Values.imageRegistry }}/vizier-cert_provisioner_image:{{ .Values.imageTag }}{{else}}{{ .Values.imageRegistry }}/vizier-cert_provisioner_image:{{ .Values.imageTag }}{{end}}'
+        image: '{{ .Values.imageRegistry }}/vizier-cert_provisioner_image:{{ .Values.imageTag }}'
+        imagePullPolicy: Always
         name: provisioner
         securityContext:
           allowPrivilegeEscalation: false

@@ -32,6 +32,7 @@ import (
 	"px.dev/pixie/src/utils"
 	"px.dev/pixie/src/vizier/messages/messagespb"
 	"px.dev/pixie/src/vizier/services/metadata/controllers/agent"
+	"px.dev/pixie/src/vizier/services/metadata/controllers/file_source"
 	"px.dev/pixie/src/vizier/services/metadata/controllers/tracepoint"
 	"px.dev/pixie/src/vizier/services/shared/agentpb"
 	"px.dev/pixie/src/vizier/utils/messagebus"
@@ -80,6 +81,7 @@ func (c *concurrentAgentMap) delete(agentID uuid.UUID) {
 type AgentTopicListener struct {
 	agtMgr      agent.Manager
 	tpMgr       *tracepoint.Manager
+	fsMgr       *file_source.Manager
 	sendMessage SendMessageFn
 
 	// Map from agent ID -> the agentHandler that's responsible for handling that particular
@@ -92,6 +94,7 @@ type AgentHandler struct {
 	id     uuid.UUID
 	agtMgr agent.Manager
 	tpMgr  *tracepoint.Manager
+	fsMgr  *file_source.Manager
 	atl    *AgentTopicListener
 
 	MsgChannel chan *nats.Msg
@@ -103,11 +106,12 @@ type AgentHandler struct {
 
 // NewAgentTopicListener creates a new agent topic listener.
 func NewAgentTopicListener(agtMgr agent.Manager, tpMgr *tracepoint.Manager,
-	sendMsgFn SendMessageFn,
-) (*AgentTopicListener, error) {
+	fsMgr *file_source.Manager,
+	sendMsgFn SendMessageFn) (*AgentTopicListener, error) {
 	atl := &AgentTopicListener{
 		agtMgr:      agtMgr,
 		tpMgr:       tpMgr,
+		fsMgr:       fsMgr,
 		sendMessage: sendMsgFn,
 		agentMap:    &concurrentAgentMap{unsafeMap: make(map[uuid.UUID]*AgentHandler)},
 	}
@@ -162,6 +166,8 @@ func (a *AgentTopicListener) HandleMessage(msg *nats.Msg) error {
 		a.forwardAgentRegisterRequest(m.RegisterAgentRequest, msg)
 	case *messagespb.VizierMessage_TracepointMessage:
 		a.onAgentTracepointMessage(m.TracepointMessage)
+	case *messagespb.VizierMessage_FileSourceMessage:
+		a.onAgentFileSourceMessage(m.FileSourceMessage)
 	default:
 		log.WithField("message-type", reflect.TypeOf(pb.Msg).String()).
 			Error("Unhandled message.")
@@ -191,6 +197,7 @@ func (a *AgentTopicListener) createAgentHandler(agentID uuid.UUID) *AgentHandler
 		id:         agentID,
 		agtMgr:     a.agtMgr,
 		tpMgr:      a.tpMgr,
+		fsMgr:      a.fsMgr,
 		atl:        a,
 		MsgChannel: make(chan *nats.Msg, 10),
 		quitCh:     make(chan struct{}),
@@ -287,6 +294,23 @@ func (a *AgentTopicListener) onAgentTracepointMessage(pbMessage *messagespb.Trac
 
 func (a *AgentTopicListener) onAgentTracepointInfoUpdate(m *messagespb.TracepointInfoUpdate) {
 	err := a.tpMgr.UpdateAgentTracepointStatus(m.ID, m.AgentID, m.State, m.Status)
+	if err != nil {
+		log.WithError(err).Error("Could not update agent tracepoint status")
+	}
+}
+
+func (a *AgentTopicListener) onAgentFileSourceMessage(pbMessage *messagespb.FileSourceMessage) {
+	switch m := pbMessage.Msg.(type) {
+	case *messagespb.FileSourceMessage_FileSourceInfoUpdate:
+		a.onAgentFileSourceInfoUpdate(m.FileSourceInfoUpdate)
+	default:
+		log.WithField("message-type", reflect.TypeOf(pbMessage.Msg).String()).
+			Error("Unhandled message.")
+	}
+}
+
+func (a *AgentTopicListener) onAgentFileSourceInfoUpdate(m *messagespb.FileSourceInfoUpdate) {
+	err := a.fsMgr.UpdateAgentFileSourceStatus(m.ID, m.AgentID, m.State, m.Status)
 	if err != nil {
 		log.WithError(err).Error("Could not update agent tracepoint status")
 	}
@@ -430,6 +454,22 @@ func (ah *AgentHandler) onAgentRegisterRequest(m *messagespb.RegisterAgentReques
 				err = ah.tpMgr.RegisterTracepoint(agent, utils.UUIDFromProtoOrNil(tp.ID), tp.Tracepoint)
 				if err != nil {
 					log.WithError(err).Error("Failed to send RegisterTracepoint request")
+				}
+			}
+		}
+
+		// Register all file sources on new agent.
+		fileSources, err := ah.fsMgr.GetAllFileSources()
+		if err != nil {
+			log.WithError(err).Error("Could not get all file sources")
+			return
+		}
+
+		for _, fs := range fileSources {
+			if fs.ExpectedState != statuspb.TERMINATED_STATE {
+				err = ah.fsMgr.RegisterFileSource(agent, utils.UUIDFromProtoOrNil(fs.ID), fs.FileSource)
+				if err != nil {
+					log.WithError(err).Error("Failed to send RegisterFileSource request")
 				}
 			}
 		}

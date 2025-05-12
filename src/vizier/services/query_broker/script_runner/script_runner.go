@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -262,13 +263,17 @@ func (r *runner) runScript(scriptPeriod time.Duration) {
 		}
 	}
 
-	// We set the time 1 second in the past to cover colletor latency and request latencies
+	// We set the time 1 second in the past to cover collector latency and request latencies
 	// which can cause data overlaps or cause data to be missed.
 	startTime := r.lastRun.Add(-time.Second)
 	endTime := startTime.Add(scriptPeriod)
 	r.lastRun = time.Now()
+	// TODO(ddelnano): This might not be the correct approach for handling mutations.
+	// This is done until the pxlog source can work with an indefinite ttl.
+	hasMutation := strings.Contains(r.cronScript.Script, "pxlog")
 	execScriptClient, err := r.vzClient.ExecuteScript(ctx, &vizierpb.ExecuteScriptRequest{
 		QueryStr: r.cronScript.Script,
+		Mutation: hasMutation,
 		Configs: &vizierpb.Configs{
 			OTelEndpointConfig: otelEndpoint,
 			PluginConfig: &vizierpb.Configs_PluginConfig{

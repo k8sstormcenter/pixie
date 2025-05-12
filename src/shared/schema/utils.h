@@ -32,20 +32,22 @@ namespace px {
 struct RelationInfo {
   RelationInfo() = default;
   RelationInfo(std::string name, uint64_t id, std::string desc,
-               table_store::schema::Relation relation)
+               std::optional<std::string> mutation_id, table_store::schema::Relation relation)
       : name(std::move(name)),
         id(id),
         desc(std::move(desc)),
         tabletized(false),
+        mutation_id(mutation_id),
         relation(std::move(relation)) {}
 
   RelationInfo(std::string name, uint64_t id, std::string desc, uint64_t tabletization_key_idx,
-               table_store::schema::Relation relation)
+               std::optional<std::string> mutation_id, table_store::schema::Relation relation)
       : name(std::move(name)),
         id(id),
         desc(std::move(desc)),
         tabletized(true),
         tabletization_key_idx(tabletization_key_idx),
+        mutation_id(mutation_id),
         relation(std::move(relation)) {}
 
   std::string name;
@@ -53,6 +55,7 @@ struct RelationInfo {
   std::string desc;
   bool tabletized;
   uint64_t tabletization_key_idx;
+  std::optional<std::string> mutation_id;
   table_store::schema::Relation relation;
 };
 

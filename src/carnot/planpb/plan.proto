@@ -115,6 +115,7 @@ enum OperatorType {
   MEMORY_SINK_OPERATOR = 9000;
   GRPC_SINK_OPERATOR = 9100;
   OTEL_EXPORT_SINK_OPERATOR = 9200;
+  // TODO(ddelnano): 10001 - 11000 are reserved for future use (sink_results table)
 }
 
 // The Logical operation performed. Each operator needs and entry in this
@@ -150,6 +151,7 @@ message Operator {
     // OTelExportSinkOperator writes the input table to an OpenTelemetry endpoint.
     OTelExportSinkOperator otel_sink_op = 14 [ (gogoproto.customname) = "OTelSinkOp" ];
   }
+  map<string, string> context = 15;
 }
 
 // Fetches data from in-memory source.

@@ -1,4 +1,4 @@
-deployKey: <put your key here>
+deployKey: $PIXIE_DEPLOY_KEY
 clusterName: honeypixie
 cloudAddr: getcosmic.ai
 devCloudNamespace: plc

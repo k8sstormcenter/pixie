@@ -1,27 +1,27 @@
 {{if and (.Values.autopilot) (.Values.useEtcdOperator)}}
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  annotations:
-    {{if .Values.customAnnotations}}{{range $element := split "," .Values.customAnnotations -}}
-    {{ $kv := split "=" $element -}}
-    {{if eq (len $kv) 2 -}}
-    {{ $kv._0 }}: "{{ $kv._1 }}"
-    {{- end}}
-    {{end}}{{end}}
-  labels:
-    {{if .Values.customLabels}}{{range $element := split "," .Values.customLabels -}}
-    {{ $kv := split "=" $element -}}
-    {{if eq (len $kv) 2 -}}
-    {{ $kv._0 }}: "{{ $kv._1 }}"
-    {{- end}}
-    {{end}}{{end}}
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: cloud-conn-service-account
-  namespace: {{ if .Release.Namespace }}{{ .Release.Namespace }}{{ else }}pl{{ end }}
+# ---
+# apiVersion: v1
+# kind: ServiceAccount
+# metadata:
+#   annotations:
+#     {{if .Values.customAnnotations}}{{range $element := split "," .Values.customAnnotations -}}
+#     {{ $kv := split "=" $element -}}
+#     {{if eq (len $kv) 2 -}}
+#     {{ $kv._0 }}: "{{ $kv._1 }}"
+#     {{- end}}
+#     {{end}}{{end}}
+#   labels:
+#     {{if .Values.customLabels}}{{range $element := split "," .Values.customLabels -}}
+#     {{ $kv := split "=" $element -}}
+#     {{if eq (len $kv) 2 -}}
+#     {{ $kv._0 }}: "{{ $kv._1 }}"
+#     {{- end}}
+#     {{end}}{{end}}
+#     app: pl-monitoring
+#     component: vizier
+#     vizier-bootstrap: "true"
+#   name: cloud-conn-service-account
+#   namespace: {{ if .Release.Namespace }}{{ .Release.Namespace }}{{ else }}pl{{ end }}
 ---
 apiVersion: v1
 kind: ServiceAccount

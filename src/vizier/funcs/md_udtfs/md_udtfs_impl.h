@@ -1130,6 +1130,130 @@ class GetFileSourceStatus final : public carnot::udf::UDTF<GetFileSourceStatus> 
   std::function<void(grpc::ClientContext*)> add_context_authentication_func_;
 };
 
+/**
+ * This UDTF fetches information about tracepoints from MDS.
+ */
+class GetTetragonStatus final : public carnot::udf::UDTF<GetTetragonStatus> {
+ public:
+  using MDFSStub = vizier::services::metadata::MetadataTetragonService::Stub;
+  using TetragonResponse = vizier::services::metadata::GetTetragonInfoResponse;
+  GetTetragonStatus() = delete;
+  explicit GetTetragonStatus(std::shared_ptr<MDFSStub> stub,
+                               std::function<void(grpc::ClientContext*)> add_context_authentication)
+      : idx_(0), stub_(stub), add_context_authentication_func_(add_context_authentication) {}
+
+  static constexpr auto Executor() { return carnot::udfspb::UDTFSourceExecutor::UDTF_ONE_KELVIN; }
+
+  static constexpr auto OutputRelation() {
+    // TODO(ddelnano): Change the tetragon_id column to a UINT128 once the pxl lookup from
+    // px/pipeline_flow_graph works. That script has a UINT128 stored as a string and needs to
+    // be joined with this column
+    return MakeArray(ColInfo("tetragon_id", types::DataType::STRING,
+                             types::PatternType::GENERAL, "The id of the tetragon"),
+                     ColInfo("name", types::DataType::STRING, types::PatternType::GENERAL,
+                             "The name of the tetragon"),
+                     ColInfo("state", types::DataType::STRING, types::PatternType::GENERAL,
+                             "The state of the tetragon"),
+                     ColInfo("status", types::DataType::STRING, types::PatternType::GENERAL,
+                             "The status message if not healthy"),
+                     ColInfo("output_tables", types::DataType::STRING, types::PatternType::GENERAL,
+                             "A list of tables output by the tetragon"));
+    // TODO(ddelnano): Add in the create time, and TTL in here after we add those attributes to the
+    // GetTetragonInfo RPC call in MDS.
+  }
+
+  Status Init(FunctionContext*) {
+    px::vizier::services::metadata::GetTetragonInfoRequest req;
+    resp_ = std::make_unique<px::vizier::services::metadata::GetTetragonInfoResponse>();
+
+    grpc::ClientContext ctx;
+    add_context_authentication_func_(&ctx);
+    auto s = stub_->GetTetragonInfo(&ctx, req, resp_.get());
+    if (!s.ok()) {
+      return error::Internal("Failed to make RPC call to GetTetragonStatus: $0",
+                             s.error_message());
+    }
+    return Status::OK();
+  }
+
+  bool NextRecord(FunctionContext*, RecordWriter* rw) {
+    if (resp_->tetragons_size() == 0) {
+      return false;
+    }
+    const auto& tetragon_info = resp_->tetragons(idx_);
+
+    auto u_or_s = ParseUUID(tetragon_info.id());
+    sole::uuid u;
+    if (u_or_s.ok()) {
+      u = u_or_s.ConsumeValueOrDie();
+    }
+
+    auto actual = tetragon_info.state();
+    auto expected = tetragon_info.expected_state();
+    std::string state;
+
+    switch (actual) {
+      case statuspb::PENDING_STATE: {
+        state = "pending";
+        break;
+      }
+      case statuspb::RUNNING_STATE: {
+        state = "running";
+        break;
+      }
+      case statuspb::FAILED_STATE: {
+        state = "failed";
+        break;
+      }
+      case statuspb::TERMINATED_STATE: {
+        if (actual != expected) {
+          state = "terminating";
+        } else {
+          state = "terminated";
+        }
+        break;
+      }
+      default:
+        state = "unknown";
+    }
+
+    rapidjson::Document tables;
+    tables.SetArray();
+    for (const auto& table : tetragon_info.schema_names()) {
+      tables.PushBack(internal::StringRef(table), tables.GetAllocator());
+    }
+
+    rapidjson::StringBuffer tables_sb;
+    rapidjson::Writer<rapidjson::StringBuffer> tables_writer(tables_sb);
+    tables.Accept(tables_writer);
+
+    rw->Append<IndexOf("tetragon_id")>(u.str());
+    rw->Append<IndexOf("name")>(tetragon_info.name());
+    rw->Append<IndexOf("state")>(state);
+
+    rapidjson::Document statuses;
+    statuses.SetArray();
+    for (const auto& status : tetragon_info.statuses()) {
+      statuses.PushBack(internal::StringRef(status.msg()), statuses.GetAllocator());
+    }
+    rapidjson::StringBuffer statuses_sb;
+    rapidjson::Writer<rapidjson::StringBuffer> statuses_writer(statuses_sb);
+    statuses.Accept(statuses_writer);
+    rw->Append<IndexOf("status")>(statuses_sb.GetString());
+
+    rw->Append<IndexOf("output_tables")>(tables_sb.GetString());
+
+    ++idx_;
+    return idx_ < resp_->tetragons_size();
+  }
+
+ private:
+  int idx_ = 0;
+  std::unique_ptr<px::vizier::services::metadata::GetTetragonInfoResponse> resp_;
+  std::shared_ptr<MDFSStub> stub_;
+  std::function<void(grpc::ClientContext*)> add_context_authentication_func_;
+};
+
 class GetCronScriptHistory final : public carnot::udf::UDTF<GetCronScriptHistory> {
  public:
   using CronScriptStoreStub = vizier::services::metadata::CronScriptStoreService::Stub;

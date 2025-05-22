@@ -29,6 +29,7 @@
 
 #include "src/carnot/planner/dynamic_tracing/ir/logicalpb/logical.pb.h"
 #include "src/carnot/planner/file_source/ir/logical.pb.h"
+#include "src/carnot/planner/tetragon/ir/logical.pb.h"
 
 namespace px {
 namespace carnot {
@@ -81,6 +82,11 @@ StatusOr<carnot::planner::dynamic_tracing::ir::logical::TracepointDeployment> Co
 StatusOr<file_source::ir::FileSourceDeployment> CompileFileSource(std::string_view query) {
   PX_ASSIGN_OR_RETURN(auto pb, CompileMutations(query));
   return pb.mutations()[0].file_source();
+}
+
+StatusOr<tetragon::ir::TetragonDeployment> CompileTetragon(std::string_view query) {
+  PX_ASSIGN_OR_RETURN(auto pb, CompileMutations(query));
+  return pb.mutations()[0].tetragon();
 }
 
 }  // namespace compiler

@@ -58,6 +58,7 @@
 #include "src/stirling/source_connectors/seq_gen/seq_gen_connector.h"
 #include "src/stirling/source_connectors/socket_tracer/socket_trace_connector.h"
 #include "src/stirling/source_connectors/stirling_error/stirling_error_connector.h"
+#include "src/stirling/source_connectors/tetragon/tetragon_connector.h"
 
 #include "src/stirling/source_connectors/dynamic_tracer/dynamic_tracing/dynamic_tracer.h"
 #include "src/stirling/source_connectors/tcp_stats/tcp_stats_connector.h"
@@ -230,6 +231,10 @@ class StirlingImpl final : public Stirling {
 
   void UpdateFileSourceStatus(const sole::uuid& uuid, const StatusOr<stirlingpb::Publish>& status);
 
+  void RegisterTetragon(sole::uuid id, std::string file_name) override;
+  void UpdateTetragonStatus(const sole::uuid& uuid, const StatusOr<stirlingpb::Publish>& status);
+  Status RemoveTetragon(sole::uuid trace_id) override;
+
  private:
   // Adds a source to Stirling, and updates all state accordingly.
   Status AddSource(std::unique_ptr<SourceConnector> source,
@@ -250,6 +255,11 @@ class StirlingImpl final : public Stirling {
   void DeployFileSourceConnector(sole::uuid trace_id, std::string file_name);
 
   void DestroyFileSourceConnector(sole::uuid id);
+
+    // Creates and deploys tetragon connector
+  void DeployTetragonConnector(sole::uuid trace_id, std::string file_name);
+
+  void DestroyTetragonConnector(sole::uuid id);
 
   // Main run implementation.
   void RunCore();
@@ -726,6 +736,135 @@ void StirlingImpl::DestroyFileSourceConnector(sole::uuid trace_id) {
     absl::base_internal::SpinLockHolder lock(&file_source_status_map_lock_);
     file_source_status_map_.erase(trace_id);
     file_source_info_map_.erase(trace_id);
+  }
+}
+
+void StirlingImpl::RegisterTetragon(sole::uuid id, std::string file_name) {
+  // Temporary: Check if the target exists on this PEM, otherwise return NotFound.
+  // TODO(oazizi): Need to think of a better way of doing this.
+  //               Need to differentiate errors caused by the binary not being on the host vs
+  //               other errors. Also should consider races with binary creation/deletion.
+  {
+    absl::base_internal::SpinLockHolder lock(&tetragon_status_map_lock_);
+    std::string source_connector = "Tetragon";
+    tetragon_info_map_[id] = {.source_connector = std::move(source_connector),
+                                 .file_name = file_name,
+                                 .output_table = ""};
+  }
+
+  void StirlingImpl::UpdateTetragonStatus(const sole::uuid& id,
+                                          const StatusOr<stirlingpb::Publish>& s) {
+  absl::base_internal::SpinLockHolder lock(&tetragon_status_map_lock_);
+  tetragon_status_map_[id] = s;
+
+  // Find program name and log dynamic trace status update to Stirling Monitor.
+  auto it = tetragon_info_map_.find(id);
+  if (it != tetragon_info_map_.end()) {
+//TODO: Update with Tetragon source
+    TetragonInfo& tetragon_info = it->second;
+
+    // Build info JSON with trace_id and output_table.
+    ::px::utils::JSONObjectBuilder builder;
+    builder.WriteKV("trace_id", id.str());
+    if (s.ok()) {
+      builder.WriteKV("output_table", tetragon_info.output_table);
+    }
+
+    monitor_.AppendSourceStatusRecord(tetragon_info.source_connector, s.status(),
+                                      builder.GetString());
+
+    // Clean up map if status is not ok. When status is RESOURCE_UNAVAILABLE, either deployment
+    // or removal is pending, so don't clean up.
+    if (!s.ok() && s.code() != statuspb::Code::RESOURCE_UNAVAILABLE) {
+      tetragon_info_map_.erase(id);
+    }
+  }
+}
+
+Status StirlingImpl::RemoveTetragon(sole::uuid trace_id) {
+  // Change the status of this trace to pending while we delete it.
+  UpdateTetragonStatus(trace_id, error::ResourceUnavailable("Tetragon removal in progress."));
+
+  auto t = std::thread(&StirlingImpl::DestroyTetragonConnector, this, trace_id);
+  t.detach();
+
+  return Status::OK();
+}
+
+StatusOr<std::unique_ptr<SourceConnector>> CreateTetragonConnector(sole::uuid id,
+                                                                     std::string file_name) {
+  auto name = absl::StrCat(kTetragonPrefix, id.str());
+  return TetragonConnector::Create(name, file_name);
+}
+
+void StirlingImpl::DeployTetragonConnector(sole::uuid id, std::string file_name) {
+  auto timer = ElapsedTimer();
+  timer.Start();
+
+  // Try creating the DynamicTraceConnector--which compiles BCC code.
+  // On failure, set status and exit.
+  auto source_or_s = CreateTetragonConnector(id, file_name);
+  if (!source_or_s.ok()) {
+    Status ret_status(px::statuspb::Code::INTERNAL, source_or_s.msg());
+    UpdateTetragonStatus(id, ret_status);
+    LOG(INFO) << ret_status.ToString();
+    return;
+  }
+  auto source = source_or_s.ConsumeValueOrDie();
+
+  LOG(INFO) << absl::Substitute("TetragonConnector [$0] created in $1 ms.", source->name(),
+                                timer.ElapsedTime_us() / 1000.0);
+
+  // Cache table schema name as source will be moved below.
+  std::string output_name(source->table_schemas()[0].name());
+
+  {
+    absl::base_internal::SpinLockHolder lock(&tetragon_status_map_lock_);
+    auto it = tetragon_info_map_.find(id);
+    if (it != tetragon_info_map_.end()) {
+      tetragon_info_map_[id].output_table = output_name;
+    }
+  }
+
+  timer.Start();
+  auto s = AddSource(std::move(source), id.str());
+  if (!s.ok()) {
+    UpdateTetragonStatus(id, s);
+    LOG(INFO) << s.ToString();
+    return;
+  }
+  LOG(INFO) << absl::Substitute("TetragonConnector [$0] created in $1 ms.", id.str(),
+                                timer.ElapsedTime_us() / 1000.0);
+
+  stirlingpb::Publish publication;
+  {
+    absl::base_internal::SpinLockHolder lock(&info_class_mgrs_lock_);
+    PopulatePublishProto(&publication, info_class_mgrs_, output_name);
+  }
+
+  UpdateTetragonStatus(id, publication);
+}
+
+void StirlingImpl::DestroyTetragonConnector(sole::uuid trace_id) {
+  auto timer = ElapsedTimer();
+  timer.Start();
+
+  // Remove from stirling.
+  auto s = RemoveSource(kTetragonPrefix + trace_id.str());
+  if (!s.ok()) {
+    UpdateTetragonStatus(trace_id, s);
+    LOG(INFO) << s.ToString();
+    return;
+  }
+
+  LOG(INFO) << absl::Substitute("Tetragon [$0]: Removed file polling $1 ms.", trace_id.str(),
+                                timer.ElapsedTime_us() / 1000.0);
+
+  // Remove from map.
+  {
+    absl::base_internal::SpinLockHolder lock(&tetragon_status_map_lock_);
+    tetragon_status_map_.erase(trace_id);
+    tetragon_info_map_.erase(trace_id);
   }
 }
 

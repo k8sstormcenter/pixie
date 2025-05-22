@@ -43,6 +43,7 @@ class VizierFuncFactoryContext : public NotCopyable {
   using MDSStub = services::metadata::MetadataService::Stub;
   using MDTPStub = services::metadata::MetadataTracepointService::Stub;
   using MDFSStub = services::metadata::MetadataFileSourceService::Stub;
+  using MDFSStub = services::metadata::MetadataTetragonService::Stub;
 
   VizierFuncFactoryContext() = default;
   VizierFuncFactoryContext(

@@ -93,6 +93,7 @@ class Manager : public BaseManager {
   using MDTPService = services::metadata::MetadataTracepointService;
   using MDTPServiceSPtr = std::shared_ptr<Manager::MDTPService::Stub>;
   using MDFSService = services::metadata::MetadataFileSourceService;
+  using MDFSService = services::metadata::MetadataTetragonService;
   using MDFSServiceSPtr = std::shared_ptr<Manager::MDFSService::Stub>;
   using ResultSinkStub = px::carnotpb::ResultSinkService::StubInterface;
 

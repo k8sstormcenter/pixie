@@ -24,6 +24,7 @@
 #include "src/carnot/carnot.h"
 #include "src/common/event/event.h"
 #include "src/experimental/standalone_pem/file_source_manager.h"
+#include "src/experimental/standalone_pem/tetragon_manager.h"
 #include "src/experimental/standalone_pem/sink_server.h"
 #include "src/experimental/standalone_pem/tracepoint_manager.h"
 #include "src/experimental/standalone_pem/vizier_server.h"
@@ -91,6 +92,9 @@ class StandalonePEMManager : public BaseManager {
 
   // FileSource manager
   std::unique_ptr<FileSourceManager> file_source_manager_;
+
+  // Tetragon manager
+  std::unique_ptr<TetragonManager> tetragon_manager_;
 };
 
 }  // namespace agent

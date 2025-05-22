@@ -27,6 +27,7 @@ import "google/protobuf/timestamp.proto";
 import "src/api/proto/uuidpb/uuid.proto";
 import "src/carnot/planner/dynamic_tracing/ir/logicalpb/logical.proto";
 import "src/carnot/planner/file_source/ir/logical.proto";
+import "src/carnot/planner/tetragon/ir/logical.proto";
 import "src/common/base/statuspb/status.proto";
 import "src/shared/k8s/metadatapb/metadata.proto";
 import "src/shared/types/typespb/types.proto";
@@ -74,6 +75,28 @@ message AgentFileSourceStatus {
   // The state of the file source.
   px.statuspb.LifeCycleState state = 1;
   // The status of the file source, specified if the state of the file source is not healthy.
+  px.statuspb.Status status = 2;
+  uuidpb.UUID id = 3 [ (gogoproto.customname) = "ID" ];
+  uuidpb.UUID agent_id = 4 [ (gogoproto.customname) = "AgentID" ];
+}
+
+// Information about the status of a specific tetragon
+message TetragonInfo {
+  uuidpb.UUID id = 1 [ (gogoproto.customname) = "ID" ];
+  // The tetragon deployment.
+  px.carnot.planner.tetragon.ir.TetragonDeployment tetragon = 2;
+  // The name of the tetragon, not unique.
+  string name = 3;
+  // The desired state of the tetragon, either running or terminated. The actual
+  // state of the tetragon is derived by the states of the individual agent tetragons.
+  px.statuspb.LifeCycleState expected_state = 4;
+}
+
+// The agent's registration status for a particular tetragon.
+message AgentTetragonStatus {
+  // The state of the tetragon.
+  px.statuspb.LifeCycleState state = 1;
+  // The status of the tetragon, specified if the state of the tetragon is not healthy.
   px.statuspb.Status status = 2;
   uuidpb.UUID id = 3 [ (gogoproto.customname) = "ID" ];
   uuidpb.UUID agent_id = 4 [ (gogoproto.customname) = "AgentID" ];

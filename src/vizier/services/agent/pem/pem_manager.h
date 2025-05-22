@@ -29,6 +29,7 @@
 #include "src/common/system/kernel_version.h"
 #include "src/stirling/stirling.h"
 #include "src/vizier/services/agent/pem/file_source_manager.h"
+#include "src/vizier/services/agent/pem/tetragon_manager.h"
 #include "src/vizier/services/agent/pem/tracepoint_manager.h"
 #include "src/vizier/services/agent/shared/manager/manager.h"
 
@@ -106,6 +107,7 @@ class PEMManager : public Manager {
   std::unique_ptr<stirling::Stirling> stirling_;
   std::shared_ptr<TracepointManager> tracepoint_manager_;
   std::shared_ptr<FileSourceManager> file_source_manager_;
+  std::shared_ptr<TetragonManager> tetragon_manager_;
 
   // Timer for triggering ClockConverter polls.
   px::event::TimerUPtr clock_converter_timer_;

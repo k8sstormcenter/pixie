@@ -18,32 +18,18 @@
 
 #pragma once
 
-#include "src/carnot/planner/compiler/ast_visitor.h"
-
-#include "src/carnot/planner/dynamic_tracing/ir/logicalpb/logical.pb.h"
+#include "src/carnot/planner/objects/funcobject.h"
 
 namespace px {
 namespace carnot {
 namespace planner {
 namespace compiler {
 
-/**
- * Take a tracepoint specification in PXL format, and compiles it to a logical tracepoint Program.
- */
-StatusOr<carnot::planner::dynamic_tracing::ir::logical::TracepointDeployment> CompileTracepoint(
-    std::string_view query);
+class TetragonIR {
+  /* public: */
 
-/**
- * Take a file source specification in PXL format, and compiles it to a logical file source
- * deployment.
- */
-StatusOr<file_source::ir::FileSourceDeployment> CompileFileSource(std::string_view query);
-
-/**
- * Take a tetragon log specification in PXL format, and compiles it to a logical tetragon log
- * deployment.
- */
-StatusOr<tetragon::ir::TetragonDeployment> CompileTetragon(std::string_view query);
+  /* private: */
+};
 
 }  // namespace compiler
 }  // namespace planner

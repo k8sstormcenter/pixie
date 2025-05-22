@@ -57,6 +57,8 @@ void RegisterFuncsOrDie(const VizierFuncFactoryContext& ctx, carnot::udf::Regist
       "GetTracepointStatus", ctx);
   registry->RegisterFactoryOrDie<GetFileSourceStatus, UDTFWithMDFSFactory<GetFileSourceStatus>>(
       "GetFileSourceStatus", ctx);
+  registry->RegisterFactoryOrDie<GetTetragonStatus, UDTFWithMDFSFactory<GetTetragonStatus>>(
+      "GetTetragonStatus", ctx);
   registry
       ->RegisterFactoryOrDie<GetCronScriptHistory, UDTFWithCronscriptFactory<GetCronScriptHistory>>(
           "GetCronScriptHistory", ctx);

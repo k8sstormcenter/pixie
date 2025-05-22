@@ -27,6 +27,7 @@ import "src/api/proto/uuidpb/uuid.proto";
 import "src/carnot/planner/distributedpb/distributed_plan.proto";
 import "src/carnot/planner/dynamic_tracing/ir/logicalpb/logical.proto";
 import "src/carnot/planner/file_source/ir/logical.proto";
+import "src/carnot/planner/tetragon/ir/logical.proto";
 import "src/carnot/planpb/plan.proto";
 import "src/common/base/statuspb/status.proto";
 import "src/shared/k8s/metadatapb/metadata.proto";
@@ -46,6 +47,7 @@ message VizierMessage {
     ConfigUpdateMessage config_update_message = 11;
     K8sMetadataMessage k8s_metadata_message = 12;
     FileSourceMessage file_source_message = 13;
+    TetragonMessage tetragon_message = 14;
   }
   // DEPRECATED: Formerly used for UpdateAgentRequest.
   reserved 3;
@@ -68,6 +70,15 @@ message FileSourceMessage {
     FileSourceInfoUpdate file_source_info_update = 1;
     RemoveFileSourceRequest remove_file_source_request = 2;
     RegisterFileSourceRequest register_file_source_request = 3;
+  }
+}
+
+// A wrapper around all tetragon-related messages that can be sent over the message bus.
+message TetragonMessage {
+  oneof msg {
+    TetragonInfoUpdate tetragon_info_update = 1;
+    RemoveTetragonRequest remove_tetragon_request = 2;
+    RegisterTetragonRequest register_tetragon_request = 3;
   }
 }
 
@@ -201,6 +212,27 @@ message FileSourceInfoUpdate {
 }
 
 message RemoveFileSourceRequest {
+  uuidpb.UUID id = 1 [ (gogoproto.customname) = "ID" ];
+}
+
+// The request to register tetragons on a PEM.
+message RegisterTetragonRequest {
+  px.carnot.planner.Tetragon.ir.TetragonDeployment tetragon_deployment = 1;
+  uuidpb.UUID id = 2 [ (gogoproto.customname) = "ID" ];
+}
+
+// An update message sent when a tetragon's status changes.
+message TetragonInfoUpdate {
+  uuidpb.UUID id = 1 [ (gogoproto.customname) = "ID" ];
+  // The state of the tetragon.
+  px.statuspb.LifeCycleState state = 2;
+  // The status of the tetragon, specified if the state of the tetragon is not healthy.
+  px.statuspb.Status status = 3;
+  // The ID of the agent sending the update.
+  uuidpb.UUID agent_id = 4 [ (gogoproto.customname) = "AgentID" ];
+}
+
+message RemoveTetragonRequest {
   uuidpb.UUID id = 1 [ (gogoproto.customname) = "ID" ];
 }
 

@@ -24,6 +24,7 @@
 
 #include "src/carnot/planner/dynamic_tracing/ir/logicalpb/logical.pb.h"
 #include "src/carnot/planner/file_source/ir/logical.pb.h"
+#include "src/carnot/planner/tetragon/ir/logical.pb.h"
 #include "src/carnot/planner/objects/funcobject.h"
 #include "src/carnot/planner/plannerpb/service.pb.h"
 #include "src/carnot/planner/probes/label_selector_target.h"
@@ -181,6 +182,20 @@ class FileSourceDeployment {
   int64_t ttl_ns_;
 };
 
+class TetragonDeployment {
+ public:
+  TetragonDeployment(const std::string& glob_pattern, const std::string& table_name,
+                       int64_t ttl_ns)
+      : glob_pattern_(glob_pattern), table_name_(table_name), ttl_ns_(ttl_ns) {}
+
+  Status ToProto(tetragon::ir::TetragonDeployment pb) const;
+
+ private:
+  std::string glob_pattern_;
+  std::string table_name_;
+  int64_t ttl_ns_;
+};
+
 class TracepointDeployment {
  public:
   TracepointDeployment(const std::string& trace_name, int64_t ttl_ns)
@@ -244,6 +259,12 @@ class MutationsIR {
                                   int64_t ttl_ns);
 
   void CreateDeleteFileSource(const std::string& glob_pattern);
+
+  void CreateTetragonDeployment(const std::string& glob_pattern, const std::string& table_name,
+                                  int64_t ttl_ns);
+
+  void CreateDeleteTetragon(const std::string& glob_pattern);
+
   /**
    * @brief Create a TraceProgram for the MutationsIR w/ the specified UPID.
    *
@@ -363,7 +384,20 @@ class MutationsIR {
 
   const std::vector<std::string>& FileSourcesToDelete() { return file_sources_to_delete_; }
 
- private:
+  std::vector<tetragon::ir::TetragonDeployment> TetragonDeployments();
+
+  /**
+   * @brief Deletes the tetragon log passed in.
+   *
+   * @param tetragon_to_delete
+   */
+  void DeleteTetragon(const std::string& tetragon_to_delete) {
+    tetragons_to_delete_.push_back(tetragon_to_delete);
+  }
+
+  const std::vector<std::string>& TetragonsToDelete() { return tetragons_to_delete_; }
+
+  private:
   // All the new tracepoints added as part of this mutation. DeploymentSpecs are protobufs because
   // we only modify these upon inserting the new tracepoint, while the Tracepoint definition is
   // still modified aftered adding the tracepoint.
@@ -383,6 +417,9 @@ class MutationsIR {
 
   std::vector<file_source::ir::FileSourceDeployment> file_source_deployments_;
   std::vector<std::string> file_sources_to_delete_;
+
+  std::vector<tetragon::ir::TetragonDeployment> tetragon_deployments_;
+  std::vector<std::string> tetragons_to_delete_;
 };
 
 }  // namespace compiler

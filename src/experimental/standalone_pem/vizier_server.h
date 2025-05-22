@@ -51,12 +51,13 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
   VizierServer() = delete;
   VizierServer(carnot::Carnot* carnot, px::vizier::agent::StandaloneGRPCResultSinkServer* svr,
                px::carnot::EngineState* engine_state, TracepointManager* tp_manager,
-               FileSourceManager* file_source_manager) {
+               FileSourceManager* file_source_manager, TetragonManager* tetragon_manager) {
     carnot_ = carnot;
     sink_server_ = svr;
     engine_state_ = engine_state;
     tp_manager_ = tp_manager;
     file_source_manager_ = file_source_manager;
+    tetragon_manager_ = tetragon_manager;
   }
 
   ::grpc::Status ExecuteScript(
@@ -83,6 +84,7 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
       auto mutations = mutations_or_s.ConsumeValueOrDie();
       auto deployments = mutations->Deployments();
       auto file_source_deployments = mutations->FileSourceDeployments();
+      auto tetragon_deployments = mutations->TetragonDeployments();
 
       bool tracepoints_running = true;
       auto ntp_info = TracepointInfo{};
@@ -141,6 +143,32 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
         }
       }
       if (!file_sources_running) {
+        auto m_info = mutation_resp.mutable_mutation_info();
+        m_info->mutable_status()->set_code(grpc::StatusCode::UNAVAILABLE);
+        response->Write(mutation_resp);
+        return ::grpc::Status::CANCELLED;
+      }
+
+      auto tetragons_running = true;
+      auto ntetragon_info = TetragonInfo{};
+      for (size_t i = 0; i < tetragon_deployments.size(); i++) {
+        auto tetragon = tetragon_deployments[i];
+        auto tetragon_info = tetragon_manager_->GetTetragonInfo(tetragon.glob_pattern());
+        if (tetragon_info == nullptr) {
+          auto s = tetragon_manager_->HandleRegisterTetragonRequest(
+              sole::uuid4(), tetragon.glob_pattern());
+          if (!s.ok()) {
+            return ::grpc::Status(grpc::StatusCode::INTERNAL, "Failed to register tetragon");
+          }
+          ntetragon_info.name = tetragon.glob_pattern();
+          ntetragon_info.current_state = statuspb::PENDING_STATE;
+          tetragon_info = &ntetragon_info;
+        }
+        if (tetragon_info->current_state != statuspb::RUNNING_STATE) {
+          tetragons_running = false;
+        }
+      }
+      if (!tetragons_running) {
         auto m_info = mutation_resp.mutable_mutation_info();
         m_info->mutable_status()->set_code(grpc::StatusCode::UNAVAILABLE);
         response->Write(mutation_resp);
@@ -231,6 +259,7 @@ class VizierServer final : public api::vizierpb::VizierService::Service {
   px::carnot::EngineState* engine_state_;
   TracepointManager* tp_manager_;
   FileSourceManager* file_source_manager_;
+  TetragonManager* tetragon_manager_;
 };
 
 class VizierGRPCServer {
@@ -239,9 +268,9 @@ class VizierGRPCServer {
   VizierGRPCServer(int port, carnot::Carnot* carnot,
                    px::vizier::agent::StandaloneGRPCResultSinkServer* svr,
                    carnot::EngineState* engine_state, TracepointManager* tp_manager,
-                   FileSourceManager* file_source_manager)
+                   FileSourceManager* file_source_manager, TetragonManager* tetragon_manager)
       : vizier_server_(std::make_unique<VizierServer>(carnot, svr, engine_state, tp_manager,
-                                                      file_source_manager)) {
+                                                      file_source_manager, tetragon_manager)) {
     grpc::ServerBuilder builder;
 
     std::string uri = absl::Substitute("0.0.0.0:$0", port);

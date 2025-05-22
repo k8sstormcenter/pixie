@@ -312,6 +312,14 @@ Status MutationsIR::ToProto(plannerpb::CompileMutationsResponse* pb) {
     *(pb->add_mutations()->mutable_file_source()) = file_source;
   }
 
+  for (const auto& tetragon_to_delete : TetragonsToDelete()) {
+    pb->add_mutations()->mutable_delete_tetragon()->set_glob_pattern(tetragon_to_delete);
+  }
+
+  for (const auto& tetragon : tetragon_deployments_) {
+    *(pb->add_mutations()->mutable_tetragon()) = tetragon;
+  }
+
   return Status::OK();
 }
 
@@ -327,6 +335,26 @@ void MutationsIR::CreateFileSourceDeployment(const std::string& glob_pattern,
   file_source.mutable_ttl()->set_seconds(ttl_ns / one_sec.count());
   file_source.mutable_ttl()->set_nanos(ttl_ns % one_sec.count());
   file_source_deployments_.push_back(file_source);
+}
+
+std::vector<tetragon::ir::TetragonDeployment> MutationsIR::TetragonDeployments() {
+  std::vector<tetragon::ir::TetragonDeployment> tetragon_deployments;
+  for (size_t i = 0; i < tetragon_deployments_.size(); i++) {
+    tetragon_deployments.push_back(tetragon_deployments_[i]);
+  }
+  return tetragon_deployments;
+}
+
+void MutationsIR::CreateTetragonDeployment(const std::string& glob_pattern,
+                                             const std::string& table_name, int64_t ttl_ns) {
+  tetragon::ir::TetragonDeployment tetragon;
+  tetragon.set_name(glob_pattern);
+  tetragon.set_glob_pattern(glob_pattern);
+  tetragon.set_table_name(table_name);
+  auto one_sec = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(1));
+  tetragon.mutable_ttl()->set_seconds(ttl_ns / one_sec.count());
+  tetragon.mutable_ttl()->set_nanos(ttl_ns % one_sec.count());
+  tetragon_deployments_.push_back(tetragon);
 }
 
 }  // namespace compiler

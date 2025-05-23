@@ -129,6 +129,8 @@ void TetragonConnector::TransferDataFromUnstructuredFile(DataTable::DynamicRecor
     if (entry.HasMember("time")) {
       if (entry["time"].IsString()) {
         r.Append(0, types::StringValue(tetragon_data["time"]), kMaxStringBytes);
+      } else if (entry["time"].IsNull()) {
+        r.Append(0, types::StringValue("empty"), kMaxStringBytes);
       } else {
         LOG(ERROR) << "Key ""time"" is present but its value is not a string.";
       }
@@ -139,6 +141,8 @@ void TetragonConnector::TransferDataFromUnstructuredFile(DataTable::DynamicRecor
     if (entry.HasMember("node_name")) {
       if (entry["node_name"].IsString()) {
         r.Append(1, types::StringValue(tetragon_data["node_name"]), kMaxStringBytes);
+      } else if (entry["node_name"].IsNull()) {
+        r.Append(1, types::StringValue("empty"), kMaxStringBytes);
       } else {
         LOG(ERROR) << "Key ""node_name"" is present but its value is not a string.";
       }
@@ -154,7 +158,13 @@ void TetragonConnector::TransferDataFromUnstructuredFile(DataTable::DynamicRecor
       r.Append(2, types::StringValue(type.c_str()), kMaxStringBytes);
 
       // Add the payload (content of the first key)
-      r.Append(3, types::StringValue(tetragon_data[type.c_str()]), kMaxStringBytes);
+      if (entry[type.c_str()].IsString()) {
+        r.Append(3, types::StringValue(tetragon_data[type.c_str()]), kMaxStringBytes);
+      } else if (entry[type.c_str()].IsNull()) {
+        r.Append(3, types::StringValue("empty"), kMaxStringBytes);
+      } else {
+        LOG(ERROR) << "Key " << type.c_str() << " is present but its value is not a string.";
+      }
   } else {
       LOG(ERROR) << "Error: JSON object is empty.";
       return;

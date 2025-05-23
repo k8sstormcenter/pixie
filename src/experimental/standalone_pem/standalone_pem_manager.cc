@@ -73,7 +73,7 @@ StandalonePEMManager::StandalonePEMManager(sole::uuid agent_id, std::string_view
       dispatcher_(api_->AllocateDispatcher("manager")),
       table_store_(std::make_shared<table_store::TableStore>()),
       func_context_(this, /* mds_stub= */ nullptr, /* mdtp_stub= */ nullptr,
-                    /* mdfs_stub= */ nullptr,
+                    /* mdfs_stub= */ nullptr, /* mdtt_stub= */ nullptr,
                     /* cronscript_stub= */ nullptr, table_store_, [](grpc::ClientContext*) {}),
       stirling_(px::stirling::Stirling::Create(px::stirling::CreateSourceRegistryFromFlag())),
       results_sink_server_(std::make_unique<StandaloneGRPCResultSinkServer>()) {

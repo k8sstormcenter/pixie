@@ -43,12 +43,13 @@ class VizierFuncFactoryContext : public NotCopyable {
   using MDSStub = services::metadata::MetadataService::Stub;
   using MDTPStub = services::metadata::MetadataTracepointService::Stub;
   using MDFSStub = services::metadata::MetadataFileSourceService::Stub;
-  using MDFSStub = services::metadata::MetadataTetragonService::Stub;
+  using MDTTStub = services::metadata::MetadataTetragonService::Stub;
 
   VizierFuncFactoryContext() = default;
   VizierFuncFactoryContext(
       const agent::BaseManager* agent_manager, const std::shared_ptr<MDSStub>& mds_stub,
       const std::shared_ptr<MDTPStub>& mdtp_stub, const std::shared_ptr<MDFSStub>& mdfs_stub,
+      const std::shared_ptr<MDTTStub>& mdtt_stub,
       const std::shared_ptr<services::metadata::CronScriptStoreService::Stub>& cronscript_stub,
       std::shared_ptr<::px::table_store::TableStore> table_store,
       std::function<void(grpc::ClientContext* ctx)> add_grpc_auth)
@@ -56,6 +57,7 @@ class VizierFuncFactoryContext : public NotCopyable {
         mds_stub_(mds_stub),
         mdtp_stub_(mdtp_stub),
         mdfs_stub_(mdfs_stub),
+        mdtt_stub_(mdtt_stub)
         cronscript_stub_(cronscript_stub),
         table_store_(table_store),
         add_auth_to_grpc_context_func_(add_grpc_auth) {}
@@ -79,6 +81,10 @@ class VizierFuncFactoryContext : public NotCopyable {
     CHECK(mdfs_stub_ != nullptr);
     return mdfs_stub_;
   }
+  std::shared_ptr<MDTTStub> mdtt_stub() const {
+    CHECK(mdtt_stub_ != nullptr);
+    return mdtt_stub_;
+  }
   std::shared_ptr<services::metadata::CronScriptStoreService::Stub> cronscript_stub() const {
     CHECK(cronscript_stub_ != nullptr);
     return cronscript_stub_;
@@ -96,6 +102,7 @@ class VizierFuncFactoryContext : public NotCopyable {
   std::shared_ptr<MDSStub> mds_stub_ = nullptr;
   std::shared_ptr<MDTPStub> mdtp_stub_ = nullptr;
   std::shared_ptr<MDFSStub> mdfs_stub_ = nullptr;
+  std::shared_ptr<MDTTStub> mdtt_stub_ = nullptr;
   std::shared_ptr<services::metadata::CronScriptStoreService::Stub> cronscript_stub_ = nullptr;
   std::shared_ptr<::px::table_store::TableStore> table_store_ = nullptr;
   std::function<void(grpc::ClientContext*)> add_auth_to_grpc_context_func_;

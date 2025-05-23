@@ -142,6 +142,7 @@ func main() {
 	mdsClient := metadatapb.NewMetadataServiceClient(mdsConn)
 	mdtpClient := metadatapb.NewMetadataTracepointServiceClient(mdsConn)
 	mdfsClient := metadatapb.NewMetadataFileSourceServiceClient(mdsConn)
+	mdttClient := metadatapb.NewMetadataFileSourceServiceClient(mdsConn)
 	mdconfClient := metadatapb.NewMetadataConfigServiceClient(mdsConn)
 	csClient := metadatapb.NewCronScriptStoreServiceClient(mdsConn)
 
@@ -171,7 +172,7 @@ func main() {
 	agentTracker := tracker.NewAgents(mdsClient, viper.GetString("jwt_signing_key"))
 	agentTracker.Start()
 	defer agentTracker.Stop()
-	svr, err := controllers.NewServer(env, agentTracker, dataPrivacy, mdtpClient, mdfsClient, mdconfClient, natsConn, controllers.NewQueryExecutorFromServer)
+	svr, err := controllers.NewServer(env, agentTracker, dataPrivacy, mdtpClient, mdfsClient, mdttClient, mdconfClient, natsConn, controllers.NewQueryExecutorFromServer)
 	if err != nil {
 		log.WithError(err).Fatal("Failed to initialize GRPC server funcs.")
 	}

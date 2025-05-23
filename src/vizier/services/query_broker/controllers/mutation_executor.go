@@ -31,6 +31,7 @@ import (
 	"px.dev/pixie/src/api/proto/vizierpb"
 	"px.dev/pixie/src/carnot/planner/distributedpb"
 	"px.dev/pixie/src/carnot/planner/file_source/ir"
+	"px.dev/pixie/src/carnot/planner/tetragon/ir"
 	"px.dev/pixie/src/carnot/planner/plannerpb"
 	"px.dev/pixie/src/carnot/planpb"
 	"px.dev/pixie/src/common/base/statuspb"
@@ -42,6 +43,7 @@ import (
 // TracepointMap stores a map from the name to tracepoint info.
 type TracepointMap map[string]*TracepointInfo
 type FileSourceMap map[string]*FileSourceInfo
+type TetragonMap map[string]*TetragonInfo
 
 // MutationExecutor is the interface for running script mutations.
 type MutationExecutor interface {
@@ -54,9 +56,11 @@ type MutationExecutorImpl struct {
 	planner           Planner
 	mdtp              metadatapb.MetadataTracepointServiceClient
 	mdfs              metadatapb.MetadataFileSourceServiceClient
+	mdtt              metadatapb.MetadataTetragonServiceClient
 	mdconf            metadatapb.MetadataConfigServiceClient
 	activeTracepoints TracepointMap
 	activeFileSources FileSourceMap
+	activeTetragons TetragonMap
 	outputTables      []string
 	distributedState  *distributedpb.DistributedState
 }
@@ -75,11 +79,19 @@ type FileSourceInfo struct {
 	Status      *statuspb.Status
 }
 
+type TetragonInfo struct {
+	GlobPattern string
+	TableName   string
+	ID          uuid.UUID
+	Status      *statuspb.Status
+}
+
 // NewMutationExecutor creates a new mutation executor.
 func NewMutationExecutor(
 	planner Planner,
 	mdtp metadatapb.MetadataTracepointServiceClient,
 	mdfs metadatapb.MetadataFileSourceServiceClient,
+	mdtt metadatapb.MetadataTetragonServiceClient,
 	mdconf metadatapb.MetadataConfigServiceClient,
 	distributedState *distributedpb.DistributedState,
 ) MutationExecutor {
@@ -87,10 +99,12 @@ func NewMutationExecutor(
 		planner:           planner,
 		mdtp:              mdtp,
 		mdfs:              mdfs,
+		mdtt:              mdtt,
 		mdconf:            mdconf,
 		distributedState:  distributedState,
 		activeTracepoints: make(TracepointMap),
 		activeFileSources: make(FileSourceMap),
+		activeTetragons: make(TetragonMap),
 	}
 }
 
@@ -154,6 +168,12 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 		Requests: make([]*ir.FileSourceDeployment, 0),
 	}
 	deleteFileSourcesReq := &metadatapb.RemoveFileSourceRequest{
+		Names: make([]string, 0),
+	}
+	TetragonReqs := &metadatapb.RegisterTetragonRequest{
+		Requests: make([]*ir.TetragonDeployment, 0),
+	}
+	deleteTetragonsReq := &metadatapb.RemoveTetragonRequest{
 		Names: make([]string, 0),
 	}
 
@@ -224,6 +244,34 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 		case *plannerpb.CompileMutation_DeleteFileSource:
 			{
 				deleteFileSourcesReq.Names = append(deleteFileSourcesReq.Names, mut.DeleteFileSource.GlobPattern)
+			}
+		case *plannerpb.CompileMutation_Tetragon:
+			{
+				name := mut.Tetragon.GlobPattern
+				tableName := mut.Tetragon.TableName
+				tetragonReqs.Requests = append(tetragonReqs.Requests, &ir.TetragonDeployment{
+					Name:        name,
+					GlobPattern: name,
+					TableName:   tableName,
+					TTL:         mut.Tetragon.TTL,
+				})
+				if _, ok := m.activeTetragons[name]; ok {
+					return nil, fmt.Errorf("file source with name '%s', already used", name)
+				}
+				// TODO(ddelnano): Add unit tests that would have caught the bug with the
+				// file source output table issue. The line that caused the bug is left commented below:
+				// outputTablesMap[name] = true
+				outputTablesMap[tableName] = true
+
+				m.activeTetragons[name] = &TetragonInfo{
+					GlobPattern: mut.Tetragon.GlobPattern,
+					ID:          uuid.Nil,
+					Status:      nil,
+				}
+			}
+		case *plannerpb.CompileMutation_DeleteTetragon:
+			{
+				deleteTetragonsReq.Names = append(deleteTetragonsReq.Names, mut.DeleteTetragon.GlobPattern)
 			}
 		}
 	}
@@ -314,6 +362,44 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 		}
 	}
 
+	if len(TetragonReqs.Requests) > 0 {
+		resp, err := m.mdtt.RegisterTetragon(ctx, tetragonReqs)
+		if err != nil {
+			log.WithError(err).
+				Errorf("Failed to register tetragons")
+			return nil, ErrTetragonRegistrationFailed
+		}
+		if resp.Status != nil && resp.Status.ErrCode != statuspb.OK {
+			log.WithField("status", resp.Status.String()).
+				Errorf("Failed to register tetragons with bad status")
+			return resp.Status, ErrTetragonRegistrationFailed
+		}
+
+		// Update the internal stat of the tetragons.
+		for _, tt := range resp.Tetragons {
+			id := utils.UUIDFromProtoOrNil(tt.ID)
+			m.activeTetragons[tt.Name].ID = id
+			m.activeTetragons[tt.Name].Status = tt.Status
+		}
+	}
+	if len(deleteTetragonsReq.Names) > 0 {
+		delResp, err := m.mdtt.RemoveTetragon(ctx, deleteTetragonsReq)
+		if err != nil {
+			log.WithError(err).
+				Errorf("Failed to delete tetragons")
+			return nil, ErrTetragonDeletionFailed
+		}
+		if delResp.Status != nil && delResp.Status.ErrCode != statuspb.OK {
+			log.WithField("status", delResp.Status.String()).
+				Errorf("Failed to delete tetragons with bad status")
+			return delResp.Status, ErrTetragonDeletionFailed
+		}
+		// Remove the tetragons we considered deleted.
+		for _, ttName := range deleteTetragonsReq.Names {
+			delete(m.activeTetragons, ttName)
+		}
+	}
+
 	m.outputTables = make([]string, 0)
 	for k := range outputTablesMap {
 		m.outputTables = append(m.outputTables, k)
@@ -336,6 +422,12 @@ func (m *MutationExecutorImpl) MutationInfo(ctx context.Context) (*vizierpb.Muta
 	for _, fs := range m.activeFileSources {
 		fsReq.IDs = append(fsReq.IDs, utils.ProtoFromUUID(fs.ID))
 	}
+	ttReq := &metadatapb.GetTetragonInfoRequest{
+		IDs: make([]*uuidpb.UUID, 0),
+	}
+	for _, tt := range m.activeTetragons {
+		ttReq.IDs = append(ttReq.IDs, utils.ProtoFromUUID(tt.ID))
+	}
 	aCtx, err := authcontext.FromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -350,10 +442,14 @@ func (m *MutationExecutorImpl) MutationInfo(ctx context.Context) (*vizierpb.Muta
 	if err != nil {
 		return nil, err
 	}
+	ttResp, err := m.mdfs.GetTetragonInfo(ctx, ttReq)
+	if err != nil {
+		return nil, err
+	}
 	tps := len(tpResp.Tracepoints)
 	mutationInfo := &vizierpb.MutationInfo{
 		Status: &vizierpb.Status{Code: 0},
-		States: make([]*vizierpb.MutationInfo_MutationState, tps+len(fsResp.FileSources)),
+		States: make([]*vizierpb.MutationInfo_MutationState, tps+len(fsResp.FileSources)+len(ttResp.Tetragons)),
 	}
 
 	tpReady := true
@@ -377,6 +473,18 @@ func (m *MutationExecutorImpl) MutationInfo(ctx context.Context) (*vizierpb.Muta
 		}
 		if fs.State != statuspb.RUNNING_STATE {
 			fsReady = false
+		}
+	}
+
+	ttReady := true
+	for idx, tt := range ttResp.Tetragons {
+		mutationInfo.States[idx+tps] = &vizierpb.MutationInfo_MutationState{
+			ID:    utils.UUIDFromProtoOrNil(tt.ID).String(),
+			State: convertLifeCycleStateToVizierLifeCycleState(tt.State),
+			Name:  tt.Name,
+		}
+		if tt.State != statuspb.RUNNING_STATE {
+			ttReady = false
 		}
 	}
 

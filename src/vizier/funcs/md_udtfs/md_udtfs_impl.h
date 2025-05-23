@@ -90,6 +90,20 @@ class UDTFWithMDFSFactory : public carnot::udf::UDTFFactory {
 };
 
 template <typename TUDTF>
+class UDTFWithMDTTFactory : public carnot::udf::UDTFFactory {
+ public:
+  UDTFWithMDTTFactory() = delete;
+  explicit UDTFWithMDTTFactory(const VizierFuncFactoryContext& ctx) : ctx_(ctx) {}
+
+  std::unique_ptr<carnot::udf::AnyUDTF> Make() override {
+    return std::make_unique<TUDTF>(ctx_.mdtt_stub(), ctx_.add_auth_to_grpc_context_func());
+  }
+
+ private:
+  const VizierFuncFactoryContext& ctx_;
+};
+
+template <typename TUDTF>
 class UDTFWithCronscriptFactory : public carnot::udf::UDTFFactory {
  public:
   UDTFWithCronscriptFactory() = delete;

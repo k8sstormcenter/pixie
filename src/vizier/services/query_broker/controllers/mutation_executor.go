@@ -170,7 +170,7 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 	deleteFileSourcesReq := &metadatapb.RemoveFileSourceRequest{
 		Names: make([]string, 0),
 	}
-	TetragonReqs := &metadatapb.RegisterTetragonRequest{
+	tetragonReqs := &metadatapb.RegisterTetragonRequest{
 		Requests: make([]*ir2.TetragonDeployment, 0),
 	}
 	deleteTetragonsReq := &metadatapb.RemoveTetragonRequest{
@@ -442,7 +442,7 @@ func (m *MutationExecutorImpl) MutationInfo(ctx context.Context) (*vizierpb.Muta
 	if err != nil {
 		return nil, err
 	}
-	ttResp, err := m.mdfs.GetTetragonInfo(ctx, ttReq)
+	ttResp, err := m.mdtt.GetTetragonInfo(ctx, ttReq)
 	if err != nil {
 		return nil, err
 	}
@@ -500,6 +500,14 @@ func (m *MutationExecutorImpl) MutationInfo(ctx context.Context) (*vizierpb.Muta
 		mutationInfo.Status = &vizierpb.Status{
 			Code:    int32(codes.Unavailable),
 			Message: "file source installation in progress",
+		}
+		return mutationInfo, nil
+	}
+
+	if !ttReady {
+		mutationInfo.Status = &vizierpb.Status{
+			Code:    int32(codes.Unavailable),
+			Message: "tetragon installation in progress",
 		}
 		return mutationInfo, nil
 	}

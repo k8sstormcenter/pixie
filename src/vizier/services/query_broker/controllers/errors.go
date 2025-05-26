@@ -33,4 +33,8 @@ var (
 	ErrFileSourceRegistrationFailed = errors.New("failed to register file sources")
 	// ErrFileSourceDeletionFailed failed to delete file source.
 	ErrFileSourceDeletionFailed = errors.New("failed to delete file sources")
+	// ErrTetragonRegistrationFailed failed to register tetragon. to an agent.
+	ErrTetragonRegistrationFailed = errors.New("failed to register tetragons")
+	// ErrTetragonDeletionFailed failed to delete tetragon.
+	ErrTetragonDeletionFailed = errors.New("failed to delete tetragon")
 )

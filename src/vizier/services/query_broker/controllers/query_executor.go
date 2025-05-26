@@ -90,6 +90,7 @@ type DataPrivacy interface {
 type MutationExecFactory func(Planner,
 	metadatapb.MetadataTracepointServiceClient,
 	metadatapb.MetadataFileSourceServiceClient,
+	metadatapb.MetadataTetragonServiceClient,
 	metadatapb.MetadataConfigServiceClient,
 	*distributedpb.DistributedState) MutationExecutor
 

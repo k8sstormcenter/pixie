@@ -57,7 +57,7 @@ class VizierFuncFactoryContext : public NotCopyable {
         mds_stub_(mds_stub),
         mdtp_stub_(mdtp_stub),
         mdfs_stub_(mdfs_stub),
-        mdtt_stub_(mdtt_stub)
+        mdtt_stub_(mdtt_stub),
         cronscript_stub_(cronscript_stub),
         table_store_(table_store),
         add_auth_to_grpc_context_func_(add_grpc_auth) {}

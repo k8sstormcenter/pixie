@@ -60,7 +60,7 @@ StatusOr<std::unique_ptr<TetragonConnector>> TetragonConnector::Create(
   auto inputExtension = input_file_name.extension().string();
   if (inputExtension != ".log")
   {
-    return error::InvalidArgument("Input file has not *.log extension")
+    return error::InvalidArgument("Input file has not *.log extension");
   }
   auto in_host_path = px::system::Config::GetInstance().ToHostPath(input_file_name);
   PX_ASSIGN_OR_RETURN(auto data_elements_and_file, DataElementsFromFile(in_host_path));
@@ -71,7 +71,7 @@ StatusOr<std::unique_ptr<TetragonConnector>> TetragonConnector::Create(
   std::unique_ptr<DynamicDataTableSchema> table_schema =
       DynamicDataTableSchema::Create(name, "", std::move(data_elements));
   return std::unique_ptr<TetragonConnector>(new TetragonConnector(
-      source_name, std::move(in_host_path), std::move(file), std::move(table_schema), std::move(out_host_path)));  
+      source_name, std::move(in_host_path), std::move(file), std::move(table_schema)));  
 }
 
 TetragonConnector::TetragonConnector(
@@ -81,7 +81,7 @@ TetragonConnector::TetragonConnector(
   std::unique_ptr<DynamicDataTableSchema> table_schema)
     : SourceConnector(source_name, ArrayView<DataTableSchema>(&table_schema->Get(), 1)),
       name_(source_name),
-      in_file_name_(input_file_name),
+      file_name_(input_file_name),
       file_(std::move(file)),
       table_schema_(std::move(table_schema)),
       transfer_specs_({
@@ -113,8 +113,8 @@ Status TetragonConnector::StopImpl() {
 constexpr int kMaxLines = 1000;
 
 
-void TetragonConnector::TransferDataFromUnstructuredFile(DataTable::DynamicRecordBuilder* /*r*/,
-                                               uint64_t nanos, const std::string& line) {
+void TetragonConnector::TransferTetragonData(DataTable::DynamicRecordBuilder* /*r*/,
+                                               const std::string& line) {
   DataTable::DynamicRecordBuilder r(data_tables_[0]);
   rapidjson::Document tetragon_data;
   tetragon_data.Parse(line.c_str());
@@ -127,27 +127,29 @@ void TetragonConnector::TransferDataFromUnstructuredFile(DataTable::DynamicRecor
   // Extract common fields
   for (const auto& entry : tetragon_data.GetArray()) {
     if (entry.HasMember("time")) {
-      if (entry["time"].IsString()) {
-        r.Append(0, types::StringValue(tetragon_data["time"]), kMaxStringBytes);
-      } else if (entry["time"].IsNull()) {
-        r.Append(0, types::StringValue("empty"), kMaxStringBytes);
-      } else {
-        LOG(ERROR) << "Key ""time"" is present but its value is not a string.";
-      }
+        if (entry["time"].IsString()) {
+            std::string timeStr = entry["time"].GetString(); // Extract the string
+            r.Append(0, types::StringValue(timeStr), kMaxStringBytes); // Convert to StringValue
+        } else if (entry["time"].IsNull()) {
+            r.Append(0, types::StringValue("empty"), kMaxStringBytes);
+        } else {
+            LOG(ERROR) << "Key \"time\" is present but its value is not a string.";
+        }
     } else {
-      LOG(ERROR) << "Key ""time"" is not present in json.";
+        LOG(ERROR) << "Key \"time\" is not present in json.";
     }
-
+    
     if (entry.HasMember("node_name")) {
-      if (entry["node_name"].IsString()) {
-        r.Append(1, types::StringValue(tetragon_data["node_name"]), kMaxStringBytes);
-      } else if (entry["node_name"].IsNull()) {
-        r.Append(1, types::StringValue("empty"), kMaxStringBytes);
-      } else {
-        LOG(ERROR) << "Key ""node_name"" is present but its value is not a string.";
-      }
+        if (entry["node_name"].IsString()) {
+            std::string nodeNameStr = entry["node_name"].GetString();
+            r.Append(1, types::StringValue(nodeNameStr), kMaxStringBytes);
+        } else if (entry["node_name"].IsNull()) {
+            r.Append(1, types::StringValue("empty"), kMaxStringBytes);
+        } else {
+            LOG(ERROR) << "Key \"node_name\" is present but its value is not a string.";
+        }
     } else {
-      LOG(ERROR) << "Key ""node_name"" is not present in json.";
+        LOG(ERROR) << "Key \"node_name\" is not present in json.";
     }
   }
 
@@ -155,15 +157,16 @@ void TetragonConnector::TransferDataFromUnstructuredFile(DataTable::DynamicRecor
   if (!tetragon_data.ObjectEmpty()) {
       auto itr = tetragon_data.MemberBegin();
       std::string type = itr->name.GetString();
-      r.Append(2, types::StringValue(type.c_str()), kMaxStringBytes);
+      r.Append(2, types::StringValue(type), kMaxStringBytes);
 
       // Add the payload (content of the first key)
       if (entry[type.c_str()].IsString()) {
-        r.Append(3, types::StringValue(tetragon_data[type.c_str()]), kMaxStringBytes);
+          std::string payloadStr = entry[type.c_str()].GetString();
+          r.Append(3, types::StringValue(payloadStr), kMaxStringBytes);
       } else if (entry[type.c_str()].IsNull()) {
-        r.Append(3, types::StringValue("empty"), kMaxStringBytes);
+          r.Append(3, types::StringValue("empty"), kMaxStringBytes);
       } else {
-        LOG(ERROR) << "Key " << type.c_str() << " is present but its value is not a string.";
+          LOG(ERROR) << "Key " << type << " is present but its value is not a string.";
       }
   } else {
       LOG(ERROR) << "Error: JSON object is empty.";
@@ -174,12 +177,9 @@ void TetragonConnector::TransferDataFromUnstructuredFile(DataTable::DynamicRecor
 void TetragonConnector::TransferDataImpl(ConnectorContext* /* ctx */) {
   DCHECK_EQ(data_tables_.size(), 1U) << "Only one table is allowed per TetragonConnector.";
   int i = 0;
-  auto extension = in_file_name_.extension().string();
+  auto extension = file_name_.extension().string();
   auto transfer_fn = transfer_specs_.at(extension).transfer_fn;
 
-  auto now = std::chrono::system_clock::now();
-  auto duration = now.time_since_epoch();
-  uint64_t nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
   auto before_pos = file_.tellg();
   while (i < kMaxLines) {
     std::string line;
@@ -206,7 +206,7 @@ void TetragonConnector::TransferDataImpl(ConnectorContext* /* ctx */) {
       break;
     }
 
-    transfer_fn(*this, nullptr, nanos, line);
+    transfer_fn(*this, nullptr, line);
     i++;
   }
   auto after_pos = file_.tellg();

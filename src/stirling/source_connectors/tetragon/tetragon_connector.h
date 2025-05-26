@@ -58,8 +58,9 @@ class TetragonConnector : public SourceConnector {
                                std::unique_ptr<DynamicDataTableSchema> table_schema);
 
  private:
+  void TransferTetragonData(DataTable::DynamicRecordBuilder* builder, const std::string& line);
   struct TetragonTransferSpec {
-    std::function<void(TetragonConnector&, DataTable::DynamicRecordBuilder*, uint64_t nanos,
+    std::function<void(TetragonConnector&, DataTable::DynamicRecordBuilder*,
                        const std::string&)>
         transfer_fn;
   };
@@ -68,7 +69,7 @@ class TetragonConnector : public SourceConnector {
   const std::filesystem::path file_name_;
   std::ifstream file_;
   std::unique_ptr<DynamicDataTableSchema> table_schema_;
-  absl::flat_hash_map<std::string, FileTransferSpec> transfer_specs_;
+  absl::flat_hash_map<std::string, TetragonTransferSpec> transfer_specs_;
   int eof_count_ = 0;
   pos_type last_pos_ = 0;
   StirlingMonitor& monitor_ = *StirlingMonitor::GetInstance();

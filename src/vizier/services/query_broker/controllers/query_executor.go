@@ -103,6 +103,7 @@ type QueryExecutorImpl struct {
 	natsConn            *nats.Conn
 	mdtp                metadatapb.MetadataTracepointServiceClient
 	mdfs                metadatapb.MetadataFileSourceServiceClient
+	mdtt                metadatapb.MetadataTetragonServiceClient
 	mdconf              metadatapb.MetadataConfigServiceClient
 	resultForwarder     QueryResultForwarder
 	planner             Planner
@@ -131,6 +132,7 @@ func NewQueryExecutorFromServer(s *Server, mutExecFactory MutationExecFactory) Q
 		s.natsConn,
 		s.mdtp,
 		s.mdfs,
+		s.mdtt,
 		s.mdconf,
 		s.resultForwarder,
 		s.planner,
@@ -147,6 +149,7 @@ func NewQueryExecutor(
 	natsConn *nats.Conn,
 	mdtp metadatapb.MetadataTracepointServiceClient,
 	mdfs metadatapb.MetadataFileSourceServiceClient,
+	mdtt metadatapb.MetadataTetragonServiceClient,
 	mdconf metadatapb.MetadataConfigServiceClient,
 	resultForwarder QueryResultForwarder,
 	planner Planner,
@@ -298,7 +301,7 @@ func (q *QueryExecutorImpl) getPlanOpts(queryStr string) (*planpb.PlanOptions, e
 }
 
 func (q *QueryExecutorImpl) runMutation(ctx context.Context, resultCh chan<- *vizierpb.ExecuteScriptResponse, req *vizierpb.ExecuteScriptRequest, planOpts *planpb.PlanOptions, distributedState *distributedpb.DistributedState) error {
-	mutationExec := q.mutationExecFactory(q.planner, q.mdtp, q.mdfs, q.mdconf, distributedState)
+	mutationExec := q.mutationExecFactory(q.planner, q.mdtp, q.mdfs, q.mdtt, q.mdconf, distributedState)
 
 	s, err := mutationExec.Execute(ctx, req, planOpts)
 	if err != nil {

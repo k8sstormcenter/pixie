@@ -1149,10 +1149,10 @@ class GetFileSourceStatus final : public carnot::udf::UDTF<GetFileSourceStatus> 
  */
 class GetTetragonStatus final : public carnot::udf::UDTF<GetTetragonStatus> {
  public:
-  using MDFSStub = vizier::services::metadata::MetadataTetragonService::Stub;
+  using MDTTStub = vizier::services::metadata::MetadataTetragonService::Stub;
   using TetragonResponse = vizier::services::metadata::GetTetragonInfoResponse;
   GetTetragonStatus() = delete;
-  explicit GetTetragonStatus(std::shared_ptr<MDFSStub> stub,
+  explicit GetTetragonStatus(std::shared_ptr<MDTTStub> stub,
                                std::function<void(grpc::ClientContext*)> add_context_authentication)
       : idx_(0), stub_(stub), add_context_authentication_func_(add_context_authentication) {}
 
@@ -1264,7 +1264,7 @@ class GetTetragonStatus final : public carnot::udf::UDTF<GetTetragonStatus> {
  private:
   int idx_ = 0;
   std::unique_ptr<px::vizier::services::metadata::GetTetragonInfoResponse> resp_;
-  std::shared_ptr<MDFSStub> stub_;
+  std::shared_ptr<MDTTStub> stub_;
   std::function<void(grpc::ClientContext*)> add_context_authentication_func_;
 };
 

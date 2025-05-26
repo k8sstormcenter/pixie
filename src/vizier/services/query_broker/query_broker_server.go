@@ -142,7 +142,7 @@ func main() {
 	mdsClient := metadatapb.NewMetadataServiceClient(mdsConn)
 	mdtpClient := metadatapb.NewMetadataTracepointServiceClient(mdsConn)
 	mdfsClient := metadatapb.NewMetadataFileSourceServiceClient(mdsConn)
-	mdttClient := metadatapb.NewMetadataFileSourceServiceClient(mdsConn)
+	mdttClient := metadatapb.NewMetadataTetragonServiceClient(mdsConn)
 	mdconfClient := metadatapb.NewMetadataConfigServiceClient(mdsConn)
 	csClient := metadatapb.NewCronScriptStoreServiceClient(mdsConn)
 

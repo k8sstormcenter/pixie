@@ -362,7 +362,7 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 		}
 	}
 
-	if len(TetragonReqs.Requests) > 0 {
+	if len(tetragonReqs.Requests) > 0 {
 		resp, err := m.mdtt.RegisterTetragon(ctx, tetragonReqs)
 		if err != nil {
 			log.WithError(err).

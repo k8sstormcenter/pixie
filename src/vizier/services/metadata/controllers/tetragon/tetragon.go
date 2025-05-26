@@ -183,7 +183,7 @@ func (m *Manager) deleteTetragon(id uuid.UUID) error {
 }
 
 // CreateTetragon creates and stores info about the given tetragon.
-func (m *Manager) CreateTetragon(tetragonName string, tetragonDeployment *ir.TetragonDeployment) (*uuid.UUID, error) {
+func (m *Manager) CreateTetragon(tetragonName string, tetragonDeployment *ir2.TetragonDeployment) (*uuid.UUID, error) {
 	// Check to see if a tetragon with the matching name already exists.
 	resp, err := m.ts.GetTetragonsWithNames([]string{tetragonName})
 	if err != nil {
@@ -239,8 +239,8 @@ func (m *Manager) CreateTetragon(tetragonName string, tetragonDeployment *ir.Tet
 	}
 	newTetragon := &storepb.TetragonInfo{
 		ID:            utils.ProtoFromUUID(fsID),
-		Name:          TetragonName,
-		Tetragon:    TetragonDeployment,
+		Name:          tetragonName,
+		Tetragon:      tetragonDeployment,
 		ExpectedState: statuspb.RUNNING_STATE,
 	}
 	err = m.ts.UpsertTetragon(fsID, newTetragon)
@@ -295,14 +295,14 @@ func (m *Manager) UpdateAgentTetragonStatus(tetragonID *uuidpb.UUID, agentID *uu
 }
 
 // RegisterTetragon sends requests to the given agents to register the specified tetragon.
-func (m *Manager) RegisterTetragon(agents []*agentpb.Agent, tetragonID uuid.UUID, tetragonDeployment *ir.TetragonDeployment) error {
+func (m *Manager) RegisterTetragon(agents []*agentpb.Agent, tetragonID uuid.UUID, tetragonDeployment *ir2.TetragonDeployment) error {
 	agentIDs := make([]uuid.UUID, len(agents))
 	tetragonReq := messagespb.VizierMessage{
 		Msg: &messagespb.VizierMessage_TetragonMessage{
 			TetragonMessage: &messagespb.TetragonMessage{
 				Msg: &messagespb.TetragonMessage_RegisterTetragonRequest{
 					RegisterTetragonRequest: &messagespb.RegisterTetragonRequest{
-						TetragonDeployment: TetragonDeployment,
+						TetragonDeployment: tetragonDeployment,
 						ID:                   utils.ProtoFromUUID(tetragonID),
 					},
 				},

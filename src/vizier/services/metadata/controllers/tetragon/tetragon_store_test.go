@@ -64,7 +64,7 @@ func TestTetragonStore_UpsertTetragon(t *testing.T) {
 	defer cleanup()
 
 	tpID := uuid.Must(uuid.NewV4())
-	// Create file sources.
+	// Create tetragon.
 	s1 := &storepb.TetragonInfo{
 		ID: utils.ProtoFromUUID(tpID),
 	}
@@ -85,13 +85,13 @@ func TestTetragonStore_GetTetragon(t *testing.T) {
 	defer cleanup()
 
 	tpID := uuid.Must(uuid.NewV4())
-	// Create file sources.
+	// Create tetragon.
 	s1 := &storepb.TetragonInfo{
 		ID: utils.ProtoFromUUID(tpID),
 	}
 	s1Text, err := s1.Marshal()
 	if err != nil {
-		t.Fatal("Unable to marshal file source pb")
+		t.Fatal("Unable to marshal tetragon pb")
 	}
 
 	err = db.Set("/tetragon/"+tpID.String(), string(s1Text))
@@ -108,14 +108,14 @@ func TestTetragonStore_GetTetragons(t *testing.T) {
 	db, ts, cleanup := setupTest(t)
 	defer cleanup()
 
-	// Create file sources.
+	// Create tetragons.
 	s1ID := uuid.FromStringOrNil("8ba7b810-9dad-11d1-80b4-00c04fd430c8")
 	s1 := &storepb.TetragonInfo{
 		ID: utils.ProtoFromUUID(s1ID),
 	}
 	s1Text, err := s1.Marshal()
 	if err != nil {
-		t.Fatal("Unable to marshal file source pb")
+		t.Fatal("Unable to marshal tetragon pb")
 	}
 
 	s2ID := uuid.FromStringOrNil("8ba7b810-9dad-11d1-80b4-00c04fd430c9")
@@ -124,7 +124,7 @@ func TestTetragonStore_GetTetragons(t *testing.T) {
 	}
 	s2Text, err := s2.Marshal()
 	if err != nil {
-		t.Fatal("Unable to marshal file source pb")
+		t.Fatal("Unable to marshal tetragon pb")
 	}
 
 	err = db.Set("/tetragon/"+s1ID.String(), string(s1Text))
@@ -149,14 +149,14 @@ func TestTetragonStore_GetTetragonsForIDs(t *testing.T) {
 	db, ts, cleanup := setupTest(t)
 	defer cleanup()
 
-	// Create file sources.
+	// Create tetragons.
 	s1ID := uuid.FromStringOrNil("8ba7b810-9dad-11d1-80b4-00c04fd430c8")
 	s1 := &storepb.TetragonInfo{
 		ID: utils.ProtoFromUUID(s1ID),
 	}
 	s1Text, err := s1.Marshal()
 	if err != nil {
-		t.Fatal("Unable to marshal file source pb")
+		t.Fatal("Unable to marshal tetragon pb")
 	}
 
 	s2ID := uuid.FromStringOrNil("8ba7b810-9dad-11d1-80b4-00c04fd430c9")
@@ -165,7 +165,7 @@ func TestTetragonStore_GetTetragonsForIDs(t *testing.T) {
 	}
 	s2Text, err := s2.Marshal()
 	if err != nil {
-		t.Fatal("Unable to marshal file source pb")
+		t.Fatal("Unable to marshal tetragon pb")
 	}
 
 	s3ID := uuid.FromStringOrNil("8ba7b810-9dad-11d1-80b4-00c04fd430c7")
@@ -197,7 +197,7 @@ func TestTetragonStore_UpdateTetragonState(t *testing.T) {
 
 	agentID := uuid.Must(uuid.NewV4())
 	tpID := uuid.Must(uuid.NewV4())
-	// Create file source state
+	// Create tetragon state
 	s1 := &storepb.AgentTetragonStatus{
 		ID:      utils.ProtoFromUUID(tpID),
 		AgentID: utils.ProtoFromUUID(agentID),
@@ -224,7 +224,7 @@ func TestTetragonStore_GetTetragonStates(t *testing.T) {
 	agentID1 := uuid.FromStringOrNil("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
 	agentID2 := uuid.FromStringOrNil("6ba7b810-9dad-11d1-80b4-00c04fd430c9")
 
-	// Create file sources.
+	// Create tetragons.
 	s1 := &storepb.AgentTetragonStatus{
 		ID:      utils.ProtoFromUUID(tpID),
 		AgentID: utils.ProtoFromUUID(agentID1),
@@ -232,7 +232,7 @@ func TestTetragonStore_GetTetragonStates(t *testing.T) {
 	}
 	s1Text, err := s1.Marshal()
 	if err != nil {
-		t.Fatal("Unable to marshal file source pb")
+		t.Fatal("Unable to marshal tetragon pb")
 	}
 
 	s2 := &storepb.AgentTetragonStatus{
@@ -242,7 +242,7 @@ func TestTetragonStore_GetTetragonStates(t *testing.T) {
 	}
 	s2Text, err := s2.Marshal()
 	if err != nil {
-		t.Fatal("Unable to marshal file source pb")
+		t.Fatal("Unable to marshal tetragon pb")
 	}
 
 	err = db.Set("/tetragonStates/"+tpID.String()+"/"+agentID1.String(), string(s1Text))
@@ -344,7 +344,7 @@ func TestTetragonStore_GetTetragonTTLs(t *testing.T) {
 	db, ts, cleanup := setupTest(t)
 	defer cleanup()
 
-	// Create file sources.
+	// Create tetragons.
 	s1ID := uuid.FromStringOrNil("8ba7b810-9dad-11d1-80b4-00c04fd430c8")
 	s2ID := uuid.FromStringOrNil("8ba7b810-9dad-11d1-80b4-00c04fd430c9")
 

@@ -16,7 +16,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package file_source
+package tetragon
 
 import (
 	"path"
@@ -45,7 +45,7 @@ type Datastore struct {
 	ds datastore.MultiGetterSetterDeleterCloser
 }
 
-// NewDatastore wraps the datastore in a file source store
+// NewDatastore wraps the datastore in a tetragon store
 func NewDatastore(ds datastore.MultiGetterSetterDeleterCloser) *Datastore {
 	return &Datastore{ds: ds}
 }
@@ -70,7 +70,7 @@ func getTetragonTTLKey(tetragonID uuid.UUID) string {
 	return path.Join(tetragonTTLsPrefix, tetragonID.String())
 }
 
-// GetTetragonsWithNames gets which file source  is associated with the given name.
+// GetTetragonsWithNames gets which tetragon  is associated with the given name.
 func (t *Datastore) GetTetragonsWithNames(tetragonNames []string) ([]*uuid.UUID, error) {
 	eg := errgroup.Group{}
 	ids := make([]*uuid.UUID, len(tetragonNames))
@@ -102,7 +102,7 @@ func (t *Datastore) GetTetragonsWithNames(tetragonNames []string) ([]*uuid.UUID,
 	return ids, nil
 }
 
-// SetTetragonWithName associates the file source  with the given name with the one with the provided ID.
+// SetTetragonWithName associates the tetragone  with the given name with the one with the provided ID.
 func (t *Datastore) SetTetragonWithName(tetragonName string, tetragonID uuid.UUID) error {
 	tetragonIDpb := utils.ProtoFromUUID(tetragonID)
 	val, err := tetragonIDpb.Marshal()
@@ -113,7 +113,7 @@ func (t *Datastore) SetTetragonWithName(tetragonName string, tetragonID uuid.UUI
 	return t.ds.Set(getTetragonWithNameKey(tetragonName), string(val))
 }
 
-// UpsertTetragon updates or creates a new file source  entry in the store.
+// UpsertTetragon updates or creates a new tetragon  entry in the store.
 func (t *Datastore) UpsertTetragon(tetragonID uuid.UUID, tetragonInfo *storepb.TetragonInfo) error {
 	val, err := tetragonInfo.Marshal()
 	if err != nil {
@@ -123,7 +123,7 @@ func (t *Datastore) UpsertTetragon(tetragonID uuid.UUID, tetragonInfo *storepb.T
 	return t.ds.Set(getTetragonKey(tetragonID), string(val))
 }
 
-// DeleteTetragon deletes the file source  from the store.
+// DeleteTetragon deletes the tetragon from the store.
 func (t *Datastore) DeleteTetragon(tetragonID uuid.UUID) error {
 	err := t.ds.DeleteAll([]string{getTetragonKey(tetragonID)})
 	if err != nil {
@@ -133,7 +133,7 @@ func (t *Datastore) DeleteTetragon(tetragonID uuid.UUID) error {
 	return t.ds.DeleteWithPrefix(getTetragonStatesKey(tetragonID))
 }
 
-// GetTetragon gets the file source  info from the store, if it exists.
+// GetTetragon gets the tetragon  info from the store, if it exists.
 func (t *Datastore) GetTetragon(tetragonID uuid.UUID) (*storepb.TetragonInfo, error) {
 	resp, err := t.ds.Get(getTetragonKey(tetragonID))
 	if err != nil {
@@ -151,7 +151,7 @@ func (t *Datastore) GetTetragon(tetragonID uuid.UUID) (*storepb.TetragonInfo, er
 	return tetragonPb, nil
 }
 
-// GetTetragons gets all of the file source s in the store.
+// GetTetragons gets all of the tetragon s in the store.
 func (t *Datastore) GetTetragons() ([]*storepb.TetragonInfo, error) {
 	_, vals, err := t.ds.GetWithPrefix(tetragonsPrefix)
 	if err != nil {
@@ -170,7 +170,7 @@ func (t *Datastore) GetTetragons() ([]*storepb.TetragonInfo, error) {
 	return tetragons, nil
 }
 
-// GetTetragonsForIDs gets all of the file source s with the given it.ds.
+// GetTetragonsForIDs gets all of the tetragon s with the given it.ds.
 func (t *Datastore) GetTetragonsForIDs(ids []uuid.UUID) ([]*storepb.TetragonInfo, error) {
 	eg := errgroup.Group{}
 	tetragons := make([]*storepb.TetragonInfo, len(ids))
@@ -202,7 +202,7 @@ func (t *Datastore) GetTetragonsForIDs(ids []uuid.UUID) ([]*storepb.TetragonInfo
 	return tetragons, nil
 }
 
-// UpdateTetragonState updates the agent file source  state in the store.
+// UpdateTetragonState updates the agent tetragon  state in the store.
 func (t *Datastore) UpdateTetragonState(state *storepb.AgentTetragonStatus) error {
 	val, err := state.Marshal()
 	if err != nil {
@@ -214,7 +214,7 @@ func (t *Datastore) UpdateTetragonState(state *storepb.AgentTetragonStatus) erro
 	return t.ds.Set(getTetragonStateKey(fsID, utils.UUIDFromProtoOrNil(state.AgentID)), string(val))
 }
 
-// GetTetragonStates gets all the agentTetragon states for the given file source .
+// GetTetragonStates gets all the agentTetragon states for the given tetragon .
 func (t *Datastore) GetTetragonStates(tetragonID uuid.UUID) ([]*storepb.AgentTetragonStatus, error) {
 	_, vals, err := t.ds.GetWithPrefix(getTetragonStatesKey(tetragonID))
 	if err != nil {
@@ -234,7 +234,7 @@ func (t *Datastore) GetTetragonStates(tetragonID uuid.UUID) ([]*storepb.AgentTet
 }
 
 // SetTetragonTTL creates a key in the datastore with the given TTL. This represents the amount of time
-// that the given file source  should be persisted before terminating.
+// that the given tetragon  should be persisted before terminating.
 func (t *Datastore) SetTetragonTTL(tetragonID uuid.UUID, ttl time.Duration) error {
 	expiresAt := time.Now().Add(ttl)
 	encodedExpiry, err := expiresAt.MarshalBinary()
@@ -244,7 +244,7 @@ func (t *Datastore) SetTetragonTTL(tetragonID uuid.UUID, ttl time.Duration) erro
 	return t.ds.SetWithTTL(getTetragonTTLKey(tetragonID), string(encodedExpiry), ttl)
 }
 
-// DeleteTetragonTTLs deletes the key in the datastore for the given file source  TTLs.
+// DeleteTetragonTTLs deletes the key in the datastore for the given tetragon  TTLs.
 // This is done as a single transaction, so if any deletes fail, they all fail.
 func (t *Datastore) DeleteTetragonTTLs(ids []uuid.UUID) error {
 	keys := make([]string, len(ids))
@@ -255,9 +255,9 @@ func (t *Datastore) DeleteTetragonTTLs(ids []uuid.UUID) error {
 	return t.ds.DeleteAll(keys)
 }
 
-// DeleteTetragonsForAgent deletes the file source s for a given agent.
-// Note this only purges the combo file source ID+agentID keys. Said
-// file source s might still be valid and deployed on other agents.
+// DeleteTetragonsForAgent deletes the tetragon s for a given agent.
+// Note this only purges the combo tetragon ID+agentID keys. Said
+// tetragon s might still be valid and deployed on other agents.
 func (t *Datastore) DeleteTetragonsForAgent(agentID uuid.UUID) error {
 	fss, err := t.GetTetragons()
 	if err != nil {
@@ -272,7 +272,7 @@ func (t *Datastore) DeleteTetragonsForAgent(agentID uuid.UUID) error {
 	return t.ds.DeleteAll(delKeys)
 }
 
-// GetTetragonTTLs gets the file source s which still have existing TTLs.
+// GetTetragonTTLs gets the tetragon s which still have existing TTLs.
 func (t *Datastore) GetTetragonTTLs() ([]uuid.UUID, []time.Time, error) {
 	keys, vals, err := t.ds.GetWithPrefix(tetragonTTLsPrefix)
 	if err != nil {
@@ -297,7 +297,7 @@ func (t *Datastore) GetTetragonTTLs() ([]uuid.UUID, []time.Time, error) {
 			// This shouldn't happen for new keys, but we might have added TTLs
 			// in the past without a value. So just pick some time sufficiently
 			// in the future.
-			// This value is only used to determine what file source s are expired
+			// This value is only used to determine what tetragon s are expired
 			// as of _NOW_ so this is "safe".
 			expiresAt = time.Now().Add(30 * 24 * time.Hour)
 		}

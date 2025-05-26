@@ -44,9 +44,9 @@ import (
 func TestCreateTetragon(t *testing.T) {
 	tests := []struct {
 		name                    string
-		originalTetragon      *ir.TetragonDeployment
+		originalTetragon      *ir2.TetragonDeployment
 		originalTetragonState statuspb.LifeCycleState
-		newTetragon           *ir.TetragonDeployment
+		newTetragon           *ir2.TetragonDeployment
 		expectError             bool
 		expectOldUpdated        bool
 		expectTTLUpdateOnly     bool
@@ -54,7 +54,7 @@ func TestCreateTetragon(t *testing.T) {
 		{
 			name:               "test_tetragon",
 			originalTetragon: nil,
-			newTetragon: &ir.TetragonDeployment{
+			newTetragon: &ir2.TetragonDeployment{
 				GlobPattern: "/tmp/test",
 				TableName:   "/tmp/test",
 				TTL: &types.Duration{
@@ -65,7 +65,7 @@ func TestCreateTetragon(t *testing.T) {
 		},
 		{
 			name: "existing tetragon match",
-			originalTetragon: &ir.TetragonDeployment{
+			originalTetragon: &ir2.TetragonDeployment{
 				GlobPattern: "/tmp/test",
 				TableName:   "/tmp/test",
 				TTL: &types.Duration{
@@ -73,7 +73,7 @@ func TestCreateTetragon(t *testing.T) {
 				},
 			},
 			originalTetragonState: statuspb.RUNNING_STATE,
-			newTetragon: &ir.TetragonDeployment{
+			newTetragon: &ir2.TetragonDeployment{
 				GlobPattern: "/tmp/test",
 				TableName:   "/tmp/test",
 				TTL: &types.Duration{
@@ -84,7 +84,7 @@ func TestCreateTetragon(t *testing.T) {
 		},
 		{
 			name: "existing tetragon, not exactly the same (1)",
-			originalTetragon: &ir.TetragonDeployment{
+			originalTetragon: &ir2.TetragonDeployment{
 				GlobPattern: "/tmp/test",
 				TableName:   "/tmp/test",
 				TTL: &types.Duration{
@@ -92,7 +92,7 @@ func TestCreateTetragon(t *testing.T) {
 				},
 			},
 			originalTetragonState: statuspb.RUNNING_STATE,
-			newTetragon: &ir.TetragonDeployment{
+			newTetragon: &ir2.TetragonDeployment{
 				GlobPattern: "/tmp/test.json",
 				TableName:   "/tmp/test",
 				TTL: &types.Duration{
@@ -313,7 +313,7 @@ func TestRegisterTetragon(t *testing.T) {
 	}
 
 	tetragonID := uuid.Must(uuid.NewV4())
-	tetragonDeployment := &ir.TetragonDeployment{}
+	tetragonDeployment := &ir2.TetragonDeployment{}
 	expectedTetragonReq := messagespb.VizierMessage{
 		Msg: &messagespb.VizierMessage_TetragonMessage{
 			TetragonMessage: &messagespb.TetragonMessage{

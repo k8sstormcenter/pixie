@@ -217,7 +217,7 @@ message RemoveFileSourceRequest {
 
 // The request to register tetragons on a PEM.
 message RegisterTetragonRequest {
-  px.carnot.planner.Tetragon.ir.TetragonDeployment tetragon_deployment = 1;
+  px.carnot.planner.tetragon.ir.TetragonDeployment tetragon_deployment = 1;
   uuidpb.UUID id = 2 [ (gogoproto.customname) = "ID" ];
 }
 

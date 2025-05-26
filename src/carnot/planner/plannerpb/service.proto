@@ -155,7 +155,7 @@ message CompileMutation {
     carnot.planner.file_source.ir.FileSourceDeployment file_source = 5;
     // Mutation that deletes a file source/poller
     DeleteFileSource delete_file_source = 6;
-    carnot.planner.tetragon.ir.TetrahonDeployment tetragon = 7;
+    carnot.planner.tetragon.ir.TetragonDeployment tetragon = 7;
     // Mutation that deletes a tetragon/poller
     DeleteTetragon delete_tetragon = 8;
   }

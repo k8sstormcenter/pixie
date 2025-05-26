@@ -163,6 +163,7 @@ func NewQueryExecutor(
 		natsConn:            natsConn,
 		mdtp:                mdtp,
 		mdfs:                mdfs,
+		mdtt:                mdtt,
 		mdconf:              mdconf,
 		resultForwarder:     resultForwarder,
 		planner:             planner,

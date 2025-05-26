@@ -231,6 +231,25 @@ class StirlingErrorTest : public ::testing::Test {
     return id;
   }
 
+  StatusOr<sole::uuid> DeployTetragon(const std::string& program_text) {
+    // Compile tetragon.
+    PX_ASSIGN_OR_RETURN(auto compiled_tetragon,
+                        px::carnot::planner::compiler::CompileTetragon(program_text));
+
+    // Register tracepoint.
+    sole::uuid id = sole::uuid4();
+    stirling_->RegisterTetragon(id, std::move(compiled_tetragon.glob_pattern()));
+
+    // Wait for deployment to finish.
+    StatusOr<stirlingpb::Publish> s;
+    do {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      s = stirling_->GetTetragonInfo(id);
+    } while (!s.ok() && s.code() == px::statuspb::Code::RESOURCE_UNAVAILABLE);
+
+    return id;
+  }
+
   Status AppendData(uint64_t table_id, types::TabletID tablet_id,
                     std::unique_ptr<ColumnWrapperRecordBatch> record_batch) {
     PX_UNUSED(tablet_id);

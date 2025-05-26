@@ -171,7 +171,7 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 		Names: make([]string, 0),
 	}
 	TetragonReqs := &metadatapb.RegisterTetragonRequest{
-		Requests: make([]*ir.TetragonDeployment, 0),
+		Requests: make([]*ir2.TetragonDeployment, 0),
 	}
 	deleteTetragonsReq := &metadatapb.RemoveTetragonRequest{
 		Names: make([]string, 0),
@@ -249,7 +249,7 @@ func (m *MutationExecutorImpl) Execute(ctx context.Context, req *vizierpb.Execut
 			{
 				name := mut.Tetragon.GlobPattern
 				tableName := mut.Tetragon.TableName
-				tetragonReqs.Requests = append(tetragonReqs.Requests, &ir.TetragonDeployment{
+				tetragonReqs.Requests = append(tetragonReqs.Requests, &ir2.TetragonDeployment{
 					Name:        name,
 					GlobPattern: name,
 					TableName:   tableName,

@@ -20,7 +20,7 @@ syntax = "proto3";
 
 package px.carnot.planner.tetragon.ir;
 
-option go_package = "ir";
+option go_package = "ir2";
 
 import "gogoproto/gogo.proto";
 import "google/protobuf/duration.proto";

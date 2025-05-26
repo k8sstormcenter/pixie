@@ -32,17 +32,17 @@ namespace carnot {
 namespace planner {
 namespace compiler {
 
-class LogModule : public QLObject {
+class TetragonModule : public QLObject {
  public:
   static constexpr TypeDescriptor LogModuleType = {
       /* name */ "pxlog",
       /* type */ QLObjectType::kLogModule,
   };
-  static StatusOr<std::shared_ptr<LogModule>> Create(MutationsIR* mutations_ir,
+  static StatusOr<std::shared_ptr<TetragonModule>> Create(MutationsIR* mutations_ir,
                                                      ASTVisitor* ast_visitor);
 
   // Constant for the modules.
-  inline static constexpr char kLogModuleObjName[] = "pxlog";
+  inline static constexpr char kTetragonModuleObjName[] = "pxlog";
 
   inline static constexpr char kTetragonID[] = "Tetragon";
   inline static constexpr char kTetragonDocstring[] = R"doc(
@@ -55,7 +55,7 @@ class LogModule : public QLObject {
   )doc";
 
  protected:
-  explicit LogModule(MutationsIR* mutations_ir, ASTVisitor* ast_visitor)
+  explicit TetragonModule(MutationsIR* mutations_ir, ASTVisitor* ast_visitor)
       : QLObject(LogModuleType, ast_visitor), mutations_ir_(mutations_ir) {}
   Status Init();
 

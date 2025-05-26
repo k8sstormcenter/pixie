@@ -106,6 +106,8 @@ Status ASTVisitorImpl::SetupModules(
                       TraceModule::Create(mutations_, this));
   PX_ASSIGN_OR_RETURN((*module_handler_)[LogModule::kLogModuleObjName],
                       LogModule::Create(mutations_, this));
+  PX_ASSIGN_OR_RETURN((*module_handler_)[TetragonModule::kTetragonModuleObjName],
+                      TetragonModule::Create(mutations_, this));
   PX_ASSIGN_OR_RETURN((*module_handler_)[ConfigModule::kConfigModuleObjName],
                       ConfigModule::Create(mutations_, this));
   for (const auto& [module_name, module_text] : module_name_to_pxl_map) {

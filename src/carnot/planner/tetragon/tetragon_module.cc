@@ -16,7 +16,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "src/carnot/planner/tetragon/log_module.h"
+#include "src/carnot/planner/tetragon/tetragon_module.h"
 
 namespace px {
 namespace carnot {
@@ -35,14 +35,14 @@ class DeleteTetragonHandler {
                                     const ParsedArgs& args, ASTVisitor* visitor);
 };
 
-StatusOr<std::shared_ptr<LogModule>> LogModule::Create(MutationsIR* mutations_ir,
+StatusOr<std::shared_ptr<TetragonModule>> TetragonModule::Create(MutationsIR* mutations_ir,
                                                        ASTVisitor* ast_visitor) {
-  auto tracing_module = std::shared_ptr<LogModule>(new LogModule(mutations_ir, ast_visitor));
+  auto tracing_module = std::shared_ptr<TetragonModule>(new TetragonModule(mutations_ir, ast_visitor));
   PX_RETURN_IF_ERROR(tracing_module->Init());
   return tracing_module;
 }
 
-Status LogModule::Init() {
+Status TetragonModule::Init() {
   PX_ASSIGN_OR_RETURN(
       std::shared_ptr<FuncObject> upsert_fn,
       FuncObject::Create(kTetragonID, {"glob_pattern", "table_name", "ttl"}, {},

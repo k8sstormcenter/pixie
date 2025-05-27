@@ -118,7 +118,6 @@ void TetragonConnector::TransferTetragonData(DataTable::DynamicRecordBuilder* /*
   DataTable::DynamicRecordBuilder r(data_tables_[0]);
   rapidjson::Document tetragon_data;
   tetragon_data.Parse(line.c_str());
-  rapidjson::Document::AllocatorType& allocator = tetragon_data.GetAllocator();
   if (tetragon_data.HasParseError()) {
       LOG(ERROR) << "Error parsing JSON string:" << line;
       return;
@@ -160,10 +159,10 @@ void TetragonConnector::TransferTetragonData(DataTable::DynamicRecordBuilder* /*
       r.Append(2, types::StringValue(type), kMaxStringBytes);
 
       // Add the payload (content of the first key)
-      if (entry[type.c_str()].IsString()) {
-          std::string payloadStr = entry[type.c_str()].GetString();
+      if (tetragon_data[type.c_str()].IsString()) {
+          std::string payloadStr = tetragon_data[type.c_str()].GetString();
           r.Append(3, types::StringValue(payloadStr), kMaxStringBytes);
-      } else if (entry[type.c_str()].IsNull()) {
+      } else if (tetragon_data[type.c_str()].IsNull()) {
           r.Append(3, types::StringValue("empty"), kMaxStringBytes);
       } else {
           LOG(ERROR) << "Key " << type << " is present but its value is not a string.";

@@ -234,6 +234,7 @@ class StirlingImpl final : public Stirling {
   void RegisterTetragon(sole::uuid id, std::string file_name) override;
   void UpdateTetragonStatus(const sole::uuid& uuid, const StatusOr<stirlingpb::Publish>& status);
   Status RemoveTetragon(sole::uuid trace_id) override;
+  StatusOr<stirlingpb::Publish> GetTetragonInfo(sole::uuid trace_id) override;
 
  private:
   // Adds a source to Stirling, and updates all state accordingly.
@@ -303,6 +304,9 @@ class StirlingImpl final : public Stirling {
   absl::flat_hash_map<sole::uuid, StatusOr<stirlingpb::Publish>> file_source_status_map_
       ABSL_GUARDED_BY(file_source_status_map_lock_);
 
+  absl::base_internal::SpinLock tetragon_status_map_lock_;
+  absl::flat_hash_map<sole::uuid, StatusOr<stirlingpb::Publish>> tetragon_status_map_
+      ABSL_GUARDED_BY(tetragon_status_map_lock_);
   StirlingMonitor& monitor_ = *StirlingMonitor::GetInstance();
 
   struct DynamicTraceInfo {
@@ -322,6 +326,15 @@ class StirlingImpl final : public Stirling {
 
   absl::flat_hash_map<sole::uuid, FileSourceInfo> file_source_info_map_
       ABSL_GUARDED_BY(file_source_status_map_lock_);
+
+  struct TetragonInfo {
+    std::string source_connector;
+    std::string file_name;
+    std::string output_table;
+  };
+
+  absl::flat_hash_map<sole::uuid, TetragonInfo> tetragon_info_map_
+      ABSL_GUARDED_BY(tetragon_status_map_lock_);
 
   // RunCoreStats tracks how much work is accomplished in each run core iteration,
   // and it also keeps a histogram of sleep durations.
@@ -539,6 +552,7 @@ namespace {
 
 constexpr char kDynTraceSourcePrefix[] = "DT_";
 constexpr char kFileSourcePrefix[] = "LOG_";
+constexpr char kTetragonPrefix[] = "LOG_";
 
 StatusOr<std::unique_ptr<SourceConnector>> CreateFileSourceConnector(sole::uuid id,
                                                                      std::string file_name) {
@@ -746,11 +760,21 @@ void StirlingImpl::RegisterTetragon(sole::uuid id, std::string file_name) {
   //               other errors. Also should consider races with binary creation/deletion.
   {
     absl::base_internal::SpinLockHolder lock(&tetragon_status_map_lock_);
-    std::string source_connector = "Tetragon";
+    std::string source_connector = "tetragon";
     tetragon_info_map_[id] = {.source_connector = std::move(source_connector),
                                  .file_name = file_name,
                                  .output_table = ""};
   }
+
+  // Initialize the status of this trace to pending.
+  {
+    absl::base_internal::SpinLockHolder lock(&tetragon_status_map_lock_);
+    tetragon_status_map_[id] = error::ResourceUnavailable("Waiting for file polling to start.");
+  }
+
+  auto t = std::thread(&StirlingImpl::DeployTetragonConnector, this, id, file_name);
+  t.detach();
+}
 
   void StirlingImpl::UpdateTetragonStatus(const sole::uuid& id,
                                           const StatusOr<stirlingpb::Publish>& s) {
@@ -967,6 +991,18 @@ StatusOr<stirlingpb::Publish> StirlingImpl::GetFileSourceInfo(sole::uuid trace_i
   auto iter = file_source_status_map_.find(trace_id);
   if (iter == file_source_status_map_.end()) {
     return error::NotFound("FileSource $0 not found.", trace_id.str());
+  }
+
+  StatusOr<stirlingpb::Publish> s = iter->second;
+  return s;
+}
+
+StatusOr<stirlingpb::Publish> StirlingImpl::GetTetragonInfo(sole::uuid trace_id) {
+  absl::base_internal::SpinLockHolder lock(&tetragon_status_map_lock_);
+
+  auto iter = tetragon_status_map_.find(trace_id);
+  if (iter == tetragon_status_map_.end()) {
+    return error::NotFound("Tetragon $0 not found.", trace_id.str());
   }
 
   StatusOr<stirlingpb::Publish> s = iter->second;

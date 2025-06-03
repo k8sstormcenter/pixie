@@ -63,6 +63,10 @@ class FileSourceConnector : public SourceConnector {
                             const std::string& line);
   void TransferDataFromCSV(DataTable::DynamicRecordBuilder* builder, uint64_t nanos,
                            const std::string& line);
+  void TransferDataFromTetragon(DataTable::DynamicRecordBuilder* builder,
+                            const std::string& line)   
+  void FileSourceConnector::TransferDataFromKubescape(DataTable::DynamicRecordBuilder* builder,
+                            const std::string& line)       
 
   struct FileTransferSpec {
     std::function<void(FileSourceConnector&, DataTable::DynamicRecordBuilder*, uint64_t nanos,
@@ -82,6 +86,8 @@ class FileSourceConnector : public SourceConnector {
 StatusOr<BackedDataElements> DataElementsFromJSON(std::ifstream& f_stream);
 StatusOr<BackedDataElements> DataElementsFromCSV(std::ifstream& f_stream);
 StatusOr<BackedDataElements> DataElementsForUnstructuredFile();
+StatusOr<BackedDataElements> DataElementsFromTetragon() 
+StatusOr<BackedDataElements> DataElementsFromKubescape() 
 
 }  // namespace stirling
 }  // namespace px

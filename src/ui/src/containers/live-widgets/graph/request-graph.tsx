@@ -71,8 +71,8 @@ export const RequestGraphWidget = React.memo<RequestGraphProps>(({
   const [network, setNetwork] = React.useState<Network>(null);
   const [graphMgr, setGraphMgr] = React.useState<RequestGraphManager>(null);
 
-  const [clusteredMode, setClusteredMode] = React.useState<boolean>(true);
-  const [hierarchyEnabled, setHierarchyEnabled] = React.useState<boolean>(false);
+  const [clusteredMode, setClusteredMode] = React.useState<boolean>(false);
+  const [hierarchyEnabled, setHierarchyEnabled] = React.useState<boolean>(true);
   const [colorByLatency, setColorByLatency] = React.useState<boolean>(false);
 
   const theme = useTheme();

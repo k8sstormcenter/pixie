@@ -43,13 +43,53 @@ export const SCRATCH_SCRIPT: Script = {
   description: 'A clean slate for one-off scripts.\n'
     + 'This is ephemeral; it disappears upon changing scripts.',
   vis: {
-    variables: [],
-    widgets: [],
-    globalFuncs: [],
-  },
-  code: 'import px\n\n'
-    + '# Use this scratch pad to write and run one-off scripts.\n'
-    + '# If you switch to another script, refresh, or close this browser tab, this script will disappear.\n\n',
+    "variables": [],
+    "widgets": [
+        {
+            "name": "Stix Bundle Graph",
+            "position": {
+                "x": 0,
+                "y": 0,
+                "w": 12,
+                "h": 5
+            },
+            "func": {
+                "name": "fetch_stix",
+                "args": []
+            },
+            "displaySpec": {
+                "@type": "types.px.dev/px.vispb.RequestGraph"
+            }
+        },
+        {
+            "name": "Stix Bundles",
+            "position": {
+                "x": 0,
+                "y": 3,
+                "w": 12,
+                "h": 3
+            },
+            "func": {
+                "name": "fetch_all_stix",
+                "args": []
+            },
+            "displaySpec": {
+                "@type": "types.px.dev/px.vispb.Table"
+            }
+        }
+    ],
+    "globalFuncs": []
+},
+  code: `import px
+
+def fetch_stix():
+    df = px.DataFrame(table="stix.json")
+    return df[["stix_bundle"]]
+
+def fetch_all_stix():
+    df = px.DataFrame(table="stix.json")
+    return df
+`,
   hidden: false,
 };
 

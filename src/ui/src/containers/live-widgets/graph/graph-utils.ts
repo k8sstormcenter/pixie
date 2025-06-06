@@ -49,10 +49,10 @@ export function getGraphOptions(theme: Theme, edgeLength: number): Options {
       solver: 'forceAtlas2Based',
       forceAtlas2Based: {
         gravitationalConstant: -50,
-        springLength: edgeLength > 0 ? edgeLength : 100,
+        springLength: edgeLength > 0 ? edgeLength : 150,
       },
       hierarchicalRepulsion: {
-        nodeDistance: 100,
+        nodeDistance: 150,
       },
       stabilization: {
         iterations: 250,

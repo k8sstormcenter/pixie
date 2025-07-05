@@ -3,5 +3,5 @@ import pxlog
 import pxtrace
 
 
-pxlog.DeleteFileSource("tetragon.json")
+pxlog.DeleteFileSource("/tmp/tetragon.json")
 

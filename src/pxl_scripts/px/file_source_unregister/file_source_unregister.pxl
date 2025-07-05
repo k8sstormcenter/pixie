@@ -1,0 +1,7 @@
+import px
+import pxlog
+import pxtrace
+
+
+pxlog.DeleteFileSource("tetragon.json")
+

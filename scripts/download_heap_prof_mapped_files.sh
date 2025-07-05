@@ -44,8 +44,10 @@ mkdir -p "$output_dir"
 mappings=$(awk 'BEGIN{m=0} /MAPPED_LIBRARIES/{m=1} { if(m) { print $6 }}' "$heap_profile" | grep "^/" | sort | uniq)
 
 err_file="$output_dir/gcloud_error.log"
-zone=$(gcloud compute instances list "${@:3}" --filter="$node_name" --format="table(name, zone)"| tail -n 1 | awk '{print $2}')
-procs=$(gcloud compute ssh --zone "$zone" --command='ps ax' "$node_name" "${@:3}" 2> "$err_file") || cat "$err_file" && rm "$err_file"
+#zone=$(gcloud compute instances list "${@:3}" --filter="$node_name" --format="table(name, zone)"| tail -n 1 | awk '{print $2}')
+zone="europe-west1-b" 
+#CR accept origin if ever PR -- doesnt work otherwise with that defunct pem which is consistently there
+procs=$(gcloud compute ssh --tunnel-through-iap --project "adls-152q5v4ovh2urxs17pnkwnlwl" --zone "$zone" --command='ps ax| grep -v defunct' "$node_name" "${@:3}" 2> "$err_file") || cat "$err_file" && rm "$err_file"
 
 # Find the mapping that corresponds to a process on the node.
 # We assume that the process was started by running one of the files in the mappings
@@ -80,15 +82,21 @@ output_on_err() {
 }
 
 # Create tar archive on node.
-output_on_err gcloud compute ssh  --zone "$zone" --command="$create_tar_cmd" "$node_name" "${@:3}"
+#CR accept origin if ever PR --added iap and project
+output_on_err gcloud compute ssh  --zone "$zone" --command="$create_tar_cmd" "$node_name" "${@:3}" --tunnel-through-iap  --project "adls-152q5v4ovh2urxs17pnkwnlwl"
 
 # Copy archive to local machine.
-output_on_err gcloud compute scp --zone "$zone" "${@:3}" "$USER@$node_name:~/$tar_file" "${output_dir}/$tar_file"
+#CR accept origin if ever PR --added  project
+output_on_err gcloud compute scp --zone "$zone" "${@:3}" "$USER@$node_name:~/$tar_file" "${output_dir}/$tar_file"  --project "adls-152q5v4ovh2urxs17pnkwnlwl"
 
 # Cleanup tar archive on node.
-output_on_err gcloud compute ssh --zone "$zone" --command="rm ~/$tar_file" "$node_name" "${@:3}"
+#CR accept origin if ever PR --added  project
+output_on_err gcloud compute ssh --zone "$zone" --command="rm ~/$tar_file" "$node_name" "${@:3}"  --project "adls-152q5v4ovh2urxs17pnkwnlwl"
 
 tar --strip-components=1 -C "$output_dir" -xzf "${output_dir}/$tar_file"
 
 echo "Dumped mapped binaries to $output_dir"
-echo "Run 'PPROF_BINARY_PATH=$output_dir pprof -http=localhost:8888 $heap_profile' to visualize the profile."
+#CR accept origin if ever PR
+echo "Run 'PPROF_BINARY_PATH=$output_dir ~/go/bin/pprof -http=localhost:8888 $heap_profile' to visualize the profile."
+
+

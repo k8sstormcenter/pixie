@@ -38,8 +38,10 @@ fi
 mkdir -p "$heap_profile_dir"
 
 pxl_heap_output_file="${heap_profile_dir}/raw_output_from_hot_table_test.json"
+#Note CR: remove if ever PR
+#px run -o json -c "$cluster_id" -f "${repo_root}/src/pxl_scripts/px/collect_heap_dumps.pxl"  > "$pxl_heap_output_file"
 
-px run -o json -c "$cluster_id" -f "${repo_root}/src/pxl_scripts/px/collect_heap_dumps.pxl"  > "$pxl_heap_output_file"
+px run -o json  -f "${repo_root}/src/pxl_scripts/px/collect_heap_dumps.pxl"  > "$pxl_heap_output_file"
 
 while IFS= read -r line; do
     hostname=$(echo "$line" | jq -r '.hostname')

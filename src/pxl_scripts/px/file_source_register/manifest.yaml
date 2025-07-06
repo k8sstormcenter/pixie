@@ -1,4 +1,0 @@
----
-short: Mutate File Source
-long: >
-  Define location on filesystem to source - requires static root keys in schema

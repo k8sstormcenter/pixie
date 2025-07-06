@@ -1,0 +1,7 @@
+import px
+import pxlog
+import pxtrace
+
+glob = "/tmp/tetragon2.json"
+table = "tetragon.json"
+pxlog.FileSource(glob, table, "4h")

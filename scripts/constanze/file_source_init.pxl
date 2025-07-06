@@ -5,3 +5,6 @@ import pxtrace
 glob = "/tmp/tetragon2.json"
 table = "tetragon.json"
 pxlog.FileSource(glob, table, "4h")
+
+
+# note to self: if adding px scripts, the query-broker AND the meta-data server need to be adapted -> do this properly next time

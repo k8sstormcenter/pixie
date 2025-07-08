@@ -206,7 +206,7 @@ func GetFuncsToExecute(script *script.ExecutableScript) ([]*vizierpb.ExecuteScri
 }
 
 func containsMutation(script *script.ExecutableScript) bool {
-	r := regexp.MustCompile(`(?m:^(from pxtrace|import pxtrace)$)`)
+	r := regexp.MustCompile(`(?m:^(from pxtrace|import pxtrace|import pxlog)$)`)
 	return len(r.FindAllStringSubmatch(script.ScriptString, -1)) > 0
 }
 

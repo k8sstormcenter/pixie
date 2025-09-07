@@ -83,6 +83,8 @@ std::unique_ptr<Operator> Operator::FromProto(const planpb::Operator& pb, int64_
       return CreateOperator<UDTFSourceOperator>(id, pb.udtf_source_op());
     case planpb::EMPTY_SOURCE_OPERATOR:
       return CreateOperator<EmptySourceOperator>(id, pb.empty_source_op());
+    case planpb::CLICKHOUSE_SOURCE_OPERATOR:
+      return CreateOperator<ClickHouseSourceOperator>(id, pb.clickhouse_source_op());
     case planpb::OTEL_EXPORT_SINK_OPERATOR:
       return CreateOperator<OTelExportSinkOperator>(id, pb.otel_sink_op());
     default:
@@ -705,6 +707,34 @@ StatusOr<table_store::schema::Relation> EmptySourceOperator::OutputRelation(
   table_store::schema::Relation r;
   for (int i = 0; i < pb_.column_types_size(); ++i) {
     r.AddColumn(pb_.column_types(i), pb_.column_names(i));
+  }
+  return r;
+}
+
+/**
+ * ClickHouseSourceOperator implementation.
+ */
+
+std::string ClickHouseSourceOperator::DebugString() const { 
+  return absl::Substitute("Op:ClickHouseSource(query=$0)", pb_.query()); 
+}
+
+Status ClickHouseSourceOperator::Init(const planpb::ClickHouseSourceOperator& pb) {
+  pb_ = pb;
+  is_initialized_ = true;
+  return Status::OK();
+}
+
+StatusOr<table_store::schema::Relation> ClickHouseSourceOperator::OutputRelation(
+    const table_store::schema::Schema&, const PlanState&,
+    const std::vector<int64_t>& input_ids) const {
+  DCHECK(is_initialized_) << "Not initialized";
+  if (!input_ids.empty()) {
+    return error::InvalidArgument("Source operator cannot have any inputs");
+  }
+  table_store::schema::Relation r;
+  for (int i = 0; i < pb_.column_types_size(); ++i) {
+    r.AddColumn(static_cast<types::DataType>(pb_.column_types(i)), pb_.column_names(i));
   }
   return r;
 }

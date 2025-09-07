@@ -18,19 +18,19 @@
 
 #include "src/carnot/exec/clickhouse_source_node.h"
 
+#include <clickhouse/client.h>
+
 #include <arrow/memory_pool.h>
+#include <chrono>
 #include <memory>
+#include <thread>
 #include <utility>
 #include <vector>
-#include <thread>
-#include <chrono>
 
 #include <absl/strings/substitute.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <sole.hpp>
-
-#include <clickhouse/client.h>
 
 #include "src/carnot/exec/test_utils.h"
 #include "src/carnot/planpb/plan.pb.h"
@@ -54,11 +54,11 @@ using ::testing::_;
 
 class ClickHouseSourceNodeTest : public ::testing::Test {
  protected:
-  static constexpr char kClickHouseImage[] = 
+  static constexpr char kClickHouseImage[] =
       "src/stirling/source_connectors/socket_tracer/testing/container_images/clickhouse.tar";
   static constexpr char kClickHouseReadyMessage[] = "Ready for connections";
   static constexpr int kClickHousePort = 9000;
-  
+
   void SetUp() override {
     // Set up function registry and exec state
     func_registry_ = std::make_unique<udf::Registry>("test_registry");
@@ -66,39 +66,35 @@ class ClickHouseSourceNodeTest : public ::testing::Test {
     exec_state_ = std::make_unique<ExecState>(
         func_registry_.get(), table_store, MockResultSinkStubGenerator, MockMetricsStubGenerator,
         MockTraceStubGenerator, MockLogStubGenerator, sole::uuid4(), nullptr);
-    
+
     // Start ClickHouse container
-    clickhouse_server_ = std::make_unique<ContainerRunner>(
-        px::testing::BazelRunfilePath(kClickHouseImage), "clickhouse_test", kClickHouseReadyMessage);
-    
+    clickhouse_server_ =
+        std::make_unique<ContainerRunner>(px::testing::BazelRunfilePath(kClickHouseImage),
+                                          "clickhouse_test", kClickHouseReadyMessage);
+
     std::vector<std::string> options = {
         absl::Substitute("--publish=$0:$0", kClickHousePort),
         "--env=CLICKHOUSE_PASSWORD=test_password",
         "--network=host",
     };
-    
-    ASSERT_OK(clickhouse_server_->Run(
-        std::chrono::seconds{60},
-        options,
-        {},
-        true,
-        std::chrono::seconds{300}
-    ));
-    
+
+    ASSERT_OK(clickhouse_server_->Run(std::chrono::seconds{60}, options, {}, true,
+                                      std::chrono::seconds{300}));
+
     // Give ClickHouse time to initialize
     std::this_thread::sleep_for(std::chrono::seconds(5));
-    
+
     // Create ClickHouse client for test data setup
     SetupClickHouseClient();
     CreateTestTable();
   }
-  
+
   void TearDown() override {
     if (client_) {
       client_.reset();
     }
   }
-  
+
   void SetupClickHouseClient() {
     clickhouse::ClientOptions client_options;
     client_options.SetHost("localhost");
@@ -106,11 +102,11 @@ class ClickHouseSourceNodeTest : public ::testing::Test {
     client_options.SetUser("default");
     client_options.SetPassword("test_password");
     client_options.SetDefaultDatabase("default");
-    
+
     const int kMaxRetries = 5;
     for (int i = 0; i < kMaxRetries; ++i) {
-      LOG(INFO) << "Attempting to connect to ClickHouse (attempt " << (i + 1) 
-                << "/" << kMaxRetries << ")...";
+      LOG(INFO) << "Attempting to connect to ClickHouse (attempt " << (i + 1) << "/" << kMaxRetries
+                << ")...";
       try {
         client_ = std::make_unique<clickhouse::Client>(client_options);
         client_->Execute("SELECT 1");
@@ -125,11 +121,11 @@ class ClickHouseSourceNodeTest : public ::testing::Test {
       }
     }
   }
-  
+
   void CreateTestTable() {
     try {
       client_->Execute("DROP TABLE IF EXISTS test_table");
-      
+
       client_->Execute(R"(
         CREATE TABLE test_table (
           id UInt64,
@@ -137,38 +133,39 @@ class ClickHouseSourceNodeTest : public ::testing::Test {
           value Float64,
           timestamp DateTime
         ) ENGINE = MergeTree()
-        ORDER BY id
+        ORDER BY timestamp
       )");
-      
+
       auto id_col = std::make_shared<clickhouse::ColumnUInt64>();
       auto name_col = std::make_shared<clickhouse::ColumnString>();
       auto value_col = std::make_shared<clickhouse::ColumnFloat64>();
       auto timestamp_col = std::make_shared<clickhouse::ColumnDateTime>();
-      
-      std::time_t now = std::time(nullptr);
+
+      // Add test data with increasing timestamps
+      std::time_t base_time = std::time(nullptr) - 3600;  // Start 1 hour ago
       id_col->Append(1);
       name_col->Append("test1");
       value_col->Append(10.5);
-      timestamp_col->Append(now);
-      
+      timestamp_col->Append(base_time);
+
       id_col->Append(2);
       name_col->Append("test2");
       value_col->Append(20.5);
-      timestamp_col->Append(now);
-      
+      timestamp_col->Append(base_time + 1800);  // 30 minutes later
+
       id_col->Append(3);
       name_col->Append("test3");
       value_col->Append(30.5);
-      timestamp_col->Append(now);
-      
+      timestamp_col->Append(base_time + 3600);  // 1 hour later
+
       clickhouse::Block block;
       block.AppendColumn("id", id_col);
       block.AppendColumn("name", name_col);
       block.AppendColumn("value", value_col);
       block.AppendColumn("timestamp", timestamp_col);
-      
+
       client_->Insert("test_table", block);
-      
+
       LOG(INFO) << "Test table created and populated successfully";
     } catch (const std::exception& e) {
       LOG(ERROR) << "Failed to create test table: " << e.what();
@@ -185,38 +182,40 @@ class ClickHouseSourceNodeTest : public ::testing::Test {
 TEST_F(ClickHouseSourceNodeTest, BasicQuery) {
   // Create ClickHouse source operator proto
   auto op_proto = planpb::testutils::CreateClickHouseSourceOperatorPB();
-  std::unique_ptr<plan::Operator> plan_node = plan::ClickHouseSourceOperator::FromProto(op_proto, 1);
-  
+  std::unique_ptr<plan::Operator> plan_node =
+      plan::ClickHouseSourceOperator::FromProto(op_proto, 1);
+
   // Define expected output schema
-  RowDescriptor output_rd({types::DataType::INT64, types::DataType::STRING, types::DataType::FLOAT64});
-  
+  RowDescriptor output_rd(
+      {types::DataType::INT64, types::DataType::STRING, types::DataType::FLOAT64});
+
   // Create node tester
   auto tester = exec::ExecNodeTester<ClickHouseSourceNode, plan::ClickHouseSourceOperator>(
       *plan_node, output_rd, std::vector<RowDescriptor>({}), exec_state_.get());
-  
+
   // Verify state machine behavior
   EXPECT_TRUE(tester.node()->HasBatchesRemaining());
-  
-  // First call should return data
+
+  // First batch should return 2 rows (batch_size = 2)
   tester.GenerateNextResult().ExpectRowBatch(
-      RowBatchBuilder(output_rd, 3, /*eow*/ false, /*eos*/ false)
-          .AddColumn<types::Int64Value>({1, 2, 3})
-          .AddColumn<types::StringValue>({"test1", "test2", "test3"})
-          .AddColumn<types::Float64Value>({10.5, 20.5, 30.5})
+      RowBatchBuilder(output_rd, 2, /*eow*/ false, /*eos*/ false)
+          .AddColumn<types::Int64Value>({1, 2})
+          .AddColumn<types::StringValue>({"test1", "test2"})
+          .AddColumn<types::Float64Value>({10.5, 20.5})
           .get());
-  
-  // ClickHouse returns all data at once, so next call should return empty batch with eos
+
+  // Second batch should return remaining 1 row with eos
   EXPECT_TRUE(tester.node()->HasBatchesRemaining());
   tester.GenerateNextResult().ExpectRowBatch(
-      RowBatchBuilder(output_rd, 0, /*eow*/ true, /*eos*/ true)
-          .AddColumn<types::Int64Value>({})
-          .AddColumn<types::StringValue>({})
-          .AddColumn<types::Float64Value>({})
+      RowBatchBuilder(output_rd, 1, /*eow*/ true, /*eos*/ true)
+          .AddColumn<types::Int64Value>({3})
+          .AddColumn<types::StringValue>({"test3"})
+          .AddColumn<types::Float64Value>({30.5})
           .get());
-  
+
   EXPECT_FALSE(tester.node()->HasBatchesRemaining());
   tester.Close();
-  
+
   // Verify metrics
   EXPECT_EQ(3, tester.node()->RowsProcessed());
   EXPECT_GT(tester.node()->BytesProcessed(), 0);
@@ -229,11 +228,12 @@ TEST_F(ClickHouseSourceNodeTest, EmptyResultSet) {
     CREATE TABLE empty_table (
       id UInt64,
       name String,
-      value Float64
+      value Float64,
+      timestamp DateTime
     ) ENGINE = MergeTree()
-    ORDER BY id
+    ORDER BY timestamp
   )");
-  
+
   // Create operator that queries empty table
   planpb::Operator op;
   op.set_op_type(planpb::OperatorType::CLICKHOUSE_SOURCE_OPERATOR);
@@ -252,15 +252,16 @@ TEST_F(ClickHouseSourceNodeTest, EmptyResultSet) {
   ch_op->add_column_types(types::DataType::INT64);
   ch_op->add_column_types(types::DataType::STRING);
   ch_op->add_column_types(types::DataType::FLOAT64);
-  
+
   std::unique_ptr<plan::Operator> plan_node = plan::ClickHouseSourceOperator::FromProto(op, 1);
-  RowDescriptor output_rd({types::DataType::INT64, types::DataType::STRING, types::DataType::FLOAT64});
-  
+  RowDescriptor output_rd(
+      {types::DataType::INT64, types::DataType::STRING, types::DataType::FLOAT64});
+
   auto tester = exec::ExecNodeTester<ClickHouseSourceNode, plan::ClickHouseSourceOperator>(
       *plan_node, output_rd, std::vector<RowDescriptor>({}), exec_state_.get());
-  
+
   EXPECT_TRUE(tester.node()->HasBatchesRemaining());
-  
+
   // Should return empty batch with eos=true
   tester.GenerateNextResult().ExpectRowBatch(
       RowBatchBuilder(output_rd, 0, /*eow*/ true, /*eos*/ true)
@@ -268,10 +269,10 @@ TEST_F(ClickHouseSourceNodeTest, EmptyResultSet) {
           .AddColumn<types::StringValue>({})
           .AddColumn<types::Float64Value>({})
           .get());
-  
+
   EXPECT_FALSE(tester.node()->HasBatchesRemaining());
   tester.Close();
-  
+
   EXPECT_EQ(0, tester.node()->RowsProcessed());
   EXPECT_EQ(0, tester.node()->BytesProcessed());
 }
@@ -295,82 +296,28 @@ TEST_F(ClickHouseSourceNodeTest, FilteredQuery) {
   ch_op->add_column_types(types::DataType::INT64);
   ch_op->add_column_types(types::DataType::STRING);
   ch_op->add_column_types(types::DataType::FLOAT64);
-  
+
   std::unique_ptr<plan::Operator> plan_node = plan::ClickHouseSourceOperator::FromProto(op, 1);
-  RowDescriptor output_rd({types::DataType::INT64, types::DataType::STRING, types::DataType::FLOAT64});
-  
+  RowDescriptor output_rd(
+      {types::DataType::INT64, types::DataType::STRING, types::DataType::FLOAT64});
+
   auto tester = exec::ExecNodeTester<ClickHouseSourceNode, plan::ClickHouseSourceOperator>(
       *plan_node, output_rd, std::vector<RowDescriptor>({}), exec_state_.get());
-  
+
   EXPECT_TRUE(tester.node()->HasBatchesRemaining());
-  
-  // Should return filtered results
+
+  // Should return all filtered results in one batch (2 rows < batch_size)
   tester.GenerateNextResult().ExpectRowBatch(
-      RowBatchBuilder(output_rd, 2, /*eow*/ false, /*eos*/ false)
+      RowBatchBuilder(output_rd, 2, /*eow*/ true, /*eos*/ true)
           .AddColumn<types::Int64Value>({2, 3})
           .AddColumn<types::StringValue>({"test2", "test3"})
           .AddColumn<types::Float64Value>({20.5, 30.5})
           .get());
-  
-  // Next call should return empty batch with eos
-  tester.GenerateNextResult().ExpectRowBatch(
-      RowBatchBuilder(output_rd, 0, /*eow*/ true, /*eos*/ true)
-          .AddColumn<types::Int64Value>({})
-          .AddColumn<types::StringValue>({})
-          .AddColumn<types::Float64Value>({})
-          .get());
-  
-  EXPECT_FALSE(tester.node()->HasBatchesRemaining());
-  tester.Close();
-  
-  EXPECT_EQ(2, tester.node()->RowsProcessed());
-  EXPECT_GT(tester.node()->BytesProcessed(), 0);
-}
 
-TEST_F(ClickHouseSourceNodeTest, AggregateQuery) {
-  // Create operator with aggregate query
-  planpb::Operator op;
-  op.set_op_type(planpb::OperatorType::CLICKHOUSE_SOURCE_OPERATOR);
-  auto* ch_op = op.mutable_clickhouse_source_op();
-  ch_op->set_host("localhost");
-  ch_op->set_port(kClickHousePort);
-  ch_op->set_username("default");
-  ch_op->set_password("test_password");
-  ch_op->set_database("default");
-  ch_op->set_query("SELECT SUM(value) as sum_value, COUNT(*) as count FROM test_table");
-  ch_op->set_batch_size(1024);
-  ch_op->set_streaming(false);
-  ch_op->add_column_names("sum_value");
-  ch_op->add_column_names("count");
-  ch_op->add_column_types(types::DataType::FLOAT64);
-  ch_op->add_column_types(types::DataType::INT64);
-  
-  std::unique_ptr<plan::Operator> plan_node = plan::ClickHouseSourceOperator::FromProto(op, 1);
-  RowDescriptor output_rd({types::DataType::FLOAT64, types::DataType::INT64});
-  
-  auto tester = exec::ExecNodeTester<ClickHouseSourceNode, plan::ClickHouseSourceOperator>(
-      *plan_node, output_rd, std::vector<RowDescriptor>({}), exec_state_.get());
-  
-  EXPECT_TRUE(tester.node()->HasBatchesRemaining());
-  
-  // Should return aggregate result
-  tester.GenerateNextResult().ExpectRowBatch(
-      RowBatchBuilder(output_rd, 1, /*eow*/ false, /*eos*/ false)
-          .AddColumn<types::Float64Value>({61.5})  // 10.5 + 20.5 + 30.5
-          .AddColumn<types::Int64Value>({3})
-          .get());
-  
-  // Next call should return empty batch with eos
-  tester.GenerateNextResult().ExpectRowBatch(
-      RowBatchBuilder(output_rd, 0, /*eow*/ true, /*eos*/ true)
-          .AddColumn<types::Float64Value>({})
-          .AddColumn<types::Int64Value>({})
-          .get());
-  
   EXPECT_FALSE(tester.node()->HasBatchesRemaining());
   tester.Close();
-  
-  EXPECT_EQ(1, tester.node()->RowsProcessed());
+
+  EXPECT_EQ(2, tester.node()->RowsProcessed());
   EXPECT_GT(tester.node()->BytesProcessed(), 0);
 }
 

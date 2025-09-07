@@ -201,8 +201,8 @@ port: 9000
 username: "default"
 password: "test_password"
 database: "default"
-query: "SELECT id, name, value FROM test_table ORDER BY id"
-batch_size: 1024
+query: "SELECT id, name, value FROM test_table"
+batch_size: 2
 streaming: false
 column_names: "id"
 column_names: "name"
@@ -1347,7 +1347,7 @@ planpb::Operator CreateTestSource1PB(const std::string& table_name = "cpu") {
 
 planpb::Operator CreateClickHouseSourceOperatorPB() {
   planpb::Operator op;
-  auto op_proto = absl::Substitute(kOperatorProtoTmpl, "CLICKHOUSE_SOURCE_OPERATOR", 
+  auto op_proto = absl::Substitute(kOperatorProtoTmpl, "CLICKHOUSE_SOURCE_OPERATOR",
                                    "clickhouse_source_op", kClickHouseSourceOperator);
   CHECK(google::protobuf::TextFormat::MergeFromString(op_proto, &op)) << "Failed to parse proto";
   return op;
@@ -1421,9 +1421,9 @@ planpb::Operator CreateTestClickHouseSourcePB() {
     column_types: STRING
     column_types: FLOAT64
   )";
-  
+
   planpb::Operator op;
-  auto op_proto = absl::Substitute(kOperatorProtoTmpl, "CLICKHOUSE_SOURCE_OPERATOR", 
+  auto op_proto = absl::Substitute(kOperatorProtoTmpl, "CLICKHOUSE_SOURCE_OPERATOR",
                                    "clickhouse_source_op", kClickHouseSourceOperator);
   CHECK(google::protobuf::TextFormat::MergeFromString(op_proto, &op)) << "Failed to parse proto";
   return op;

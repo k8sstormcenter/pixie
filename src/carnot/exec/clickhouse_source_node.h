@@ -18,11 +18,12 @@
 
 #pragma once
 
+#include <clickhouse/client.h>
+
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
-
-#include <clickhouse/client.h>
 
 #include "src/carnot/exec/exec_node.h"
 #include "src/carnot/exec/exec_state.h"
@@ -57,13 +58,16 @@ class ClickHouseSourceNode : public SourceNode {
  private:
   // Convert ClickHouse column types to Pixie data types
   StatusOr<types::DataType> ClickHouseTypeToPixieType(const clickhouse::TypeRef& ch_type);
-  
+
   // Convert ClickHouse block to Pixie RowBatch
   StatusOr<std::unique_ptr<RowBatch>> ConvertClickHouseBlockToRowBatch(
       const clickhouse::Block& block, bool is_last_block);
-  
-  // Execute the query and fetch results
-  Status ExecuteQuery();
+
+  // Execute a batch query
+  Status ExecuteBatchQuery();
+
+  // Build the query with time filtering and pagination
+  std::string BuildQuery();
 
   // Connection information
   std::string host_;
@@ -71,22 +75,28 @@ class ClickHouseSourceNode : public SourceNode {
   std::string username_;
   std::string password_;
   std::string database_;
-  std::string query_;
-  
-  // Batch size configuration
+  std::string base_query_;
+
+  // Batch size and cursor tracking
   size_t batch_size_ = 1024;
-  
+  size_t current_offset_ = 0;
+  bool has_more_data_ = true;
+
+  // Time filtering
+  std::optional<int64_t> start_time_;
+  std::optional<int64_t> stop_time_;
+  std::string time_column_;  // Column to use for time filtering
+
   // ClickHouse client
   std::unique_ptr<clickhouse::Client> client_;
-  
-  // Query results
-  std::vector<clickhouse::Block> result_blocks_;
+
+  // Current batch results
+  std::vector<clickhouse::Block> current_batch_blocks_;
   size_t current_block_index_ = 0;
-  bool query_executed_ = false;
-  
-  // Streaming support (future enhancement)
+
+  // Streaming support
   bool streaming_ = false;
-  
+
   // Plan node
   std::unique_ptr<plan::ClickHouseSourceOperator> plan_node_;
 };

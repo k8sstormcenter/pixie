@@ -361,15 +361,16 @@ class EmptySourceOperator : public Operator {
 
 class ClickHouseSourceOperator : public Operator {
  public:
-  explicit ClickHouseSourceOperator(int64_t id) : Operator(id, planpb::CLICKHOUSE_SOURCE_OPERATOR) {}
+  explicit ClickHouseSourceOperator(int64_t id)
+      : Operator(id, planpb::CLICKHOUSE_SOURCE_OPERATOR) {}
   ~ClickHouseSourceOperator() override = default;
-  
+
   StatusOr<table_store::schema::Relation> OutputRelation(
       const table_store::schema::Schema& schema, const PlanState& state,
       const std::vector<int64_t>& input_ids) const override;
   Status Init(const planpb::ClickHouseSourceOperator& pb);
   std::string DebugString() const override;
-  
+
   std::string host() const { return pb_.host(); }
   int32_t port() const { return pb_.port(); }
   std::string username() const { return pb_.username(); }
@@ -389,7 +390,11 @@ class ClickHouseSourceOperator : public Operator {
     }
     return types;
   }
-  
+  std::string timestamp_column() const { return pb_.timestamp_column(); }
+  std::string partition_column() const { return pb_.partition_column(); }
+  int64_t start_time() const { return pb_.start_time(); }
+  int64_t end_time() const { return pb_.end_time(); }
+
  private:
   planpb::ClickHouseSourceOperator pb_;
 };

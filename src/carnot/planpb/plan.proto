@@ -383,6 +383,20 @@ message ClickHouseSourceOperator {
   
   // Whether to stream results (future enhancement)
   bool streaming = 10;
+
+  // Column name to use for timestamp-based filtering and ordering
+  // This column should be of DateTime or DateTime64 type
+  string timestamp_column = 11;
+
+  // Column name to use for partitioning
+  // The underlying ClickHouse table should be partitioned by this column
+  string partition_column = 12;
+
+  // Start time for time-based filtering (nanoseconds since epoch)
+  int64 start_time = 13;
+
+  // End time for time-based filtering (nanoseconds since epoch)
+  int64 end_time = 14;
 }
 
 // OTelLog maps operator columns to each field in the OpenTelemetry Log configuration.

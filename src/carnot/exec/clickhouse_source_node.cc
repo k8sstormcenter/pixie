@@ -302,7 +302,8 @@ StatusOr<std::unique_ptr<RowBatch>> ClickHouseSourceNode::ConvertClickHouseBlock
       PX_RETURN_IF_ERROR(row_batch->AddColumn(array));
     } else if (type_name == "DateTime") {
       auto typed_col = ch_column->As<clickhouse::ColumnDateTime>();
-      arrow::Int64Builder builder;
+      arrow::Time64Builder builder(arrow::time64(arrow::TimeUnit::NANO),
+                                   arrow::default_memory_pool());
       PX_RETURN_IF_ERROR(builder.Reserve(num_rows));
 
       for (size_t i = 0; i < num_rows; ++i) {
@@ -317,7 +318,8 @@ StatusOr<std::unique_ptr<RowBatch>> ClickHouseSourceNode::ConvertClickHouseBlock
 
     } else if (type_name.find("DateTime64") == 0) {
       auto typed_col = ch_column->As<clickhouse::ColumnDateTime64>();
-      arrow::Int64Builder builder;
+      arrow::Time64Builder builder(arrow::time64(arrow::TimeUnit::NANO),
+                                   arrow::default_memory_pool());
       PX_RETURN_IF_ERROR(builder.Reserve(num_rows));
 
       for (size_t i = 0; i < num_rows; ++i) {
@@ -551,7 +553,8 @@ Status ClickHouseSourceNode::GenerateNextImpl(ExecState* exec_state) {
         builder = std::make_shared<arrow::BooleanBuilder>();
         break;
       case types::DataType::TIME64NS:
-        builder = std::make_shared<arrow::Int64Builder>();
+        builder = std::make_shared<arrow::Time64Builder>(arrow::time64(arrow::TimeUnit::NANO),
+                                                         arrow::default_memory_pool());
         break;
       default:
         return error::InvalidArgument("Unsupported data type for column $0", col_idx);
@@ -567,10 +570,21 @@ Status ClickHouseSourceNode::GenerateNextImpl(ExecState* exec_state) {
 
       // Append values from this block's array
       switch (data_type) {
-        case types::DataType::INT64:
-        case types::DataType::TIME64NS: {
+        case types::DataType::INT64: {
           auto typed_array = std::static_pointer_cast<arrow::Int64Array>(array);
           auto typed_builder = std::static_pointer_cast<arrow::Int64Builder>(builder);
+          for (int i = 0; i < typed_array->length(); i++) {
+            if (typed_array->IsNull(i)) {
+              PX_RETURN_IF_ERROR(typed_builder->AppendNull());
+            } else {
+              typed_builder->UnsafeAppend(typed_array->Value(i));
+            }
+          }
+          break;
+        }
+        case types::DataType::TIME64NS: {
+          auto typed_array = std::static_pointer_cast<arrow::Time64Array>(array);
+          auto typed_builder = std::static_pointer_cast<arrow::Time64Builder>(builder);
           for (int i = 0; i < typed_array->length(); i++) {
             if (typed_array->IsNull(i)) {
               PX_RETURN_IF_ERROR(typed_builder->AppendNull());

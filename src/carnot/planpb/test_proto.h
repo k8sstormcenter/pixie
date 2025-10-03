@@ -210,6 +210,10 @@ column_names: "value"
 column_types: INT64
 column_types: STRING
 column_types: FLOAT64
+timestamp_column: "timestamp"
+partition_column: "partition_key"
+start_time: 1000000000000000000
+end_time: 9223372036854775807
 )";
 
 constexpr char kBlockingAggOperator1[] = R"(

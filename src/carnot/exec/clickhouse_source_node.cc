@@ -62,9 +62,17 @@ Status ClickHouseSourceNode::InitImpl(const plan::Operator& plan_node) {
   has_more_data_ = true;
   current_block_index_ = 0;
 
-  // TODO(ddelnano): Extract time column and start/stop times from the plan node
-  // For now, use timestamp column for time filtering
-  time_column_ = "timestamp";
+  // Extract time filtering parameters from plan node
+  timestamp_column_ = plan_node_->timestamp_column();
+  partition_column_ = plan_node_->partition_column();
+
+  // Convert start/end times from nanoseconds to seconds for ClickHouse DateTime
+  if (plan_node_->start_time() > 0) {
+    start_time_ = plan_node_->start_time() / 1000000000LL;  // Convert ns to seconds
+  }
+  if (plan_node_->end_time() > 0) {
+    end_time_ = plan_node_->end_time() / 1000000000LL;  // Convert ns to seconds
+  }
 
   return Status::OK();
 }
@@ -322,38 +330,75 @@ StatusOr<std::unique_ptr<RowBatch>> ClickHouseSourceNode::ConvertClickHouseBlock
 
 std::string ClickHouseSourceNode::BuildQuery() {
   std::string query = base_query_;
-  std::string where_clause;
   std::vector<std::string> conditions;
 
-  // Add time filtering if start/stop times are specified and time column is set
-  if (!time_column_.empty()) {
+  // Add time filtering if start/end times are specified and timestamp column is set
+  if (!timestamp_column_.empty()) {
     if (start_time_.has_value()) {
-      conditions.push_back(absl::Substitute("$0 >= $1", time_column_, start_time_.value()));
+      conditions.push_back(absl::Substitute("$0 >= $1", timestamp_column_, start_time_.value()));
     }
-    if (stop_time_.has_value()) {
-      conditions.push_back(absl::Substitute("$0 <= $1", time_column_, stop_time_.value()));
+    if (end_time_.has_value()) {
+      conditions.push_back(absl::Substitute("$0 <= $1", timestamp_column_, end_time_.value()));
     }
   }
 
-  // Check if the base query already has a WHERE clause
+  // Add partition column filtering if specified
+  if (!partition_column_.empty()) {
+    // TODO(ddelnano): For now, we assume the partition column filtering is handled by the base
+    // query In a real implementation, we might need to add specific partition filtering logic This
+    // could involve extracting partition values from the time range or other criteria
+  }
+
+  // Parse the base query to find WHERE and ORDER BY positions
   std::string lower_query = query;
   std::transform(lower_query.begin(), lower_query.end(), lower_query.begin(), ::tolower);
-  bool has_where = lower_query.find(" where ") != std::string::npos;
 
+  size_t where_pos = lower_query.find(" where ");
+  size_t order_by_pos = lower_query.find(" order by ");
+  size_t limit_pos = lower_query.find(" limit ");
+
+  // Determine insertion point for conditions
   if (!conditions.empty()) {
-    if (has_where) {
-      where_clause = " AND " + absl::StrJoin(conditions, " AND ");
+    std::string conditions_clause = absl::StrJoin(conditions, " AND ");
+
+    if (where_pos != std::string::npos) {
+      // Query already has WHERE clause
+      size_t insert_pos = std::string::npos;
+
+      // Find where to insert the additional conditions
+      if (order_by_pos != std::string::npos && order_by_pos > where_pos) {
+        insert_pos = order_by_pos;
+      } else if (limit_pos != std::string::npos && limit_pos > where_pos) {
+        insert_pos = limit_pos;
+      } else {
+        insert_pos = query.length();
+      }
+
+      query.insert(insert_pos, " AND " + conditions_clause);
     } else {
-      where_clause = " WHERE " + absl::StrJoin(conditions, " AND ");
+      // No WHERE clause, need to add one
+      size_t insert_pos = std::string::npos;
+
+      if (order_by_pos != std::string::npos) {
+        insert_pos = order_by_pos;
+      } else if (limit_pos != std::string::npos) {
+        insert_pos = limit_pos;
+      } else {
+        insert_pos = query.length();
+      }
+
+      query.insert(insert_pos, " WHERE " + conditions_clause);
     }
-    query += where_clause;
   }
 
-  // Add ORDER BY clause (needed for consistent pagination)
-  // If no ORDER BY exists, add one - prefer time column if available, otherwise use first column
+  // Update lower_query after modifications
+  lower_query = query;
+  std::transform(lower_query.begin(), lower_query.end(), lower_query.begin(), ::tolower);
+
+  // Add ORDER BY clause if needed
   if (lower_query.find(" order by ") == std::string::npos) {
-    if (!time_column_.empty()) {
-      query += absl::Substitute(" ORDER BY $0", time_column_);
+    if (!timestamp_column_.empty()) {
+      query += absl::Substitute(" ORDER BY $0", timestamp_column_);
     } else {
       // Fall back to ordering by first column for consistent pagination
       query += " ORDER BY 1";
@@ -376,16 +421,20 @@ Status ClickHouseSourceNode::ExecuteBatchQuery() {
   }
 
   std::string query = BuildQuery();
+  VLOG(1) << "Executing ClickHouse query: " << query;
 
   try {
     size_t rows_received = 0;
     client_->Select(query, [this, &rows_received](const clickhouse::Block& block) {
       // Only store non-empty blocks
       if (block.GetRowCount() > 0) {
+        VLOG(1) << "Received block with " << block.GetRowCount() << " rows";
         current_batch_blocks_.push_back(block);
         rows_received += block.GetRowCount();
       }
     });
+
+    VLOG(1) << "Total rows received: " << rows_received << ", batch size: " << batch_size_;
 
     // Update cursor state
     current_offset_ += rows_received;
@@ -401,8 +450,11 @@ Status ClickHouseSourceNode::ExecuteBatchQuery() {
 }
 
 Status ClickHouseSourceNode::GenerateNextImpl(ExecState* exec_state) {
-  // If we've processed all blocks in current batch, fetch the next batch
+  // If we need to fetch more data
   if (current_block_index_ >= current_batch_blocks_.size()) {
+    current_block_index_ = 0;
+    current_batch_blocks_.clear();
+
     if (!has_more_data_) {
       // No more data available - send empty batch with eos=true
       PX_ASSIGN_OR_RETURN(auto empty_batch,
@@ -423,28 +475,131 @@ Status ClickHouseSourceNode::GenerateNextImpl(ExecState* exec_state) {
     }
   }
 
-  // Process current block
-  const auto& current_block = current_batch_blocks_[current_block_index_];
-  bool is_last_block =
-      (current_block_index_ == current_batch_blocks_.size() - 1) && !has_more_data_;
+  // Calculate total rows in all blocks
+  size_t total_rows = 0;
+  for (const auto& block : current_batch_blocks_) {
+    total_rows += block.GetRowCount();
+  }
 
-  PX_ASSIGN_OR_RETURN(auto row_batch,
-                      ConvertClickHouseBlockToRowBatch(current_block, is_last_block));
+  // Create a merged RowBatch
+  auto merged_batch = std::make_unique<RowBatch>(*output_descriptor_, total_rows);
+
+  // Process each column
+  for (size_t col_idx = 0; col_idx < output_descriptor_->size(); ++col_idx) {
+    // Get the data type from output descriptor
+    auto data_type = output_descriptor_->type(col_idx);
+
+    // Create appropriate builder based on data type
+    std::shared_ptr<arrow::ArrayBuilder> builder;
+    switch (data_type) {
+      case types::DataType::INT64:
+        builder = std::make_shared<arrow::Int64Builder>();
+        break;
+      case types::DataType::FLOAT64:
+        builder = std::make_shared<arrow::DoubleBuilder>();
+        break;
+      case types::DataType::STRING:
+        builder = std::make_shared<arrow::StringBuilder>();
+        break;
+      case types::DataType::BOOLEAN:
+        builder = std::make_shared<arrow::BooleanBuilder>();
+        break;
+      case types::DataType::TIME64NS:
+        builder = std::make_shared<arrow::Int64Builder>();
+        break;
+      default:
+        return error::InvalidArgument("Unsupported data type for column $0", col_idx);
+    }
+
+    // Reserve space for all rows
+    PX_RETURN_IF_ERROR(builder->Reserve(total_rows));
+
+    // Append data from all blocks
+    for (const auto& block : current_batch_blocks_) {
+      PX_ASSIGN_OR_RETURN(auto row_batch, ConvertClickHouseBlockToRowBatch(block, false));
+      auto array = row_batch->ColumnAt(col_idx);
+
+      // Append values from this block's array
+      switch (data_type) {
+        case types::DataType::INT64:
+        case types::DataType::TIME64NS: {
+          auto typed_array = std::static_pointer_cast<arrow::Int64Array>(array);
+          auto typed_builder = std::static_pointer_cast<arrow::Int64Builder>(builder);
+          for (int i = 0; i < typed_array->length(); i++) {
+            if (typed_array->IsNull(i)) {
+              PX_RETURN_IF_ERROR(typed_builder->AppendNull());
+            } else {
+              typed_builder->UnsafeAppend(typed_array->Value(i));
+            }
+          }
+          break;
+        }
+        case types::DataType::FLOAT64: {
+          auto typed_array = std::static_pointer_cast<arrow::DoubleArray>(array);
+          auto typed_builder = std::static_pointer_cast<arrow::DoubleBuilder>(builder);
+          for (int i = 0; i < typed_array->length(); i++) {
+            if (typed_array->IsNull(i)) {
+              PX_RETURN_IF_ERROR(typed_builder->AppendNull());
+            } else {
+              typed_builder->UnsafeAppend(typed_array->Value(i));
+            }
+          }
+          break;
+        }
+        case types::DataType::STRING: {
+          auto typed_array = std::static_pointer_cast<arrow::StringArray>(array);
+          auto typed_builder = std::static_pointer_cast<arrow::StringBuilder>(builder);
+          for (int i = 0; i < typed_array->length(); i++) {
+            if (typed_array->IsNull(i)) {
+              PX_RETURN_IF_ERROR(typed_builder->AppendNull());
+            } else {
+              PX_RETURN_IF_ERROR(typed_builder->Append(typed_array->GetString(i)));
+            }
+          }
+          break;
+        }
+        case types::DataType::BOOLEAN: {
+          auto typed_array = std::static_pointer_cast<arrow::BooleanArray>(array);
+          auto typed_builder = std::static_pointer_cast<arrow::BooleanBuilder>(builder);
+          for (int i = 0; i < typed_array->length(); i++) {
+            if (typed_array->IsNull(i)) {
+              PX_RETURN_IF_ERROR(typed_builder->AppendNull());
+            } else {
+              typed_builder->UnsafeAppend(typed_array->Value(i));
+            }
+          }
+          break;
+        }
+        default:
+          return error::InvalidArgument("Unsupported data type for column $0", col_idx);
+      }
+    }
+
+    // Finish building and add column
+    std::shared_ptr<arrow::Array> merged_array;
+    PX_RETURN_IF_ERROR(builder->Finish(&merged_array));
+    PX_RETURN_IF_ERROR(merged_batch->AddColumn(merged_array));
+  }
 
   // Set proper end-of-window and end-of-stream flags
-  if (is_last_block) {
-    row_batch->set_eow(true);
-    row_batch->set_eos(true);
+  bool is_last_batch = !has_more_data_;
+  if (is_last_batch) {
+    merged_batch->set_eow(true);
+    merged_batch->set_eos(true);
+  } else {
+    merged_batch->set_eow(false);
+    merged_batch->set_eos(false);
   }
 
   // Update stats
-  rows_processed_ += row_batch->num_rows();
-  bytes_processed_ += row_batch->NumBytes();
+  rows_processed_ += merged_batch->num_rows();
+  bytes_processed_ += merged_batch->NumBytes();
 
   // Send to children
-  PX_RETURN_IF_ERROR(SendRowBatchToChildren(exec_state, *row_batch));
+  PX_RETURN_IF_ERROR(SendRowBatchToChildren(exec_state, *merged_batch));
 
-  current_block_index_++;
+  // Mark all blocks as processed
+  current_block_index_ = current_batch_blocks_.size();
 
   return Status::OK();
 }

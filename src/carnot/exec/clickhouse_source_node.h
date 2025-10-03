@@ -84,8 +84,9 @@ class ClickHouseSourceNode : public SourceNode {
 
   // Time filtering
   std::optional<int64_t> start_time_;
-  std::optional<int64_t> stop_time_;
-  std::string time_column_;  // Column to use for time filtering
+  std::optional<int64_t> end_time_;
+  std::string timestamp_column_;  // Column to use for timestamp-based filtering and ordering
+  std::string partition_column_;  // Column used for partitioning
 
   // ClickHouse client
   std::unique_ptr<clickhouse::Client> client_;

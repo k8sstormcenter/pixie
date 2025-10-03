@@ -131,8 +131,10 @@ class ClickHouseSourceNodeTest : public ::testing::Test {
           id UInt64,
           name String,
           value Float64,
-          timestamp DateTime
+          timestamp DateTime,
+          partition_key String
         ) ENGINE = MergeTree()
+        PARTITION BY (timestamp, partition_key)
         ORDER BY timestamp
       )");
 
@@ -140,6 +142,7 @@ class ClickHouseSourceNodeTest : public ::testing::Test {
       auto name_col = std::make_shared<clickhouse::ColumnString>();
       auto value_col = std::make_shared<clickhouse::ColumnFloat64>();
       auto timestamp_col = std::make_shared<clickhouse::ColumnDateTime>();
+      auto partition_key_col = std::make_shared<clickhouse::ColumnString>();
 
       // Add test data with increasing timestamps
       std::time_t base_time = std::time(nullptr) - 3600;  // Start 1 hour ago
@@ -147,22 +150,26 @@ class ClickHouseSourceNodeTest : public ::testing::Test {
       name_col->Append("test1");
       value_col->Append(10.5);
       timestamp_col->Append(base_time);
+      partition_key_col->Append("partition_a");
 
       id_col->Append(2);
       name_col->Append("test2");
       value_col->Append(20.5);
       timestamp_col->Append(base_time + 1800);  // 30 minutes later
+      partition_key_col->Append("partition_a");
 
       id_col->Append(3);
       name_col->Append("test3");
       value_col->Append(30.5);
       timestamp_col->Append(base_time + 3600);  // 1 hour later
+      partition_key_col->Append("partition_b");
 
       clickhouse::Block block;
       block.AppendColumn("id", id_col);
       block.AppendColumn("name", name_col);
       block.AppendColumn("value", value_col);
       block.AppendColumn("timestamp", timestamp_col);
+      block.AppendColumn("partition_key", partition_key_col);
 
       client_->Insert("test_table", block);
 
@@ -229,8 +236,10 @@ TEST_F(ClickHouseSourceNodeTest, EmptyResultSet) {
       id UInt64,
       name String,
       value Float64,
-      timestamp DateTime
+      timestamp DateTime,
+      partition_key String
     ) ENGINE = MergeTree()
+    PARTITION BY (timestamp, partition_key)
     ORDER BY timestamp
   )");
 
@@ -252,6 +261,10 @@ TEST_F(ClickHouseSourceNodeTest, EmptyResultSet) {
   ch_op->add_column_types(types::DataType::INT64);
   ch_op->add_column_types(types::DataType::STRING);
   ch_op->add_column_types(types::DataType::FLOAT64);
+  ch_op->set_timestamp_column("timestamp");
+  ch_op->set_partition_column("partition_key");
+  ch_op->set_start_time(1000000000000000000LL);  // Year 2001 in nanoseconds
+  ch_op->set_end_time(9223372036854775807LL);    // Max int64
 
   std::unique_ptr<plan::Operator> plan_node = plan::ClickHouseSourceOperator::FromProto(op, 1);
   RowDescriptor output_rd(
@@ -296,6 +309,10 @@ TEST_F(ClickHouseSourceNodeTest, FilteredQuery) {
   ch_op->add_column_types(types::DataType::INT64);
   ch_op->add_column_types(types::DataType::STRING);
   ch_op->add_column_types(types::DataType::FLOAT64);
+  ch_op->set_timestamp_column("timestamp");
+  ch_op->set_partition_column("partition_key");
+  ch_op->set_start_time(1000000000000000000LL);  // Year 2001 in nanoseconds
+  ch_op->set_end_time(9223372036854775807LL);    // Max int64
 
   std::unique_ptr<plan::Operator> plan_node = plan::ClickHouseSourceOperator::FromProto(op, 1);
   RowDescriptor output_rd(

@@ -37,5 +37,6 @@ PX_CARNOT_IR_NODE(Rolling)
 PX_CARNOT_IR_NODE(Stream)
 PX_CARNOT_IR_NODE(EmptySource)
 PX_CARNOT_IR_NODE(OTelExportSink)
+PX_CARNOT_IR_NODE(ClickHouseSource)
 
 #endif

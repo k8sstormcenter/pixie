@@ -136,7 +136,7 @@ StatusOr<types::DataType> ClickHouseSourceNode::ClickHouseTypeToPixieType(
   }
 
   // Date/time types
-  if (type_name == "DateTime" || type_name == "DateTime64") {
+  if (type_name == "DateTime" || type_name.find("DateTime64") == 0) {
     return types::DataType::TIME64NS;
   }
 
@@ -308,6 +308,52 @@ StatusOr<std::unique_ptr<RowBatch>> ClickHouseSourceNode::ConvertClickHouseBlock
       for (size_t i = 0; i < num_rows; ++i) {
         // Convert DateTime (seconds since epoch) to nanoseconds
         int64_t ns = static_cast<int64_t>(typed_col->At(i)) * 1000000000LL;
+        builder.UnsafeAppend(ns);
+      }
+
+      std::shared_ptr<arrow::Array> array;
+      PX_RETURN_IF_ERROR(builder.Finish(&array));
+      PX_RETURN_IF_ERROR(row_batch->AddColumn(array));
+
+    } else if (type_name.find("DateTime64") == 0) {
+      auto typed_col = ch_column->As<clickhouse::ColumnDateTime64>();
+      arrow::Int64Builder builder;
+      PX_RETURN_IF_ERROR(builder.Reserve(num_rows));
+
+      for (size_t i = 0; i < num_rows; ++i) {
+        // DateTime64 stores time with sub-second precision
+        // The value is already in the correct precision (e.g., nanoseconds for DateTime64(9))
+        // We need to convert to nanoseconds if it's not already
+        int64_t value = typed_col->At(i);
+
+        // Extract precision from type name (e.g., "DateTime64(9)" -> 9)
+        size_t precision = 3;  // default to milliseconds
+        size_t start = type_name.find('(');
+        if (start != std::string::npos) {
+          size_t end = type_name.find(')', start);
+          if (end != std::string::npos) {
+            precision = std::stoi(type_name.substr(start + 1, end - start - 1));
+          }
+        }
+
+        // Convert to nanoseconds based on precision
+        int64_t ns = value;
+        if (precision < 9) {
+          // Scale up to nanoseconds
+          int64_t multiplier = 1;
+          for (size_t p = precision; p < 9; p++) {
+            multiplier *= 10;
+          }
+          ns = value * multiplier;
+        } else if (precision > 9) {
+          // Scale down to nanoseconds
+          int64_t divisor = 1;
+          for (size_t p = 9; p < precision; p++) {
+            divisor *= 10;
+          }
+          ns = value / divisor;
+        }
+
         builder.UnsafeAppend(ns);
       }
 

@@ -19,6 +19,7 @@
 #include "src/carnot/planner/objects/dataframe.h"
 #include "src/carnot/planner/ast/ast_visitor.h"
 #include "src/carnot/planner/ir/ast_utils.h"
+#include "src/carnot/planner/ir/clickhouse_source_ir.h"
 #include "src/carnot/planner/objects/collection_object.h"
 #include "src/carnot/planner/objects/expr_object.h"
 #include "src/carnot/planner/objects/funcobject.h"
@@ -109,22 +110,50 @@ StatusOr<QLObjectPtr> DataFrameConstructor(CompilerState* compiler_state, IR* gr
   PX_ASSIGN_OR_RETURN(std::vector<std::string> columns,
                       ParseAsListOfStrings(args.GetArg("select"), "select"));
   std::string table_name = table->str();
-  PX_ASSIGN_OR_RETURN(MemorySourceIR * mem_source_op,
-                      graph->CreateNode<MemorySourceIR>(ast, table_name, columns));
 
-  if (!NoneObject::IsNoneObject(args.GetArg("start_time"))) {
-    PX_ASSIGN_OR_RETURN(ExpressionIR * start_time, GetArgAs<ExpressionIR>(ast, args, "start_time"));
-    PX_ASSIGN_OR_RETURN(auto start_time_ns,
-                        ParseAllTimeFormats(compiler_state->time_now().val, start_time));
-    mem_source_op->SetTimeStartNS(start_time_ns);
+  // Check if we should use ClickHouse or memory source
+  PX_ASSIGN_OR_RETURN(BoolIR * use_clickhouse, GetArgAs<BoolIR>(ast, args, "clickhouse"));
+  bool is_clickhouse = use_clickhouse->val();
+
+  if (is_clickhouse) {
+    // Create ClickHouseSourceIR
+    PX_ASSIGN_OR_RETURN(ClickHouseSourceIR * clickhouse_source_op,
+                        graph->CreateNode<ClickHouseSourceIR>(ast, table_name, columns));
+
+    if (!NoneObject::IsNoneObject(args.GetArg("start_time"))) {
+      PX_ASSIGN_OR_RETURN(ExpressionIR * start_time,
+                          GetArgAs<ExpressionIR>(ast, args, "start_time"));
+      PX_ASSIGN_OR_RETURN(auto start_time_ns,
+                          ParseAllTimeFormats(compiler_state->time_now().val, start_time));
+      clickhouse_source_op->SetTimeStartNS(start_time_ns);
+    }
+    if (!NoneObject::IsNoneObject(args.GetArg("end_time"))) {
+      PX_ASSIGN_OR_RETURN(ExpressionIR * end_time, GetArgAs<ExpressionIR>(ast, args, "end_time"));
+      PX_ASSIGN_OR_RETURN(auto end_time_ns,
+                          ParseAllTimeFormats(compiler_state->time_now().val, end_time));
+      clickhouse_source_op->SetTimeStopNS(end_time_ns);
+    }
+    return Dataframe::Create(compiler_state, clickhouse_source_op, visitor);
+  } else {
+    // Create MemorySourceIR (existing behavior)
+    PX_ASSIGN_OR_RETURN(MemorySourceIR * mem_source_op,
+                        graph->CreateNode<MemorySourceIR>(ast, table_name, columns));
+
+    if (!NoneObject::IsNoneObject(args.GetArg("start_time"))) {
+      PX_ASSIGN_OR_RETURN(ExpressionIR * start_time,
+                          GetArgAs<ExpressionIR>(ast, args, "start_time"));
+      PX_ASSIGN_OR_RETURN(auto start_time_ns,
+                          ParseAllTimeFormats(compiler_state->time_now().val, start_time));
+      mem_source_op->SetTimeStartNS(start_time_ns);
+    }
+    if (!NoneObject::IsNoneObject(args.GetArg("end_time"))) {
+      PX_ASSIGN_OR_RETURN(ExpressionIR * end_time, GetArgAs<ExpressionIR>(ast, args, "end_time"));
+      PX_ASSIGN_OR_RETURN(auto end_time_ns,
+                          ParseAllTimeFormats(compiler_state->time_now().val, end_time));
+      mem_source_op->SetTimeStopNS(end_time_ns);
+    }
+    return Dataframe::Create(compiler_state, mem_source_op, visitor);
   }
-  if (!NoneObject::IsNoneObject(args.GetArg("end_time"))) {
-    PX_ASSIGN_OR_RETURN(ExpressionIR * end_time, GetArgAs<ExpressionIR>(ast, args, "end_time"));
-    PX_ASSIGN_OR_RETURN(auto end_time_ns,
-                        ParseAllTimeFormats(compiler_state->time_now().val, end_time));
-    mem_source_op->SetTimeStopNS(end_time_ns);
-  }
-  return Dataframe::Create(compiler_state, mem_source_op, visitor);
 }
 
 StatusOr<std::vector<ColumnIR*>> ProcessCols(IR* graph, const pypa::AstPtr& ast, QLObjectPtr obj,
@@ -423,8 +452,8 @@ Status Dataframe::Init() {
   PX_ASSIGN_OR_RETURN(
       std::shared_ptr<FuncObject> constructor_fn,
       FuncObject::Create(
-          name(), {"table", "select", "start_time", "end_time"},
-          {{"select", "[]"}, {"start_time", "None"}, {"end_time", "None"}},
+          name(), {"table", "select", "start_time", "end_time", "clickhouse"},
+          {{"select", "[]"}, {"start_time", "None"}, {"end_time", "None"}, {"clickhouse", "False"}},
           /* has_variable_len_args */ false,
           /* has_variable_len_kwargs */ false,
           std::bind(&DataFrameConstructor, compiler_state_, graph(), std::placeholders::_1,

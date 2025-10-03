@@ -33,9 +33,9 @@ pl_cc_library(
         ],
     ),
     hdrs = [
+        "clickhouse_source_node.h",
         "exec_node.h",
         "exec_state.h",
-        "clickhouse_source_node.h",
     ],
     deps = [
         "//src/carnot/carnotpb:carnot_pl_cc_proto",
@@ -305,13 +305,16 @@ pl_cc_test(
 
 pl_cc_test(
     name = "clickhouse_source_node_test",
+    timeout = "long",
+    timeout = "long",
+    timeout = "long",
     srcs = ["clickhouse_source_node_test.cc"],
     data = [
         "//src/stirling/source_connectors/socket_tracer/testing/container_images:clickhouse.tar",
     ],
     tags = [
-        "requires_docker",
         "exclusive",
+        "requires_docker",
     ],
     deps = [
         ":cc_library",

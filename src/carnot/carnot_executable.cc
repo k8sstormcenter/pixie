@@ -490,6 +490,28 @@ int main(int argc, char* argv[]) {
     LOG(FATAL) << absl::Substitute("Query failed to execute: $0", exec_status.msg());
   }
 
+  // Get and log execution stats
+  auto exec_stats_or = result_server.exec_stats();
+  if (exec_stats_or.ok()) {
+    auto exec_stats = exec_stats_or.ConsumeValueOrDie();
+    if (exec_stats.has_execution_stats()) {
+      auto stats = exec_stats.execution_stats();
+      LOG(INFO) << "Query Execution Stats:";
+      LOG(INFO) << "  Bytes processed: " << stats.bytes_processed();
+      LOG(INFO) << "  Records processed: " << stats.records_processed();
+      if (stats.has_timing()) {
+        LOG(INFO) << "  Execution time: " << stats.timing().execution_time_ns() << " ns";
+      }
+    }
+
+    for (const auto& agent_stats : exec_stats.agent_execution_stats()) {
+      LOG(INFO) << "Agent Execution Stats:";
+      LOG(INFO) << "  Execution time: " << agent_stats.execution_time_ns() << " ns";
+      LOG(INFO) << "  Bytes processed: " << agent_stats.bytes_processed();
+      LOG(INFO) << "  Records processed: " << agent_stats.records_processed();
+    }
+  }
+
   auto output_names = result_server.output_tables();
   if (!output_names.size()) {
     LOG(FATAL) << "Query produced no output tables.";

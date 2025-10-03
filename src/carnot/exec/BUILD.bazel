@@ -306,8 +306,6 @@ pl_cc_test(
 pl_cc_test(
     name = "clickhouse_source_node_test",
     timeout = "long",
-    timeout = "long",
-    timeout = "long",
     srcs = ["clickhouse_source_node_test.cc"],
     data = [
         "//src/stirling/source_connectors/socket_tracer/testing/container_images:clickhouse.tar",
@@ -324,5 +322,4 @@ pl_cc_test(
         "//src/common/testing/test_utils:cc_library",
         "@com_github_clickhouse_clickhouse_cpp//:clickhouse_cpp",
     ],
-    timeout = "long",
 )

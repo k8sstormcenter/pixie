@@ -399,6 +399,29 @@ class ClickHouseSourceOperator : public Operator {
   planpb::ClickHouseSourceOperator pb_;
 };
 
+class ClickHouseExportSinkOperator : public Operator {
+ public:
+  explicit ClickHouseExportSinkOperator(int64_t id)
+      : Operator(id, planpb::CLICKHOUSE_EXPORT_SINK_OPERATOR) {}
+  ~ClickHouseExportSinkOperator() override = default;
+
+  StatusOr<table_store::schema::Relation> OutputRelation(
+      const table_store::schema::Schema& schema, const PlanState& state,
+      const std::vector<int64_t>& input_ids) const override;
+  Status Init(const planpb::ClickHouseExportSinkOperator& pb);
+  std::string DebugString() const override;
+
+  const planpb::ClickHouseConfig& clickhouse_config() const { return pb_.clickhouse_config(); }
+  const std::string& table_name() const { return pb_.table_name(); }
+  const ::google::protobuf::RepeatedPtrField<planpb::ClickHouseExportSinkOperator::ColumnMapping>&
+  column_mappings() const {
+    return pb_.column_mappings();
+  }
+
+ private:
+  planpb::ClickHouseExportSinkOperator pb_;
+};
+
 class OTelExportSinkOperator : public Operator {
  public:
   explicit OTelExportSinkOperator(int64_t id) : Operator(id, planpb::OTEL_EXPORT_SINK_OPERATOR) {}

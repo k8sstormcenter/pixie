@@ -77,6 +77,7 @@ class PlanFragmentWalker {
   using EmptySourceWalkFn = std::function<Status(const EmptySourceOperator&)>;
   using OTelSinkWalkFn = std::function<Status(const OTelExportSinkOperator&)>;
   using ClickHouseSourceWalkFn = std::function<Status(const ClickHouseSourceOperator&)>;
+  using ClickHouseExportSinkWalkFn = std::function<Status(const ClickHouseExportSinkOperator&)>;
 
   /**
    * Register callback for when a memory source operator is encountered.
@@ -188,6 +189,11 @@ class PlanFragmentWalker {
     return *this;
   }
 
+  PlanFragmentWalker& OnClickHouseExportSink(const ClickHouseExportSinkWalkFn& fn) {
+    on_clickhouse_export_sink_walk_fn_ = fn;
+    return *this;
+  }
+
   /**
    * Perform a walk of the plan fragment operators in a topologically-sorted order.
    * @param plan_fragment The plan fragment to walk.
@@ -214,6 +220,7 @@ class PlanFragmentWalker {
   EmptySourceWalkFn on_empty_source_walk_fn_;
   OTelSinkWalkFn on_otel_sink_walk_fn_;
   ClickHouseSourceWalkFn on_clickhouse_source_walk_fn_;
+  ClickHouseExportSinkWalkFn on_clickhouse_export_sink_walk_fn_;
 };
 
 }  // namespace plan

@@ -565,6 +565,22 @@ message OTelEndpointConfig {
   int64 timeout = 4;
 }
 
+// ClickHouseConfig contains the connection parameters for ClickHouse.
+message ClickHouseConfig {
+  // The hostname of the node executing the query.
+  string hostname = 1;
+  // The ClickHouse server host.
+  string host = 2;
+  // The ClickHouse server port.
+  int32 port = 3;
+  // The ClickHouse username.
+  string username = 4;
+  // The ClickHouse password.
+  string password = 5;
+  // The ClickHouse database name.
+  string database = 6;
+}
+
 // Defines a resource. Discussed in depth in the OpenTelemetry spec.
 // https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/resource/sdk.md
 message OTelResource {

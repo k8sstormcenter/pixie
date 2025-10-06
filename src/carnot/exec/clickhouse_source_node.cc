@@ -392,9 +392,10 @@ std::string ClickHouseSourceNode::BuildQuery() {
 
   // Add partition column filtering if specified
   if (!partition_column_.empty()) {
-    // TODO(ddelnano): For now, we assume the partition column filtering is handled by the base
-    // query In a real implementation, we might need to add specific partition filtering logic This
-    // could involve extracting partition values from the time range or other criteria
+    // Get the current hostname for partition filtering
+    char hostname[256];
+    gethostname(hostname, sizeof(hostname));
+    conditions.push_back(absl::Substitute("$0 = '$1'", partition_column_, hostname));
   }
 
   // Parse the base query to find WHERE and ORDER BY positions

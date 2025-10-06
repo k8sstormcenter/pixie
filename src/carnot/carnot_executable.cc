@@ -39,6 +39,10 @@
 #include "src/shared/types/type_utils.h"
 #include "src/table_store/table_store.h"
 
+// Example clickhouse test usage:
+// The records inserted into clickhouse exist between -10m and -5m
+// bazel run -c dbg  src/carnot:carnot_executable --  --vmodule=clickhouse_source_node=1 --use_clickhouse=true     --query="import px;df = px.DataFrame('http_events', clickhouse=True, start_time='-10m', end_time='-9m'); px.display(df)"     --output_file=$(pwd)/output.csv
+
 DEFINE_string(input_file, gflags::StringFromEnv("INPUT_FILE", ""),
               "The csv containing data to run the query on.");
 
@@ -330,7 +334,15 @@ void CreateHttpEventsTable(clickhouse::Client* client) {
 
     // Add sample rows
     std::time_t now = std::time(nullptr);
-    for (int i = 0; i < 10; ++i) {
+    LOG(INFO) << "Current time: " << now;
+
+    // Get current hostname
+    char current_hostname[256];
+    gethostname(current_hostname, sizeof(current_hostname));
+    std::string hostname_str(current_hostname);
+
+    // Add 5 records with the current hostname
+    for (int i = 0; i < 5; ++i) {
       time_col->Append((now - 600 + i * 60) * 1000000000LL);  // Convert to nanoseconds
       local_addr_col->Append("127.0.0.1");
       local_port_col->Append(8080);
@@ -348,7 +360,30 @@ void CreateHttpEventsTable(clickhouse::Client* client) {
       resp_message_col->Append("OK");
       resp_body_col->Append("{\"result\": \"success\"}");
       resp_latency_ns_col->Append(1000000 + i * 100000);
-      hostname_col->Append(absl::StrFormat("host-%d", i % 3));
+      hostname_col->Append(hostname_str);
+      event_time_col->Append((now - 600 + i * 60) * 1000LL);  // Convert to milliseconds
+    }
+
+    // Add 5 more records with different hostnames for testing
+    for (int i = 5; i < 10; ++i) {
+      time_col->Append((now - 600 + i * 60) * 1000000000LL);  // Convert to nanoseconds
+      local_addr_col->Append("127.0.0.1");
+      local_port_col->Append(8080);
+      remote_addr_col->Append(absl::StrFormat("192.168.1.%d", 100 + i));
+      remote_port_col->Append(50000 + i);
+      major_version_col->Append(1);
+      minor_version_col->Append(1);
+      content_type_col->Append(0);
+      req_headers_col->Append("Content-Type: application/json");
+      req_method_col->Append(i % 2 == 0 ? "GET" : "POST");
+      req_path_col->Append(absl::StrFormat("/api/v1/resource/%d", i));
+      req_body_col->Append(i % 2 == 0 ? "" : "{\"data\": \"test\"}");
+      resp_headers_col->Append("Content-Type: application/json");
+      resp_status_col->Append(200);
+      resp_message_col->Append("OK");
+      resp_body_col->Append("{\"result\": \"success\"}");
+      resp_latency_ns_col->Append(1000000 + i * 100000);
+      hostname_col->Append(absl::StrFormat("other-host-%d", i % 3));
       event_time_col->Append((now - 600 + i * 60) * 1000LL);  // Convert to milliseconds
     }
 

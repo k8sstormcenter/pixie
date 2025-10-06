@@ -24,6 +24,7 @@
 #include <unordered_map>
 
 #include "src/carnot/exec/agg_node.h"
+#include "src/carnot/exec/clickhouse_export_sink_node.h"
 #include "src/carnot/exec/clickhouse_source_node.h"
 #include "src/carnot/exec/empty_source_node.h"
 #include "src/carnot/exec/equijoin_node.h"
@@ -112,6 +113,10 @@ Status ExecutionGraph::Init(table_store::schema::Schema* schema, plan::PlanState
       .OnClickHouseSource([&](auto& node) {
         return OnOperatorImpl<plan::ClickHouseSourceOperator, ClickHouseSourceNode>(node,
                                                                                     &descriptors);
+      })
+      .OnClickHouseExportSink([&](auto& node) {
+        return OnOperatorImpl<plan::ClickHouseExportSinkOperator, ClickHouseExportSinkNode>(node,
+                                                                                             &descriptors);
       })
       .Walk(pf_);
 }

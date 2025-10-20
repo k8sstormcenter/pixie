@@ -38,6 +38,9 @@
 #include "src/shared/types/column_wrapper.h"
 #include "src/shared/types/type_utils.h"
 #include "src/table_store/table_store.h"
+#include "src/vizier/funcs/context/vizier_context.h"
+#include "src/vizier/funcs/funcs.h"
+#include "src/vizier/services/metadata/local/local_metadata_service.h"
 
 // Example clickhouse test usage:
 // The records inserted into clickhouse exist between -10m and -5m
@@ -467,8 +470,25 @@ int main(int argc, char* argv[]) {
   // Execute query.
   auto table_store = std::make_shared<px::table_store::TableStore>();
   auto result_server = px::carnot::exec::LocalGRPCResultSinkServer();
+
+  // Create metadata service stub for table schemas
+  auto metadata_grpc_server = std::make_unique<px::vizier::services::metadata::LocalMetadataGRPCServer>(table_store.get());
+
+  // Create vizier func factory context with metadata stub
+  px::vizier::funcs::VizierFuncFactoryContext func_context(
+      nullptr,  // agent_manager
+      metadata_grpc_server->StubGenerator(),  // mds_stub
+      nullptr,  // mdtp_stub
+      nullptr,  // cronscript_stub
+      table_store,
+      [](grpc::ClientContext*) {}  // add_grpc_auth
+  );
+
   auto func_registry = std::make_unique<px::carnot::udf::Registry>("default_registry");
+  // Register both carnot and vizier functions
   px::carnot::funcs::RegisterFuncsOrDie(func_registry.get());
+  px::vizier::funcs::RegisterFuncsOrDie(func_context, func_registry.get());
+
   auto clients_config =
       std::make_unique<px::carnot::Carnot::ClientsConfig>(px::carnot::Carnot::ClientsConfig{
           [&result_server](const std::string& address, const std::string&) {

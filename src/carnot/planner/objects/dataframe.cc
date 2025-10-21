@@ -17,6 +17,9 @@
  */
 
 #include "src/carnot/planner/objects/dataframe.h"
+
+#include <algorithm>
+
 #include "src/carnot/planner/ast/ast_visitor.h"
 #include "src/carnot/planner/ir/ast_utils.h"
 #include "src/carnot/planner/ir/clickhouse_source_ir.h"
@@ -117,8 +120,24 @@ StatusOr<QLObjectPtr> DataFrameConstructor(CompilerState* compiler_state, IR* gr
 
   if (is_clickhouse) {
     // Create ClickHouseSourceIR
+    // Note: hostname and event_time columns are handled in ClickHouseSourceIR::ResolveType
+    // Only add them if the user explicitly selected some columns
+    std::vector<std::string> clickhouse_columns = columns;
+
+    if (!columns.empty()) {
+      // User selected specific columns - add hostname and event_time if not already present
+      if (std::find(clickhouse_columns.begin(), clickhouse_columns.end(), "hostname") == clickhouse_columns.end()) {
+        clickhouse_columns.push_back("hostname");
+      }
+
+      if (std::find(clickhouse_columns.begin(), clickhouse_columns.end(), "event_time") == clickhouse_columns.end()) {
+        clickhouse_columns.push_back("event_time");
+      }
+    }
+    // If columns is empty, select_all() will be true and ResolveType will handle adding all columns
+
     PX_ASSIGN_OR_RETURN(ClickHouseSourceIR * clickhouse_source_op,
-                        graph->CreateNode<ClickHouseSourceIR>(ast, table_name, columns));
+                        graph->CreateNode<ClickHouseSourceIR>(ast, table_name, clickhouse_columns));
 
     if (!NoneObject::IsNoneObject(args.GetArg("start_time"))) {
       PX_ASSIGN_OR_RETURN(ExpressionIR * start_time,

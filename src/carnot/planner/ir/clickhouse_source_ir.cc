@@ -48,6 +48,10 @@ Status ClickHouseSourceIR::ToProto(planpb::Operator* op) const {
   DCHECK(is_type_resolved());
   DCHECK_EQ(column_index_map_.size(), resolved_table_type()->ColumnNames().size());
   for (const auto& [idx, col_name] : Enumerate(resolved_table_type()->ColumnNames())) {
+    if (col_name == "upid") {
+      LOG(INFO) << "Skipping upid column in ClickHouse source proto.";
+      continue;
+    }
     pb->add_column_names(col_name);
     auto val_type = std::static_pointer_cast<ValueType>(
         resolved_table_type()->GetColumnType(col_name).ConsumeValueOrDie());
@@ -122,17 +126,48 @@ Status ClickHouseSourceIR::ResolveType(CompilerState* compiler_state) {
   auto table_relation = relation_it->second;
   auto full_table_type = TableType::Create(table_relation);
   if (select_all()) {
+    // For select_all, add all table columns plus ClickHouse-added columns (hostname, event_time)
     std::vector<int64_t> column_indices;
-    for (int64_t i = 0; i < static_cast<int64_t>(table_relation.NumColumns()); ++i) {
+    int64_t table_column_count = static_cast<int64_t>(table_relation.NumColumns());
+
+    // Add all table columns
+    for (int64_t i = 0; i < table_column_count; ++i) {
       column_indices.push_back(i);
     }
+
+    // Add ClickHouse-added columns
+    full_table_type->AddColumn("hostname", ValueType::Create(types::DataType::STRING, types::SemanticType::ST_NONE));
+    column_indices.push_back(table_column_count);  // hostname is after all table columns
+
+    full_table_type->AddColumn("event_time", ValueType::Create(types::DataType::TIME64NS, types::SemanticType::ST_TIME_NS));
+    column_indices.push_back(table_column_count + 1);  // event_time is after hostname
+
     SetColumnIndexMap(column_indices);
     return SetResolvedType(full_table_type);
   }
 
   std::vector<int64_t> column_indices;
   auto new_table = TableType::Create();
+
+  // Calculate the index offset for ClickHouse-added columns (after all table columns)
+  int64_t table_column_count = static_cast<int64_t>(table_relation.NumColumns());
+  auto next_count = 0;
+
   for (const auto& col_name : column_names_) {
+    // Handle special ClickHouse-added columns that don't exist in the source table
+    if (col_name == "hostname") {
+      new_table->AddColumn(col_name, ValueType::Create(types::DataType::STRING, types::SemanticType::ST_NONE));
+      // hostname is added by ClickHouse after all table columns
+      column_indices.push_back(table_column_count + (next_count++));
+      continue;
+    }
+    if (col_name == "event_time") {
+      new_table->AddColumn(col_name, ValueType::Create(types::DataType::TIME64NS, types::SemanticType::ST_TIME_NS));
+      // event_time is added by ClickHouse after hostname
+      column_indices.push_back(table_column_count + (next_count++));
+      continue;
+    }
+
     PX_ASSIGN_OR_RETURN(auto col_type, full_table_type->GetColumnType(col_name));
     new_table->AddColumn(col_name, col_type);
     column_indices.push_back(table_relation.GetColumnIndex(col_name));

@@ -41,6 +41,7 @@
 #include "src/vizier/funcs/context/vizier_context.h"
 #include "src/vizier/funcs/funcs.h"
 #include "src/vizier/services/metadata/local/local_metadata_service.h"
+#include "src/stirling/source_connectors/socket_tracer/http_table.h"
 
 // Example clickhouse test usage:
 // The records inserted into clickhouse exist between -10m and -5m
@@ -285,12 +286,19 @@ std::unique_ptr<clickhouse::Client> SetupClickHouseClient() {
  */
 void PopulateHttpEventsTable(clickhouse::Client* client) {
   try {
-    // Insert sample data
+    // Get current hostname for the data
+    char current_hostname[256];
+    gethostname(current_hostname, sizeof(current_hostname));
+    std::string hostname_str(current_hostname);
+
+    // Insert sample data matching the stirling HTTP table schema (minus upid)
     auto time_col = std::make_shared<clickhouse::ColumnDateTime64>(9);
-    auto local_addr_col = std::make_shared<clickhouse::ColumnString>();
-    auto local_port_col = std::make_shared<clickhouse::ColumnInt64>();
     auto remote_addr_col = std::make_shared<clickhouse::ColumnString>();
     auto remote_port_col = std::make_shared<clickhouse::ColumnInt64>();
+    auto local_addr_col = std::make_shared<clickhouse::ColumnString>();
+    auto local_port_col = std::make_shared<clickhouse::ColumnInt64>();
+    auto trace_role_col = std::make_shared<clickhouse::ColumnInt64>();
+    auto encrypted_col = std::make_shared<clickhouse::ColumnUInt8>();  // Boolean
     auto major_version_col = std::make_shared<clickhouse::ColumnInt64>();
     auto minor_version_col = std::make_shared<clickhouse::ColumnInt64>();
     auto content_type_col = std::make_shared<clickhouse::ColumnInt64>();
@@ -298,11 +306,13 @@ void PopulateHttpEventsTable(clickhouse::Client* client) {
     auto req_method_col = std::make_shared<clickhouse::ColumnString>();
     auto req_path_col = std::make_shared<clickhouse::ColumnString>();
     auto req_body_col = std::make_shared<clickhouse::ColumnString>();
+    auto req_body_size_col = std::make_shared<clickhouse::ColumnInt64>();
     auto resp_headers_col = std::make_shared<clickhouse::ColumnString>();
     auto resp_status_col = std::make_shared<clickhouse::ColumnInt64>();
     auto resp_message_col = std::make_shared<clickhouse::ColumnString>();
     auto resp_body_col = std::make_shared<clickhouse::ColumnString>();
-    auto resp_latency_ns_col = std::make_shared<clickhouse::ColumnInt64>();
+    auto resp_body_size_col = std::make_shared<clickhouse::ColumnInt64>();
+    auto latency_col = std::make_shared<clickhouse::ColumnInt64>();
     auto hostname_col = std::make_shared<clickhouse::ColumnString>();
     auto event_time_col = std::make_shared<clickhouse::ColumnDateTime64>(3);
 
@@ -310,63 +320,62 @@ void PopulateHttpEventsTable(clickhouse::Client* client) {
     std::time_t now = std::time(nullptr);
     LOG(INFO) << "Current time: " << now;
 
-    // Get current hostname
-    char current_hostname[256];
-    gethostname(current_hostname, sizeof(current_hostname));
-    std::string hostname_str(current_hostname);
-
-    // Add 5 records with the current hostname
-    for (int i = 0; i < 5; ++i) {
+    // Add 10 records (5 with current hostname, 5 with different hostnames)
+    for (int i = 0; i < 10; ++i) {
       time_col->Append((now - 600 + i * 60) * 1000000000LL);  // Convert to nanoseconds
-      local_addr_col->Append("127.0.0.1");
-      local_port_col->Append(8080);
+
       remote_addr_col->Append(absl::StrFormat("192.168.1.%d", 100 + i));
       remote_port_col->Append(50000 + i);
+      local_addr_col->Append("127.0.0.1");
+      local_port_col->Append(8080);
+
+      // trace_role: 1 = server, 2 = client (alternate)
+      trace_role_col->Append(i % 2 == 0 ? 1 : 2);
+
+      // encrypted: false for most, true for some
+      encrypted_col->Append(i % 3 == 0 ? 1 : 0);
+
       major_version_col->Append(1);
       minor_version_col->Append(1);
-      content_type_col->Append(0);
+      content_type_col->Append(i % 2 == 0 ? 1 : 0);  // 1 = JSON, 0 = unknown
+
       req_headers_col->Append("Content-Type: application/json");
       req_method_col->Append(i % 2 == 0 ? "GET" : "POST");
       req_path_col->Append(absl::StrFormat("/api/v1/resource/%d", i));
-      req_body_col->Append(i % 2 == 0 ? "" : "{\"data\": \"test\"}");
-      resp_headers_col->Append("Content-Type: application/json");
-      resp_status_col->Append(200);
-      resp_message_col->Append("OK");
-      resp_body_col->Append("{\"result\": \"success\"}");
-      resp_latency_ns_col->Append(1000000 + i * 100000);
-      hostname_col->Append(hostname_str);
-      event_time_col->Append((now - 600 + i * 60) * 1000LL);  // Convert to milliseconds
-    }
 
-    // Add 5 more records with different hostnames for testing
-    for (int i = 5; i < 10; ++i) {
-      time_col->Append((now - 600 + i * 60) * 1000000000LL);  // Convert to nanoseconds
-      local_addr_col->Append("127.0.0.1");
-      local_port_col->Append(8080);
-      remote_addr_col->Append(absl::StrFormat("192.168.1.%d", 100 + i));
-      remote_port_col->Append(50000 + i);
-      major_version_col->Append(1);
-      minor_version_col->Append(1);
-      content_type_col->Append(0);
-      req_headers_col->Append("Content-Type: application/json");
-      req_method_col->Append(i % 2 == 0 ? "GET" : "POST");
-      req_path_col->Append(absl::StrFormat("/api/v1/resource/%d", i));
-      req_body_col->Append(i % 2 == 0 ? "" : "{\"data\": \"test\"}");
+      std::string req_body = i % 2 == 0 ? "" : "{\"data\": \"test\"}";
+      req_body_col->Append(req_body);
+      req_body_size_col->Append(req_body.size());
+
       resp_headers_col->Append("Content-Type: application/json");
       resp_status_col->Append(200);
       resp_message_col->Append("OK");
-      resp_body_col->Append("{\"result\": \"success\"}");
-      resp_latency_ns_col->Append(1000000 + i * 100000);
-      hostname_col->Append(absl::StrFormat("other-host-%d", i % 3));
+
+      std::string resp_body = "{\"result\": \"success\"}";
+      resp_body_col->Append(resp_body);
+      resp_body_size_col->Append(resp_body.size());
+
+      latency_col->Append(1000000 + i * 100000);
+
+      // First 5 use current hostname, next 5 use different hostnames
+      if (i < 5) {
+        hostname_col->Append(hostname_str);
+      } else {
+        hostname_col->Append(absl::StrFormat("other-host-%d", i % 3));
+      }
+
       event_time_col->Append((now - 600 + i * 60) * 1000LL);  // Convert to milliseconds
     }
 
     clickhouse::Block block;
     block.AppendColumn("time_", time_col);
-    block.AppendColumn("local_addr", local_addr_col);
-    block.AppendColumn("local_port", local_port_col);
+    // Skip upid column (UINT128 not supported in ClickHouse client)
     block.AppendColumn("remote_addr", remote_addr_col);
     block.AppendColumn("remote_port", remote_port_col);
+    block.AppendColumn("local_addr", local_addr_col);
+    block.AppendColumn("local_port", local_port_col);
+    block.AppendColumn("trace_role", trace_role_col);
+    block.AppendColumn("encrypted", encrypted_col);
     block.AppendColumn("major_version", major_version_col);
     block.AppendColumn("minor_version", minor_version_col);
     block.AppendColumn("content_type", content_type_col);
@@ -374,18 +383,20 @@ void PopulateHttpEventsTable(clickhouse::Client* client) {
     block.AppendColumn("req_method", req_method_col);
     block.AppendColumn("req_path", req_path_col);
     block.AppendColumn("req_body", req_body_col);
+    block.AppendColumn("req_body_size", req_body_size_col);
     block.AppendColumn("resp_headers", resp_headers_col);
     block.AppendColumn("resp_status", resp_status_col);
     block.AppendColumn("resp_message", resp_message_col);
     block.AppendColumn("resp_body", resp_body_col);
-    block.AppendColumn("resp_latency_ns", resp_latency_ns_col);
+    block.AppendColumn("resp_body_size", resp_body_size_col);
+    block.AppendColumn("latency", latency_col);
     block.AppendColumn("hostname", hostname_col);
     block.AppendColumn("event_time", event_time_col);
 
     client->Insert("http_events", block);
-    LOG(INFO) << "http_events table created and populated successfully";
+    LOG(INFO) << "http_events table populated successfully with 10 records";
   } catch (const std::exception& e) {
-    LOG(FATAL) << "Failed to create http_events table: " << e.what();
+    LOG(FATAL) << "Failed to populate http_events table: " << e.what();
   }
 }
 
@@ -473,38 +484,35 @@ int main(int argc, char* argv[]) {
                     .ConsumeValueOrDie();
 
   if (use_clickhouse) {
-    // Create http_events table schema in table_store
-    std::vector<px::types::DataType> types = {
-        px::types::DataType::TIME64NS,  // time_
-        px::types::DataType::STRING,    // local_addr
-        px::types::DataType::INT64,     // local_port
-        px::types::DataType::STRING,    // remote_addr
-        px::types::DataType::INT64,     // remote_port
-        px::types::DataType::INT64,     // major_version
-        px::types::DataType::INT64,     // minor_version
-        px::types::DataType::INT64,     // content_type
-        px::types::DataType::STRING,    // req_headers
-        px::types::DataType::STRING,    // req_method
-        px::types::DataType::STRING,    // req_path
-        px::types::DataType::STRING,    // req_body
-        px::types::DataType::STRING,    // resp_headers
-        px::types::DataType::INT64,     // resp_status
-        px::types::DataType::STRING,    // resp_message
-        px::types::DataType::STRING,    // resp_body
-        px::types::DataType::INT64,     // resp_latency_ns
-        px::types::DataType::STRING,    // hostname
-        px::types::DataType::TIME64NS,  // event_time
-    };
-    std::vector<std::string> names = {
-        "time_",         "local_addr",      "local_port",   "remote_addr", "remote_port",
-        "major_version", "minor_version",   "content_type", "req_headers", "req_method",
-        "req_path",      "req_body",        "resp_headers", "resp_status", "resp_message",
-        "resp_body",     "resp_latency_ns", "hostname",     "event_time"};
+    // Create http_events table schema in table_store using the actual stirling HTTP table definition
+    // Skip upid column since UINT128 is not supported by ClickHouse client library
+    std::vector<px::types::DataType> types;
+    std::vector<std::string> names;
+
+    // Convert stirling DataTableSchema to table_store Relation
+    for (const auto& element : px::stirling::kHTTPTable.elements()) {
+      std::string col_name(element.name());
+      if (col_name == "upid") {
+        continue;  // Skip upid (UINT128 not supported in ClickHouse client)
+      }
+      if (col_name == "px_info_") {
+        continue;  // Skip px_info_ (debug-only column)
+      }
+      types.push_back(element.type());
+      names.push_back(col_name);
+    }
+
     px::table_store::schema::Relation rel(types, names);
     auto http_events_table = px::table_store::Table::Create("http_events", rel);
     // Need to provide a table_id for GetTableIDs() to work
     uint64_t http_events_table_id = 1;
     table_store->AddTable(http_events_table, "http_events", http_events_table_id);
+
+    // Log the schema for debugging
+    LOG(INFO) << "http_events table schema has " << names.size() << " columns:";
+    for (size_t i = 0; i < names.size(); ++i) {
+      LOG(INFO) << "  Column[" << i << "]: " << names[i] << " (type=" << static_cast<int>(types[i]) << ")";
+    }
 
     auto schema_query = "import px; px.display(px.CreateClickHouseSchemas())";
     auto schema_query_status = carnot->ExecuteQuery(schema_query, sole::uuid4(), px::CurrentTimeNS());

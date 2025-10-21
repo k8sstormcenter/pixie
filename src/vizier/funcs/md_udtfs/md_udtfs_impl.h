@@ -1271,6 +1271,14 @@ class CreateClickHouseSchemas final : public carnot::udf::UDTF<CreateClickHouseS
         // event_time and hostname are added separately
         continue;
       }
+      if (column_name == "upid") {
+        // Skip upid column (UINT128 not supported in ClickHouse client)
+        continue;
+      }
+      if (column_name == "px_info_") {
+        // Skip px_info_ column (debug-only column)
+        continue;
+      }
       std::string clickhouse_type = clickhouse_schema::PixieTypeToClickHouseType(
           col.column_type(), column_name);
       column_defs.push_back(absl::Substitute("$0 $1", column_name, clickhouse_type));

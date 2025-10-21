@@ -175,12 +175,15 @@ StatusOr<std::unique_ptr<RowBatch>> ClickHouseSourceNode::ConvertClickHouseBlock
     // This is where column type inference happens
 
     // Integer types - all map to INT64 in Pixie
+
+    // TODO(ddelnano): UInt8 is a special case since it can map to Pixie's boolean type.
+    // Figure out how to handle that properly
     if (type_name == "UInt8") {
       auto typed_col = ch_column->As<clickhouse::ColumnUInt8>();
-      arrow::Int64Builder builder;
+      arrow::BooleanBuilder builder;
       PX_RETURN_IF_ERROR(builder.Reserve(num_rows));
       for (size_t i = 0; i < num_rows; ++i) {
-        builder.UnsafeAppend(static_cast<int64_t>(typed_col->At(i)));
+        builder.UnsafeAppend(typed_col->At(i) != 0);
       }
       std::shared_ptr<arrow::Array> array;
       PX_RETURN_IF_ERROR(builder.Finish(&array));

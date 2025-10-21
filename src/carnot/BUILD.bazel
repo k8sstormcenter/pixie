@@ -111,6 +111,7 @@ pl_cc_binary(
         "//src/common/testing/test_utils:cc_library",
         "//src/shared/version:cc_library",
         "//src/shared/version:version_linkstamp",
+        "//src/stirling/source_connectors/socket_tracer:cc_library",
         "//src/vizier/funcs:cc_library",
         "//src/vizier/funcs/context:cc_library",
         "//src/vizier/services/metadata/local:cc_library",

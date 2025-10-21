@@ -283,37 +283,8 @@ std::unique_ptr<clickhouse::Client> SetupClickHouseClient() {
 /**
  * Creates the http_events table in ClickHouse with proper schema and sample data.
  */
-void CreateHttpEventsTable(clickhouse::Client* client) {
+void PopulateHttpEventsTable(clickhouse::Client* client) {
   try {
-    client->Execute("DROP TABLE IF EXISTS http_events");
-
-    // Create table with http_events schema plus hostname and event_time
-    client->Execute(R"(
-      CREATE TABLE http_events (
-        time_ DateTime64(9),
-        local_addr String,
-        local_port Int64,
-        remote_addr String,
-        remote_port Int64,
-        major_version Int64,
-        minor_version Int64,
-        content_type Int64,
-        req_headers String,
-        req_method String,
-        req_path String,
-        req_body String,
-        resp_headers String,
-        resp_status Int64,
-        resp_message String,
-        resp_body String,
-        resp_latency_ns Int64,
-        hostname String,
-        event_time DateTime64(3)
-      ) ENGINE = MergeTree()
-      PARTITION BY toYYYYMM(event_time)
-      ORDER BY (hostname, event_time)
-    )");
-
     // Insert sample data
     auto time_col = std::make_shared<clickhouse::ColumnDateTime64>(9);
     auto local_addr_col = std::make_shared<clickhouse::ColumnString>();
@@ -460,7 +431,6 @@ int main(int argc, char* argv[]) {
 
     // Setup ClickHouse client and create test table
     clickhouse_client = SetupClickHouseClient();
-    CreateHttpEventsTable(clickhouse_client.get());
     LOG(INFO) << "ClickHouse ready with http_events table";
   } else {
     // Only load CSV if not using ClickHouse
@@ -485,8 +455,6 @@ int main(int argc, char* argv[]) {
   );
 
   auto func_registry = std::make_unique<px::carnot::udf::Registry>("default_registry");
-  // Register both carnot and vizier functions
-  px::carnot::funcs::RegisterFuncsOrDie(func_registry.get());
   px::vizier::funcs::RegisterFuncsOrDie(func_context, func_registry.get());
 
   auto clients_config =
@@ -534,7 +502,17 @@ int main(int argc, char* argv[]) {
         "resp_body",     "resp_latency_ns", "hostname",     "event_time"};
     px::table_store::schema::Relation rel(types, names);
     auto http_events_table = px::table_store::Table::Create("http_events", rel);
-    table_store->AddTable("http_events", http_events_table);
+    // Need to provide a table_id for GetTableIDs() to work
+    uint64_t http_events_table_id = 1;
+    table_store->AddTable(http_events_table, "http_events", http_events_table_id);
+
+    auto schema_query = "import px; px.display(px.CreateClickHouseSchemas())";
+    auto schema_query_status = carnot->ExecuteQuery(schema_query, sole::uuid4(), px::CurrentTimeNS());
+    if (!schema_query_status.ok()) {
+      LOG(FATAL) << absl::Substitute("Schema query failed to execute: $0",
+                                     schema_query_status.msg());
+    }
+    PopulateHttpEventsTable(clickhouse_client.get());
   } else if (table != nullptr) {
     // Add CSV table to table_store
     table_store->AddTable(table_name, table);

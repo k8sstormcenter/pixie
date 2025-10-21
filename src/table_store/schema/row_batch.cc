@@ -38,7 +38,7 @@ std::shared_ptr<arrow::Array> RowBatch::ColumnAt(int64_t i) const { return colum
 
 Status RowBatch::AddColumn(const std::shared_ptr<arrow::Array>& col) {
   if (columns_.size() >= desc_.size()) {
-    return error::InvalidArgument("Schema only allows $0 columns", desc_.size());
+    return error::InvalidArgument("Schema only allows $0 columns, got $1", desc_.size(), columns_.size());
   }
   if (col->length() != num_rows_) {
     return error::InvalidArgument("Schema only allows $0 rows, got $1", num_rows_, col->length());

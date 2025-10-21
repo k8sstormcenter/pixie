@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <grpcpp/grpcpp.h>
 #include <memory>
 #include <string>
@@ -48,7 +49,6 @@ class LocalMetadataServiceImpl final : public MetadataService::Service {
 
   ::grpc::Status GetSchemas(::grpc::ServerContext*, const SchemaRequest*,
                              SchemaResponse* response) override {
-    LOG(INFO) << "GetSchemas called";
 
     // Get all table IDs from the table store
     auto table_ids = table_store_->GetTableIDs();
@@ -100,8 +100,70 @@ class LocalMetadataServiceImpl final : public MetadataService::Service {
   }
 
   ::grpc::Status GetAgentInfo(::grpc::ServerContext*, const AgentInfoRequest*,
-                               AgentInfoResponse*) override {
-    return ::grpc::Status(grpc::StatusCode::UNIMPLEMENTED, "GetAgentInfo not implemented");
+                               AgentInfoResponse* response) override {
+
+    // Create a single agent metadata entry for local testing
+    auto* agent_metadata = response->add_info();
+
+    // Set up Agent information
+    auto* agent = agent_metadata->mutable_agent();
+    auto* agent_info = agent->mutable_info();
+
+    // Generate a fixed UUID for the agent (using a realistic looking UUID)
+    // UUID: 12345678-1234-1234-1234-123456789abc
+    auto* agent_id = agent_info->mutable_agent_id();
+    agent_id->set_high_bits(0x1234567812341234);
+    agent_id->set_low_bits(0x1234123456789abc);
+
+    // Set up host information
+    auto* host_info = agent_info->mutable_host_info();
+    host_info->set_hostname("local-test-host");
+    host_info->set_pod_name("local-pem-pod");
+    host_info->set_host_ip("127.0.0.1");
+
+    // Set kernel version (example: 5.15.0)
+    auto* kernel = host_info->mutable_kernel();
+    kernel->set_version(5);
+    kernel->set_major_rev(15);
+    kernel->set_minor_rev(0);
+    host_info->set_kernel_headers_installed(true);
+
+    // Set agent capabilities and parameters
+    agent_info->set_ip_address("127.0.0.1");
+    auto* capabilities = agent_info->mutable_capabilities();
+    capabilities->set_collects_data(true);
+
+    auto* parameters = agent_info->mutable_parameters();
+    parameters->set_profiler_stack_trace_sample_period_ms(100);
+
+    // Set agent timestamps and ASID
+    auto current_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                               std::chrono::system_clock::now().time_since_epoch())
+                               .count();
+    agent->set_create_time_ns(current_time_ns);
+    agent->set_last_heartbeat_ns(current_time_ns);
+    agent->set_asid(0);
+
+    // Set up AgentStatus
+    auto* status = agent_metadata->mutable_status();
+    status->set_ns_since_last_heartbeat(0);
+    status->set_state(
+        px::vizier::services::shared::agent::AgentState::AGENT_STATE_HEALTHY);
+
+    // Set up CarnotInfo
+    auto* carnot_info = agent_metadata->mutable_carnot_info();
+    carnot_info->set_query_broker_address("local-pem:50300");
+    auto* carnot_agent_id = carnot_info->mutable_agent_id();
+    carnot_agent_id->set_high_bits(0x1234567812341234);
+    carnot_agent_id->set_low_bits(0x1234123456789abc);
+    carnot_info->set_has_grpc_server(true);
+    carnot_info->set_grpc_address("local-pem:50300");
+    carnot_info->set_has_data_store(true);
+    carnot_info->set_processes_data(true);
+    carnot_info->set_accepts_remote_sources(false);
+    carnot_info->set_asid(0);
+
+    return ::grpc::Status::OK;
   }
 
   ::grpc::Status GetWithPrefixKey(::grpc::ServerContext*, const WithPrefixKeyRequest*,

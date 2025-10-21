@@ -1138,25 +1138,22 @@ class CreateClickHouseSchemas final : public carnot::udf::UDTF<CreateClickHouseS
 
   static constexpr auto InitArgs() {
     return MakeArray(
-        UDTFArg::Make<types::DataType::STRING>("host", "ClickHouse server host", "localhost"),
+        UDTFArg::Make<types::DataType::STRING>("host", "ClickHouse server host", "'localhost'"),
         UDTFArg::Make<types::DataType::INT64>("port", "ClickHouse server port", 9000),
-        UDTFArg::Make<types::DataType::STRING>("username", "ClickHouse username", "default"),
-        UDTFArg::Make<types::DataType::STRING>("password", "ClickHouse password", ""),
-        UDTFArg::Make<types::DataType::STRING>("database", "ClickHouse database", "default"),
-        UDTFArg::Make<types::DataType::STRING>(
-            "table_filter", "Optional table name filter (empty for all tables)", ""));
+        UDTFArg::Make<types::DataType::STRING>("username", "ClickHouse username", "'default'"),
+        UDTFArg::Make<types::DataType::STRING>("password", "ClickHouse password", "'test_password'"),
+        UDTFArg::Make<types::DataType::STRING>("database", "ClickHouse database", "'default'"));
   }
 
   Status Init(FunctionContext*, types::StringValue host, types::Int64Value port,
               types::StringValue username, types::StringValue password,
-              types::StringValue database, types::StringValue table_filter) {
+              types::StringValue database) {
     // Store ClickHouse connection parameters
     host_ = std::string(host);
     port_ = port.val;
     username_ = std::string(username);
     password_ = std::string(password);
     database_ = std::string(database);
-    table_filter_ = std::string(table_filter);
 
     // Fetch schemas from MDS
     px::vizier::services::metadata::SchemaRequest req;
@@ -1187,13 +1184,7 @@ class CreateClickHouseSchemas final : public carnot::udf::UDTF<CreateClickHouseS
                              host_, port_, e.what());
     }
 
-    // Process each table
     for (const auto& [table_name, rel] : resp.schema().relation_map()) {
-      // Apply table filter if specified
-      if (!table_filter_.empty() && table_name != table_filter_) {
-        continue;
-      }
-
       TableResult result;
       result.table_name = table_name;
 
@@ -1276,6 +1267,10 @@ class CreateClickHouseSchemas final : public carnot::udf::UDTF<CreateClickHouseS
     // Add columns from schema
     for (const auto& col : schema.columns()) {
       std::string column_name = col.column_name();
+      if (column_name == "event_time" || column_name == "hostname") {
+        // event_time and hostname are added separately
+        continue;
+      }
       std::string clickhouse_type = clickhouse_schema::PixieTypeToClickHouseType(
           col.column_type(), column_name);
       column_defs.push_back(absl::Substitute("$0 $1", column_name, clickhouse_type));
@@ -1313,7 +1308,6 @@ class CreateClickHouseSchemas final : public carnot::udf::UDTF<CreateClickHouseS
   std::string username_;
   std::string password_;
   std::string database_;
-  std::string table_filter_;
 };
 
 }  // namespace md

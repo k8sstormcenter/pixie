@@ -262,7 +262,6 @@ TEST_F(ClickHouseSourceNodeTest, EmptyResultSet) {
   ch_op->add_column_types(types::DataType::STRING);
   ch_op->add_column_types(types::DataType::FLOAT64);
   ch_op->set_timestamp_column("timestamp");
-  ch_op->set_partition_column("partition_key");
   ch_op->set_start_time(1000000000000000000LL);  // Year 2001 in nanoseconds
   ch_op->set_end_time(9223372036854775807LL);    // Max int64
 
@@ -310,7 +309,6 @@ TEST_F(ClickHouseSourceNodeTest, FilteredQuery) {
   ch_op->add_column_types(types::DataType::STRING);
   ch_op->add_column_types(types::DataType::FLOAT64);
   ch_op->set_timestamp_column("timestamp");
-  ch_op->set_partition_column("partition_key");
   ch_op->set_start_time(1000000000000000000LL);  // Year 2001 in nanoseconds
   ch_op->set_end_time(9223372036854775807LL);    // Max int64
 

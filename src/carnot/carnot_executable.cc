@@ -291,8 +291,9 @@ void PopulateHttpEventsTable(clickhouse::Client* client) {
     gethostname(current_hostname, sizeof(current_hostname));
     std::string hostname_str(current_hostname);
 
-    // Insert sample data matching the stirling HTTP table schema (minus upid)
+    // Insert sample data matching the stirling HTTP table schema (upid as String with high:low format)
     auto time_col = std::make_shared<clickhouse::ColumnDateTime64>(9);
+    auto upid_col = std::make_shared<clickhouse::ColumnString>();
     auto remote_addr_col = std::make_shared<clickhouse::ColumnString>();
     auto remote_port_col = std::make_shared<clickhouse::ColumnInt64>();
     auto local_addr_col = std::make_shared<clickhouse::ColumnString>();
@@ -313,6 +314,9 @@ void PopulateHttpEventsTable(clickhouse::Client* client) {
     auto resp_body_col = std::make_shared<clickhouse::ColumnString>();
     auto resp_body_size_col = std::make_shared<clickhouse::ColumnInt64>();
     auto latency_col = std::make_shared<clickhouse::ColumnInt64>();
+#ifndef NDEBUG
+    auto px_info_col = std::make_shared<clickhouse::ColumnString>();
+#endif
     auto hostname_col = std::make_shared<clickhouse::ColumnString>();
     auto event_time_col = std::make_shared<clickhouse::ColumnDateTime64>(3);
 
@@ -323,6 +327,11 @@ void PopulateHttpEventsTable(clickhouse::Client* client) {
     // Add 10 records (5 with current hostname, 5 with different hostnames)
     for (int i = 0; i < 10; ++i) {
       time_col->Append((now - 600 + i * 60) * 1000000000LL);  // Convert to nanoseconds
+
+      // Generate upid as UINT128 in high:low string format
+      uint64_t upid_high = 1000 + i;
+      uint64_t upid_low = 2000 + i;
+      upid_col->Append(absl::StrFormat("%d:%d", upid_high, upid_low));
 
       remote_addr_col->Append(absl::StrFormat("192.168.1.%d", 100 + i));
       remote_port_col->Append(50000 + i);
@@ -356,6 +365,9 @@ void PopulateHttpEventsTable(clickhouse::Client* client) {
       resp_body_size_col->Append(resp_body.size());
 
       latency_col->Append(1000000 + i * 100000);
+#ifndef NDEBUG
+      px_info_col->Append("");
+#endif
 
       // First 5 use current hostname, next 5 use different hostnames
       if (i < 5) {
@@ -369,7 +381,7 @@ void PopulateHttpEventsTable(clickhouse::Client* client) {
 
     clickhouse::Block block;
     block.AppendColumn("time_", time_col);
-    // Skip upid column (UINT128 not supported in ClickHouse client)
+    block.AppendColumn("upid", upid_col);
     block.AppendColumn("remote_addr", remote_addr_col);
     block.AppendColumn("remote_port", remote_port_col);
     block.AppendColumn("local_addr", local_addr_col);
@@ -485,19 +497,12 @@ int main(int argc, char* argv[]) {
 
   if (use_clickhouse) {
     // Create http_events table schema in table_store using the actual stirling HTTP table definition
-    // Skip upid column since UINT128 is not supported by ClickHouse client library
     std::vector<px::types::DataType> types;
     std::vector<std::string> names;
 
     // Convert stirling DataTableSchema to table_store Relation
     for (const auto& element : px::stirling::kHTTPTable.elements()) {
       std::string col_name(element.name());
-      if (col_name == "upid") {
-        continue;  // Skip upid (UINT128 not supported in ClickHouse client)
-      }
-      if (col_name == "px_info_") {
-        continue;  // Skip px_info_ (debug-only column)
-      }
       types.push_back(element.type());
       names.push_back(col_name);
     }

@@ -1102,7 +1102,7 @@ inline std::string PixieTypeToClickHouseType(types::DataType pixie_type,
       // Default to DateTime64(9) for other time columns
       return "DateTime64(9)";
     case types::DataType::UINT128:
-      // ClickHouse doesn't have native UINT128, use String representation
+      // ClickHouse doesn't have native UINT128, use String representation (high:low format)
       return "String";
     default:
       return "String";  // Fallback to String for unsupported types
@@ -1269,14 +1269,6 @@ class CreateClickHouseSchemas final : public carnot::udf::UDTF<CreateClickHouseS
       std::string column_name = col.column_name();
       if (column_name == "event_time" || column_name == "hostname") {
         // event_time and hostname are added separately
-        continue;
-      }
-      if (column_name == "upid") {
-        // Skip upid column (UINT128 not supported in ClickHouse client)
-        continue;
-      }
-      if (column_name == "px_info_") {
-        // Skip px_info_ column (debug-only column)
         continue;
       }
       std::string clickhouse_type = clickhouse_schema::PixieTypeToClickHouseType(

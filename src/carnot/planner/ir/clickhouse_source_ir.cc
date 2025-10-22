@@ -48,10 +48,6 @@ Status ClickHouseSourceIR::ToProto(planpb::Operator* op) const {
   DCHECK(is_type_resolved());
   DCHECK_EQ(column_index_map_.size(), resolved_table_type()->ColumnNames().size());
   for (const auto& [idx, col_name] : Enumerate(resolved_table_type()->ColumnNames())) {
-    if (col_name == "upid") {
-      LOG(INFO) << "Skipping upid column in ClickHouse source proto.";
-      continue;
-    }
     pb->add_column_names(col_name);
     auto val_type = std::static_pointer_cast<ValueType>(
         resolved_table_type()->GetColumnType(col_name).ConsumeValueOrDie());

@@ -171,8 +171,40 @@ StatusOr<std::unique_ptr<RowBatch>> ClickHouseSourceNode::ConvertClickHouseBlock
     const auto& ch_column = block[col_idx];
     const auto& type_name = ch_column->Type()->GetName();
 
+    // Check what the expected output type is for this column
+    auto expected_type = output_descriptor_->type(col_idx);
+
     // For now, implement conversion for common types
     // This is where column type inference happens
+
+    // Special case: String in ClickHouse that should be UINT128 in Pixie
+    if (type_name == "String" && expected_type == types::DataType::UINT128) {
+      auto typed_col = ch_column->As<clickhouse::ColumnString>();
+      auto builder = types::MakeArrowBuilder(types::DataType::UINT128, arrow::default_memory_pool());
+      PX_RETURN_IF_ERROR(builder->Reserve(num_rows));
+
+      for (size_t i = 0; i < num_rows; ++i) {
+        std::string value(typed_col->At(i));
+
+        // Parse "high:low" format
+        size_t colon_pos = value.find(':');
+        if (colon_pos == std::string::npos) {
+          return error::InvalidArgument("Invalid UINT128 string format: $0 (expected high:low)", value);
+        }
+
+        uint64_t high = std::stoull(value.substr(0, colon_pos));
+        uint64_t low = std::stoull(value.substr(colon_pos + 1));
+        absl::uint128 uint128_val = absl::MakeUint128(high, low);
+
+        PX_RETURN_IF_ERROR(table_store::schema::CopyValue<types::DataType::UINT128>(builder.get(), uint128_val));
+      }
+
+      std::shared_ptr<arrow::Array> array;
+      PX_RETURN_IF_ERROR(builder->Finish(&array));
+      PX_RETURN_IF_ERROR(row_batch->AddColumn(array));
+
+      continue;
+    }
 
     // Integer types - all map to INT64 in Pixie
 
@@ -547,6 +579,9 @@ Status ClickHouseSourceNode::GenerateNextImpl(ExecState* exec_state) {
       case types::DataType::INT64:
         builder = std::make_shared<arrow::Int64Builder>();
         break;
+      case types::DataType::UINT128:
+        builder = types::MakeArrowBuilder(types::DataType::UINT128, arrow::default_memory_pool());
+        break;
       case types::DataType::FLOAT64:
         builder = std::make_shared<arrow::DoubleBuilder>();
         break;
@@ -582,6 +617,18 @@ Status ClickHouseSourceNode::GenerateNextImpl(ExecState* exec_state) {
               PX_RETURN_IF_ERROR(typed_builder->AppendNull());
             } else {
               typed_builder->UnsafeAppend(typed_array->Value(i));
+            }
+          }
+          break;
+        }
+        case types::DataType::UINT128: {
+          auto typed_array = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(array);
+          for (int i = 0; i < typed_array->length(); i++) {
+            if (typed_array->IsNull(i)) {
+              PX_RETURN_IF_ERROR(builder->AppendNull());
+            } else {
+              auto val = types::GetValueFromArrowArray<types::DataType::UINT128>(array.get(), i);
+              PX_RETURN_IF_ERROR(table_store::schema::CopyValue<types::DataType::UINT128>(builder.get(), val));
             }
           }
           break;

@@ -1093,7 +1093,6 @@ TEST_F(LogicalPlannerTest, FileSourcePlan) {
   EXPECT_OK(plan_or_s);
   auto plan = plan_or_s.ConsumeValueOrDie();
   EXPECT_OK(plan->ToProto());
-
   auto otel_export_matched = false;
   auto grpc_sink_matched = false;
   for (const auto& id : plan->dag().TopologicalSort()) {
@@ -1124,6 +1123,49 @@ TEST_F(LogicalPlannerTest, FileSourcePlan) {
   }
   EXPECT_TRUE(otel_export_matched);
   EXPECT_TRUE(grpc_sink_matched);
+}
+
+constexpr char kClickHouseSourceQuery[] = R"pxl(
+import px
+
+# Test ClickHouse source node functionality
+df = px.DataFrame('http_events', start_time='-10m', end_time='-5m', clickhouse=True)
+df = df['time_', 'req_headers']
+px.display(df, 'clickhouse_data')
+)pxl";
+
+TEST_F(LogicalPlannerTest, ClickHouseSourceNode) {
+  auto planner = LogicalPlanner::Create(info_).ConsumeValueOrDie();
+
+  // Create a test schema that includes a ClickHouse table
+  auto state = testutils::CreateTwoPEMsOneKelvinPlannerState(testutils::kHttpEventsSchema);
+
+  auto plan_or_s = planner->Plan(MakeQueryRequest(state, kClickHouseSourceQuery));
+  EXPECT_OK(plan_or_s);
+  auto plan = plan_or_s.ConsumeValueOrDie();
+  EXPECT_OK(plan->ToProto());
+
+  // Verify the plan contains ClickHouse source operators
+  auto plan_pb = plan->ToProto().ConsumeValueOrDie();
+  bool has_clickhouse_source = false;
+
+  for (const auto& [address, agent_plan] : plan_pb.qb_address_to_plan()) {
+    for (const auto& planFragment : agent_plan.nodes()) {
+      for (const auto& planNode : planFragment.nodes()) {
+        if (planNode.op().op_type() == planpb::OperatorType::CLICKHOUSE_SOURCE_OPERATOR) {
+          has_clickhouse_source = true;
+          break;
+        }
+      }
+      if (has_clickhouse_source) break;
+    }
+    if (has_clickhouse_source) break;
+  }
+
+  // Note: This test validates that the planner can process ClickHouse queries
+  // The actual presence of ClickHouse operators depends on the table configuration
+  EXPECT_OK(plan->ToProto());
+  EXPECT_TRUE(has_clickhouse_source);
 }
 
 const char kExplicitStreamId[] = R"pxl(

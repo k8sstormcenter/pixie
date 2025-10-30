@@ -46,6 +46,10 @@
 // Example clickhouse test usage:
 // The records inserted into clickhouse exist between -10m and -5m
 // bazel run -c dbg  src/carnot:carnot_executable --  --vmodule=clickhouse_source_node=1 --use_clickhouse=true     --query="import px;df = px.DataFrame('http_events', clickhouse=True, start_time='-10m', end_time='-9m'); px.display(df)"     --output_file=$(pwd)/output.csv
+//
+// Testing existing ClickHouse table (kubescape_stix) table population and query:
+// bazel run -c dbg  src/carnot:carnot_executable --  --vmodule=clickhouse_source_node=1 --use_clickhouse=true --start_clickhouse=false --query="import px;df = px.DataFrame('kubescape_stix', clickhouse=True, start_time='-10m'); px.display(df)"     --output_file=$(pwd)/output.csv
+
 
 DEFINE_string(input_file, gflags::StringFromEnv("INPUT_FILE", ""),
               "The csv containing data to run the query on.");
@@ -62,6 +66,9 @@ DEFINE_int64(rowbatch_size, gflags::Int64FromEnv("ROWBATCH_SIZE", 100),
              "The size of the rowbatches.");
 
 DEFINE_bool(use_clickhouse, gflags::BoolFromEnv("USE_CLICKHOUSE", false),
+            "Whether to populate a ClickHouse database.");
+
+DEFINE_bool(start_clickhouse, gflags::BoolFromEnv("START_CLICKHOUSE", true),
             "Whether to start a ClickHouse container with test data.");
 
 using px::types::DataType;
@@ -412,6 +419,95 @@ void PopulateHttpEventsTable(clickhouse::Client* client) {
   }
 }
 
+/**
+ * Checks if a table exists in ClickHouse.
+ */
+bool TableExists(clickhouse::Client* client, const std::string& table_name) {
+  try {
+    std::string query = absl::Substitute("EXISTS TABLE $0", table_name);
+    bool exists = false;
+    client->Select(query, [&exists](const clickhouse::Block& block) {
+      if (block.GetRowCount() > 0) {
+        auto result_col = block[0]->As<clickhouse::ColumnUInt8>();
+        exists = result_col->At(0) == 1;
+      }
+    });
+    return exists;
+  } catch (const std::exception& e) {
+    LOG(WARNING) << "Failed to check if table " << table_name << " exists: " << e.what();
+    return false;
+  }
+}
+
+/**
+ * Populates the kubescape_stix table with sample STIX data if it exists.
+ */
+void PopulateKubescapeStixTable(clickhouse::Client* client) {
+  try {
+    // Check if table exists
+    if (!TableExists(client, "kubescape_stix")) {
+      LOG(INFO) << "kubescape_stix table does not exist, skipping population";
+      return;
+    }
+
+    LOG(INFO) << "Populating kubescape_stix table with sample data...";
+
+    // Get current hostname
+    char current_hostname[256];
+    gethostname(current_hostname, sizeof(current_hostname));
+    std::string hostname_str(current_hostname);
+
+    // Create columns for the kubescape_stix table
+    auto timestamp_col = std::make_shared<clickhouse::ColumnString>();
+    auto pod_name_col = std::make_shared<clickhouse::ColumnString>();
+    auto namespace_col = std::make_shared<clickhouse::ColumnString>();
+    auto data_col = std::make_shared<clickhouse::ColumnString>();
+    auto hostname_col = std::make_shared<clickhouse::ColumnString>();
+    auto event_time_col = std::make_shared<clickhouse::ColumnDateTime64>(3);
+
+    // Add sample STIX data
+    std::time_t now = std::time(nullptr);
+
+    // Add 5 sample records with different pods and namespaces
+    std::vector<std::string> pod_names = {"web-pod-1", "api-pod-2", "db-pod-3", "cache-pod-4", "worker-pod-5"};
+    std::vector<std::string> namespaces = {"production", "staging", "development", "production", "staging"};
+
+    for (int i = 0; i < 5; ++i) {
+      // Timestamp as ISO 8601 string
+      std::time_t record_time = now - (300 - i * 60);  // 5 minutes ago to 1 minute ago
+      char time_buf[30];
+      std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&record_time));
+      timestamp_col->Append(std::string(time_buf));
+
+      pod_name_col->Append(pod_names[i]);
+      namespace_col->Append(namespaces[i]);
+
+      // Add unique STIX data for each record
+      std::string stix_data = absl::Substitute(
+          R"({"type":"bundle","id":"bundle--$0","objects":[{"type":"vulnerability","id":"vuln--$0","severity":"$1"}]})",
+          i, (i % 3 == 0 ? "high" : "medium"));
+      data_col->Append(stix_data);
+
+      hostname_col->Append(hostname_str);
+      event_time_col->Append(record_time * 1000LL);  // Convert to milliseconds
+    }
+
+    // Create block and insert
+    clickhouse::Block block;
+    block.AppendColumn("timestamp", timestamp_col);
+    block.AppendColumn("pod_name", pod_name_col);
+    block.AppendColumn("namespace", namespace_col);
+    block.AppendColumn("data", data_col);
+    block.AppendColumn("hostname", hostname_col);
+    block.AppendColumn("event_time", event_time_col);
+
+    client->Insert("kubescape_stix", block);
+    LOG(INFO) << "kubescape_stix table populated successfully with 5 records";
+  } catch (const std::exception& e) {
+    LOG(WARNING) << "Failed to populate kubescape_stix table: " << e.what();
+  }
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -431,21 +527,24 @@ int main(int argc, char* argv[]) {
   std::shared_ptr<px::table_store::Table> table;
 
   if (use_clickhouse) {
-    LOG(INFO) << "Starting ClickHouse container...";
-    clickhouse_server =
-        std::make_unique<px::ContainerRunner>(px::testing::BazelRunfilePath(kClickHouseImage),
-                                              "clickhouse_carnot", kClickHouseReadyMessage);
 
-    std::vector<std::string> options = {
-        absl::Substitute("--publish=$0:$0", kClickHousePort),
-        "--env=CLICKHOUSE_PASSWORD=test_password",
-        "--network=host",
-    };
+    if (FLAGS_start_clickhouse) {
+      LOG(INFO) << "Starting ClickHouse container...";
+      clickhouse_server =
+          std::make_unique<px::ContainerRunner>(px::testing::BazelRunfilePath(kClickHouseImage),
+                                                "clickhouse_carnot", kClickHouseReadyMessage);
 
-    auto status = clickhouse_server->Run(std::chrono::seconds{60}, options, {}, true,
-                                         std::chrono::seconds{300});
-    if (!status.ok()) {
-      LOG(FATAL) << "Failed to start ClickHouse container: " << status.msg();
+      std::vector<std::string> options = {
+          absl::Substitute("--publish=$0:$0", kClickHousePort),
+          "--env=CLICKHOUSE_PASSWORD=test_password",
+          "--network=host",
+      };
+
+      auto status = clickhouse_server->Run(std::chrono::seconds{60}, options, {}, true,
+                                           std::chrono::seconds{300});
+      if (!status.ok()) {
+        LOG(FATAL) << "Failed to start ClickHouse container: " << status.msg();
+      }
     }
 
     // Give ClickHouse time to initialize
@@ -526,6 +625,7 @@ int main(int argc, char* argv[]) {
                                      schema_query_status.msg());
     }
     PopulateHttpEventsTable(clickhouse_client.get());
+    PopulateKubescapeStixTable(clickhouse_client.get());
   } else if (table != nullptr) {
     // Add CSV table to table_store
     table_store->AddTable(table_name, table);

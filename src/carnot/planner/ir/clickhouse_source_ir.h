@@ -29,6 +29,7 @@
 #include "src/carnot/planner/types/types.h"
 #include "src/common/base/base.h"
 #include "src/shared/types/types.h"
+#include "src/table_store/schema/relation.h"
 
 namespace px {
 namespace carnot {
@@ -89,6 +90,13 @@ class ClickHouseSourceIR : public OperatorIR {
   Status ResolveType(CompilerState* compiler_state);
 
  protected:
+  // Helper method to query ClickHouse for table schema and create a Relation
+  StatusOr<table_store::schema::Relation> InferRelationFromClickHouse(
+      CompilerState* compiler_state, const std::string& table_name);
+
+  // Helper method to convert ClickHouse type string to Pixie DataType
+  static StatusOr<types::DataType> ClickHouseTypeToPixieType(const std::string& ch_type_name);
+
   StatusOr<absl::flat_hash_set<std::string>> PruneOutputColumnsToImpl(
       const absl::flat_hash_set<std::string>& output_colnames) override;
 

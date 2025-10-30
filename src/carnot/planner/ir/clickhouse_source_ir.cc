@@ -17,6 +17,9 @@
  */
 
 #include "src/carnot/planner/ir/clickhouse_source_ir.h"
+
+#include <clickhouse/client.h>
+
 #include "src/carnot/planner/ir/ir.h"
 
 namespace px {
@@ -66,7 +69,8 @@ Status ClickHouseSourceIR::ToProto(planpb::Operator* op) const {
   pb->set_batch_size(1024);
 
   // Set default timestamp and partition columns (can be configured later)
-  pb->set_timestamp_column("time_");
+  // TODO(ddelnano): This needs to be set properly.
+  pb->set_timestamp_column("event_time");
   pb->set_partition_column("hostname");
 
   return Status::OK();
@@ -114,12 +118,148 @@ Status ClickHouseSourceIR::CopyFromNodeImpl(const IRNode* node,
   return Status::OK();
 }
 
+StatusOr<types::DataType> ClickHouseSourceIR::ClickHouseTypeToPixieType(
+    const std::string& ch_type_name) {
+  // Integer types - Pixie only supports INT64
+  if (ch_type_name == "UInt8" || ch_type_name == "UInt16" || ch_type_name == "UInt32" ||
+      ch_type_name == "UInt64" || ch_type_name == "Int8" || ch_type_name == "Int16" ||
+      ch_type_name == "Int32" || ch_type_name == "Int64") {
+    return types::DataType::INT64;
+  }
+  // UInt128
+  if (ch_type_name == "UInt128") {
+    return types::DataType::UINT128;
+  }
+  // Floating point types - Pixie only supports FLOAT64
+  if (ch_type_name == "Float32" || ch_type_name == "Float64") {
+    return types::DataType::FLOAT64;
+  }
+  // String types
+  if (ch_type_name == "String" || ch_type_name == "FixedString" ||
+      absl::StartsWith(ch_type_name, "FixedString(")) {
+    return types::DataType::STRING;
+  }
+  // Date/time types
+  if (ch_type_name == "DateTime" || absl::StartsWith(ch_type_name, "DateTime64")) {
+    return types::DataType::TIME64NS;
+  }
+  // Boolean type (stored as UInt8 in ClickHouse)
+  if (ch_type_name == "Bool") {
+    return types::DataType::BOOLEAN;
+  }
+  // Default to String for unsupported types
+  return types::DataType::STRING;
+}
+
+StatusOr<table_store::schema::Relation> ClickHouseSourceIR::InferRelationFromClickHouse(
+    CompilerState* compiler_state, const std::string& table_name) {
+  // Check if ClickHouse config is available
+  auto* ch_config = compiler_state->clickhouse_config();
+  PX_UNUSED(ch_config);
+  // TODO(ddelnano): Add this check in when the configuration plumbing is done.
+  /* if (ch_config == nullptr) { */
+  /*   return error::Internal( */
+  /*       "ClickHouse config not available in compiler state. Cannot infer schema for table '$0'.", */
+  /*       table_name); */
+  /* } */
+
+  // Set up ClickHouse client options
+  std::string host = true ? "localhost" : ch_config->host();
+  int port = true ? 9000 : ch_config->port();
+  std::string username = true ? "default" : ch_config->username();
+  std::string password = true ? "test_password" : ch_config->password();
+  std::string database = true ? "default" : ch_config->database();
+
+  clickhouse::ClientOptions options;
+  options.SetHost(host);
+  options.SetPort(port);
+  options.SetUser(username);
+  options.SetPassword(password);
+  options.SetDefaultDatabase(database);
+
+  // Create ClickHouse client
+  std::unique_ptr<clickhouse::Client> client;
+  try {
+    client = std::make_unique<clickhouse::Client>(options);
+  } catch (const std::exception& e) {
+    return error::Internal("Failed to connect to ClickHouse at $0:$1 - $2",
+                          host, port, e.what());
+  }
+
+  // Query ClickHouse for table schema using DESCRIBE TABLE
+  std::string describe_query = absl::Substitute("DESCRIBE TABLE $0", table_name);
+
+  table_store::schema::Relation relation;
+  bool query_executed = false;
+
+  try {
+    client->Select(describe_query, [&](const clickhouse::Block& block) {
+      query_executed = true;
+      // DESCRIBE TABLE returns columns: name, type, default_type, default_expression, comment,
+      // codec_expression, ttl_expression
+      size_t num_rows = block.GetRowCount();
+
+      if (num_rows == 0) {
+        return;
+      }
+
+      // Get the column name and type columns
+      auto name_column = block[0]->As<clickhouse::ColumnString>();
+      auto type_column = block[1]->As<clickhouse::ColumnString>();
+
+      for (size_t i = 0; i < num_rows; ++i) {
+        std::string col_name = std::string(name_column->At(i));
+        std::string col_type = std::string(type_column->At(i));
+
+        // Convert ClickHouse type to Pixie type
+        auto pixie_type_or = ClickHouseTypeToPixieType(col_type);
+        if (!pixie_type_or.ok()) {
+          LOG(WARNING) << "Failed to convert ClickHouse type '" << col_type
+                       << "' for column '" << col_name << "'. Using STRING as fallback.";
+          relation.AddColumn(types::DataType::STRING, col_name, types::SemanticType::ST_NONE);
+        } else {
+          types::DataType pixie_type = pixie_type_or.ConsumeValueOrDie();
+          // Determine semantic type based on column name or type
+          types::SemanticType semantic_type = types::SemanticType::ST_NONE;
+          if (pixie_type == types::DataType::TIME64NS) {
+            semantic_type = types::SemanticType::ST_TIME_NS;
+          }
+          relation.AddColumn(pixie_type, col_name, semantic_type);
+        }
+      }
+    });
+  } catch (const std::exception& e) {
+    return error::Internal("Failed to query ClickHouse table schema for '$0': $1",
+                          table_name, e.what());
+  }
+
+  if (!query_executed || relation.NumColumns() == 0) {
+    return error::Internal("Table '$0' not found in ClickHouse or has no columns.", table_name);
+  }
+
+  return relation;
+}
+
 Status ClickHouseSourceIR::ResolveType(CompilerState* compiler_state) {
+  table_store::schema::Relation table_relation;
+
+  auto existing_relation = false;
   auto relation_it = compiler_state->relation_map()->find(table_name());
   if (relation_it == compiler_state->relation_map()->end()) {
-    return CreateIRNodeError("Table '$0' not found.", table_name_);
+    // Table not found in relation_map, try to infer from ClickHouse
+    LOG(INFO) << absl::Substitute("Table '$0' not found in relation_map. Attempting to infer schema from ClickHouse...", table_name());
+
+    auto relation_or = InferRelationFromClickHouse(compiler_state, table_name());
+    if (!relation_or.ok()) {
+      return CreateIRNodeError("Table '$0' not found in relation_map and failed to infer from ClickHouse: $1",
+                              table_name_, relation_or.status().msg());
+    }
+
+    table_relation = relation_or.ConsumeValueOrDie();
+  } else {
+    table_relation = relation_it->second;
+    existing_relation = true;
   }
-  auto table_relation = relation_it->second;
   auto full_table_type = TableType::Create(table_relation);
   if (select_all()) {
     // For select_all, add all table columns plus ClickHouse-added columns (hostname, event_time)
@@ -132,11 +272,13 @@ Status ClickHouseSourceIR::ResolveType(CompilerState* compiler_state) {
     }
 
     // Add ClickHouse-added columns
-    full_table_type->AddColumn("hostname", ValueType::Create(types::DataType::STRING, types::SemanticType::ST_NONE));
-    column_indices.push_back(table_column_count);  // hostname is after all table columns
+    if (existing_relation) {
+      full_table_type->AddColumn("hostname", ValueType::Create(types::DataType::STRING, types::SemanticType::ST_NONE));
+      column_indices.push_back(table_column_count);  // hostname is after all table columns
 
-    full_table_type->AddColumn("event_time", ValueType::Create(types::DataType::TIME64NS, types::SemanticType::ST_TIME_NS));
-    column_indices.push_back(table_column_count + 1);  // event_time is after hostname
+      full_table_type->AddColumn("event_time", ValueType::Create(types::DataType::TIME64NS, types::SemanticType::ST_TIME_NS));
+      column_indices.push_back(table_column_count + 1);  // event_time is after hostname
+    }
 
     SetColumnIndexMap(column_indices);
     return SetResolvedType(full_table_type);

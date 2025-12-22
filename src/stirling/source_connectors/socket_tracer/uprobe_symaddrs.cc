@@ -20,10 +20,15 @@
 #include <dlfcn.h>
 
 #include <algorithm>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include <rapidjson/error/en.h>
+#include <rapidjson/istreamwrapper.h>
+#include <rapidjson/reader.h>
 
 #include "src/common/base/base.h"
 #include "src/common/fs/fs_wrapper.h"
@@ -75,6 +80,28 @@ std::pair<std::string_view, bool> FindMatchingPkgPrefix(
   return {kGoStdlibPackageName, false};
 }
 
+// State machine states for SAX-based JSON parsing of offsetgen file.
+enum class ParseState {
+  kExpectRootStart,        // Expecting '{'
+  kExpectTopLevelKey,      // Expecting "structs" or "funcs" or '}'
+  kExpectSectionStart,     // Expecting '{' after "structs"/"funcs"
+  kExpectEntityKeyOrEnd,   // Expecting struct/func name or '}'
+  kExpectEntityStart,      // Expecting '{' after entity name
+  kExpectMemberKeyOrEnd,   // Expecting field/arg name or '}'
+  kExpectMemberStart,      // Expecting '{' after member name
+  kExpectVersionKeyOrEnd,  // Expecting version key or '}'
+  kExpectVersionValue,     // Expecting value (int/null/object)
+  kInLocationObject,       // Inside {"location":..., "offset":...}
+  kExpectLocationValue,    // Expecting location type string
+  kExpectOffsetValue,      // Expecting offset integer
+};
+
+enum class Section {
+  kNone,
+  kStructs,
+  kFuncs,
+};
+
 StructOffsetMap g_struct_offsets;
 
 FunctionArgMap g_function_arg_offsets;
@@ -90,117 +117,260 @@ obj_tools::LocationType ParseLocationType(const std::string& loc) {
   return obj_tools::LocationType::kUnknown;
 }
 
-/**
- * ParseOffsetOnly:
- *   - For a JSON leaf representing a struct's offset:
- *     - If a bare integer, return that
- *     - Otherwise, return -1
- */
-int32_t ParseOffsetOnly(const rapidjson::Value& val) {
-  int32_t offset = -1;
-  if (val.IsNumber()) {
-    int64_t bigVal = val.GetInt64();
-    offset = static_cast<int32_t>(bigVal);
-  }
-  return offset;
-}
+// SAX-based handler for streaming JSON parsing of the offsetgen file.
+// This processes the JSON in a single pass without building a DOM tree.
+class GoOffsetgenHandler
+    : public rapidjson::BaseReaderHandler<rapidjson::UTF8<>, GoOffsetgenHandler> {
+ public:
+  GoOffsetgenHandler(StructOffsetMap& struct_offsets, FunctionArgMap& func_offsets)
+      : struct_offsets_(struct_offsets), func_offsets_(func_offsets) {}
 
-/**
- * ParseOffsetAndLocation:
- *   - For a JSON leaf representing a func's offset & location:
- *     - offset_out => -1 if null; store the integer or the object's "offset" otherwise
- *     - loc_out => nullptr if null, otherwise a valid obj_tools::LocationType pointer
- */
-// ParseOffsetAndLocation parses the function JSON object contained in the
-// opentelemetry-go-instrumentation offsetgen JSON file. Each JSON object is expected to have a
-// "location" and an "offset" field.
-std::unique_ptr<obj_tools::VarLocation> ParseOffsetAndLocation(const rapidjson::Value& val) {
-  std::unique_ptr<obj_tools::VarLocation> loc = std::make_unique<obj_tools::VarLocation>();
-  loc->loc_type = obj_tools::LocationType::kUnknown;
-  loc->offset = -1;
+  bool Null() {
+    switch (state_) {
+      case ParseState::kExpectVersionValue:
+        if (current_section_ == Section::kStructs) {
+          // For structs, null means offset = -1
+          struct_offsets_[current_entity_name_].second[current_member_name_][current_version_key_] =
+              -1;
+        } else {
+          // For funcs, null means unknown location with offset = -1
+          auto loc = std::make_unique<obj_tools::VarLocation>();
+          loc->loc_type = obj_tools::LocationType::kUnknown;
+          loc->offset = -1;
+          func_offsets_[current_entity_name_].second[current_member_name_][current_version_key_] =
+              std::move(loc);
+        }
+        state_ = ParseState::kExpectVersionKeyOrEnd;
+        return true;
 
-  // e.g. { "location":"stack", "offset": 42 }
-  if (val.IsObject()) {
-    const auto& obj = val.GetObject();
-
-    if (obj.HasMember("offset") && obj["offset"].IsNumber()) {
-      int64_t bigVal = obj["offset"].GetInt64();
-      loc->offset = static_cast<int32_t>(bigVal);
-    }
-    if (obj.HasMember("location") && obj["location"].IsString()) {
-      loc->loc_type = ParseLocationType(obj["location"].GetString());
+      default:
+        SetError("Unexpected null");
+        return false;
     }
   }
-  return loc;
-}
 
-// ParseGoStructsObject parses the structs object from the opentelemetry-go-instrumentation
-// offsetgen JSON file. Each struct is represented as a key-value pair where the key is the
-// struct name and the value is an object containing field names and their corresponding
-// offsets for different versions.
-void ParseGoStructsObject(const rapidjson::Value& structs_val) {
-  for (auto itr = structs_val.MemberBegin(); itr != structs_val.MemberEnd(); ++itr) {
-    std::string struct_name = itr->name.GetString();
-    if (!itr->value.IsObject()) {
-      continue;
-    }
-    const auto& field_map_obj = itr->value.GetObject();
+  bool Bool(bool /*b*/) {
+    SetError("Unexpected boolean value");
+    return false;
+  }
 
-    auto& offset_map = GetGoStructOffsets();
+  bool Int(int i) { return HandleInteger(static_cast<int64_t>(i)); }
+  bool Int64(int64_t i) { return HandleInteger(i); }
+  bool Uint(unsigned u) { return HandleInteger(static_cast<int64_t>(u)); }
+  bool Uint64(uint64_t u) { return HandleInteger(static_cast<int64_t>(u)); }
 
-    std::string_view pkg = FindMatchingPkgPrefix(struct_name, kGoPackagePrefixes).first;
-    offset_map[struct_name].first = pkg;
+  bool Double(double /*d*/) {
+    SetError("Unexpected double value");
+    return false;
+  }
 
-    for (auto field_it = field_map_obj.MemberBegin(); field_it != field_map_obj.MemberEnd();
-         ++field_it) {
-      std::string field_name = field_it->name.GetString();
-      if (!field_it->value.IsObject()) {
-        continue;
-      }
-      const auto& versions_obj = field_it->value.GetObject();
+  bool String(const char* str, rapidjson::SizeType length, bool /*copy*/) {
+    switch (state_) {
+      case ParseState::kExpectLocationValue:
+        pending_location_ = std::string(str, length);
+        state_ = ParseState::kInLocationObject;
+        return true;
 
-      for (auto ver_it = versions_obj.MemberBegin(); ver_it != versions_obj.MemberEnd(); ++ver_it) {
-        std::string version_key = ver_it->name.GetString();
-        int32_t off = ParseOffsetOnly(ver_it->value);
-        offset_map[struct_name].second[field_name][version_key] = off;
-      }
+      default:
+        SetError("Unexpected string");
+        return false;
     }
   }
-}
 
-// ParseGoFuncsObject parses the funcs object from the opentelemetry-go-instrumentation
-// offsetgen JSON file. Each function is represented as a key-value pair where the key is the
-// function name and the value is an object containing argument names and their corresponding
-// locations for different versions.
-void ParseGoFuncsObject(const rapidjson::Value& funcsVal) {
-  for (auto itr = funcsVal.MemberBegin(); itr != funcsVal.MemberEnd(); ++itr) {
-    std::string func_name = itr->name.GetString();
-    if (!itr->value.IsObject()) {
-      continue;
-    }
-    const auto& arg_map_obj = itr->value.GetObject();  // e.g. "data", "Flags", etc.
+  bool StartObject() {
+    switch (state_) {
+      case ParseState::kExpectRootStart:
+        state_ = ParseState::kExpectTopLevelKey;
+        return true;
 
-    auto& location_map = GetGoFunctionArgOffsets();
+      case ParseState::kExpectSectionStart:
+        state_ = ParseState::kExpectEntityKeyOrEnd;
+        return true;
 
-    std::string_view pkg = FindMatchingPkgPrefix(func_name, kGoPackagePrefixes).first;
-    location_map[func_name].first = pkg;
-    for (auto arg_it = arg_map_obj.MemberBegin(); arg_it != arg_map_obj.MemberEnd(); ++arg_it) {
-      std::string arg_name = arg_it->name.GetString();
+      case ParseState::kExpectEntityStart:
+        state_ = ParseState::kExpectMemberKeyOrEnd;
+        return true;
 
-      if (!arg_it->value.IsObject()) {
-        continue;
-      }
-      const auto& versions_obj = arg_it->value.GetObject();
+      case ParseState::kExpectMemberStart:
+        state_ = ParseState::kExpectVersionKeyOrEnd;
+        return true;
 
-      for (auto ver_it = versions_obj.MemberBegin(); ver_it != versions_obj.MemberEnd(); ++ver_it) {
-        std::string version_key = ver_it->name.GetString();
+      case ParseState::kExpectVersionValue:
+        if (current_section_ == Section::kFuncs) {
+          // Starting a location object: {"location":..., "offset":...}
+          state_ = ParseState::kInLocationObject;
+          pending_location_.clear();
+          pending_offset_ = -1;
+          return true;
+        }
+        SetError("Unexpected object in structs section");
+        return false;
 
-        location_map[func_name].second[arg_name][version_key] =
-            ParseOffsetAndLocation(ver_it->value);
-      }
+      default:
+        SetError("Unexpected StartObject");
+        return false;
     }
   }
-}
+
+  bool Key(const char* str, rapidjson::SizeType length, bool /*copy*/) {
+    std::string key(str, length);
+
+    switch (state_) {
+      case ParseState::kExpectTopLevelKey:
+        if (key == "structs") {
+          current_section_ = Section::kStructs;
+          state_ = ParseState::kExpectSectionStart;
+        } else if (key == "funcs") {
+          current_section_ = Section::kFuncs;
+          state_ = ParseState::kExpectSectionStart;
+        }
+        // Unknown top-level keys are silently skipped
+        return true;
+
+      case ParseState::kExpectEntityKeyOrEnd:
+        current_entity_name_ = key;
+        // Set package prefix
+        if (current_section_ == Section::kStructs) {
+          std::string_view pkg = FindMatchingPkgPrefix(current_entity_name_, kGoPackagePrefixes).first;
+          struct_offsets_[current_entity_name_].first = pkg;
+        } else {
+          std::string_view pkg = FindMatchingPkgPrefix(current_entity_name_, kGoPackagePrefixes).first;
+          func_offsets_[current_entity_name_].first = pkg;
+        }
+        state_ = ParseState::kExpectEntityStart;
+        return true;
+
+      case ParseState::kExpectMemberKeyOrEnd:
+        current_member_name_ = key;
+        state_ = ParseState::kExpectMemberStart;
+        return true;
+
+      case ParseState::kExpectVersionKeyOrEnd:
+        current_version_key_ = key;
+        state_ = ParseState::kExpectVersionValue;
+        return true;
+
+      case ParseState::kInLocationObject:
+        if (key == "location") {
+          state_ = ParseState::kExpectLocationValue;
+        } else if (key == "offset") {
+          state_ = ParseState::kExpectOffsetValue;
+        }
+        return true;
+
+      default:
+        SetError("Unexpected Key");
+        return false;
+    }
+  }
+
+  bool EndObject(rapidjson::SizeType /*memberCount*/) {
+    switch (state_) {
+      case ParseState::kExpectTopLevelKey:
+        // End of root object - parsing complete
+        return true;
+
+      case ParseState::kExpectEntityKeyOrEnd:
+        // End of "structs" or "funcs" section
+        state_ = ParseState::kExpectTopLevelKey;
+        current_section_ = Section::kNone;
+        return true;
+
+      case ParseState::kExpectMemberKeyOrEnd:
+        // End of entity object (struct or func)
+        state_ = ParseState::kExpectEntityKeyOrEnd;
+        current_entity_name_.clear();
+        return true;
+
+      case ParseState::kExpectVersionKeyOrEnd:
+        // End of member object (field or arg)
+        state_ = ParseState::kExpectMemberKeyOrEnd;
+        current_member_name_.clear();
+        return true;
+
+      case ParseState::kInLocationObject:
+        // End of location object - store the parsed values
+        if (current_section_ == Section::kFuncs) {
+          auto loc = std::make_unique<obj_tools::VarLocation>();
+          loc->loc_type = ParseLocationType(pending_location_);
+          loc->offset = pending_offset_;
+          func_offsets_[current_entity_name_].second[current_member_name_][current_version_key_] =
+              std::move(loc);
+        }
+        state_ = ParseState::kExpectVersionKeyOrEnd;
+        return true;
+
+      default:
+        SetError("Unexpected EndObject");
+        return false;
+    }
+  }
+
+  bool StartArray() {
+    SetError("Unexpected array");
+    return false;
+  }
+
+  bool EndArray(rapidjson::SizeType /*elementCount*/) {
+    SetError("Unexpected end array");
+    return false;
+  }
+
+  bool HasError() const { return has_error_; }
+  const std::string& GetError() const { return error_msg_; }
+
+ private:
+  bool HandleInteger(int64_t val) {
+    int32_t offset = static_cast<int32_t>(val);
+
+    switch (state_) {
+      case ParseState::kExpectVersionValue:
+        if (current_section_ == Section::kStructs) {
+          struct_offsets_[current_entity_name_].second[current_member_name_][current_version_key_] =
+              offset;
+          state_ = ParseState::kExpectVersionKeyOrEnd;
+          return true;
+        }
+        SetError("Unexpected integer in funcs section (expected object or null)");
+        return false;
+
+      case ParseState::kExpectOffsetValue:
+        pending_offset_ = offset;
+        state_ = ParseState::kInLocationObject;
+        return true;
+
+      default:
+        SetError("Unexpected integer");
+        return false;
+    }
+  }
+
+  void SetError(const std::string& msg) {
+    has_error_ = true;
+    error_msg_ = msg;
+  }
+
+  // References to output data structures
+  StructOffsetMap& struct_offsets_;
+  FunctionArgMap& func_offsets_;
+
+  // State tracking
+  ParseState state_ = ParseState::kExpectRootStart;
+  Section current_section_ = Section::kNone;
+
+  // Current context tracking (nesting levels)
+  std::string current_entity_name_;   // struct or func name (Level 2)
+  std::string current_member_name_;   // field or arg name (Level 3)
+  std::string current_version_key_;   // version string (Level 4)
+
+  // For parsing location objects in funcs
+  std::string pending_location_;
+  int32_t pending_offset_ = -1;
+
+  // Error handling
+  bool has_error_ = false;
+  std::string error_msg_;
+};
 
 }  // namespace
 
@@ -669,41 +839,32 @@ FunctionArgMap& GetGoFunctionArgOffsets() { return g_function_arg_offsets; }
 void ParseGoOffsetgenFile(const std::string& offsetgen_file) {
   std::ifstream file(offsetgen_file, std::ios::binary);
   std::string warning = "Uprobes will exclusively use DWARF to determine offsets.";
+
   if (!file) {
     LOG(WARNING) << absl::Substitute("Unable to open offsetgen file=$0 error=$1. $2",
                                      offsetgen_file, strerror(errno), warning);
     return;
   }
 
-  file.seekg(0, std::ios::end);
-  size_t f_size = file.tellg();
-  file.seekg(0);
+  rapidjson::IStreamWrapper isw(file);
+  GoOffsetgenHandler handler(g_struct_offsets, g_function_arg_offsets);
+  rapidjson::Reader reader;
 
-  std::vector<char> buffer;
-  buffer.resize(f_size);
+  rapidjson::ParseResult result = reader.Parse(isw, handler);
 
-  if (!file.read(buffer.data(), f_size)) {
-    LOG(WARNING) << absl::Substitute("Unable to read offsetgen file=$0 error=$1. $2",
-                                     offsetgen_file, strerror(errno), warning);
+  if (!result) {
+    if (handler.HasError()) {
+      LOG(ERROR) << absl::Substitute("JSON semantic error: $0", handler.GetError());
+    } else {
+      LOG(ERROR) << absl::Substitute("JSON parse error at offset=$0: $1",
+                                     result.Offset(),
+                                     rapidjson::GetParseError_En(result.Code()));
+    }
     return;
   }
 
-  rapidjson::MemoryStream ms(buffer.data(), f_size);
-
-  rapidjson::Document doc;
-  rapidjson::ParseResult parse_res = doc.ParseStream(ms);
-  if (!parse_res) {
-    LOG(ERROR) << absl::Substitute("JSON parse error at offset=$0: $1 ", parse_res.Offset(),
-                                   rapidjson::GetParseError_En(parse_res.Code()));
-    return;
-  }
-
-  // There are two top-level objects in the JSON file:
-  if (doc.HasMember("structs") && doc["structs"].IsObject()) {
-    ParseGoStructsObject(doc["structs"]);
-  }
-  if (doc.HasMember("funcs") && doc["funcs"].IsObject()) {
-    ParseGoFuncsObject(doc["funcs"]);
+  if (handler.HasError()) {
+    LOG(ERROR) << absl::Substitute("Handler error: $0", handler.GetError());
   }
 }
 

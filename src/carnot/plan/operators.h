@@ -423,6 +423,7 @@ class ClickHouseExportSinkOperator : public Operator {
 };
 
 class OTelExportSinkOperator : public Operator {
+
  public:
   explicit OTelExportSinkOperator(int64_t id) : Operator(id, planpb::OTEL_EXPORT_SINK_OPERATOR) {}
   ~OTelExportSinkOperator() override = default;

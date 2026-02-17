@@ -1,1 +1,1 @@
-[]
+[{"name":"cli","artifact":[{"timestamp":"2026-02-17T00:34:39Z","commitHash":"62a635263ecee1f88f5f8779852eebb053d03292","versionStr":"0.8.9-pre-r0.7","availableArtifactMirrors":[{"artifactType":"AT_LINUX_AMD64","sha256":"18d83178fce99c849901b84c1d1e1daeda36bf42256e91527f3a003c781ef37b","urls":["https://github.com/k8sstormcenter/pixie/releases/download/release/cli/v0.8.9-pre-r0.7/cli_linux_amd64"]}]}]}]

@@ -151,3 +151,9 @@ profiles:
     path: /manifests/kustomize/paths
     value:
     - k8s/cloud/public/base
+- name: cockpit
+  patches:
+  - op: replace
+    path: /manifests/kustomize/paths
+    value:
+    - private/cockpit

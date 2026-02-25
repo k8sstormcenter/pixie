@@ -2,39 +2,45 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: plc
+replicas:
+- name: api-server
+  count: 1
+- name: auth-server
+  count: 1
+- name: profile-server
+  count: 1
+- name: cloud-proxy
+  count: 1
+- name: project-manager-server
+  count: 1
+- name: vzmgr-server
+  count: 1
+- name: scriptmgr-server
+  count: 1
 resources:
-- ../../k8s/cloud/public/base
-- cloud_ingress_https.yaml
-- cloud_ingress_grpcs.yaml
+- ../../k8s/cloud/base
+- cloud_ingress.yaml
 - servers_transport.yaml
+- proxy_service.yaml
+- vzconn_service.yaml
+- plugin_db_updater_job.yaml
+labels:
+- includeSelectors: true
+  pairs:
+    app: pl-cloud
 patches:
-# This ConfigMap is provided in terraform since it must be
-# sops decrypted.
-- target:
-    kind: ConfigMap
-    name: pl-oauth-config
-  patch: |-
-    $patch: delete
-    apiVersion: v1
-    kind: ConfigMap
-    metadata:
-      name: pl-oauth-config
 - path: auth_deployment.yaml
+- path: domain_config.yaml
+- path: script_bundles_config.yaml
+- path: proxy_envoy.yaml
 - target:
     kind: Service
-    name: cloud-proxy-service
+    name: api-service
   patch: |-
-    - op: replace
-      path: /spec/type
-      value: ClusterIP
-    - op: remove
-      path: /metadata/annotations
-- target:
+    apiVersion: v1
     kind: Service
-    name: vzconn-service
-  patch: |-
-    - op: replace
-      path: /spec/type
-      value: ClusterIP
-    - op: remove
-      path: /metadata/annotations
+    metadata:
+      name: api-service
+      annotations:
+        traefik.ingress.kubernetes.io/service.serverstransport: plc-cloud-backend-transport@kubernetescrd
+        traefik.ingress.kubernetes.io/service.serversscheme: https

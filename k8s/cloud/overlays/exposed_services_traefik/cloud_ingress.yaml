@@ -1,0 +1,79 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cloud-ingress
+  namespace: plc
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: pixie.austrianopencloudcommunity.org,work.pixie.austrianopencloudcommunity.org
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - pixie.austrianopencloudcommunity.org
+    - work.pixie.austrianopencloudcommunity.org
+    secretName: cloud-proxy-tls-certs
+  rules:
+  - host: pixie.austrianopencloudcommunity.org
+    http:
+      paths:
+      - path: /px.services
+        pathType: Prefix
+        backend:
+          service:
+            name: vzconn-service
+            port:
+              number: 51600
+      - path: /px.cloudapi
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 51200
+      - path: /px.api
+        pathType: Prefix
+        backend:
+          service:
+            name: cloud-proxy-service
+            port:
+              number: 4444
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: cloud-proxy-service
+            port:
+              number: 443
+  - host: work.pixie.austrianopencloudcommunity.org
+    http:
+      paths:
+      - path: /px.services
+        pathType: Prefix
+        backend:
+          service:
+            name: vzconn-service
+            port:
+              number: 51600
+      - path: /px.cloudapi
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 51200
+      - path: /px.api
+        pathType: Prefix
+        backend:
+          service:
+            name: cloud-proxy-service
+            port:
+              number: 4444
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: cloud-proxy-service
+            port:
+              number: 443

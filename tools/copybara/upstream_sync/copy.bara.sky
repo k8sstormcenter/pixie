@@ -69,8 +69,8 @@ core.workflow(
     ),
     destination = git.destination(
         url = dest_repo,
-        fetch = "copybara/upstream-sync-test",
-        push = "copybara/upstream-sync-test",
+        fetch = "copybara-test",
+        push = "copybara-test",
     ),
     origin_files = glob(
         ["**"],

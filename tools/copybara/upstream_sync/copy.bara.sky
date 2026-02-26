@@ -80,7 +80,7 @@ core.workflow(
         ["**"],
         exclude = ignored_dirs + fork_only_files,
     ),
-    authoring = authoring.pass_thru("Copybara <info@fusioncore.ai>"),
+    authoring = authoring.pass_thru("k8sstormcenter-buildbot <info@fusioncore.ai>"),
     mode = "ITERATIVE",
     transformations = [],
 )

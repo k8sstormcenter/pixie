@@ -29,6 +29,7 @@ labels:
   pairs:
     app: pl-cloud
 patches:
+- path: artifact_config.yaml
 - path: auth_deployment.yaml
 - path: domain_config.yaml
 - path: script_bundles_config.yaml

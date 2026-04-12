@@ -38,11 +38,10 @@ tags=$(git for-each-ref --sort='-*authordate' --format '%(refname:short)' refs/t
     | grep "release/operator" | grep -v "\-" || true)
 
 image_repo="ghcr.io/k8sstormcenter"
-image_paths=$(bazel cquery //k8s/operator:image_bundle \
+image_paths=$(bazel run \
   --//k8s:image_repository="${image_repo}" \
   --//k8s:image_version="${release_tag}" \
-  --output=starlark \
-  --starlark:expr="'\n'.join(providers(target)['@io_bazel_rules_docker//container:providers.bzl%BundleInfo'].container_images.keys())")
+  //k8s/operator:list_image_bundle)
 image_path=$(echo "${image_paths}" | grep -v deleter)
 deleter_image_path=$(echo "${image_paths}" | grep deleter)
 

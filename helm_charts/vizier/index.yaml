@@ -1,2 +1,156 @@
 apiVersion: v1
-entries: {}
+entries:
+  vizier-chart:
+  - apiVersion: v2
+    created: "2026-04-12T19:51:58.483303202Z"
+    digest: a7a6579675405889b7bbeb8e9e7027a12bfbabfe1074d7f74d3156157fa39762
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/k8sstormcenter/pixie/releases/download/release/vizier/v0.14.16/vizier-chart-0.14.16.tgz
+    version: 0.14.16
+  - apiVersion: v2
+    created: "2025-01-24T23:51:05.887359301Z"
+    digest: 612106e0521277a2cc9c859ce18fd4b5d69ecec3ca4149ed84c4c0948e8b6a8a
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.15/vizier-chart-0.14.15.tgz
+    version: 0.14.15
+  - apiVersion: v2
+    created: "2025-01-02T18:21:50.640294026Z"
+    digest: 5251467f299f3957096054c7058d4c4b2e0016d28e42b6072fd590dc1543ae99
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.14/vizier-chart-0.14.14.tgz
+    version: 0.14.14
+  - apiVersion: v2
+    created: "2024-12-03T18:55:43.908996647Z"
+    digest: 26198fbc83fc697ab16dfb39aff382da92abcaef64e362e297fd250e7c8dd850
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.13/vizier-chart-0.14.13.tgz
+    version: 0.14.13
+  - apiVersion: v2
+    created: "2024-11-05T22:11:16.762019306Z"
+    digest: 2d94e02996691b7514553913a755ea296c5380b1526a1bce706cd2732f6598bc
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.12/vizier-chart-0.14.12.tgz
+    version: 0.14.12
+  - apiVersion: v2
+    created: "2024-08-20T21:35:46.991915775Z"
+    digest: a1675a585a341323d8c60321ab13fe1cd911a34baa2cd0aeec10a8e075f6f689
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.11/vizier-chart-0.14.11.tgz
+    version: 0.14.11
+  - apiVersion: v2
+    created: "2024-05-21T17:56:49.709539883Z"
+    digest: dc078fcc78300747a08de185f3a8e0445cbb906539afa42faa0ab016f196a5c1
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.10/vizier-chart-0.14.10.tgz
+    version: 0.14.10
+  - apiVersion: v2
+    created: "2024-05-10T20:02:34.066636622Z"
+    digest: b436b410c6ac35797178531fb47c9e1b0594e6e0cb15afeef49b0cf3746a7c63
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.9/vizier-chart-0.14.9.tgz
+    version: 0.14.9
+  - apiVersion: v2
+    created: "2023-12-12T22:58:27.280083493Z"
+    digest: 2eb5652b5bf67a788707ceb5738b54368d0fcc9e160c3414193cda2c0afff76b
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.8/vizier-chart-0.14.8.tgz
+    version: 0.14.8
+  - apiVersion: v2
+    created: "2023-10-03T17:55:30.196678218Z"
+    digest: ecb2126e407cf7ad8ba0610f71caef5af2e8a953512e183fb5522bad7790a8c8
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.7/vizier-chart-0.14.7.tgz
+    version: 0.14.7
+  - apiVersion: v2
+    created: "2023-09-05T17:40:04.883113043Z"
+    digest: 14115d93fdc2933bfac2269f2d8fd4b03d08b1801fbd1512d16d743b5bf04e72
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.6/vizier-chart-0.14.6.tgz
+    version: 0.14.6
+  - apiVersion: v2
+    created: "2023-08-09T17:49:58.680904152Z"
+    digest: 64d70d727c3b190d22de7631dfca447f1a5185c2d6d16d4643c859cf7884aff2
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.5/vizier-chart-0.14.5.tgz
+    version: 0.14.5
+  - apiVersion: v2
+    created: "2023-08-01T23:34:11.829362223Z"
+    digest: 31906d19819455864e4ccebb1e7771167841188808b36c62147f2533fd232534
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.4/vizier-chart-0.14.4.tgz
+    version: 0.14.4
+  - apiVersion: v2
+    created: "2023-07-21T04:46:32.072567939Z"
+    digest: d82d101ad94a3076c476da780045dd3bec98dc7ba07ab27cef421a6361f9b29e
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.3/vizier-chart-0.14.3.tgz
+    version: 0.14.3
+  - apiVersion: v2
+    created: "2023-07-12T17:33:22.086705113Z"
+    digest: 3ac7ed0bbc5d5b4287aa615bb8858b97a89a3972d3791ca1ef9ec1e117439437
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.2/vizier-chart-0.14.2.tgz
+    version: 0.14.2
+  - apiVersion: v2
+    created: "2023-07-10T22:27:18.418504877Z"
+    digest: c941e17f962e62dcc29c07281f52a29bbdc5b6324253f6ee93d27aba93918e2e
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.1/vizier-chart-0.14.1.tgz
+    version: 0.14.1
+  - apiVersion: v2
+    created: "2023-06-27T19:06:00.122291039Z"
+    digest: db61c62dd481d1c2d4137667f907899f989042c5322b5aa11b326c72eb3af137
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.14.0/vizier-chart-0.14.0.tgz
+    version: 0.14.0
+  - apiVersion: v2
+    created: "2023-06-20T23:08:28.209655457Z"
+    digest: 81d51a14c89a48380056c850bbf27fc46bdfcf668610d08c01de951a93009ff5
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/pixie-io/pixie/releases/download/release/vizier/v0.13.8/vizier-chart-0.13.8.tgz
+    version: 0.13.8
+  - apiVersion: v2
+    created: "2023-06-15T20:58:44.380373083Z"
+    digest: 81a1c671f143f7e6c5af83cbb3b5ddca3d48131afdb8c0bff4008f03e43bf2b9
+    name: vizier-chart
+    type: application
+    urls:
+    - https://github.com/releases/download/release/vizier/v0.13.8-pre-vzHelm2-3.4/vizier-chart-0.13.8-pre-vzHelm2-3.4.tgz
+    version: 0.13.8-pre-vzHelm2-3.4
+generated: "2026-04-12T19:51:58.480318151Z"

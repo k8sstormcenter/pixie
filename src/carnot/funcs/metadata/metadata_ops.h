@@ -2926,6 +2926,33 @@ class HostnameUDF : public ScalarUDF {
   }
 };
 
+class PEMHostnameUDF : public ScalarUDF {
+ public:
+  /**
+   * @brief Gets the hostname of the PEM agent's machine.
+   * Unlike _exec_hostname (UDF_ALL), this is restricted to UDF_PEM so the
+   * distributed planner is forced to execute it on the PEM before data is
+   * shipped to Kelvin.  Use this when the hostname must reflect the agent
+   * that collected the data rather than the agent that exports it.
+   */
+  StringValue Exec(FunctionContext* ctx) {
+    auto md = GetMetadataState(ctx);
+    return md->hostname();
+  }
+
+  static udf::ScalarUDFDocBuilder Doc() {
+    return udf::ScalarUDFDocBuilder("Get the hostname of the PEM agent.")
+        .Details(
+            "Get the hostname of the PEM agent that collected the data. "
+            "This UDF is restricted to PEM execution, so the distributed planner "
+            "will always run it on the PEM even when the downstream sink is on Kelvin.")
+        .Example("df.hostname = px._pem_hostname()")
+        .Returns("The hostname of the PEM agent.");
+  }
+
+  static udfspb::UDFSourceExecutor Executor() { return udfspb::UDFSourceExecutor::UDF_PEM; }
+};
+
 class HostNumCPUsUDF : public ScalarUDF {
  public:
   /**

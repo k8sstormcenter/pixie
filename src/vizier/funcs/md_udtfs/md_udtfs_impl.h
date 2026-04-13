@@ -1145,12 +1145,17 @@ class CreateClickHouseSchemas final : public carnot::udf::UDTF<CreateClickHouseS
                                                "'test_password'"),
         UDTFArg::Make<types::DataType::STRING>("database", "ClickHouse database", "'default'"),
         UDTFArg::Make<types::BOOLEAN>(
-            "use_if_not_exists", "Whether to use IF NOT EXISTS in CREATE TABLE statements", true));
+            "use_if_not_exists", "Whether to use IF NOT EXISTS in CREATE TABLE statements", true),
+        UDTFArg::Make<types::DataType::STRING>(
+            "cluster_name",
+            "ClickHouse cluster name for ON CLUSTER DDL and ReplicatedMergeTree engine. "
+            "Empty string disables cluster mode.",
+            "''"));
   }
 
   Status Init(FunctionContext*, types::StringValue host, types::Int64Value port,
               types::StringValue username, types::StringValue password, types::StringValue database,
-              types::BoolValue use_if_not_exists) {
+              types::BoolValue use_if_not_exists, types::StringValue cluster_name) {
     // Store ClickHouse connection parameters
     host_ = std::string(host);
     port_ = port.val;
@@ -1158,6 +1163,7 @@ class CreateClickHouseSchemas final : public carnot::udf::UDTF<CreateClickHouseS
     password_ = std::string(password);
     database_ = std::string(database);
     use_if_not_exists_ = use_if_not_exists.val;
+    cluster_name_ = std::string(cluster_name);
 
     // Fetch schemas from MDS
     px::vizier::services::metadata::SchemaRequest req;
@@ -1218,13 +1224,17 @@ class CreateClickHouseSchemas final : public carnot::udf::UDTF<CreateClickHouseS
       table_name = names[0];
 
       // Generate CREATE TABLE statement
-      std::string create_table_sql = GenerateCreateTableSQL(table_name, rel, use_if_not_exists_);
+      std::string create_table_sql =
+          GenerateCreateTableSQL(table_name, rel, use_if_not_exists_, cluster_name_);
 
       // Execute the CREATE TABLE
       try {
         // Drop existing table if not using IF NOT EXISTS
         if (!use_if_not_exists_) {
-          clickhouse_client_->Execute(absl::Substitute("DROP TABLE IF EXISTS $0", table_name));
+          std::string drop_cluster_clause =
+              cluster_name_.empty() ? "" : absl::Substitute(" ON CLUSTER '$0'", cluster_name_);
+          clickhouse_client_->Execute(
+              absl::Substitute("DROP TABLE IF EXISTS $0$1", table_name, drop_cluster_clause));
         }
 
         // Create new table
@@ -1276,7 +1286,8 @@ class CreateClickHouseSchemas final : public carnot::udf::UDTF<CreateClickHouseS
    */
   std::string GenerateCreateTableSQL(const std::string& table_name,
                                      const px::table_store::schemapb::Relation& schema,
-                                     bool use_if_not_exists) {
+                                     bool use_if_not_exists,
+                                     const std::string& cluster_name) {
     std::vector<std::string> column_defs;
 
     // Add columns from schema
@@ -1301,14 +1312,21 @@ class CreateClickHouseSchemas final : public carnot::udf::UDTF<CreateClickHouseS
     std::string columns_str = absl::StrJoin(column_defs, ",\n        ");
 
     std::string if_not_exists_clause = use_if_not_exists ? "IF NOT EXISTS " : "";
+    std::string on_cluster_clause =
+        cluster_name.empty() ? "" : absl::Substitute(" ON CLUSTER '$0'", cluster_name);
+    // Use ReplicatedMergeTree when cluster mode is enabled so that data is
+    // replicated across nodes. ClickHouse auto-generates the ZooKeeper paths
+    // when no explicit arguments are provided (requires ClickHouse >= 22.x).
+    std::string engine = cluster_name.empty() ? "MergeTree()" : "ReplicatedMergeTree()";
     std::string create_sql = absl::Substitute(R"(
-      CREATE TABLE $0$1 (
-        $2
-      ) ENGINE = MergeTree()
+      CREATE TABLE $0$1$2 (
+        $3
+      ) ENGINE = $4
       PARTITION BY toYYYYMM(event_time)
       ORDER BY (hostname, event_time)
     )",
-                                              if_not_exists_clause, table_name, columns_str);
+                                              if_not_exists_clause, table_name, on_cluster_clause,
+                                              columns_str, engine);
 
     return create_sql;
   }
@@ -1326,6 +1344,7 @@ class CreateClickHouseSchemas final : public carnot::udf::UDTF<CreateClickHouseS
   std::string password_;
   std::string database_;
   bool use_if_not_exists_;
+  std::string cluster_name_;
 };
 
 }  // namespace md

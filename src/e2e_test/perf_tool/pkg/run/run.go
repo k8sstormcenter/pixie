@@ -225,7 +225,11 @@ func (r *Runner) startMetricRecorders(ctx context.Context, spec *experimentpb.Ex
 			continue
 		}
 
-		recorder := metrics.NewMetricsRecorder(r.pxCtx, r.clusterCtx, ms, r.eg, r.metricsResultCh)
+		recorder, err := metrics.NewMetricsRecorder(r.pxCtx, r.clusterCtx, ms, r.eg, r.metricsResultCh)
+		if err != nil {
+			_ = r.stopMetricRecorders(selector)
+			return noCleanup, fmt.Errorf("failed to create metrics recorder: %w", err)
+		}
 		r.metricsBySelector[selector] = append(r.metricsBySelector[selector], recorder)
 		if err := recorder.Start(ctx); err != nil {
 			_ = r.stopMetricRecorders(selector)

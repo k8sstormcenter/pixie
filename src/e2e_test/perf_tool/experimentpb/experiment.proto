@@ -220,6 +220,12 @@ message PrometheusScrapeSpec {
   // How often to scrape the matched pods.
   google.protobuf.Duration scrape_period = 5;
   map<string, string> metric_names = 6;
+  // Optional path to a kubeconfig file for connecting to a different cluster.
+  // If empty, the experiment's default cluster context is used.
+  string kubeconfig_path = 7;
+  // Optional kubectl context name to use within the kubeconfig.
+  // If empty, the current-context from the kubeconfig is used.
+  string kube_context = 8;
 }
 
 // ClusterSpec specifies the type and size of cluster an experiment should run on.

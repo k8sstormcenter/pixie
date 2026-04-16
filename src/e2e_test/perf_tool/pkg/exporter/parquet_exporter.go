@@ -247,7 +247,7 @@ func buildResultRow(row bufferedRow, tagKeys []string) parquet.Row {
 	entries := []colEntry{
 		{"experiment_id", parquet.ValueOf(row.ExperimentID), false},
 		{"name", parquet.ValueOf(row.Name), false},
-		{"timestamp", parquet.ValueOf(row.Timestamp), false},
+		{"timestamp", parquet.Int64Value(row.Timestamp.UnixMilli()), false},
 		{"value", parquet.ValueOf(row.Value), false},
 	}
 

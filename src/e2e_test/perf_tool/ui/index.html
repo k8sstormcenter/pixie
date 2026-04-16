@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pixie Perf Tool Dashboard</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; }
+    header { background: #1a1a2e; color: white; padding: 16px 24px; display: flex; align-items: center; gap: 16px; }
+    header h1 { font-size: 20px; font-weight: 600; }
+    header .subtitle { font-size: 13px; color: #aaa; }
+    .container { max-width: 1600px; margin: 0 auto; padding: 20px; }
+    .panel { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .panel h2 { font-size: 16px; margin-bottom: 12px; color: #1a1a2e; }
+    .data-source { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+    .data-source .section { flex: 1; min-width: 280px; }
+    .drop-zone {
+      border: 2px dashed #ccc; border-radius: 8px; padding: 40px 20px; text-align: center;
+      cursor: pointer; transition: border-color 0.2s, background 0.2s;
+    }
+    .drop-zone:hover, .drop-zone.dragover { border-color: #4361ee; background: #f0f4ff; }
+    .drop-zone p { color: #666; margin-bottom: 8px; }
+    .hint { font-size: 12px; color: #999; }
+    .gcs-form { display: flex; flex-direction: column; gap: 8px; }
+    .gcs-form label { font-size: 13px; color: #666; }
+    .gcs-form input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+    .btn { padding: 8px 16px; background: #4361ee; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+    .btn:hover { background: #3451de; }
+    .btn:disabled { background: #aaa; cursor: not-allowed; }
+    .btn-sm { padding: 6px 14px; font-size: 13px; }
+    .tabs { display: flex; gap: 0; margin-bottom: 0; }
+    .tab {
+      padding: 10px 24px; background: #e0e0e0; border: none; cursor: pointer;
+      font-size: 14px; font-weight: 500; border-radius: 8px 8px 0 0;
+    }
+    .tab.active { background: white; color: #4361ee; }
+    .tab:hover:not(.active) { background: #d0d0d0; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .filters { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid #eee; margin-bottom: 16px; }
+    .filters label { font-size: 13px; color: #666; display: flex; align-items: center; gap: 4px; }
+    .filters select, .filters input[type="number"] {
+      padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;
+    }
+    .filters select { min-width: 140px; }
+    .filters input[type="number"] { width: 70px; }
+    .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(580px, 1fr)); gap: 20px; }
+    .chart-card { background: white; border-radius: 8px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .chart-card .plotly-container { width: 100%; min-height: 380px; }
+    .status { padding: 10px 0; font-size: 13px; color: #666; }
+    .status.error { color: #e74c3c; }
+    .status.loading { color: #f39c12; }
+    .status.success { color: #27ae60; }
+    .experiment-selector { margin-bottom: 16px; }
+    .experiment-list {
+      max-height: 180px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; padding: 8px;
+    }
+    .experiment-list label { display: block; padding: 4px 8px; font-size: 13px; cursor: pointer; font-family: monospace; }
+    .experiment-list label:hover { background: #f0f4ff; }
+    .separator { text-align: center; padding: 12px; color: #999; font-size: 13px; font-weight: 500; }
+    .hidden { display: none; }
+    .no-data { padding: 40px; text-align: center; color: #999; font-size: 14px; }
+    #loading-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(255,255,255,0.85); display: none; align-items: center; justify-content: center;
+      z-index: 1000; font-size: 18px; color: #4361ee; flex-direction: column; gap: 12px;
+    }
+    #loading-overlay.active { display: flex; }
+    #loading-overlay .spinner {
+      width: 40px; height: 40px; border: 4px solid #e0e0e0; border-top-color: #4361ee;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Pixie Perf Tool Dashboard</h1>
+    <span class="subtitle">DuckDB WASM + Parquet</span>
+  </header>
+
+  <div id="loading-overlay"><div class="spinner"></div><div id="loading-text">Initializing DuckDB...</div></div>
+
+  <div class="container">
+    <!-- Data Source -->
+    <div class="panel">
+      <h2>Data Source</h2>
+      <div class="data-source">
+        <div class="section">
+          <div class="drop-zone" id="drop-zone">
+            <p>Drop parquet files here or click to browse</p>
+            <p class="hint">results_*.parquet and spec.parquet files</p>
+            <input type="file" id="file-input" multiple accept=".parquet" style="display:none">
+          </div>
+        </div>
+        <div class="separator">OR</div>
+        <div class="section">
+          <div class="gcs-form">
+            <label>GCS Bucket</label>
+            <input type="text" id="gcs-bucket" placeholder="my-bucket-name">
+            <label>Prefix (optional)</label>
+            <input type="text" id="gcs-prefix" placeholder="perf-results">
+            <label>Date filter (optional, YYYY/MM/DD)</label>
+            <input type="text" id="gcs-date" placeholder="2026/04/16">
+            <button class="btn" id="gcs-load-btn">Load from GCS</button>
+            <p class="hint">
+              Bucket must be publicly readable or have CORS configured.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div id="data-status" class="status"></div>
+    </div>
+
+    <!-- Dashboard (hidden until data loaded) -->
+    <div id="dashboard" class="hidden">
+      <div class="tabs">
+        <button class="tab active" data-tab="suite">Suite View</button>
+        <button class="tab" data-tab="experiment">Experiment View</button>
+      </div>
+
+      <!-- Suite View -->
+      <div id="tab-suite" class="tab-content active panel">
+        <div class="filters">
+          <label>Suite: <select id="filter-suite"><option value="">All</option></select></label>
+          <label>Workload: <select id="filter-workload"><option value="">All</option></select></label>
+          <label>Last N commits: <input type="number" id="filter-num-commits" value="50" min="1"></label>
+          <label>Every Nth: <input type="number" id="filter-every-n" value="1" min="1"></label>
+          <button class="btn btn-sm" id="refresh-suite-btn">Refresh</button>
+        </div>
+        <div id="suite-no-specs" class="no-data hidden">
+          No spec files loaded. Upload spec.parquet files to enable commit-based suite views.
+        </div>
+        <div class="chart-grid" id="suite-charts">
+          <div class="chart-card"><div id="suite-cpu-usage" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="suite-max-heap-ex-table" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="suite-max-heap" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="suite-max-rss" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="suite-http-data-loss" class="plotly-container"></div></div>
+        </div>
+      </div>
+
+      <!-- Experiment View -->
+      <div id="tab-experiment" class="tab-content panel">
+        <div class="experiment-selector">
+          <h3 style="font-size:14px;margin-bottom:8px;">Select Experiments</h3>
+          <div class="experiment-list" id="experiment-list"></div>
+          <button class="btn btn-sm" id="refresh-experiment-btn" style="margin-top:8px;">Load Charts</button>
+        </div>
+        <div class="chart-grid" id="experiment-charts">
+          <div class="chart-card"><div id="exp-cpu-usage" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-heap" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-rss" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-http-data-loss" class="plotly-container"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // =========================================================================
+    // DuckDB WASM Initialization
+    // =========================================================================
+    import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm/+esm';
+
+    let db, conn;
+    let hasSpecs = false;
+    let hasResults = false;
+
+    async function initDuckDB() {
+      const BUNDLES = {
+        mvp: {
+          mainModule: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm',
+          mainWorker: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js',
+        },
+        eh: {
+          mainModule: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm/dist/duckdb-eh.wasm',
+          mainWorker: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js',
+        },
+      };
+      const bundle = await duckdb.selectBundle(BUNDLES);
+      const workerUrl = URL.createObjectURL(
+        new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' })
+      );
+      const worker = new Worker(workerUrl);
+      const logger = new duckdb.ConsoleLogger();
+      db = new duckdb.AsyncDuckDB(logger, worker);
+      await db.instantiate(bundle.mainModule);
+      URL.revokeObjectURL(workerUrl);
+      conn = await db.connect();
+    }
+
+    // =========================================================================
+    // Query Helpers
+    // =========================================================================
+    async function queryToObjects(sql) {
+      const result = await conn.query(sql);
+      const rows = [];
+      for (let i = 0; i < result.numRows; i++) {
+        const row = result.get(i);
+        const obj = {};
+        for (const field of result.schema.fields) {
+          let val = row[field.name];
+          if (typeof val === 'bigint') val = Number(val);
+          obj[field.name] = val;
+        }
+        rows.push(obj);
+      }
+      return rows;
+    }
+
+    // =========================================================================
+    // Data Loading
+    // =========================================================================
+    let fileCounter = 0;
+
+    async function registerParquetBuffer(name, buffer) {
+      await db.registerFileBuffer(name, new Uint8Array(buffer));
+    }
+
+    async function loadLocalFiles(fileList) {
+      const resultFiles = [];
+      const specFiles = [];
+      for (const file of fileList) {
+        if (!file.name.endsWith('.parquet')) continue;
+        const buf = await file.arrayBuffer();
+        const regName = `file_${fileCounter++}_${file.name}`;
+        await registerParquetBuffer(regName, buf);
+        if (file.name.startsWith('spec') || file.name === 'spec.parquet') {
+          specFiles.push(regName);
+        } else {
+          resultFiles.push(regName);
+        }
+      }
+      return { resultFiles, specFiles };
+    }
+
+    async function loadFromGCS(bucket, prefix, date) {
+      // List objects via GCS JSON API
+      let listPrefix = prefix ? `${prefix}/` : '';
+      if (date) listPrefix += `${date}/`;
+
+      const listUrl = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o?prefix=${encodeURIComponent(listPrefix)}&maxResults=5000`;
+      const resp = await fetch(listUrl);
+      if (!resp.ok) throw new Error(`GCS list failed: ${resp.status} ${resp.statusText}`);
+      const data = await resp.json();
+
+      if (!data.items || data.items.length === 0) {
+        throw new Error('No objects found with the given bucket/prefix/date.');
+      }
+
+      const parquetItems = data.items.filter(item => item.name.endsWith('.parquet'));
+      if (parquetItems.length === 0) {
+        throw new Error('No .parquet files found.');
+      }
+
+      setStatus(`Found ${parquetItems.length} parquet files. Downloading...`, 'loading');
+
+      const resultFiles = [];
+      const specFiles = [];
+
+      for (let i = 0; i < parquetItems.length; i++) {
+        const item = parquetItems[i];
+        setStatus(`Downloading ${i + 1}/${parquetItems.length}: ${item.name}`, 'loading');
+        const downloadUrl = `https://storage.googleapis.com/${encodeURIComponent(bucket)}/${item.name}`;
+        const fileResp = await fetch(downloadUrl);
+        if (!fileResp.ok) {
+          console.warn(`Failed to download ${item.name}: ${fileResp.status}`);
+          continue;
+        }
+        const buf = await fileResp.arrayBuffer();
+        const regName = `gcs_${fileCounter++}_${item.name.split('/').pop()}`;
+        await registerParquetBuffer(regName, buf);
+        if (item.name.endsWith('spec.parquet')) {
+          specFiles.push(regName);
+        } else {
+          resultFiles.push(regName);
+        }
+      }
+      return { resultFiles, specFiles };
+    }
+
+    async function createTables(resultFiles, specFiles) {
+      // Drop existing tables
+      await conn.query('DROP TABLE IF EXISTS results');
+      await conn.query('DROP TABLE IF EXISTS specs');
+
+      if (resultFiles.length > 0) {
+        const fileList = resultFiles.map(f => `'${f}'`).join(',');
+        await conn.query(`
+          CREATE TABLE results AS
+          SELECT
+            experiment_id, name, value, "timestamp",
+            tag_pod, tag_node_name
+          FROM read_parquet([${fileList}], union_by_name=true)
+        `);
+        hasResults = true;
+      }
+
+      if (specFiles.length > 0) {
+        const fileList = specFiles.map(f => `'${f}'`).join(',');
+        await conn.query(`
+          CREATE TABLE specs AS
+          SELECT * FROM read_parquet([${fileList}], union_by_name=true)
+        `);
+        hasSpecs = true;
+      }
+
+      // Report summary
+      let msg = '';
+      if (hasResults) {
+        const rc = await queryToObjects('SELECT count(*) as n FROM results');
+        msg += `Results: ${rc[0].n} rows. `;
+      }
+      if (hasSpecs) {
+        const sc = await queryToObjects('SELECT count(*) as n FROM specs');
+        msg += `Specs: ${sc[0].n} rows.`;
+      }
+      return msg;
+    }
+
+    // =========================================================================
+    // Suite View Queries
+    // =========================================================================
+
+    // Metric configurations matching the Data Studio dashboards.
+    const SUITE_METRICS = [
+      {
+        id: 'suite-cpu-usage',
+        title: 'CPU Usage',
+        metricName: 'cpu_usage',
+        unit: 'percent',
+        timeAgg: null, // no time aggregation, use all data points
+      },
+      {
+        id: 'suite-max-heap-ex-table',
+        title: 'Max Heap Usage (ignoring table store)',
+        // Requires joining heap_size_bytes and table_size rows.
+        metricName: 'heap_ex_table',
+        unit: 'bytes',
+        timeAgg: 'max',
+        computed: true,
+      },
+      {
+        id: 'suite-max-heap',
+        title: 'Max Heap Usage',
+        metricName: 'heap_size_bytes',
+        unit: 'bytes',
+        timeAgg: 'max',
+      },
+      {
+        id: 'suite-max-rss',
+        title: 'Max RSS Memory Usage',
+        metricName: 'rss',
+        unit: 'bytes',
+        timeAgg: 'max',
+      },
+      {
+        id: 'suite-http-data-loss',
+        title: 'HTTP Data Loss',
+        metricName: 'http_data_loss',
+        unit: 'percent',
+        timeAgg: 'last',
+      },
+    ];
+
+    function buildSuiteQuery(metric, filters) {
+      const { suite, workload, numCommits, everyN } = filters;
+
+      // Build metric source CTE based on whether it's computed
+      let metricSourceCTE;
+      if (metric.computed && metric.metricName === 'heap_ex_table') {
+        metricSourceCTE = `
+          metric_source AS (
+            SELECT
+              h.experiment_id,
+              h.timestamp,
+              h.value - COALESCE(t.value, 0) as metric_value,
+              h.tag_pod
+            FROM results h
+            LEFT JOIN results t
+              ON h.experiment_id = t.experiment_id
+              AND h.timestamp = t.timestamp
+              AND COALESCE(h.tag_pod, '') = COALESCE(t.tag_pod, '')
+              AND t.name = 'table_size'
+            WHERE h.name = 'heap_size_bytes'
+          )`;
+      } else {
+        metricSourceCTE = `
+          metric_source AS (
+            SELECT experiment_id, timestamp, value as metric_value, tag_pod
+            FROM results
+            WHERE name = '${metric.metricName}'
+          )`;
+      }
+
+      // Time aggregation clause
+      let timeAggExpr, timeAggGroupBy;
+      if (metric.timeAgg === 'max') {
+        timeAggExpr = 'max(m.metric_value)';
+        timeAggGroupBy = true;
+      } else if (metric.timeAgg === 'last') {
+        timeAggExpr = 'last(m.metric_value ORDER BY m.timestamp)';
+        timeAggGroupBy = true;
+      } else {
+        // No time agg: use individual data points
+        timeAggExpr = 'm.metric_value';
+        timeAggGroupBy = false;
+      }
+
+      let suiteFilter = suite ? `AND suite = '${suite}'` : '';
+      let workloadFilter = workload ? `AND workload = '${workload}'` : '';
+
+      return `
+        WITH parsed_specs AS (
+          SELECT
+            experiment_id,
+            commit_topo_order,
+            spec,
+            json_extract_string(spec, '$.commitSha') as commit_sha,
+            COALESCE(CAST(json_extract_string(spec, '$.clusterSpec.numNodes') AS INTEGER), 1) as num_nodes,
+            json_transform(json_extract(spec, '$.tags'), '["VARCHAR"]') as tags
+          FROM specs
+        ),
+        filtered_specs AS (
+          SELECT * FROM parsed_specs
+          WHERE num_nodes = 1
+            AND list_contains(tags, 'main')
+            AND NOT list_contains(tags, 'application_overhead')
+        ),
+        enriched_specs AS (
+          SELECT
+            experiment_id,
+            commit_topo_order,
+            commit_sha,
+            max(CASE WHEN t LIKE 'suite/%' THEN split_part(t, '/', 2) END) as suite,
+            max(CASE WHEN t LIKE 'workload/%' THEN split_part(t, '/', 2) END) as workload,
+            string_agg(split_part(t, 'parameter/', 2), ',') FILTER (WHERE t LIKE 'parameter/%') as parameters
+          FROM filtered_specs, unnest(tags) AS u(t)
+          GROUP BY experiment_id, commit_topo_order, commit_sha
+          HAVING max(CASE WHEN t LIKE 'suite/%' THEN 1 END) IS NOT NULL
+             AND max(CASE WHEN t LIKE 'workload/%' THEN 1 END) IS NOT NULL
+        ),
+        ranked AS (
+          SELECT *, dense_rank() OVER (ORDER BY commit_topo_order DESC) as rk
+          FROM enriched_specs
+          WHERE 1=1 ${suiteFilter} ${workloadFilter}
+        ),
+        filtered_commits AS (
+          SELECT * FROM ranked
+          WHERE rk <= ${numCommits} * ${everyN}
+            AND mod(rk - 1, ${everyN}) = 0
+        ),
+        run_bounds AS (
+          SELECT
+            r1.experiment_id,
+            min(r1.timestamp) as run_begin,
+            min(r2.timestamp) as run_end
+          FROM results r1
+          JOIN results r2 ON r1.experiment_id = r2.experiment_id
+          WHERE r1.name LIKE 'begin\\_run:%' ESCAPE '\\'
+            AND r2.name LIKE 'end\\_run:%' ESCAPE '\\'
+          GROUP BY r1.experiment_id
+        ),
+        ${metricSourceCTE},
+        joined AS (
+          SELECT
+            m.experiment_id,
+            m.timestamp,
+            m.metric_value,
+            rtrim(regexp_extract(COALESCE(m.tag_pod, ''), '(?:[a-z\\-]+/)?((?:[a-z]+-)+)', 1), '-') as pod,
+            s.commit_sha,
+            s.commit_topo_order,
+            s.suite,
+            s.workload,
+            s.parameters
+          FROM metric_source m
+          JOIN filtered_commits s USING (experiment_id)
+          LEFT JOIN run_bounds b USING (experiment_id)
+          WHERE (b.run_begin IS NULL OR m.timestamp >= b.run_begin)
+            AND (b.run_end IS NULL OR m.timestamp <= b.run_end)
+        ),
+        ${timeAggGroupBy ? `
+        time_agged AS (
+          SELECT
+            experiment_id, suite, workload, parameters, commit_sha, commit_topo_order, pod,
+            ${timeAggExpr} as metric_value
+          FROM joined m
+          GROUP BY experiment_id, suite, workload, parameters, commit_sha, commit_topo_order, pod
+        ),
+        ` : ''}
+        agged AS (
+          SELECT
+            suite, workload, parameters, commit_sha, commit_topo_order, pod,
+            count(DISTINCT experiment_id) as n_experiments,
+            quantile_cont(metric_value, 0.01) as p01,
+            quantile_cont(metric_value, 0.25) as p25,
+            quantile_cont(metric_value, 0.50) as p50,
+            quantile_cont(metric_value, 0.75) as p75,
+            quantile_cont(metric_value, 0.99) as p99
+          FROM ${timeAggGroupBy ? 'time_agged' : 'joined'}
+          GROUP BY suite, workload, parameters, commit_sha, commit_topo_order, pod
+        )
+        SELECT * FROM agged ORDER BY commit_topo_order, suite, workload, parameters, pod
+      `;
+    }
+
+    // =========================================================================
+    // Experiment View Queries
+    // =========================================================================
+
+    const EXPERIMENT_METRICS = [
+      { id: 'exp-cpu-usage', title: 'CPU Usage', names: ['cpu_usage'], unit: 'percent' },
+      { id: 'exp-heap', title: 'Heap (ignoring table store)', names: ['heap_size_bytes', 'table_size'], unit: 'bytes', computed: true },
+      { id: 'exp-rss', title: 'RSS', names: ['rss'], unit: 'bytes' },
+      { id: 'exp-http-data-loss', title: 'HTTP Data Loss', names: ['http_data_loss'], unit: 'percent' },
+    ];
+
+    function buildExperimentQuery(experimentIds, metricConfig) {
+      const idList = experimentIds.map(id => `'${id}'`).join(',');
+      const nameList = metricConfig.names.map(n => `'${n}'`).join(',');
+
+      let valueExpr;
+      if (metricConfig.computed && metricConfig.names.includes('heap_size_bytes')) {
+        // Self-join to subtract table_size from heap_size_bytes
+        return `
+          WITH min_times AS (
+            SELECT experiment_id, min(timestamp) as min_ts
+            FROM results
+            WHERE experiment_id IN (${idList})
+            GROUP BY experiment_id
+          ),
+          heap_data AS (
+            SELECT
+              r.experiment_id,
+              date_diff('second', mt.min_ts, r.timestamp) as elapsed_s,
+              r.value - COALESCE(t.value, 0) as metric_value,
+              rtrim(regexp_extract(COALESCE(r.tag_pod, ''), '(?:[a-z\\-]+/)?((?:[a-z]+-)+)', 1), '-') as pod
+            FROM results r
+            JOIN min_times mt USING (experiment_id)
+            LEFT JOIN results t
+              ON r.experiment_id = t.experiment_id
+              AND r.timestamp = t.timestamp
+              AND COALESCE(r.tag_pod,'') = COALESCE(t.tag_pod,'')
+              AND t.name = 'table_size'
+            WHERE r.experiment_id IN (${idList})
+              AND r.name = 'heap_size_bytes'
+          )
+          SELECT experiment_id, elapsed_s, metric_value, pod
+          FROM heap_data
+          ORDER BY experiment_id, elapsed_s
+        `;
+      }
+
+      return `
+        WITH min_times AS (
+          SELECT experiment_id, min(timestamp) as min_ts
+          FROM results
+          WHERE experiment_id IN (${idList})
+          GROUP BY experiment_id
+        )
+        SELECT
+          r.experiment_id,
+          date_diff('second', mt.min_ts, r.timestamp) as elapsed_s,
+          r.value as metric_value,
+          rtrim(regexp_extract(COALESCE(r.tag_pod, ''), '(?:[a-z\\-]+/)?((?:[a-z]+-)+)', 1), '-') as pod
+        FROM results r
+        JOIN min_times mt USING (experiment_id)
+        WHERE r.experiment_id IN (${idList})
+          AND r.name = '${metricConfig.names[0]}'
+        ORDER BY r.experiment_id, elapsed_s
+      `;
+    }
+
+    function buildActionsQuery(experimentIds) {
+      const idList = experimentIds.map(id => `'${id}'`).join(',');
+      return `
+        WITH min_times AS (
+          SELECT experiment_id, min(timestamp) as min_ts
+          FROM results
+          WHERE experiment_id IN (${idList})
+          GROUP BY experiment_id
+        )
+        SELECT
+          r.experiment_id,
+          date_diff('second', mt.min_ts, r.timestamp) as elapsed_s,
+          r.name,
+          CASE WHEN r.name LIKE 'begin\\_%' ESCAPE '\\' THEN true ELSE false END as is_begin,
+          regexp_extract(r.name, '[^:_]+_([^:]+)') as action_type,
+          regexp_extract(r.name, '[^:]+:(.*)') as action_name
+        FROM results r
+        JOIN min_times mt USING (experiment_id)
+        WHERE r.experiment_id IN (${idList})
+          AND (r.name LIKE 'begin\\_%:%' ESCAPE '\\' OR r.name LIKE 'end\\_%:%' ESCAPE '\\')
+        ORDER BY elapsed_s
+      `;
+    }
+
+    // =========================================================================
+    // Chart Rendering
+    // =========================================================================
+
+    function formatValue(val, unit) {
+      if (unit === 'bytes') return (val / 1024 / 1024).toFixed(1) + ' MiB';
+      if (unit === 'percent') return (val * 100).toFixed(2) + '%';
+      return val.toFixed(4);
+    }
+
+    function renderSuiteChart(containerId, data, config) {
+      if (data.length === 0) {
+        Plotly.purge(containerId);
+        document.getElementById(containerId).innerHTML = `<div class="no-data">${config.title}: No data</div>`;
+        return;
+      }
+
+      // Group by color key (suite + workload + parameters + pod)
+      const groups = {};
+      for (const row of data) {
+        const key = `${row.suite}/${row.workload}/${row.parameters || ''}${row.pod ? ' (' + row.pod + ')' : ''}`;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(row);
+      }
+
+      const isBytesUnit = config.unit === 'bytes';
+      const traces = Object.entries(groups).map(([key, rows]) => ({
+        x: rows.map(r => r.commit_sha ? r.commit_sha.slice(0, 7) : String(r.commit_topo_order)),
+        y: rows.map(r => isBytesUnit ? r.p50 / 1024 / 1024 : r.p50),
+        customdata: rows.map(r => ({
+          sha: r.commit_sha,
+          topo: r.commit_topo_order,
+          p01: r.p01, p25: r.p25, p50: r.p50, p75: r.p75, p99: r.p99,
+          n: r.n_experiments, suite: r.suite, workload: r.workload,
+          params: r.parameters, pod: r.pod,
+        })),
+        name: key,
+        mode: 'markers',
+        type: 'scatter',
+        marker: { size: 8 },
+        hovertemplate: `<b>%{customdata.suite}/%{customdata.workload}</b><br>` +
+          `Params: %{customdata.params}<br>` +
+          `Pod: %{customdata.pod}<br>` +
+          `Commit: %{customdata.sha}<br>` +
+          `p50: %{y:.4f}<br>` +
+          `Experiments: %{customdata.n}<extra>${key}</extra>`,
+      }));
+
+      const layout = {
+        title: { text: config.title, font: { size: 14 } },
+        xaxis: {
+          title: 'Commits',
+          tickangle: 45,
+          type: 'category',
+        },
+        yaxis: {
+          title: isBytesUnit ? 'MiB' : (config.unit === 'percent' ? 'Ratio' : 'Value'),
+        },
+        margin: { t: 40, b: 80, l: 60, r: 20 },
+        hovermode: 'closest',
+        showlegend: true,
+        legend: { font: { size: 10 }, orientation: 'h', y: -0.3 },
+      };
+
+      Plotly.newPlot(containerId, traces, layout, { responsive: true });
+    }
+
+    function renderExperimentChart(containerId, data, actions, config) {
+      if (data.length === 0) {
+        Plotly.purge(containerId);
+        document.getElementById(containerId).innerHTML = `<div class="no-data">${config.title}: No data</div>`;
+        return;
+      }
+
+      const isBytesUnit = config.unit === 'bytes';
+
+      // Group by experiment_id + pod
+      const groups = {};
+      for (const row of data) {
+        const key = `${row.experiment_id.slice(0, 8)}...${row.pod ? ' (' + row.pod + ')' : ''}`;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(row);
+      }
+
+      const traces = Object.entries(groups).map(([key, rows]) => ({
+        x: rows.map(r => r.elapsed_s),
+        y: rows.map(r => isBytesUnit ? r.metric_value / 1024 / 1024 : r.metric_value),
+        name: key,
+        mode: 'lines',
+        type: 'scatter',
+        hovertemplate: `<b>${key}</b><br>Time: %{x}s<br>Value: %{y:.4f}<extra></extra>`,
+      }));
+
+      // Add action markers as vertical lines
+      const runActions = actions.filter(a => a.action_type === 'run');
+      const shapes = runActions.map(a => ({
+        type: 'line',
+        x0: a.elapsed_s, x1: a.elapsed_s,
+        y0: 0, y1: 1, yref: 'paper',
+        line: { color: a.is_begin ? 'green' : 'red', width: 1, dash: 'dash' },
+      }));
+      const annotations = runActions.map(a => ({
+        x: a.elapsed_s, y: 1, yref: 'paper',
+        text: `${a.is_begin ? 'begin' : 'end'}_run${a.action_name ? ':' + a.action_name : ''}`,
+        showarrow: false, font: { size: 9, color: a.is_begin ? 'green' : 'red' },
+        yanchor: 'bottom',
+      }));
+
+      const layout = {
+        title: { text: config.title, font: { size: 14 } },
+        xaxis: { title: 'Time Elapsed (s)' },
+        yaxis: { title: isBytesUnit ? 'MiB' : (config.unit === 'percent' ? 'Ratio' : 'Value') },
+        margin: { t: 40, b: 60, l: 60, r: 20 },
+        hovermode: 'closest',
+        showlegend: true,
+        legend: { font: { size: 10 }, orientation: 'h', y: -0.25 },
+        shapes,
+        annotations,
+      };
+
+      Plotly.newPlot(containerId, traces, layout, { responsive: true });
+    }
+
+    // =========================================================================
+    // Dashboard Logic
+    // =========================================================================
+
+    async function populateFilters() {
+      if (!hasSpecs) return;
+
+      try {
+        const suites = await queryToObjects(`
+          SELECT DISTINCT max(CASE WHEN t LIKE 'suite/%' THEN split_part(t, '/', 2) END) as suite
+          FROM specs, unnest(json_transform(json_extract(spec, '$.tags'), '["VARCHAR"]')) AS u(t)
+          GROUP BY experiment_id
+          HAVING suite IS NOT NULL
+        `);
+        const suiteSelect = document.getElementById('filter-suite');
+        suiteSelect.innerHTML = '<option value="">All</option>';
+        const uniqueSuites = [...new Set(suites.map(r => r.suite))].sort();
+        for (const s of uniqueSuites) {
+          suiteSelect.innerHTML += `<option value="${s}">${s}</option>`;
+        }
+
+        const workloads = await queryToObjects(`
+          SELECT DISTINCT max(CASE WHEN t LIKE 'workload/%' THEN split_part(t, '/', 2) END) as workload
+          FROM specs, unnest(json_transform(json_extract(spec, '$.tags'), '["VARCHAR"]')) AS u(t)
+          GROUP BY experiment_id
+          HAVING workload IS NOT NULL
+        `);
+        const workloadSelect = document.getElementById('filter-workload');
+        workloadSelect.innerHTML = '<option value="">All</option>';
+        const uniqueWorkloads = [...new Set(workloads.map(r => r.workload))].sort();
+        for (const w of uniqueWorkloads) {
+          workloadSelect.innerHTML += `<option value="${w}">${w}</option>`;
+        }
+      } catch (e) {
+        console.warn('Failed to populate filters:', e);
+      }
+    }
+
+    async function populateExperimentList() {
+      if (!hasResults) return;
+
+      const experiments = await queryToObjects(`
+        SELECT DISTINCT experiment_id FROM results ORDER BY experiment_id
+      `);
+      const listEl = document.getElementById('experiment-list');
+      listEl.innerHTML = '';
+      for (const exp of experiments) {
+        const id = exp.experiment_id;
+        const label = document.createElement('label');
+        label.innerHTML = `<input type="checkbox" value="${id}"> ${id.slice(0, 12)}...`;
+        listEl.appendChild(label);
+      }
+    }
+
+    function getFilters() {
+      return {
+        suite: document.getElementById('filter-suite').value,
+        workload: document.getElementById('filter-workload').value,
+        numCommits: parseInt(document.getElementById('filter-num-commits').value) || 50,
+        everyN: parseInt(document.getElementById('filter-every-n').value) || 1,
+      };
+    }
+
+    function getSelectedExperiments() {
+      const checkboxes = document.querySelectorAll('#experiment-list input[type="checkbox"]:checked');
+      return Array.from(checkboxes).map(cb => cb.value);
+    }
+
+    async function refreshSuiteView() {
+      if (!hasSpecs || !hasResults) {
+        document.getElementById('suite-no-specs').classList.remove('hidden');
+        document.getElementById('suite-charts').classList.add('hidden');
+        return;
+      }
+      document.getElementById('suite-no-specs').classList.add('hidden');
+      document.getElementById('suite-charts').classList.remove('hidden');
+
+      const filters = getFilters();
+
+      for (const metric of SUITE_METRICS) {
+        try {
+          const sql = buildSuiteQuery(metric, filters);
+          const data = await queryToObjects(sql);
+          renderSuiteChart(metric.id, data, metric);
+        } catch (e) {
+          console.error(`Suite chart ${metric.id} failed:`, e);
+          document.getElementById(metric.id).innerHTML =
+            `<div class="no-data" style="color:#e74c3c;">${metric.title}: Query error<br><small>${e.message}</small></div>`;
+        }
+      }
+    }
+
+    async function refreshExperimentView() {
+      const experimentIds = getSelectedExperiments();
+      if (experimentIds.length === 0) {
+        for (const m of EXPERIMENT_METRICS) {
+          document.getElementById(m.id).innerHTML =
+            '<div class="no-data">Select experiments above and click Load Charts</div>';
+        }
+        return;
+      }
+
+      let actions = [];
+      try {
+        actions = await queryToObjects(buildActionsQuery(experimentIds));
+      } catch (e) {
+        console.warn('Failed to load actions:', e);
+      }
+
+      for (const metric of EXPERIMENT_METRICS) {
+        try {
+          const sql = buildExperimentQuery(experimentIds, metric);
+          const data = await queryToObjects(sql);
+          renderExperimentChart(metric.id, data, actions, metric);
+        } catch (e) {
+          console.error(`Experiment chart ${metric.id} failed:`, e);
+          document.getElementById(metric.id).innerHTML =
+            `<div class="no-data" style="color:#e74c3c;">${metric.title}: Query error<br><small>${e.message}</small></div>`;
+        }
+      }
+    }
+
+    // =========================================================================
+    // UI Helpers
+    // =========================================================================
+
+    function setStatus(msg, type) {
+      const el = document.getElementById('data-status');
+      el.textContent = msg;
+      el.className = `status ${type || ''}`;
+    }
+
+    function showLoading(msg) {
+      document.getElementById('loading-text').textContent = msg || 'Loading...';
+      document.getElementById('loading-overlay').classList.add('active');
+    }
+
+    function hideLoading() {
+      document.getElementById('loading-overlay').classList.remove('active');
+    }
+
+    async function handleDataLoad(resultFiles, specFiles) {
+      showLoading('Creating tables...');
+      try {
+        const summary = await createTables(resultFiles, specFiles);
+        setStatus(summary, 'success');
+        document.getElementById('dashboard').classList.remove('hidden');
+
+        showLoading('Populating filters...');
+        await populateFilters();
+        await populateExperimentList();
+
+        showLoading('Rendering charts...');
+        await refreshSuiteView();
+
+        hideLoading();
+      } catch (e) {
+        hideLoading();
+        setStatus(`Error: ${e.message}`, 'error');
+        console.error(e);
+      }
+    }
+
+    // =========================================================================
+    // Event Listeners
+    // =========================================================================
+
+    function setupUI() {
+      // Tabs
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+          tab.classList.add('active');
+          document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+        });
+      });
+
+      // Drop zone
+      const dropZone = document.getElementById('drop-zone');
+      const fileInput = document.getElementById('file-input');
+
+      dropZone.addEventListener('click', () => fileInput.click());
+      dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+      dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+      dropZone.addEventListener('drop', async e => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        showLoading('Loading files...');
+        try {
+          const { resultFiles, specFiles } = await loadLocalFiles(e.dataTransfer.files);
+          if (resultFiles.length === 0 && specFiles.length === 0) {
+            hideLoading();
+            setStatus('No .parquet files found in drop.', 'error');
+            return;
+          }
+          setStatus(`Loaded ${resultFiles.length} result + ${specFiles.length} spec files.`, 'loading');
+          await handleDataLoad(resultFiles, specFiles);
+        } catch (err) {
+          hideLoading();
+          setStatus(`Error: ${err.message}`, 'error');
+          console.error(err);
+        }
+      });
+
+      fileInput.addEventListener('change', async e => {
+        if (!e.target.files.length) return;
+        showLoading('Loading files...');
+        try {
+          const { resultFiles, specFiles } = await loadLocalFiles(e.target.files);
+          if (resultFiles.length === 0 && specFiles.length === 0) {
+            hideLoading();
+            setStatus('No .parquet files found.', 'error');
+            return;
+          }
+          setStatus(`Loaded ${resultFiles.length} result + ${specFiles.length} spec files.`, 'loading');
+          await handleDataLoad(resultFiles, specFiles);
+        } catch (err) {
+          hideLoading();
+          setStatus(`Error: ${err.message}`, 'error');
+          console.error(err);
+        }
+      });
+
+      // GCS loading
+      document.getElementById('gcs-load-btn').addEventListener('click', async () => {
+        const bucket = document.getElementById('gcs-bucket').value.trim();
+        if (!bucket) { setStatus('Please enter a bucket name.', 'error'); return; }
+        const prefix = document.getElementById('gcs-prefix').value.trim();
+        const date = document.getElementById('gcs-date').value.trim();
+
+        showLoading('Listing GCS objects...');
+        try {
+          const { resultFiles, specFiles } = await loadFromGCS(bucket, prefix, date);
+          if (resultFiles.length === 0 && specFiles.length === 0) {
+            hideLoading();
+            setStatus('No parquet files found in GCS path.', 'error');
+            return;
+          }
+          setStatus(`Downloaded ${resultFiles.length} result + ${specFiles.length} spec files.`, 'loading');
+          await handleDataLoad(resultFiles, specFiles);
+        } catch (err) {
+          hideLoading();
+          setStatus(`GCS Error: ${err.message}`, 'error');
+          console.error(err);
+        }
+      });
+
+      // Refresh buttons
+      document.getElementById('refresh-suite-btn').addEventListener('click', async () => {
+        showLoading('Refreshing suite charts...');
+        try { await refreshSuiteView(); } catch (e) { console.error(e); }
+        hideLoading();
+      });
+      document.getElementById('refresh-experiment-btn').addEventListener('click', async () => {
+        showLoading('Loading experiment charts...');
+        try { await refreshExperimentView(); } catch (e) { console.error(e); }
+        hideLoading();
+      });
+    }
+
+    // =========================================================================
+    // Main
+    // =========================================================================
+
+    async function main() {
+      showLoading('Initializing DuckDB WASM...');
+      try {
+        await initDuckDB();
+        hideLoading();
+        setStatus('DuckDB ready. Load parquet files to begin.', '');
+        setupUI();
+      } catch (e) {
+        hideLoading();
+        setStatus(`Failed to initialize DuckDB: ${e.message}`, 'error');
+        console.error('DuckDB init error:', e);
+      }
+    }
+
+    main();
+  </script>
+</body>
+</html>

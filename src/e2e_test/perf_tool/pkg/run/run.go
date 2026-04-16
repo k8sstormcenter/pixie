@@ -39,17 +39,16 @@ import (
 	"px.dev/pixie/src/e2e_test/perf_tool/experimentpb"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/cluster"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/deploy"
+	"px.dev/pixie/src/e2e_test/perf_tool/pkg/exporter"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/metrics"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/pixie"
-	"px.dev/pixie/src/shared/bq"
 )
 
 // Runner is responsible for running experiments using the ClusterProvider to get a cluster for the experiment.
 type Runner struct {
 	c                     cluster.Provider
 	pxCtx                 *pixie.Context
-	resultTable           *bq.Table
-	specTable             *bq.Table
+	exporter              exporter.Exporter
 	containerRegistryRepo string
 
 	clusterCtx          *cluster.Context
@@ -66,12 +65,11 @@ type Runner struct {
 }
 
 // NewRunner creates a new Runner for the given contexts.
-func NewRunner(c cluster.Provider, pxCtx *pixie.Context, resultTable *bq.Table, specTable *bq.Table, containerRegistryRepo string) *Runner {
+func NewRunner(c cluster.Provider, pxCtx *pixie.Context, exp exporter.Exporter, containerRegistryRepo string) *Runner {
 	return &Runner{
 		c:                     c,
 		pxCtx:                 pxCtx,
-		resultTable:           resultTable,
-		specTable:             specTable,
+		exporter:              exp,
 		containerRegistryRepo: containerRegistryRepo,
 	}
 }
@@ -98,7 +96,12 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 	defer metricsChCloseOnce.Do(func() { close(r.metricsResultCh) })
 
 	r.wg.Add(1)
-	go r.runBQInserter(expID)
+	go func() {
+		defer r.wg.Done()
+		if err := r.exporter.ExportResults(ctx, expID, r.metricsResultCh); err != nil {
+			log.WithError(err).Error("Failed to export results")
+		}
+	}()
 
 	if err := eg.Wait(); err != nil {
 		if r.clusterCleanup != nil {
@@ -126,23 +129,12 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 		return err
 	}
 
-	// The experiment succeeded so we write the spec to bigquery.
+	// The experiment succeeded so we write the spec to the exporter.
 	encodedSpec, err := (&jsonpb.Marshaler{}).MarshalToString(spec)
 	if err != nil {
 		return err
 	}
-	specRow := &SpecRow{
-		ExperimentID:    expID.String(),
-		Spec:            encodedSpec,
-		CommitTopoOrder: commitTopoOrder,
-	}
-
-	inserter := r.specTable.Inserter()
-	inserter.SkipInvalidRows = false
-
-	putCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	if err := inserter.Put(putCtx, specRow); err != nil {
+	if err := r.exporter.ExportSpec(ctx, expID, encodedSpec, commitTopoOrder); err != nil {
 		return err
 	}
 
@@ -366,29 +358,6 @@ func (r *Runner) prepareWorkloads(ctx context.Context, spec *experimentpb.Experi
 		r.workloadsBySelector[s.ActionSelector] = append(r.workloadsBySelector[s.ActionSelector], w)
 	}
 	return nil
-}
-
-func (r *Runner) runBQInserter(expID uuid.UUID) {
-	defer r.wg.Done()
-
-	bqCh := make(chan interface{})
-	defer close(bqCh)
-
-	inserter := &bq.BatchInserter{
-		Table:       r.resultTable,
-		BatchSize:   512,
-		PushTimeout: 2 * time.Minute,
-	}
-	go inserter.Run(bqCh)
-
-	for row := range r.metricsResultCh {
-		bqRow, err := MetricsRowToResultRow(expID, row)
-		if err != nil {
-			log.WithError(err).Error("Failed to convert result row")
-			continue
-		}
-		bqCh <- bqRow
-	}
 }
 
 func getTopoOrder() (int, error) {

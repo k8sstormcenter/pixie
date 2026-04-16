@@ -45,6 +45,7 @@ import (
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/cluster"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/cluster/gke"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/cluster/local"
+	"px.dev/pixie/src/e2e_test/perf_tool/pkg/exporter"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/pixie"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/run"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/suites"
@@ -74,9 +75,13 @@ func init() {
 	RunCmd.Flags().String("api_key", "", "The Pixie API key to use for deploying pixie")
 	RunCmd.Flags().String("cloud_addr", "withpixie.ai:443", "The Pixie Cloud address to use for deploying pixie")
 
+	RunCmd.Flags().String("export_backend", "bq", "Export backend: 'bq' or 'parquet-gcs'")
 	RunCmd.Flags().String("bq_project", "pl-pixies", "The gcloud project to put bigquery results/specs in")
 	RunCmd.Flags().String("bq_dataset", "px_perf", "The name of the bigquery dataset to put results/specs in")
 	RunCmd.Flags().String("bq_dataset_loc", "us-west1", "The gcloud region for the bigquery dataset")
+	RunCmd.Flags().String("gcs_bucket", "", "GCS bucket for parquet export (required when export_backend=parquet-gcs)")
+	RunCmd.Flags().String("gcs_prefix", "", "Path prefix within the GCS bucket for parquet export")
+	RunCmd.Flags().Int("parquet_batch_size", 10000, "Number of rows per parquet file when using parquet-gcs backend")
 
 	RunCmd.Flags().String("gke_project", "pl-pixies", "The gcloud project to use for GKE clusters")
 	RunCmd.Flags().String("gke_zone", "us-west1-a", "The gcloud zone to use for GKE clusters")
@@ -162,16 +167,12 @@ func runCmd(ctx context.Context, cmd *cobra.Command) error {
 		}
 	}
 
-	resultTable, err := createResultTable()
+	metricsExporter, err := createExporter(ctx)
 	if err != nil {
-		log.WithError(err).Error("failed to create results table")
+		log.WithError(err).Error("failed to create exporter")
 		return err
 	}
-	specTable, err := createSpecTable()
-	if err != nil {
-		log.WithError(err).Error("failed to create spec table")
-		return err
-	}
+	defer metricsExporter.Close()
 
 	containerRegistryRepo := viper.GetString("container_repo")
 	maxRetries := viper.GetInt("max_retries")
@@ -189,7 +190,7 @@ func runCmd(ctx context.Context, cmd *cobra.Command) error {
 			s := spec
 			n := name
 			eg.Go(func() error {
-				expID, err := runExperiment(ctx, s, c, pxAPIKey, pxCloudAddr, resultTable, specTable, containerRegistryRepo, maxRetries)
+				expID, err := runExperiment(ctx, s, c, pxAPIKey, pxCloudAddr, metricsExporter, containerRegistryRepo, maxRetries)
 				if err != nil {
 					log.WithError(err).Error("failed to run experiment")
 					return err
@@ -257,8 +258,7 @@ func runExperiment(
 	c cluster.Provider,
 	pxAPIKey string,
 	pxCloudAddr string,
-	resultTable *bq.Table,
-	specTable *bq.Table,
+	metricsExporter exporter.Exporter,
 	containerRegistryRepo string,
 	maxRetries int,
 ) (uuid.UUID, error) {
@@ -268,7 +268,7 @@ func runExperiment(
 	}
 	op := func() error {
 		pxCtx := pixie.NewContext(pxAPIKey, pxCloudAddr)
-		r := run.NewRunner(c, pxCtx, resultTable, specTable, containerRegistryRepo)
+		r := run.NewRunner(c, pxCtx, metricsExporter, containerRegistryRepo)
 		var err error
 		expID, err = uuid.NewV4()
 		if err != nil {
@@ -335,7 +335,24 @@ func getExperimentSpecs() (map[string]*experimentpb.ExperimentSpec, error) {
 	return nil, errors.New("must specify one of --experiment_proto or --suite")
 }
 
-func createResultTable() (*bq.Table, error) {
+func createExporter(ctx context.Context) (exporter.Exporter, error) {
+	switch viper.GetString("export_backend") {
+	case "bq":
+		return createBQExporter()
+	case "parquet-gcs":
+		bucket := viper.GetString("gcs_bucket")
+		if bucket == "" {
+			return nil, errors.New("--gcs_bucket is required when using parquet-gcs backend")
+		}
+		prefix := viper.GetString("gcs_prefix")
+		batchSize := viper.GetInt("parquet_batch_size")
+		return exporter.NewParquetGCSExporter(ctx, bucket, prefix, batchSize)
+	default:
+		return nil, fmt.Errorf("unknown export backend: %s", viper.GetString("export_backend"))
+	}
+}
+
+func createBQExporter() (*exporter.BQExporter, error) {
 	bqProject := viper.GetString("bq_project")
 	bqDataset := viper.GetString("bq_dataset")
 	bqDatasetLoc := viper.GetString("bq_dataset_loc")
@@ -343,15 +360,16 @@ func createResultTable() (*bq.Table, error) {
 		Type:  bigquery.DayPartitioningType,
 		Field: "timestamp",
 	}
-	return bq.NewTableForStruct(bqProject, bqDataset, bqDatasetLoc, "results", timePartitioning, run.ResultRow{})
-}
-
-func createSpecTable() (*bq.Table, error) {
-	bqProject := viper.GetString("bq_project")
-	bqDataset := viper.GetString("bq_dataset")
-	bqDatasetLoc := viper.GetString("bq_dataset_loc")
-	var timePartitioning *bigquery.TimePartitioning
-	return bq.NewTableForStruct(bqProject, bqDataset, bqDatasetLoc, "specs", timePartitioning, run.SpecRow{})
+	resultTable, err := bq.NewTableForStruct(bqProject, bqDataset, bqDatasetLoc, "results", timePartitioning, exporter.ResultRow{})
+	if err != nil {
+		return nil, err
+	}
+	var specTimePartitioning *bigquery.TimePartitioning
+	specTable, err := bq.NewTableForStruct(bqProject, bqDataset, bqDatasetLoc, "specs", specTimePartitioning, exporter.SpecRow{})
+	if err != nil {
+		return nil, err
+	}
+	return exporter.NewBQExporter(resultTable, specTable), nil
 }
 
 func getNumNodesInCluster(ctx context.Context, c cluster.Provider) (int, error) {

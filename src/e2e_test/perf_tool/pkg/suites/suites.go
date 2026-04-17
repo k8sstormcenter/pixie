@@ -38,7 +38,7 @@ var ExperimentSuiteRegistry = map[string]ExperimentSuite{
 func nightlyExperimentSuite() map[string]*pb.ExperimentSpec {
 	defaultMetricPeriod := 30 * time.Second
 	preDur := 5 * time.Minute
-	dur := 40 * time.Minute
+	dur := 5 * time.Minute
 	httpNumConns := 100
 	exps := map[string]*pb.ExperimentSpec{
 		"http-loadtest/100/100":               HTTPLoadTestExperiment(httpNumConns, 100, defaultMetricPeriod, preDur, dur),

@@ -36,7 +36,7 @@ func HTTPLoadTestExperiment(
 	dur time.Duration,
 ) *experimentpb.ExperimentSpec {
 	e := &experimentpb.ExperimentSpec{
-		VizierSpec: VizierWorkload(),
+		VizierSpec: VizierReleaseWorkload(),
 		WorkloadSpecs: []*experimentpb.WorkloadSpec{
 			HTTPLoadTestWorkload(numConnections, targetRPS, true),
 		},

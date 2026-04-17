@@ -81,14 +81,12 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 		return err
 	}
 
-	eg := errgroup.Group{}
-	eg.Go(func() error { return r.getCluster(ctx, spec.ClusterSpec) })
-	eg.Go(func() error {
-		if err := r.prepareWorkloads(ctx, spec); err != nil {
-			return backoff.Permanent(err)
-		}
-		return nil
-	})
+	if err := r.getCluster(ctx, spec.ClusterSpec); err != nil {
+		return err
+	}
+	if err := r.prepareWorkloads(ctx, spec); err != nil {
+		return err
+	}
 
 	r.metricsBySelector = make(map[string][]metrics.Recorder)
 	r.metricsResultCh = make(chan *metrics.ResultRow)
@@ -103,15 +101,6 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 		}
 	}()
 
-	if err := eg.Wait(); err != nil {
-		if r.clusterCleanup != nil {
-			r.clusterCleanup()
-		}
-		if r.clusterCtx != nil {
-			r.clusterCtx.Close()
-		}
-		return err
-	}
 	defer r.clusterCleanup()
 	defer r.clusterCtx.Close()
 

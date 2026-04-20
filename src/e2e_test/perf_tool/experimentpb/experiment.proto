@@ -226,6 +226,9 @@ message PrometheusScrapeSpec {
   // Optional kubectl context name to use within the kubeconfig.
   // If empty, the current-context from the kubeconfig is used.
   string kube_context = 8;
+  // Identifier for this prometheus recorder, used by the CLI to target
+  // recorders with kubeconfig/kube_context overrides at runtime.
+  string name = 9;
 }
 
 // ClusterSpec specifies the type and size of cluster an experiment should run on.

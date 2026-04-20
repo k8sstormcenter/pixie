@@ -100,6 +100,9 @@ func init() {
 	RunCmd.Flags().String("ds_experiment_page_id", "p_g7fj6pf4yc", "The unique ID of the datastudio experiment page, used to print links to datastudio views")
 	RunCmd.Flags().Bool("pretty", false, "Pretty print output json")
 
+	RunCmd.Flags().StringSlice("prom_recorder_override", []string{}, "Override kubeconfig/kube_context for a named prometheus recorder. Format: name=kubeconfig_path:kube_context (either side may be empty). Repeatable.")
+	RunCmd.Flags().Bool("keep_on_failure", false, "If the experiment fails, skip teardown (stop vizier/workloads/recorders and cluster cleanup) so the cluster state can be inspected. Implies --max_retries=1.")
+
 	RootCmd.AddCommand(RunCmd)
 }
 
@@ -134,6 +137,15 @@ func runCmd(ctx context.Context, cmd *cobra.Command) error {
 	if err != nil {
 		log.WithError(err).Error("failed to get experiment specs from the flags provided")
 		return err
+	}
+
+	promOverrides, err := parsePromRecorderOverrides(viper.GetStringSlice("prom_recorder_override"))
+	if err != nil {
+		log.WithError(err).Error("failed to parse --prom_recorder_override flags")
+		return err
+	}
+	for _, spec := range specs {
+		applyPromRecorderOverrides(spec, promOverrides)
 	}
 
 	var c cluster.Provider
@@ -177,6 +189,13 @@ func runCmd(ctx context.Context, cmd *cobra.Command) error {
 	containerRegistryRepo := viper.GetString("container_repo")
 	maxRetries := viper.GetInt("max_retries")
 	numRuns := viper.GetInt("num_runs")
+	keepOnFailure := viper.GetBool("keep_on_failure")
+	if keepOnFailure {
+		if maxRetries > 1 {
+			log.Warn("--keep_on_failure is set; forcing --max_retries=1 to avoid retries racing with preserved cluster state")
+		}
+		maxRetries = 1
+	}
 
 	eg := errgroup.Group{}
 	experiments := make(chan *exp, len(specs)*numRuns)
@@ -190,7 +209,7 @@ func runCmd(ctx context.Context, cmd *cobra.Command) error {
 			s := spec
 			n := name
 			eg.Go(func() error {
-				expID, err := runExperiment(ctx, s, c, pxAPIKey, pxCloudAddr, metricsExporter, containerRegistryRepo, maxRetries)
+				expID, err := runExperiment(ctx, s, c, pxAPIKey, pxCloudAddr, metricsExporter, containerRegistryRepo, maxRetries, keepOnFailure)
 				if err != nil {
 					log.WithError(err).Error("failed to run experiment")
 					return err
@@ -261,6 +280,7 @@ func runExperiment(
 	metricsExporter exporter.Exporter,
 	containerRegistryRepo string,
 	maxRetries int,
+	keepOnFailure bool,
 ) (uuid.UUID, error) {
 	var expID uuid.UUID
 	bo := &maxRetryBackoff{
@@ -269,6 +289,7 @@ func runExperiment(
 	op := func() error {
 		pxCtx := pixie.NewContext(pxAPIKey, pxCloudAddr)
 		r := run.NewRunner(c, pxCtx, metricsExporter, containerRegistryRepo)
+		r.SetKeepOnFailure(keepOnFailure)
 		var err error
 		expID, err = uuid.NewV4()
 		if err != nil {
@@ -405,4 +426,51 @@ func datastudioLink(dsReportID string, dsExperimentPageID string, expID uuid.UUI
 	params := fmt.Sprintf(`{"experiment_ids":"%s"}`, expID.String())
 	encodedParams := url.QueryEscape(params)
 	return fmt.Sprintf("https://datastudio.google.com/reporting/%s/page/%s?params=%s", dsReportID, dsExperimentPageID, encodedParams)
+}
+
+type promRecorderOverride struct {
+	KubeconfigPath string
+	KubeContext    string
+}
+
+func parsePromRecorderOverrides(raw []string) (map[string]promRecorderOverride, error) {
+	out := make(map[string]promRecorderOverride, len(raw))
+	for _, s := range raw {
+		nameAndVal := strings.SplitN(s, "=", 2)
+		if len(nameAndVal) != 2 || nameAndVal[0] == "" {
+			return nil, fmt.Errorf("invalid --prom_recorder_override %q: expected name=kubeconfig:context", s)
+		}
+		parts := strings.SplitN(nameAndVal[1], ":", 2)
+		ov := promRecorderOverride{KubeconfigPath: parts[0]}
+		if len(parts) == 2 {
+			ov.KubeContext = parts[1]
+		}
+		if ov.KubeconfigPath == "" && ov.KubeContext == "" {
+			return nil, fmt.Errorf("invalid --prom_recorder_override %q: at least one of kubeconfig or context must be set", s)
+		}
+		out[nameAndVal[0]] = ov
+	}
+	return out, nil
+}
+
+func applyPromRecorderOverrides(spec *experimentpb.ExperimentSpec, overrides map[string]promRecorderOverride) {
+	if len(overrides) == 0 {
+		return
+	}
+	for _, m := range spec.MetricSpecs {
+		prom := m.GetProm()
+		if prom == nil || prom.Name == "" {
+			continue
+		}
+		ov, ok := overrides[prom.Name]
+		if !ok {
+			continue
+		}
+		if ov.KubeconfigPath != "" {
+			prom.KubeconfigPath = ov.KubeconfigPath
+		}
+		if ov.KubeContext != "" {
+			prom.KubeContext = ov.KubeContext
+		}
+	}
 }

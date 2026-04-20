@@ -155,6 +155,21 @@
           <div class="chart-card"><div id="exp-rss" class="plotly-container"></div></div>
           <div class="chart-card"><div id="exp-http-data-loss" class="plotly-container"></div></div>
         </div>
+
+        <h3 style="font-size:14px;margin:24px 0 12px 0;color:#1a1a2e;">ClickHouse Metrics</h3>
+        <div class="chart-grid" id="experiment-clickhouse-charts">
+          <div class="chart-card"><div id="exp-ch-pxl-rows" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-ch-active-queries" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-ch-connections" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-ch-memory" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-ch-parts-active" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-ch-bg-merges" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-ch-table-rows" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-ch-table-bytes" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-ch-query-rate" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-ch-row-rate" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-ch-network-rate" class="plotly-container"></div></div>
+        </div>
       </div>
     </div>
   </div>
@@ -516,13 +531,28 @@
       { id: 'exp-heap', title: 'Heap (ignoring table store)', names: ['heap_size_bytes', 'table_size'], unit: 'bytes', computed: true },
       { id: 'exp-rss', title: 'RSS', names: ['rss'], unit: 'bytes' },
       { id: 'exp-http-data-loss', title: 'HTTP Data Loss', names: ['http_data_loss'], unit: 'percent' },
+      // ClickHouse: PxL-driven export/read row counts per invocation.
+      { id: 'exp-ch-pxl-rows', title: 'ClickHouse Export/Read Rows (PxL)', names: ['clickhouse_export_rows', 'clickhouse_read_rows'], unit: 'count' },
+      // ClickHouse server gauges (Altinity operator metrics-exporter).
+      { id: 'exp-ch-active-queries', title: 'ClickHouse Active Queries', names: ['clickhouse_active_queries'], unit: 'count' },
+      { id: 'exp-ch-connections', title: 'ClickHouse Connections', names: ['clickhouse_tcp_connections', 'clickhouse_http_connections'], unit: 'count' },
+      { id: 'exp-ch-memory', title: 'ClickHouse Memory Tracking', names: ['clickhouse_memory_tracking_bytes'], unit: 'bytes' },
+      { id: 'exp-ch-parts-active', title: 'ClickHouse Active Parts', names: ['clickhouse_parts_active'], unit: 'count' },
+      { id: 'exp-ch-bg-merges', title: 'ClickHouse Background Merge Tasks', names: ['clickhouse_background_merge_tasks'], unit: 'count' },
+      { id: 'exp-ch-table-rows', title: 'ClickHouse Table Parts Rows', names: ['clickhouse_table_parts_rows'], unit: 'count' },
+      { id: 'exp-ch-table-bytes', title: 'ClickHouse Table Parts Bytes', names: ['clickhouse_table_parts_bytes'], unit: 'bytes' },
+      // ClickHouse server counters, charted as rate-of-change per second.
+      { id: 'exp-ch-query-rate', title: 'ClickHouse Query Rate', names: ['clickhouse_queries_total', 'clickhouse_failed_queries_total'], unit: 'rate', counter: true },
+      { id: 'exp-ch-row-rate', title: 'ClickHouse Row I/O Rate', names: ['clickhouse_inserted_rows_total', 'clickhouse_selected_rows_total'], unit: 'rate', counter: true,
+        secondaryAxisNames: ['clickhouse_selected_rows_total'],
+        primaryAxisTitle: 'Inserted rows/s', secondaryAxisTitle: 'Selected rows/s' },
+      { id: 'exp-ch-network-rate', title: 'ClickHouse Network Rate', names: ['clickhouse_network_send_bytes_total', 'clickhouse_network_receive_bytes_total'], unit: 'bytes-rate', counter: true },
     ];
 
     function buildExperimentQuery(experimentIds, metricConfig) {
       const idList = experimentIds.map(id => `'${id}'`).join(',');
       const nameList = metricConfig.names.map(n => `'${n}'`).join(',');
 
-      let valueExpr;
       if (metricConfig.computed && metricConfig.names.includes('heap_size_bytes')) {
         // Self-join to subtract table_size from heap_size_bytes
         return `
@@ -535,9 +565,10 @@
           heap_data AS (
             SELECT
               r.experiment_id,
+              'heap_size_bytes' as name,
               date_diff('second', mt.min_ts, r.timestamp) as elapsed_s,
               r.value - COALESCE(t.value, 0) as metric_value,
-              rtrim(regexp_extract(COALESCE(r.tag_pod, ''), '(?:[a-z\\-]+/)?((?:[a-z]+-)+)', 1), '-') as pod
+              regexp_replace(COALESCE(r.tag_pod, ''), '^[^/]+/', '') as pod
             FROM results r
             JOIN min_times mt USING (experiment_id)
             LEFT JOIN results t
@@ -548,8 +579,51 @@
             WHERE r.experiment_id IN (${idList})
               AND r.name = 'heap_size_bytes'
           )
-          SELECT experiment_id, elapsed_s, metric_value, pod
+          SELECT experiment_id, name, elapsed_s, metric_value, pod
           FROM heap_data
+          ORDER BY experiment_id, elapsed_s
+        `;
+      }
+
+      if (metricConfig.counter) {
+        // Counter: compute per-second rate via LAG over (experiment, name, pod).
+        // Drop negative deltas (counter resets on restarts).
+        return `
+          WITH min_times AS (
+            SELECT experiment_id, min(timestamp) as min_ts
+            FROM results
+            WHERE experiment_id IN (${idList})
+            GROUP BY experiment_id
+          ),
+          base AS (
+            SELECT
+              r.experiment_id,
+              r.name,
+              r.timestamp,
+              mt.min_ts,
+              r.value,
+              COALESCE(r.tag_pod, '') as tag_pod_key,
+              regexp_replace(COALESCE(r.tag_pod, ''), '^[^/]+/', '') as pod
+            FROM results r
+            JOIN min_times mt USING (experiment_id)
+            WHERE r.experiment_id IN (${idList})
+              AND r.name IN (${nameList})
+          ),
+          with_prev AS (
+            SELECT
+              *,
+              lag(value) OVER (PARTITION BY experiment_id, name, tag_pod_key ORDER BY timestamp) as prev_value,
+              lag(timestamp) OVER (PARTITION BY experiment_id, name, tag_pod_key ORDER BY timestamp) as prev_ts
+            FROM base
+          )
+          SELECT
+            experiment_id,
+            name,
+            date_diff('second', min_ts, timestamp) as elapsed_s,
+            (value - prev_value) / NULLIF(date_diff('millisecond', prev_ts, timestamp) / 1000.0, 0) as metric_value,
+            pod
+          FROM with_prev
+          WHERE prev_value IS NOT NULL AND value >= prev_value
           ORDER BY experiment_id, elapsed_s
         `;
       }
@@ -563,13 +637,14 @@
         )
         SELECT
           r.experiment_id,
+          r.name,
           date_diff('second', mt.min_ts, r.timestamp) as elapsed_s,
           r.value as metric_value,
-          rtrim(regexp_extract(COALESCE(r.tag_pod, ''), '(?:[a-z\\-]+/)?((?:[a-z]+-)+)', 1), '-') as pod
+          regexp_replace(COALESCE(r.tag_pod, ''), '^[^/]+/', '') as pod
         FROM results r
         JOIN min_times mt USING (experiment_id)
         WHERE r.experiment_id IN (${idList})
-          AND r.name = '${metricConfig.names[0]}'
+          AND r.name IN (${nameList})
         ORDER BY r.experiment_id, elapsed_s
       `;
     }
@@ -672,24 +747,34 @@
         return;
       }
 
-      const isBytesUnit = config.unit === 'bytes';
+      const isBytesUnit = config.unit === 'bytes' || config.unit === 'bytes-rate';
+      const multiName = (config.names && config.names.length > 1) && !config.computed;
+      const secondaryAxisSet = new Set(config.secondaryAxisNames || []);
 
-      // Group by experiment_id + pod
+      // Group by experiment_id + pod (+ name when the config plots multiple names).
       const groups = {};
       for (const row of data) {
-        const key = `${row.experiment_id.slice(0, 8)}...${row.pod ? ' (' + row.pod + ')' : ''}`;
+        const idShort = row.experiment_id.slice(0, 8);
+        const podPart = row.pod ? ` (${row.pod})` : '';
+        const namePart = multiName && row.name ? `${row.name} — ` : '';
+        const key = `${namePart}${idShort}${podPart}`;
         if (!groups[key]) groups[key] = [];
         groups[key].push(row);
       }
 
-      const traces = Object.entries(groups).map(([key, rows]) => ({
-        x: rows.map(r => r.elapsed_s),
-        y: rows.map(r => isBytesUnit ? r.metric_value / 1024 / 1024 : r.metric_value),
-        name: key,
-        mode: 'lines',
-        type: 'scatter',
-        hovertemplate: `<b>${key}</b><br>Time: %{x}s<br>Value: %{y:.4f}<extra></extra>`,
-      }));
+      const traces = Object.entries(groups).map(([key, rows]) => {
+        const metricName = rows[0] ? rows[0].name : null;
+        const onSecondary = metricName && secondaryAxisSet.has(metricName);
+        return {
+          x: rows.map(r => r.elapsed_s),
+          y: rows.map(r => isBytesUnit ? r.metric_value / 1024 / 1024 : r.metric_value),
+          name: key,
+          mode: 'lines',
+          type: 'scatter',
+          yaxis: onSecondary ? 'y2' : 'y',
+          hovertemplate: `<b>${key}</b><br>Time: %{x}s<br>Value: %{y:.4f}<extra></extra>`,
+        };
+      });
 
       // Add action markers as vertical lines
       const runActions = actions.filter(a => a.action_type === 'run');
@@ -706,10 +791,18 @@
         yanchor: 'bottom',
       }));
 
+      let yaxisTitle;
+      if (config.unit === 'bytes-rate') yaxisTitle = 'MiB/s';
+      else if (config.unit === 'bytes') yaxisTitle = 'MiB';
+      else if (config.unit === 'percent') yaxisTitle = 'Ratio';
+      else if (config.unit === 'rate') yaxisTitle = 'per Second';
+      else if (config.unit === 'count') yaxisTitle = 'Count';
+      else yaxisTitle = 'Value';
+
       const layout = {
         title: { text: config.title, font: { size: 14 } },
         xaxis: { title: 'Time Elapsed (s)' },
-        yaxis: { title: isBytesUnit ? 'MiB' : (config.unit === 'percent' ? 'Ratio' : 'Value') },
+        yaxis: { title: config.primaryAxisTitle || yaxisTitle },
         margin: { t: 40, b: 60, l: 60, r: 20 },
         hovermode: 'closest',
         showlegend: true,
@@ -717,6 +810,42 @@
         shapes,
         annotations,
       };
+      if (secondaryAxisSet.size > 0) {
+        // Compute per-axis ranges from the data so each axis scales only to
+        // the traces assigned to it (Plotly's auto-range occasionally syncs
+        // overlaid axes otherwise).
+        let minP = Infinity, maxP = -Infinity;
+        let minS = Infinity, maxS = -Infinity;
+        for (const row of data) {
+          if (row.metric_value == null) continue;
+          const v = isBytesUnit ? row.metric_value / 1024 / 1024 : row.metric_value;
+          if (secondaryAxisSet.has(row.name)) {
+            if (v < minS) minS = v;
+            if (v > maxS) maxS = v;
+          } else {
+            if (v < minP) minP = v;
+            if (v > maxP) maxP = v;
+          }
+        }
+        layout.yaxis2 = {
+          title: config.secondaryAxisTitle || yaxisTitle,
+          overlaying: 'y',
+          side: 'right',
+          anchor: 'x',
+        };
+        if (maxP > -Infinity) {
+          const lo = Math.min(0, minP);
+          const hi = maxP > 0 ? maxP * 1.1 : maxP + 1;
+          layout.yaxis.range = [lo, hi];
+          layout.yaxis.autorange = false;
+        }
+        if (maxS > -Infinity) {
+          const lo = Math.min(0, minS);
+          const hi = maxS > 0 ? maxS * 1.1 : maxS + 1;
+          layout.yaxis2.range = [lo, hi];
+          layout.yaxis2.autorange = false;
+        }
+      }
 
       Plotly.newPlot(containerId, traces, layout, { responsive: true });
     }

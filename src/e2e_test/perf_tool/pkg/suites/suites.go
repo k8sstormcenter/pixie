@@ -30,9 +30,10 @@ type ExperimentSuite func() map[string]*pb.ExperimentSpec
 
 // ExperimentSuiteRegistry contains all the ExperimentSuite, keyed by name.
 var ExperimentSuiteRegistry = map[string]ExperimentSuite{
-	"nightly":   nightlyExperimentSuite,
-	"http-grid": httpGridSuite,
-	"k8ssandra": k8ssandraExperimentSuite,
+	"nightly":         nightlyExperimentSuite,
+	"http-grid":       httpGridSuite,
+	"k8ssandra":       k8ssandraExperimentSuite,
+	"clickhouse-exec": clickhouseExecSuite,
 }
 
 func nightlyExperimentSuite() map[string]*pb.ExperimentSpec {
@@ -69,6 +70,55 @@ func k8ssandraExperimentSuite() map[string]*pb.ExperimentSpec {
 	}
 	for _, e := range exps {
 		addTags(e, "suite/k8ssandra")
+	}
+	return exps
+}
+
+// clickhouseExecSuite covers the two sides of Pixie's ClickHouse integration
+// under load: the write/export path and the read/query path. Both experiments
+// share the same metric shape (process/heap/clickhouse-operator) so results
+// can be compared directly.
+//
+// The ClickHouse operator metrics are scraped via the prometheus recorder
+// named "clickhouse-operator" -- point the CLI at the correct cluster with:
+//
+//	--prom_recorder_override clickhouse-operator=/path/to/kubeconfig:my-ctx
+func clickhouseExecSuite() map[string]*pb.ExperimentSpec {
+	defaultMetricPeriod := 30 * time.Second
+	preDur := 5 * time.Minute
+	// preDur := 2 * time.Minute
+	dur := 30 * time.Minute
+	// dur := 5 * time.Minute
+	httpNumConns := 100
+	httpTargetRPS := 3000
+
+	// Tight cadence on the export/read scripts to apply real pressure.
+	exportPeriod := 5 * time.Second
+	exportWindow := 30 * time.Second
+	readPeriod := 5 * time.Second
+	readWindow := 5 * time.Minute
+
+	clickhouseDSN := "pixie:pixie_password@clickhouse.forensic.austrianopencloudcommunity.org:9000/default"
+	clickhouseTable := "http_events"
+
+	exps := map[string]*pb.ExperimentSpec{
+		"clickhouse-export": ClickHouseExportExperiment(
+			httpNumConns, httpTargetRPS,
+			defaultMetricPeriod,
+			exportPeriod, exportWindow,
+			clickhouseDSN, clickhouseTable,
+			preDur, dur,
+		),
+		"clickhouse-read": ClickHouseReadExperiment(
+			httpNumConns, httpTargetRPS,
+			defaultMetricPeriod,
+			readPeriod, readWindow,
+			clickhouseDSN, clickhouseTable,
+			preDur, dur,
+		),
+	}
+	for _, e := range exps {
+		addTags(e, "suite/clickhouse-exec")
 	}
 	return exps
 }

@@ -50,6 +50,10 @@ type Runner struct {
 	pxCtx                 *pixie.Context
 	exporter              exporter.Exporter
 	containerRegistryRepo string
+	// KeepOnFailure, when true, skips teardown (stop vizier/workloads/recorders
+	// and cluster cleanup) if the experiment errors, so the cluster state can
+	// be inspected after the fact. Successful runs still tear down normally.
+	keepOnFailure bool
 
 	clusterCtx          *cluster.Context
 	clusterCleanup      func()
@@ -72,6 +76,11 @@ func NewRunner(c cluster.Provider, pxCtx *pixie.Context, exp exporter.Exporter, 
 		exporter:              exp,
 		containerRegistryRepo: containerRegistryRepo,
 	}
+}
+
+// SetKeepOnFailure toggles whether teardown is skipped on experiment failure.
+func (r *Runner) SetKeepOnFailure(v bool) {
+	r.keepOnFailure = v
 }
 
 // RunExperiment runs an experiment according to the given ExperimentSpec.
@@ -101,8 +110,16 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 		}
 	}()
 
-	defer r.clusterCleanup()
-	defer r.clusterCtx.Close()
+	var runErr error
+	defer func() {
+		if r.keepOnFailure && runErr != nil {
+			log.WithError(runErr).Warn("Experiment failed; --keep_on_failure is set, leaving cluster state intact. " +
+				"Inspect with kubectl; you are responsible for manual cleanup (e.g. `px delete`, delete workload namespaces).")
+			return
+		}
+		r.clusterCleanup()
+		r.clusterCtx.Close()
+	}()
 
 	var egCtx context.Context
 	r.eg, egCtx = errgroup.WithContext(ctx)
@@ -115,6 +132,7 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 	})
 
 	if err := r.eg.Wait(); err != nil {
+		runErr = err
 		return err
 	}
 
@@ -133,8 +151,21 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 	return nil
 }
 
-func (r *Runner) runActions(ctx context.Context, spec *experimentpb.ExperimentSpec) error {
+func (r *Runner) runActions(ctx context.Context, spec *experimentpb.ExperimentSpec) (retErr error) {
 	canceledErr := backoff.Permanent(context.Canceled)
+	// Collect start-action cleanups explicitly so we can skip them when
+	// --keep_on_failure is set and the experiment errors.
+	var cleanups []func()
+	defer func() {
+		failed := retErr != nil || ctx.Err() != nil
+		if r.keepOnFailure && failed {
+			log.Warn("Skipping per-action teardown due to --keep_on_failure")
+			return
+		}
+		for i := len(cleanups) - 1; i >= 0; i-- {
+			cleanups[i]()
+		}
+	}()
 	for _, a := range spec.RunSpec.Actions {
 		log.Tracef("started action %s", experimentpb.ActionType_name[int32(a.Type)])
 		if canceled := r.sendActionTimestamp(ctx, a, "begin"); canceled {
@@ -146,19 +177,19 @@ func (r *Runner) runActions(ctx context.Context, spec *experimentpb.ExperimentSp
 			if err != nil {
 				return err
 			}
-			defer cleanup()
+			cleanups = append(cleanups, cleanup)
 		case experimentpb.START_WORKLOADS:
 			cleanup, err := r.startWorkloads(ctx, spec, a.Name)
 			if err != nil {
 				return err
 			}
-			defer cleanup()
+			cleanups = append(cleanups, cleanup)
 		case experimentpb.START_METRIC_RECORDERS:
 			cleanup, err := r.startMetricRecorders(ctx, spec, a.Name)
 			if err != nil {
 				return err
 			}
-			defer cleanup()
+			cleanups = append(cleanups, cleanup)
 		case experimentpb.STOP_VIZIER:
 			if err := r.stopVizier(); err != nil {
 				return err

@@ -141,12 +141,24 @@ func redisHealthChecks(namespace string) []*pb.HealthCheck {
 // redis_events to the forensic ClickHouse cluster; KubescapeNodeAgent and
 // ForensicAlertCount track the anomaly side, ProcessStats/Heap/CH operator
 // track Pixie and CH health.
+//
+// exportDSN is the ClickHouse endpoint Kelvin uses for px.export; it MUST
+// be reachable from the experiment cluster's network. Pointing this at an
+// in-cluster service DNS name of a different cluster will crash Kelvin
+// because ClickHouseExportSinkNode::OpenImpl does not catch exceptions
+// thrown by the clickhouse-cpp client constructor on DNS failure.
+//
+// alertsDSN is the ClickHouse endpoint the perf tool reads forensic_db
+// alerts from via clickhouse_dsn=. It can be a different cluster/db/user
+// from exportDSN. A failure here will only error the forensic-alerts
+// metric; it will not crash Kelvin.
 func SovereignSOCRedisAttackExperiment(
 	metricPeriod time.Duration,
 	exportPeriod time.Duration,
 	exportWindow time.Duration,
-	clickhouseDSN string,
-	clickhouseExportTable string,
+	exportDSN string,
+	exportTable string,
+	alertsDSN string,
 	alertsTable string,
 	alertCountWindow time.Duration,
 	predeployDur time.Duration,
@@ -162,10 +174,10 @@ func SovereignSOCRedisAttackExperiment(
 			ProcessStatsMetrics(metricPeriod),
 			// Stagger the heap query slightly because of known query stability issues.
 			HeapMetrics(metricPeriod + (2 * time.Second)),
-			ClickHouseExportLoadMetric(exportPeriod, clickhouseDSN, clickhouseExportTable, exportWindow),
+			ClickHouseExportLoadMetric(exportPeriod, exportDSN, exportTable, exportTable, exportWindow),
 			ClickHouseOperatorMetrics(metricPeriod),
 			KubescapeNodeAgentMetrics(metricPeriod),
-			ForensicAlertCountMetric(metricPeriod, clickhouseDSN, alertsTable, alertCountWindow),
+			ForensicAlertCountMetric(metricPeriod, alertsDSN, alertsTable, alertCountWindow),
 		},
 		RunSpec: &pb.RunSpec{
 			Actions: []*pb.ActionSpec{

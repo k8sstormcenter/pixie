@@ -14,16 +14,24 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# Exports a windowed slice of http_events to ClickHouse on every invocation,
-# producing sustained load on the export path. px._pem_hostname() ensures the
-# Map runs on the PEM so each row carries the correct hostname.
+# Exports a windowed slice of a Pixie events table to ClickHouse on every
+# invocation, producing sustained load on the export path. px._pem_hostname()
+# ensures the Map runs on the PEM so each row carries the correct hostname.
+#
+# source_table: the Pixie events table to read from (e.g. http_events,
+#   redis_events). dest_table: the ClickHouse destination table name. These
+# must have compatible column shapes — exporting http_events rows to a
+# pre-existing CH table created for redis_events will make the CH server
+# reject the INSERT on the first column mismatch, and the clickhouse-cpp
+# client will rethrow that as an uncaught std::exception, crashing Kelvin
+# (see ClickHouseExportSinkNode TODO).
 
 import px
 
-df = px.DataFrame('http_events', start_time='-{{.TemplateValues.window}}')
+df = px.DataFrame('{{.TemplateValues.source_table}}', start_time='-{{.TemplateValues.window}}')
 df.hostname = px._pem_hostname()
 px.export(df, px.otel.ClickHouseRows(
-    table='{{.TemplateValues.table}}',
+    table='{{.TemplateValues.dest_table}}',
     endpoint=px.otel.Endpoint(
         url='{{.TemplateValues.dsn}}',
     ),

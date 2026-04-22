@@ -187,9 +187,13 @@ func sovereignSOCSuite() map[string]*pb.ExperimentSpec {
 	exportWindow := 30 * time.Second
 	alertCountWindow := 1 * time.Minute
 
-	// Default forensic ClickHouse DSN matching the demo's deployment. Override
-	// by writing a new suite or by editing this default for a campaign.
-	clickhouseDSN := "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+	// Single DSN for both export and alert-read. MUST be reachable from the
+	// experiment cluster's network — the clickhouse-cpp client crashes
+	// Kelvin with SIGSEGV if DNS resolution fails
+	// (ClickHouseExportSinkNode::OpenImpl lets std::system_error propagate
+	// out and hit std::terminate). The external forensic endpoint is the
+	// known-good target used by the clickhouse-exec suite.
+	clickhouseDSN := "pixie:pixie_password@clickhouse.forensic.austrianopencloudcommunity.org:9000/default"
 	exportTable := "redis_events"
 	alertsTable := "alerts"
 
@@ -198,7 +202,8 @@ func sovereignSOCSuite() map[string]*pb.ExperimentSpec {
 			defaultMetricPeriod,
 			exportPeriod, exportWindow,
 			clickhouseDSN, exportTable,
-			alertsTable, alertCountWindow,
+			clickhouseDSN, alertsTable,
+			alertCountWindow,
 			preDur, dur,
 		),
 	}

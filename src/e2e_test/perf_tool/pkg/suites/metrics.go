@@ -154,8 +154,12 @@ func ProtocolLoadtestPromMetrics(scrapePeriod time.Duration) *pb.MetricSpec {
 
 // ClickHouseExportLoadMetric runs the clickhouse export PxL script on a tight
 // period to drive load against the ClickHouse write path, and reports the
-// row count of each export as a metric.
-func ClickHouseExportLoadMetric(period time.Duration, dsn string, table string, window time.Duration) *pb.MetricSpec {
+// row count of each export as a metric. sourceTable is the Pixie events
+// table the script reads from (e.g. "http_events", "redis_events");
+// destTable is the ClickHouse destination table. Their column shapes must
+// be compatible or Kelvin will crash on the first CH server-side column
+// mismatch (see ClickHouseExportSinkNode TODO).
+func ClickHouseExportLoadMetric(period time.Duration, dsn string, sourceTable string, destTable string, window time.Duration) *pb.MetricSpec {
 	return &pb.MetricSpec{
 		MetricType: &pb.MetricSpec_PxL{
 			PxL: &pb.PxLScriptSpec{
@@ -163,9 +167,10 @@ func ClickHouseExportLoadMetric(period time.Duration, dsn string, table string, 
 				Streaming:        false,
 				CollectionPeriod: types.DurationProto(period),
 				TemplateValues: map[string]string{
-					"dsn":    dsn,
-					"table":  table,
-					"window": window.String(),
+					"dsn":          dsn,
+					"source_table": sourceTable,
+					"dest_table":   destTable,
+					"window":       window.String(),
 				},
 				TableOutputs: map[string]*pb.PxLScriptOutputList{
 					"*": {

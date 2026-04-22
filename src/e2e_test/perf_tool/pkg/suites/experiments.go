@@ -371,7 +371,7 @@ func ClickHouseExportExperiment(
 			ProcessStatsMetrics(metricPeriod),
 			// Stagger the second query a little bit because of query stability issues.
 			HeapMetrics(metricPeriod + (2 * time.Second)),
-			ClickHouseExportLoadMetric(exportPeriod, clickhouseDSN, clickhouseTable, exportWindow),
+			ClickHouseExportLoadMetric(exportPeriod, clickhouseDSN, clickhouseTable, clickhouseTable, exportWindow),
 			ClickHouseOperatorMetrics(metricPeriod),
 		},
 		RunSpec: &experimentpb.RunSpec{

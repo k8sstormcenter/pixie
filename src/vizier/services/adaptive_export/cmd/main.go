@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -102,8 +103,20 @@ func main() {
 		log.WithError(err).Fatal("failed to create pxapi client")
 	}
 
-	// Start schema creation background task
-	go runSchemaCreationTask(ctx, pxClient, clusterId, cfg.ClickHouse())
+	// Start schema creation background task. This drives
+	// px.CreateClickHouseSchemas, which issues CREATE TABLE IF NOT EXISTS
+	// for every Pixie stirling table the metadata service knows about. In
+	// labs where ClickHouse users don't have DDL rights (e.g. soc's
+	// ingest_writer with allow_ddl=0), the CREATE silently fails and only
+	// tables pre-created by external schema.sql work. Off by default to
+	// avoid noisy server logs; opt-in via env when you want Pixie's
+	// automatic schema bootstrap.
+	if strings.EqualFold(os.Getenv("ENABLE_SCHEMA_CREATION"), "true") {
+		log.Info("ENABLE_SCHEMA_CREATION=true — starting schema creation task")
+		go runSchemaCreationTask(ctx, pxClient, clusterId, cfg.ClickHouse())
+	} else {
+		log.Info("Schema creation task disabled (set ENABLE_SCHEMA_CREATION=true to opt in)")
+	}
 
 	// Start detection + reconcile loop that turns the retention plugin on/off
 	go runDetectionTask(ctx, pxClient, pluginClient, cfg, clusterId, clusterName)
@@ -298,7 +311,34 @@ func enableClickHousePlugin(ctx context.Context, client *pixie.Client, cfg confi
 		return fmt.Errorf("failed to get preset scripts: %w", err)
 	}
 
+	// Filter presets by an allow-list of case-insensitive substrings in the
+	// script name. Useful when the destination ClickHouse doesn't have every
+	// target table pre-created (Pixie's C++ ClickHouseExportSinkNode aborts
+	// kelvin on UNKNOWN_TABLE from CH — upstream bug), so we must not install
+	// retention scripts whose target table is missing.
+	//
+	// Example: ALLOWED_RETENTION_SCRIPTS="conn_stats" installs only the
+	// conn_stats preset (matches "conn_stats export"), skipping dc_snoop +
+	// stack_traces which target tables that don't exist in soc's schema.sql.
+	//
+	// Empty/unset = no filter (install every preset — the prior behavior).
 	definitions := defsFromPixie
+	if allow := strings.TrimSpace(os.Getenv("ALLOWED_RETENTION_SCRIPTS")); allow != "" {
+		tokens := strings.Split(allow, ",")
+		filtered := make([]*script.ScriptDefinition, 0, len(defsFromPixie))
+		for _, d := range defsFromPixie {
+			nameLower := strings.ToLower(d.Name)
+			for _, t := range tokens {
+				t = strings.ToLower(strings.TrimSpace(t))
+				if t != "" && strings.Contains(nameLower, t) {
+					filtered = append(filtered, d)
+					break
+				}
+			}
+		}
+		log.Infof("ALLOWED_RETENTION_SCRIPTS=%q; filtered presets: %d of %d kept", allow, len(filtered), len(defsFromPixie))
+		definitions = filtered
+	}
 
 	log.Infof("Getting current scripts for cluster")
 	currentScripts, err := client.GetClusterScripts(clusterID, clusterName)

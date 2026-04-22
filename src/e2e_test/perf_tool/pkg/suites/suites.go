@@ -34,6 +34,7 @@ var ExperimentSuiteRegistry = map[string]ExperimentSuite{
 	"http-grid":       httpGridSuite,
 	"k8ssandra":       k8ssandraExperimentSuite,
 	"clickhouse-exec": clickhouseExecSuite,
+	"sovereign-soc":   sovereignSOCSuite,
 }
 
 func nightlyExperimentSuite() map[string]*pb.ExperimentSpec {
@@ -162,6 +163,47 @@ func httpGridSuite() map[string]*pb.ExperimentSpec {
 
 	for _, e := range exps {
 		addTags(e, "suite/http-grid")
+	}
+	return exps
+}
+
+// sovereignSOCSuite drives the Sovereign SOC demo workflow (vulnerable
+// Redis 7.2.10 + bobctl attack loop + Kubescape anomaly generation +
+// forensic ClickHouse export) under perf_tool orchestration. Assumes the
+// target cluster already has Kubescape (honey namespace, app=node-agent
+// DaemonSet), an Altinity ClickHouse operator in the `clickhouse` namespace,
+// and Vector tailing kubescape logs into forensic_db.alerts — same
+// pre-installed-dependency shape as the k8ssandra suite. Point prometheus
+// recorders at the forensic cluster via
+//
+//	--prom_recorder_override clickhouse-operator=:<forensic-ctx>
+//	--prom_recorder_override kubescape-node-agent=:<forensic-ctx>
+func sovereignSOCSuite() map[string]*pb.ExperimentSpec {
+	defaultMetricPeriod := 30 * time.Second
+	preDur := 2 * time.Minute
+	dur := 20 * time.Minute
+
+	exportPeriod := 5 * time.Second
+	exportWindow := 30 * time.Second
+	alertCountWindow := 1 * time.Minute
+
+	// Default forensic ClickHouse DSN matching the demo's deployment. Override
+	// by writing a new suite or by editing this default for a campaign.
+	clickhouseDSN := "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+	exportTable := "redis_events"
+	alertsTable := "alerts"
+
+	exps := map[string]*pb.ExperimentSpec{
+		"redis-attack": SovereignSOCRedisAttackExperiment(
+			defaultMetricPeriod,
+			exportPeriod, exportWindow,
+			clickhouseDSN, exportTable,
+			alertsTable, alertCountWindow,
+			preDur, dur,
+		),
+	}
+	for _, e := range exps {
+		addTags(e, "suite/sovereign-soc")
 	}
 	return exps
 }

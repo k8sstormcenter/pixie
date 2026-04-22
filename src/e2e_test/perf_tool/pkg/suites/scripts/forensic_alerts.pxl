@@ -1,0 +1,39 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Counts Kubescape anomaly alerts that Vector has written into
+# forensic_db.alerts in the forensic ClickHouse cluster, windowed on
+# event_time. One metric row per rule_id per invocation so the recorder can
+# tag it as a per-rule series.
+
+import px
+
+df = px.DataFrame(
+    '{{.TemplateValues.table}}',
+    clickhouse_dsn='{{.TemplateValues.dsn}}',
+    start_time='-{{.TemplateValues.window}}',
+)
+
+# event_time is seconds-since-epoch on the raw CH table; bring it into the
+# window-relevant space and extract the rule id the alert tripped.
+df.rule_id = df.RuleID
+df = df.groupby('rule_id').agg(alert_count=('event_time', px.count))
+
+df.timestamp = px.now()
+df.node_name = px._exec_hostname()
+df.pod = 'forensic-alert-driver'
+df = df[['timestamp', 'node_name', 'pod', 'rule_id', 'alert_count']]
+px.display(df, 'forensic_alert_stats')

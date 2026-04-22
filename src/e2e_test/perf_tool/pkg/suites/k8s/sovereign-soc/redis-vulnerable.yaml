@@ -1,0 +1,206 @@
+# Pinned copy of upstream k8sstormcenter/bob@68fbfb83dc63f4e0184ecbf66d9c5f251a74b0b7
+# example/redis-vulnerable.yaml (Apache-2.0 licensed).
+#
+# Redis 7.2.10 — vulnerable to CVE-2025-49844 + CVE-2022-0543
+#
+# CVE-2025-49844: Use-After-Free in Lua parser lparser.c (all Redis < 7.2.11)
+# CVE-2022-0543: Lua sandbox escape via package.loadlib (Debian packaging issue)
+#
+# This uses a custom image built from Dockerfile.redis-vulnerable that patches
+# the Lua sandbox to reproduce the CVE-2022-0543 condition, enabling full
+# sandbox escape via EVAL → package.loadlib → io.popen → shell.
+#
+# Deploys into its own "redis" namespace with:
+#   Namespace, ServiceAccount, Role, RoleBinding, Deployment, Service
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: redis
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: bob-cve-2025-49844
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: redis
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: redis
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: redis
+  namespace: redis
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: redis
+  namespace: redis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: redis
+subjects:
+  - kind: ServiceAccount
+    name: redis
+    namespace: redis
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: redis
+data:
+  redis.conf: |
+    # Disable protected mode (no auth, no bind restriction)
+    protected-mode no
+    bind 0.0.0.0
+    port 6379
+
+    # Persistence off — ephemeral for testing
+    save ""
+    appendonly no
+
+    # Memory limit
+    maxmemory 256mb
+    maxmemory-policy allkeys-lru
+
+    # Logging
+    loglevel notice
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/version: "7.2.10"
+    cve: CVE-2025-49844
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/version: "7.2.10"
+    spec:
+      serviceAccountName: redis
+      containers:
+        - name: redis
+          image: ghcr.io/k8sstormcenter/redis-vulnerable:7.2.10
+          command: ["redis-server", "/etc/redis/redis.conf"]
+          ports:
+            - containerPort: 6379
+              name: redis
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/redis
+              readOnly: true
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: redis-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: redis
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+      protocol: TCP
+      name: redis
+---
+# A second Service exposing Redis on a non-standard port (16379 → 6379).
+# Used by the endpoint test: if the ApplicationProfile records port=0 (wildcard),
+# connections on ANY port are considered "normal" — including this one.
+# If the profile records only :6379, connections via :16379 should be anomalous.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-alt-port
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: endpoint-test
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: redis
+  ports:
+    - port: 16379
+      targetPort: 6379
+      protocol: TCP
+      name: redis-alt
+---
+# Redis client pod — a separate workload that connects to Redis over the network.
+# Attacks from this pod simulate a compromised application in the cluster:
+#   - Network traffic is real pod-to-pod (not port-forward from outside)
+#   - Node-agent sees the TCP connection in its eBPF hooks
+#   - Endpoint detection can verify port-based allowlisting
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-client
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: redis-client
+    app.kubernetes.io/component: endpoint-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-client
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-client
+    spec:
+      containers:
+        - name: client
+          image: redis:7.2-alpine
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi

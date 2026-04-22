@@ -1,0 +1,78 @@
+# Job that runs bobctl in a tight loop to continuously execute the
+# CVE-2025-49844 attack suite against the vulnerable redis deployment. The
+# bobctl binary is downloaded at container startup by an init container, so
+# no image build is needed. The attack suite YAML is mounted from the
+# bob-suite-attack ConfigMap at /suite/redis-attacks.yaml.
+#
+# The Job's pod must land in the `redis` namespace (same as the Redis
+# Service and Kubescape ApplicationProfile) so the attack traffic is
+# recorded against this namespace's profile.
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bobctl-attack
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: bobctl-attack
+    app.kubernetes.io/part-of: sovereign-soc
+spec:
+  backoffLimit: 100
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bobctl-attack
+        app.kubernetes.io/part-of: sovereign-soc
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: fetch-bobctl
+          image: curlimages/curl:8.15.0
+          command:
+            - sh
+            - -c
+            - |
+              set -euo pipefail
+              curl -fsSL -o /bob/bobctl \
+                https://github.com/k8sstormcenter/bob/releases/latest/download/bobctl-linux-amd64
+              chmod +x /bob/bobctl
+          volumeMounts:
+            - name: bob-bin
+              mountPath: /bob
+      containers:
+        - name: bobctl
+          image: alpine:3.19
+          command:
+            - sh
+            - -c
+            - |
+              set -u
+              # Small gap lets the service DNS entry propagate in very fresh namespaces.
+              sleep 5
+              while true; do
+                /bob/bobctl attack \
+                  --attack-suite /suite/redis-attacks.yaml \
+                  -n redis --format json || true
+                sleep 5
+              done
+          volumeMounts:
+            - name: bob-bin
+              mountPath: /bob
+              readOnly: true
+            - name: bob-suite
+              mountPath: /suite
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: bob-bin
+          emptyDir: {}
+        - name: bob-suite
+          configMap:
+            name: bob-suite-attack

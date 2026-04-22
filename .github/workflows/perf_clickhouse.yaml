@@ -66,6 +66,26 @@ jobs:
         echo "${KUBECONFIG_B64}" | base64 -d > "${RUNNER_TEMP}/kubeconfig"
         chmod 600 "${RUNNER_TEMP}/kubeconfig"
 
+    # Fail fast if Tailscale can't reach the cluster API, before the 2+ minute
+    # bazel/skaffold build wastes time.
+    - name: Tailscale connectivity probe
+      env:
+        KUBECONFIG: ${{ runner.temp }}/kubeconfig
+      run: |
+        tailscale status
+        tailscale netcheck
+        api_host="$(kubectl --kubeconfig="$KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}' | sed -E 's|https?://||; s|/.*||')"
+        api_ip="${api_host%%:*}"
+        api_port="${api_host##*:}"
+        echo "--- tailscale ping ${api_ip} ---"
+        tailscale ping --c 3 --until-direct=false "${api_ip}" || true
+        echo "--- tcp probe ${api_ip}:${api_port} ---"
+        timeout 5 bash -c "</dev/tcp/${api_ip}/${api_port}" \
+          && echo "API port reachable" \
+          || { echo "API port UNREACHABLE"; exit 1; }
+        echo "--- kubectl get nodes ---"
+        kubectl --kubeconfig="$KUBECONFIG" get nodes
+
     - name: Use github bazel config
       uses: ./.github/actions/bazelrc
       with:

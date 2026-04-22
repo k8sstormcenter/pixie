@@ -18,17 +18,12 @@ spec:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
+            # The beta.kubernetes.io/os label has been deprecated since
+            # k8s v1.14; every modern kubelet sets kubernetes.io/os. The
+            # single term below is enough — kept both ORed terms in the
+            # past for pre-1.14 compatibility.
             - matchExpressions:
               - key: kubernetes.io/os
-                operator: Exists
-              - key: kubernetes.io/os
-                operator: In
-                values:
-                - linux
-            - matchExpressions:
-              - key: beta.kubernetes.io/os
-                operator: Exists
-              - key: beta.kubernetes.io/os
                 operator: In
                 values:
                 - linux

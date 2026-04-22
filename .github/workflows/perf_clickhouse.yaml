@@ -72,10 +72,24 @@ jobs:
         download_toplevel: 'true'
         BB_API_KEY: ${{ secrets.BB_IO_API_KEY }}
 
+    # TODO(ddelnano): revert to `./.github/actions/gcloud_creds` once GCP_SA_KEY
+    # is re-uploaded with `base64 -w0`. The shared composite uses plain
+    # `base64 --decode` which rejects the wrapped (multi-line/CRLF) value
+    # currently stored in the secret.
     - id: gcloud-creds
-      uses: ./.github/actions/gcloud_creds
-      with:
+      env:
         SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SA_KEY }}
+      run: |
+        printf '%s' "$SERVICE_ACCOUNT_KEY" | base64 -di > /tmp/gcloud.json
+        chmod 600 /tmp/gcloud.json
+        echo "gcloud-creds=/tmp/gcloud.json" >> $GITHUB_OUTPUT
+    - name: Activate gcloud service account
+      env:
+        GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.gcloud-creds.outputs.gcloud-creds }}
+      run: |
+        service_account="$(jq -r '.client_email' "$GOOGLE_APPLICATION_CREDENTIALS")"
+        gcloud auth activate-service-account "${service_account}" --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
+        gcloud auth configure-docker
 
     - name: Log in to GHCR
       env:

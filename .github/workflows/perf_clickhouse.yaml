@@ -1,0 +1,109 @@
+---
+name: perf-eval-clickhouse
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or commit'
+        required: false
+        type: string
+      tags:
+        description: 'Tags (comma separated)'
+        required: false
+        type: string
+permissions:
+  contents: read
+  packages: write
+jobs:
+  get-dev-image-with-extras:
+    uses: ./.github/workflows/get_image.yaml
+    with:
+      image-base-name: "dev_image_with_extras"
+      ref: ${{ inputs.ref }}
+
+  clickhouse-export-perf:
+    name: ClickHouse export perf eval
+    needs: get-dev-image-with-extras
+    runs-on: oracle-vm-16cpu-64gb-x86-64
+    container:
+      image: ${{ needs.get-dev-image-with-extras.outputs.image-with-tag }}
+      options: --cap-add=NET_ADMIN --device=/dev/net/tun
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      with:
+        ref: ${{ inputs.ref }}
+        fetch-depth: 0
+    - name: Add pwd to git safe dir
+      run: git config --global --add safe.directory `pwd`
+    - id: get-commit-sha
+      run: echo "commit-sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+    # TODO(ddelnano): swap TAILSCALE_AUTH_KEY for an OAuth client once one is
+    # provisioned in the k8sstormcenter tailnet. Use
+    # `tailscale/github-action@v2` with `oauth-client-id` and `oauth-secret`
+    # inputs (`TS_OAUTH_CLIENT_ID` / `TS_OAUTH_CLIENT_SECRET` secrets) so
+    # credentials rotate automatically instead of expiring on a fixed cadence.
+    - name: Start Tailscale sidecar
+      env:
+        TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+      run: |
+        curl -fsSL https://tailscale.com/install.sh | sh
+        mkdir -p /var/run/tailscale /var/lib/tailscale
+        tailscaled \
+          --socket=/var/run/tailscale/tailscaled.sock \
+          --state=/var/lib/tailscale/tailscaled.state &
+        until tailscale status --json >/dev/null 2>&1; do sleep 1; done
+        tailscale up \
+          --authkey="${TS_AUTHKEY}" \
+          --accept-routes \
+          --hostname="pixie-perf-ci-${GITHUB_RUN_ID}"
+
+    - name: Write kubeconfig
+      env:
+        KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+      run: |
+        mkdir -p "${RUNNER_TEMP}"
+        echo "${KUBECONFIG_B64}" | base64 -d > "${RUNNER_TEMP}/kubeconfig"
+        chmod 600 "${RUNNER_TEMP}/kubeconfig"
+
+    - name: Use github bazel config
+      uses: ./.github/actions/bazelrc
+      with:
+        download_toplevel: 'true'
+        BB_API_KEY: ${{ secrets.BB_IO_API_KEY }}
+
+    - id: gcloud-creds
+      uses: ./.github/actions/gcloud_creds
+      with:
+        SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Log in to GHCR
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+    - name: Run clickhouse-export perf
+      env:
+        PX_API_KEY: ${{ secrets.PX_API_KEY }}
+        GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.gcloud-creds.outputs.gcloud-creds }}
+        KUBECONFIG: ${{ runner.temp }}/kubeconfig
+      run: |
+        bazel run //src/e2e_test/perf_tool:perf_tool -- run \
+          --api_key="${PX_API_KEY}" \
+          --commit_sha="${{ steps.get-commit-sha.outputs.commit-sha }}" \
+          --experiment_name=clickhouse-export \
+          --suite=clickhouse-exec \
+          --use_local_cluster \
+          --export_backend=parquet-gcs \
+          --gcs_bucket=k8sstormcenter-soc-perf \
+          --container_repo=ghcr.io/k8sstormcenter \
+          --prom_recorder_override 'clickhouse-operator=:k8ss-forensic' \
+          --tags "${{ inputs.tags }}"
+
+    - name: Deactivate gcloud service account
+      if: always()
+      run: gcloud auth revoke || true
+
+    - name: Tailscale logout
+      if: always()
+      run: tailscale logout || true

@@ -122,7 +122,6 @@ jobs:
         GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.gcloud-creds.outputs.gcloud-creds }}
         KUBECONFIG: ${{ runner.temp }}/kubeconfig
       run: |
-        : > "${RUNNER_TEMP}/skaffold-stderr.log"
         bazel run //src/e2e_test/perf_tool:perf_tool -- run \
           --api_key="${PX_API_KEY}" \
           --commit_sha="${{ steps.get-commit-sha.outputs.commit-sha }}" \
@@ -133,7 +132,6 @@ jobs:
           --gcs_bucket=k8sstormcenter-soc-perf \
           --container_repo=ghcr.io/k8sstormcenter \
           --prom_recorder_override 'clickhouse-operator=:k8ss-forensic' \
-          --skaffold_stderr_file="${RUNNER_TEMP}/skaffold-stderr.log" \
           --tags "${{ inputs.tags }}"
 
     - name: Upload skaffold stderr log

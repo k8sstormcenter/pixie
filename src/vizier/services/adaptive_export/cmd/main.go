@@ -26,8 +26,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"px.dev/pixie/src/api/go/pxapi"
 
+	"px.dev/pixie/src/api/go/pxapi"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/config"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pixie"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl"
@@ -85,11 +85,11 @@ func main() {
 		log.WithError(err).Fatal("failed to load configuration")
 	}
 
-	clusterId := cfg.Pixie().ClusterID()
+	clusterID := cfg.Pixie().ClusterID()
 	clusterName := cfg.Worker().ClusterName()
 
 	// Setup Pixie Plugin API client
-	log.Infof("Setting up Pixie plugin API client for cluster-id %s", clusterId)
+	log.Infof("Setting up Pixie plugin API client for cluster-id %s", clusterID)
 	pluginClient, err := setupPixie(ctx, cfg.Pixie(), defaultRetries, defaultSleepTime)
 	if err != nil {
 		log.WithError(err).Fatal("setting up Pixie plugin client failed")
@@ -113,13 +113,13 @@ func main() {
 	// automatic schema bootstrap.
 	if strings.EqualFold(os.Getenv("ENABLE_SCHEMA_CREATION"), "true") {
 		log.Info("ENABLE_SCHEMA_CREATION=true — starting schema creation task")
-		go runSchemaCreationTask(ctx, pxClient, clusterId, cfg.ClickHouse())
+		go runSchemaCreationTask(ctx, pxClient, clusterID, cfg.ClickHouse())
 	} else {
 		log.Info("Schema creation task disabled (set ENABLE_SCHEMA_CREATION=true to opt in)")
 	}
 
 	// Start detection + reconcile loop that turns the retention plugin on/off
-	go runDetectionTask(ctx, pxClient, pluginClient, cfg, clusterId, clusterName)
+	go runDetectionTask(ctx, pxClient, pluginClient, cfg, clusterID, clusterName)
 
 	// Wait for signal to shutdown
 	sigCh := make(chan os.Signal, 1)

@@ -286,17 +286,18 @@ func setUpConfig() error {
 }
 
 // parseDSN best-effort splits `user:pass@host:port/db`. Missing parts come back empty.
-func parseDSN(dsn string) (host, port, user, pass, db string) {
+func parseDSN(dsn string) (string, string, string, string, string) {
 	if dsn == "" {
-		return
+		return "", "", "", "", ""
 	}
 	at := strings.LastIndex(dsn, "@")
 	if at < 0 {
-		return
+		return "", "", "", "", ""
 	}
 	creds := dsn[:at]
 	rest := dsn[at+1:]
 
+	var user, pass string
 	if i := strings.Index(creds, ":"); i >= 0 {
 		user = creds[:i]
 		pass = creds[i+1:]
@@ -304,17 +305,19 @@ func parseDSN(dsn string) (host, port, user, pass, db string) {
 		user = creds
 	}
 
+	var db string
 	if i := strings.Index(rest, "/"); i >= 0 {
 		db = rest[i+1:]
 		rest = rest[:i]
 	}
+	var host, port string
 	if i := strings.Index(rest, ":"); i >= 0 {
 		host = rest[:i]
 		port = rest[i+1:]
 	} else {
 		host = rest
 	}
-	return
+	return host, port, user, pass, db
 }
 
 func firstNonEmpty(vals ...string) string {

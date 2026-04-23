@@ -54,14 +54,17 @@ type workloadImpl struct {
 }
 
 // NewWorkload creates a new Workload capable of deploying according to the spec given.
-func NewWorkload(pxCtx *pixie.Context, containerRegistryRepo string, spec *experimentpb.WorkloadSpec) (Workload, error) {
+// skaffoldStderrFile, when non-empty, is the path to which skaffold's stderr is appended
+// for any skaffold-based deploy steps; pass "" to leave skaffold's stderr going only to
+// the perf_tool process's stderr.
+func NewWorkload(pxCtx *pixie.Context, containerRegistryRepo, skaffoldStderrFile string, spec *experimentpb.WorkloadSpec) (Workload, error) {
 	deploySteps := make([]steps.DeployStep, len(spec.DeploySteps))
 	for i, stepSpec := range spec.DeploySteps {
 		switch stepSpec.DeployType.(type) {
 		case *experimentpb.DeployStep_Prerendered:
 			deploySteps[i] = steps.NewPrerenderedDeploy(stepSpec.GetPrerendered())
 		case *experimentpb.DeployStep_Skaffold:
-			deploySteps[i] = steps.NewSkaffoldDeploy(stepSpec.GetSkaffold(), containerRegistryRepo)
+			deploySteps[i] = steps.NewSkaffoldDeploy(stepSpec.GetSkaffold(), containerRegistryRepo, skaffoldStderrFile)
 		case *experimentpb.DeployStep_Px:
 			deploySteps[i] = steps.NewPxDeploy(pxCtx, stepSpec.GetPx())
 		}

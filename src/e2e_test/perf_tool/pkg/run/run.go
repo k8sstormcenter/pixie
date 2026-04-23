@@ -50,6 +50,7 @@ type Runner struct {
 	pxCtx                 *pixie.Context
 	exporter              exporter.Exporter
 	containerRegistryRepo string
+	skaffoldStderrFile    string
 	// KeepOnFailure, when true, skips teardown (stop vizier/workloads/recorders
 	// and cluster cleanup) if the experiment errors, so the cluster state can
 	// be inspected after the fact. Successful runs still tear down normally.
@@ -69,12 +70,16 @@ type Runner struct {
 }
 
 // NewRunner creates a new Runner for the given contexts.
-func NewRunner(c cluster.Provider, pxCtx *pixie.Context, exp exporter.Exporter, containerRegistryRepo string) *Runner {
+// skaffoldStderrFile, when non-empty, is the path to which skaffold's stderr is appended
+// during deploy steps. Pass "" to keep skaffold's stderr going only to the perf_tool
+// process's stderr.
+func NewRunner(c cluster.Provider, pxCtx *pixie.Context, exp exporter.Exporter, containerRegistryRepo, skaffoldStderrFile string) *Runner {
 	return &Runner{
 		c:                     c,
 		pxCtx:                 pxCtx,
 		exporter:              exp,
 		containerRegistryRepo: containerRegistryRepo,
+		skaffoldStderrFile:    skaffoldStderrFile,
 	}
 }
 
@@ -360,7 +365,7 @@ func (r *Runner) getCluster(ctx context.Context, spec *experimentpb.ClusterSpec)
 }
 
 func (r *Runner) prepareWorkloads(ctx context.Context, spec *experimentpb.ExperimentSpec) error {
-	vizier, err := deploy.NewWorkload(r.pxCtx, r.containerRegistryRepo, spec.VizierSpec)
+	vizier, err := deploy.NewWorkload(r.pxCtx, r.containerRegistryRepo, r.skaffoldStderrFile, spec.VizierSpec)
 	if err != nil {
 		return err
 	}
@@ -371,7 +376,7 @@ func (r *Runner) prepareWorkloads(ctx context.Context, spec *experimentpb.Experi
 	}
 	r.workloadsBySelector = make(map[string][]deploy.Workload)
 	for _, s := range spec.WorkloadSpecs {
-		w, err := deploy.NewWorkload(r.pxCtx, r.containerRegistryRepo, s)
+		w, err := deploy.NewWorkload(r.pxCtx, r.containerRegistryRepo, r.skaffoldStderrFile, s)
 		if err != nil {
 			return err
 		}

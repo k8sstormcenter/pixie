@@ -21,6 +21,7 @@ package steps
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -34,6 +35,7 @@ import (
 type skaffoldDeployImpl struct {
 	spec                  *experimentpb.SkaffoldDeploy
 	containerRegistryRepo string
+	stderrFile            string
 
 	r *renderedYAML
 }
@@ -41,10 +43,13 @@ type skaffoldDeployImpl struct {
 var _ DeployStep = &skaffoldDeployImpl{}
 
 // NewSkaffoldDeploy returns a new DeployStep which deploys a stage of a workload using skaffold.
-func NewSkaffoldDeploy(spec *experimentpb.SkaffoldDeploy, containerRegistryRepo string) DeployStep {
+// If stderrFile is non-empty, skaffold's stderr is appended to that file in addition to
+// the perf_tool process's stderr.
+func NewSkaffoldDeploy(spec *experimentpb.SkaffoldDeploy, containerRegistryRepo, stderrFile string) DeployStep {
 	return &skaffoldDeployImpl{
 		spec:                  spec,
 		containerRegistryRepo: containerRegistryRepo,
+		stderrFile:            stderrFile,
 	}
 }
 
@@ -85,18 +90,39 @@ func (s *skaffoldDeployImpl) Deploy(clusterCtx *cluster.Context) ([]string, erro
 	return []string{ns}, nil
 }
 
+// stderrSink returns the io.Writer to use for skaffold's stderr and a cleanup
+// func. When stderrFile is set, output is teed to both os.Stderr and the file
+// (opened in append mode so multiple skaffold invocations all land in the same
+// log).
+func (s *skaffoldDeployImpl) stderrSink() (io.Writer, func(), error) {
+	if s.stderrFile == "" {
+		return os.Stderr, func() {}, nil
+	}
+	f, err := os.OpenFile(s.stderrFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open skaffold stderr file %q: %w", s.stderrFile, err)
+	}
+	return io.MultiWriter(os.Stderr, f), func() { f.Close() }, nil
+}
+
 func (s *skaffoldDeployImpl) runSkaffoldBuild() ([]byte, error) {
 	var buildArtifacts bytes.Buffer
 	buildArgs := []string{
 		"build",
 		"-q",
+		"--verbosity=debug",
 		"-f", s.spec.SkaffoldPath,
 		"-d", s.containerRegistryRepo,
 	}
 	buildArgs = append(buildArgs, s.spec.SkaffoldArgs...)
 	log.Tracef("Running `skaffold %s` ...", strings.Join(buildArgs, " "))
+	stderr, cleanup, err := s.stderrSink()
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
 	cmd := exec.Command("skaffold", buildArgs...)
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = stderr
 	cmd.Stdout = &buildArtifacts
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to run `skaffold %s`: %w", strings.Join(buildArgs, " "), err)
@@ -108,15 +134,21 @@ func (s *skaffoldDeployImpl) runSkaffoldRender(buildArtifacts []byte) ([]byte, e
 	var renderedYAMLs bytes.Buffer
 	renderArgs := []string{
 		"render",
+		"--verbosity=debug",
 		"-f", s.spec.SkaffoldPath,
 		"--build-artifacts=-",
 		"-d", s.containerRegistryRepo,
 	}
 	renderArgs = append(renderArgs, s.spec.SkaffoldArgs...)
 	log.Tracef("Running `skaffold %s` ...", strings.Join(renderArgs, " "))
+	stderr, cleanup, err := s.stderrSink()
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
 	cmd := exec.Command("skaffold", renderArgs...)
 	cmd.Stdin = bytes.NewReader(buildArtifacts)
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = stderr
 	cmd.Stdout = &renderedYAMLs
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to run `skaffold %s`: %w", strings.Join(renderArgs, " "), err)

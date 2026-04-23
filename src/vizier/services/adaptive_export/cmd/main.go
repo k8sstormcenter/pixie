@@ -287,7 +287,7 @@ func enableClickHousePlugin(ctx context.Context, client *pixie.Client, cfg confi
 		if err != nil {
 			return fmt.Errorf("getting ClickHouse plugin config failed: %w", err)
 		}
-		if config.ExportUrl != cfg.ClickHouse().DSN() {
+		if config.ExportURL != cfg.ClickHouse().DSN() {
 			log.Info("ClickHouse plugin is configured with different DSN... Overwriting")
 			enablePlugin = true
 		}
@@ -296,7 +296,7 @@ func enableClickHousePlugin(ctx context.Context, client *pixie.Client, cfg confi
 	if enablePlugin {
 		log.Info("Enabling ClickHouse plugin")
 		err := client.EnableClickHousePlugin(&pixie.ClickHousePluginConfig{
-			ExportUrl: cfg.ClickHouse().DSN(),
+			ExportURL: cfg.ClickHouse().DSN(),
 		}, plugin.LatestVersion)
 		if err != nil {
 			return fmt.Errorf("failed to enable ClickHouse plugin: %w", err)

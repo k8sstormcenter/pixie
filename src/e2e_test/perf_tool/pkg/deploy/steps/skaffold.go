@@ -110,7 +110,6 @@ func (s *skaffoldDeployImpl) runSkaffoldBuild() ([]byte, error) {
 	buildArgs := []string{
 		"build",
 		"-q",
-		"--verbosity=debug",
 		"-f", s.spec.SkaffoldPath,
 		"-d", s.containerRegistryRepo,
 	}

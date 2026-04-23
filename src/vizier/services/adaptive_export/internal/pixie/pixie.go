@@ -107,7 +107,7 @@ func (c *Client) GetClickHousePluginConfig() (*ClickHousePluginConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	exportURL := resp.CustomExportURL
+	exportURL := resp.CustomExportUrl
 	if exportURL == "" {
 		exportURL, err = c.getDefaultClickHouseExportURL()
 		if err != nil {
@@ -138,7 +138,7 @@ func (c *Client) EnableClickHousePlugin(config *ClickHousePluginConfig, version 
 		},
 		Enabled:         &types.BoolValue{Value: true},
 		Version:         &types.StringValue{Value: version},
-		CustomExportURL: &types.StringValue{Value: config.ExportURL},
+		CustomExportUrl: &types.StringValue{Value: config.ExportURL},
 		InsecureTLS:     &types.BoolValue{Value: false},
 		DisablePresets:  &types.BoolValue{Value: true},
 	}

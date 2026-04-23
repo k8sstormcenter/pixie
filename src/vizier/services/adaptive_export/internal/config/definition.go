@@ -17,7 +17,6 @@
 package config
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +34,7 @@ func ReadScriptDefinitions(dir string) ([]*script.ScriptDefinition, error) {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return nil, nil
 	}
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +52,7 @@ func ReadScriptDefinitions(dir string) ([]*script.ScriptDefinition, error) {
 }
 
 func readScriptDefinition(path string) (*script.ScriptDefinition, error) {
-	content, err := ioutil.ReadFile(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

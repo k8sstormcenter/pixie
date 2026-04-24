@@ -116,6 +116,12 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
+    - name: Build and install px CLI
+      run: |
+        bazel build --config=x86_64_sysroot //src/pixie_cli:px
+        install -m 0755 bazel-bin/src/pixie_cli/px_/px /usr/local/bin/px
+        px version
+
     - name: Run clickhouse-export perf
       env:
         PX_API_KEY: ${{ secrets.PX_API_KEY }}

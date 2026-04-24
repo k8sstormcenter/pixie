@@ -133,7 +133,6 @@ func (s *skaffoldDeployImpl) runSkaffoldRender(buildArtifacts []byte) ([]byte, e
 	var renderedYAMLs bytes.Buffer
 	renderArgs := []string{
 		"render",
-		"--verbosity=debug",
 		"-f", s.spec.SkaffoldPath,
 		"--build-artifacts=-",
 		"-d", s.containerRegistryRepo,

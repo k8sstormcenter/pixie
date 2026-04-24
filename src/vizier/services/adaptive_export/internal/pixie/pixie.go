@@ -257,3 +257,22 @@ func (c *Client) DeleteDataRetentionScript(scriptID string) error {
 	_, err := c.pluginClient.DeleteRetentionScript(c.ctx, req)
 	return err
 }
+
+// SetScriptEnabled toggles a retention script's cron schedule on/off without
+// tearing down the script definition. Preferred over AddDataRetentionScript +
+// DeleteDataRetentionScript cycling in the adaptive reconcile loop — avoids
+// churning Pixie cloud's retention plugin state every time the quiet streak
+// flips.
+func (c *Client) SetScriptEnabled(clusterID, scriptID, scriptName, description string, frequencyS int64, contents string, enabled bool) error {
+	req := &cloudpb.UpdateRetentionScriptRequest{
+		ID:          utils.ProtoFromUUIDStrOrNil(scriptID),
+		ScriptName:  &types.StringValue{Value: scriptName},
+		Description: &types.StringValue{Value: description},
+		Enabled:     &types.BoolValue{Value: enabled},
+		FrequencyS:  &types.Int64Value{Value: frequencyS},
+		Contents:    &types.StringValue{Value: contents},
+		ClusterIDs:  []*uuidpb.UUID{utils.ProtoFromUUIDStrOrNil(clusterID)},
+	}
+	_, err := c.pluginClient.UpdateRetentionScript(c.ctx, req)
+	return err
+}

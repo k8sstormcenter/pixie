@@ -167,36 +167,50 @@ func runDetectionTask(ctx context.Context, pxClient *pxapi.Client, pluginClient 
 	ticker := time.NewTicker(detectionInterval)
 	defer ticker.Stop()
 
-	// pluginEnabled tracks our last-known retention-plugin state. A nil value means
-	// we haven't reconciled yet; we always query on the first tick.
-	var pluginEnabled *bool
+	// One-time bootstrap: ensure the ClickHouse plugin is enabled and the ch-*
+	// retention scripts are registered. After this, the adaptive reconcile loop
+	// only flips the per-script enabled flag via SetScriptEnabled — the plugin
+	// itself and the script definitions stay put. This avoids the heavy
+	// UpdateRetentionPluginConfig + full script recreate cycle that was thrashing
+	// Pixie cloud's retention state every quiet-streak flip.
+	bootstrapCtx, bootstrapCancel := context.WithTimeout(ctx, 2*time.Minute)
+	scripts, err := bootstrapClickHousePlugin(bootstrapCtx, pluginClient, cfg, clusterID, clusterName)
+	bootstrapCancel()
+	if err != nil {
+		log.WithError(err).Error("bootstrap of ClickHouse plugin failed; detection loop will not run")
+		return
+	}
+	log.Infof("Bootstrap complete: %d retention scripts registered", len(scripts))
+
+	// scriptsEnabled tracks the last-known enabled state across all ch-* scripts.
+	// nil on first tick so we always reconcile once after bootstrap.
+	var scriptsEnabled *bool
 	quietStreak := int64(0)
 
 	reconcile := func(want bool) {
-		if pluginEnabled != nil && *pluginEnabled == want {
-			log.Debugf("export already in desired state (enabled=%v), no action taken", want)
+		if scriptsEnabled != nil && *scriptsEnabled == want {
+			log.Debugf("retention scripts already in desired state (enabled=%v), no action taken", want)
 			return
 		}
-		pluginCtx, pluginCancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer pluginCancel()
+		reconcileCtx, reconcileCancel := context.WithTimeout(ctx, 60*time.Second)
+		defer reconcileCancel()
 		if want {
-			log.Info("Enabling forensic export")
-			if err := enableClickHousePlugin(pluginCtx, pluginClient, cfg, clusterID, clusterName); err != nil {
-				log.WithError(err).Error("failed to enable forensic export")
-				return
-			}
-			v := true
-			pluginEnabled = &v
+			log.Info("Enabling forensic export (flipping ch-* script enabled=true)")
+		} else {
+			log.Info("Disabling forensic export (flipping ch-* script enabled=false)")
+		}
+		if err := reconcileScripts(reconcileCtx, pluginClient, clusterID, scripts, want); err != nil {
+			log.WithError(err).Error("failed to reconcile retention scripts")
+			return
+		}
+		v := want
+		scriptsEnabled = &v
+		if !want {
+			quietStreak = 0
+		}
+		if want {
 			log.Info("Forensic export enabled successfully")
 		} else {
-			log.Info("Disabling forensic export")
-			if err := disableClickHousePlugin(pluginCtx, pluginClient, cfg, clusterID, clusterName); err != nil {
-				log.WithError(err).Error("failed to disable forensic export")
-				return
-			}
-			v := false
-			pluginEnabled = &v
-			quietStreak = 0
 			log.Info("Forensic export disabled successfully")
 		}
 	}
@@ -242,42 +256,36 @@ func runDetectionTask(ctx context.Context, pxClient *pxapi.Client, pluginClient 
 	}
 }
 
-func disableClickHousePlugin(ctx context.Context, client *pixie.Client, cfg config.Config, clusterID string, clusterName string) error {
-	plugin, err := client.GetClickHousePlugin()
-	if err != nil {
-		return fmt.Errorf("getting data retention plugins failed: %w", err)
-	}
-	if !plugin.RetentionEnabled {
-		log.Info("ClickHouse plugin already disabled; removing any lingering ch-* scripts")
-	} else {
-		if err := client.DisableClickHousePlugin(plugin.LatestVersion); err != nil {
-			return fmt.Errorf("failed to disable ClickHouse plugin: %w", err)
-		}
-	}
-
-	// Tear down the per-cluster ch-* retention scripts so the demo can be re-run cleanly.
-	current, err := client.GetClusterScripts(clusterID, clusterName)
-	if err != nil {
-		return fmt.Errorf("failed to list retention scripts: %w", err)
-	}
+// reconcileScripts flips each registered retention script's cron `enabled`
+// flag to the desired state in one RPC per script. No plugin-level toggle
+// and no script create/delete — avoids the teardown thrash Dom flagged in
+// PR#32 review.
+func reconcileScripts(ctx context.Context, client *pixie.Client, clusterID string, scripts []*script.Script, enabled bool) error {
 	var errs []error
-	for _, s := range current {
-		log.Infof("Deleting retention script %s", s.Name)
-		if err := client.DeleteDataRetentionScript(s.ScriptId); err != nil {
-			errs = append(errs, err)
+	for _, s := range scripts {
+		log.Infof("Setting script %s enabled=%v", s.Name, enabled)
+		if err := client.SetScriptEnabled(clusterID, s.ScriptId, s.Name, s.Description, s.FrequencyS, s.Script, enabled); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", s.Name, err))
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("errors while deleting retention scripts: %v", errs)
+		return fmt.Errorf("errors while toggling retention scripts: %v", errs)
 	}
 	return nil
 }
 
-func enableClickHousePlugin(ctx context.Context, client *pixie.Client, cfg config.Config, clusterID string, clusterName string) error {
+// bootstrapClickHousePlugin is the one-time setup path: ensures the plugin is
+// enabled with the right DSN and all ch-* scripts are registered (creating
+// or updating as needed per the preset allow-list). Returns the current
+// cluster scripts so the reconcile loop can flip their enabled flag.
+//
+// Replaces the old enable+disable plugin-toggle cycle with a "bootstrap once,
+// then only adjust script enabled" model per PR#32 review discussion.
+func bootstrapClickHousePlugin(ctx context.Context, client *pixie.Client, cfg config.Config, clusterID string, clusterName string) ([]*script.Script, error) {
 	log.Info("Checking the current ClickHouse plugin configuration")
 	plugin, err := client.GetClickHousePlugin()
 	if err != nil {
-		return fmt.Errorf("getting data retention plugins failed: %w", err)
+		return nil, fmt.Errorf("getting data retention plugins failed: %w", err)
 	}
 
 	enablePlugin := true
@@ -285,7 +293,7 @@ func enableClickHousePlugin(ctx context.Context, client *pixie.Client, cfg confi
 		enablePlugin = false
 		config, err := client.GetClickHousePluginConfig()
 		if err != nil {
-			return fmt.Errorf("getting ClickHouse plugin config failed: %w", err)
+			return nil, fmt.Errorf("getting ClickHouse plugin config failed: %w", err)
 		}
 		if config.ExportURL != cfg.ClickHouse().DSN() {
 			log.Info("ClickHouse plugin is configured with different DSN... Overwriting")
@@ -299,7 +307,7 @@ func enableClickHousePlugin(ctx context.Context, client *pixie.Client, cfg confi
 			ExportURL: cfg.ClickHouse().DSN(),
 		}, plugin.LatestVersion)
 		if err != nil {
-			return fmt.Errorf("failed to enable ClickHouse plugin: %w", err)
+			return nil, fmt.Errorf("failed to enable ClickHouse plugin: %w", err)
 		}
 	}
 
@@ -308,7 +316,7 @@ func enableClickHousePlugin(ctx context.Context, client *pixie.Client, cfg confi
 	log.Info("Getting preset script from the Pixie plugin")
 	defsFromPixie, err := client.GetPresetScripts()
 	if err != nil {
-		return fmt.Errorf("failed to get preset scripts: %w", err)
+		return nil, fmt.Errorf("failed to get preset scripts: %w", err)
 	}
 
 	// Filter presets by an allow-list of case-insensitive substrings in the
@@ -343,7 +351,7 @@ func enableClickHousePlugin(ctx context.Context, client *pixie.Client, cfg confi
 	log.Infof("Getting current scripts for cluster")
 	currentScripts, err := client.GetClusterScripts(clusterID, clusterName)
 	if err != nil {
-		return fmt.Errorf("failed to get data retention scripts: %w", err)
+		return nil, fmt.Errorf("failed to get data retention scripts: %w", err)
 	}
 
 	actions := script.GetActions(definitions, currentScripts, script.ScriptConfig{
@@ -379,11 +387,17 @@ func enableClickHousePlugin(ctx context.Context, client *pixie.Client, cfg confi
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("errors while setting up data retention scripts: %v", errs)
+		return nil, fmt.Errorf("errors while setting up data retention scripts: %v", errs)
+	}
+
+	// Refetch so we return the just-applied state (post-create/update IDs).
+	finalScripts, err := client.GetClusterScripts(clusterID, clusterName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get data retention scripts after apply: %w", err)
 	}
 
 	log.Info("All done! The ClickHouse plugin is now configured.")
-	return nil
+	return finalScripts, nil
 }
 
 func setupPixie(ctx context.Context, cfg config.Pixie, tries int, sleepTime time.Duration) (*pixie.Client, error) {

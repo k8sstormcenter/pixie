@@ -85,7 +85,7 @@ func k8ssandraExperimentSuite() map[string]*pb.ExperimentSpec {
 //
 //	--prom_recorder_override clickhouse-operator=/path/to/kubeconfig:my-ctx
 func clickhouseExecSuite() map[string]*pb.ExperimentSpec {
-	defaultMetricPeriod := 30 * time.Second
+	defaultMetricPeriod := 20 * time.Second
 	preDur := 5 * time.Minute
 	// preDur := 2 * time.Minute
 	dur := 30 * time.Minute

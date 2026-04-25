@@ -150,6 +150,7 @@ jobs:
           --gcs_bucket=k8sstormcenter-soc-perf \
           --container_repo=ghcr.io/k8sstormcenter \
           --prom_recorder_override 'clickhouse-operator=:k8ss-forensic' \
+          --max_retries=1 \
           --tags "${{ inputs.tags }}"
 
     - name: Tailscale logout

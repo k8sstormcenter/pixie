@@ -43,6 +43,105 @@ const (
 //go:embed scripts/healthcheck/redis_data_in_namespace.pxl
 var redisDataInNamespaceScript string
 
+// KubescapeVectorWorkload installs Kubescape (eBPF runtime-detection node
+// agent + storage + operator) and Vector (DaemonSet shipping Kubescape node-
+// agent logs into ClickHouse) on the experiment cluster. Manifests are
+// pre-rendered from upstream Helm charts so PrerenderedDeploy can apply them
+// statically — see k8s/sovereign-soc/helm-rendered/README.md for the
+// re-render recipe.
+//
+// Treated as long-lived infrastructure (similar to the cert-manager
+// prerequisite of the k8ssandra suite). All steps set
+// SkipNamespaceDelete=true so teardown never tries to delete `honey` or
+// `kube-system`. The first run installs; subsequent runs idempotently
+// re-apply (Pixie's ApplyResources skips with IsAlreadyExists or falls
+// through to Update). Manual cleanup is only required if you change the
+// rendered YAML in a backwards-incompatible way.
+//
+// The workload is tagged with action_selector="infra" and the experiment
+// schedules a START_WORKLOADS{Name:"infra"} action before
+// START_METRIC_RECORDERS. That ordering is load-bearing: the kubescape
+// node-agent's prometheus exporter is gated by a ConfigMap that this
+// workload writes, and the perf_tool's prometheus recorder pre-flights
+// port-forwards at recorder-start time. If recorders ran first, they
+// would connect to an old node-agent pod with no listener on :8080 and
+// the recorder would error out before the experiment even started
+// measuring.
+//
+// Layout:
+//  1. kubescape.rendered.yaml — honey namespace, main install + 5 CRDs at
+//     the top of the file (rendered with --include-crds so kubescape's
+//     `crds/` chart directory is emitted).
+//  2. kubescape.rendered.kube-system.yaml — the one RoleBinding kubescape
+//     needs in kube-system (storage-auth-reader) for API aggregation auth.
+//  3. kubescape-default-rules.yaml — the built-in runtime rule set.
+//  4. vector.rendered.yaml — Vector DaemonSet + RBAC that tails Kubescape
+//     node-agent logs into forensic_db.kubescape_logs. Endpoint is the
+//     external forensic CH URL so any experiment cluster can write to it.
+// SovereignSOCInfraSelector is the action_selector tagged onto the
+// kubescape-vector workload so it runs in a dedicated START_WORKLOADS
+// phase before START_METRIC_RECORDERS — see the docstring on
+// KubescapeVectorWorkload.
+const SovereignSOCInfraSelector = "infra"
+
+func KubescapeVectorWorkload() *pb.WorkloadSpec {
+	return &pb.WorkloadSpec{
+		Name:           "kubescape-vector",
+		ActionSelector: SovereignSOCInfraSelector,
+		DeploySteps: []*pb.DeployStep{
+			{
+				DeployType: &pb.DeployStep_Prerendered{
+					Prerendered: &pb.PrerenderedDeploy{
+						YAMLPaths: []string{
+							fmt.Sprintf("%s/helm-rendered/kubescape.rendered.yaml", sovereignSOCYAMLRoot),
+						},
+						SkipNamespaceDelete: true,
+					},
+				},
+			},
+			{
+				DeployType: &pb.DeployStep_Prerendered{
+					Prerendered: &pb.PrerenderedDeploy{
+						YAMLPaths: []string{
+							fmt.Sprintf("%s/helm-rendered/kubescape.rendered.kube-system.yaml", sovereignSOCYAMLRoot),
+						},
+						SkipNamespaceDelete: true,
+					},
+				},
+			},
+			{
+				DeployType: &pb.DeployStep_Prerendered{
+					Prerendered: &pb.PrerenderedDeploy{
+						YAMLPaths: []string{
+							fmt.Sprintf("%s/helm-rendered/kubescape-default-rules.yaml", sovereignSOCYAMLRoot),
+						},
+						SkipNamespaceDelete: true,
+					},
+				},
+			},
+			{
+				DeployType: &pb.DeployStep_Prerendered{
+					Prerendered: &pb.PrerenderedDeploy{
+						YAMLPaths: []string{
+							fmt.Sprintf("%s/helm-rendered/vector.rendered.yaml", sovereignSOCYAMLRoot),
+						},
+						SkipNamespaceDelete: true,
+					},
+				},
+			},
+		},
+		Healthchecks: []*pb.HealthCheck{
+			{
+				CheckType: &pb.HealthCheck_K8S{
+					K8S: &pb.K8SPodsReadyCheck{
+						Namespace: "honey",
+					},
+				},
+			},
+		},
+	}
+}
+
 // RedisVulnerableWorkload deploys the pre-populated Kubescape
 // ApplicationProfile and the intentionally vulnerable Redis 7.2.10 used by
 // the sovereign-soc suite. Both YAMLs land in the `redis` namespace.
@@ -167,6 +266,11 @@ func SovereignSOCRedisAttackExperiment(
 	e := &pb.ExperimentSpec{
 		VizierSpec: VizierWorkload(),
 		WorkloadSpecs: []*pb.WorkloadSpec{
+			// Kubescape + Vector first so the node-agent is running and
+			// Vector's log pipeline is live before any attack traffic is
+			// generated. Vector ships node-agent logs to
+			// forensic_db.kubescape_logs on the external forensic CH.
+			KubescapeVectorWorkload(),
 			RedisVulnerableWorkload(),
 			BobctlAttackWorkload(),
 		},
@@ -185,6 +289,14 @@ func SovereignSOCRedisAttackExperiment(
 					Type: pb.START_VIZIER,
 				},
 				{
+					// Deploy kubescape+vector first so the node-agent's
+					// prometheus listener on :8080 is up before the
+					// metric recorder pre-flights port-forwards. Without
+					// this ordering, the recorder errors out at startup.
+					Type: pb.START_WORKLOADS,
+					Name: SovereignSOCInfraSelector,
+				},
+				{
 					Type: pb.START_METRIC_RECORDERS,
 				},
 				{
@@ -192,6 +304,8 @@ func SovereignSOCRedisAttackExperiment(
 					Duration: types.DurationProto(predeployDur),
 				},
 				{
+					// Default selector (empty) catches the redis +
+					// bobctl-attack workloads.
 					Type: pb.START_WORKLOADS,
 				},
 				{

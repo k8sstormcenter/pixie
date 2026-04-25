@@ -4,9 +4,56 @@
 # no image build is needed. The attack suite YAML is mounted from the
 # bob-suite-attack ConfigMap at /suite/redis-attacks.yaml.
 #
+# bobctl reaches the redis Service via kubectl-port-forward style:
+# it queries the apiserver for the Service + a backing Pod, then opens a
+# pods/portforward stream to that Pod. The dedicated ServiceAccount +
+# Role below grant exactly the verbs required for that flow.
+#
 # The Job's pod must land in the `redis` namespace (same as the Redis
 # Service and Kubescape ApplicationProfile) so the attack traffic is
 # recorded against this namespace's profile.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bobctl
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: bobctl-attack
+    app.kubernetes.io/part-of: sovereign-soc
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bobctl-port-forward
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: bobctl-attack
+    app.kubernetes.io/part-of: sovereign-soc
+rules:
+  - apiGroups: [""]
+    resources: ["services", "pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/portforward"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bobctl-port-forward
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: bobctl-attack
+    app.kubernetes.io/part-of: sovereign-soc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: bobctl-port-forward
+subjects:
+  - kind: ServiceAccount
+    name: bobctl
+    namespace: redis
 ---
 apiVersion: batch/v1
 kind: Job
@@ -26,6 +73,7 @@ spec:
         app.kubernetes.io/part-of: sovereign-soc
     spec:
       restartPolicy: OnFailure
+      serviceAccountName: bobctl
       initContainers:
         - name: fetch-bobctl
           image: curlimages/curl:8.15.0
@@ -48,6 +96,33 @@ spec:
             - -c
             - |
               set -u
+              # bobctl's CLI bootstrap unconditionally tries to read
+              # ~/.kube/config (it uses kubectl-style proxy routing for
+              # service targets), so synthesize a minimal in-cluster
+              # kubeconfig from the pod's service-account mount before
+              # invoking it. tokenFile is preferred over inline token so
+              # SA-token rotation works.
+              mkdir -p /root/.kube
+              cat > /root/.kube/config <<'EOF'
+              apiVersion: v1
+              kind: Config
+              clusters:
+              - name: in-cluster
+                cluster:
+                  certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                  server: https://kubernetes.default.svc
+              contexts:
+              - name: in-cluster
+                context:
+                  cluster: in-cluster
+                  user: in-cluster
+                  namespace: redis
+              current-context: in-cluster
+              users:
+              - name: in-cluster
+                user:
+                  tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+              EOF
               # Small gap lets the service DNS entry propagate in very fresh namespaces.
               sleep 5
               while true; do

@@ -27,13 +27,14 @@ df = px.DataFrame(
     start_time='-{{.TemplateValues.window}}',
 )
 
-# event_time is seconds-since-epoch on the raw CH table; bring it into the
-# window-relevant space and extract the rule id the alert tripped.
-df.rule_id = df.RuleID
-df = df.groupby('rule_id').agg(alert_count=('event_time', px.count))
-
+# forensic_db.kubescape_logs has (per the demo's observe.pxl probe)
+# top-level columns: message, RuntimeK8sDetails, event_time. There is no
+# top-level RuleID column — the rule id lives inside the JSON `message`
+# payload. We just count total alerts in the window; per-rule breakdowns
+# are left to downstream analysis.
+df = df.agg(alert_count=('event_time', px.count))
 df.timestamp = px.now()
 df.node_name = px._exec_hostname()
 df.pod = 'forensic-alert-driver'
-df = df[['timestamp', 'node_name', 'pod', 'rule_id', 'alert_count']]
+df = df[['timestamp', 'node_name', 'pod', 'alert_count']]
 px.display(df, 'forensic_alert_stats')

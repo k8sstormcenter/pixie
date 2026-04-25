@@ -1,0 +1,87 @@
+# Vector Helm values for iximiuz lab — kubescape node-agent → ClickHouse
+# Deploy: helm install vector vector/vector -n honey -f values.yaml
+
+role: "Agent"
+
+image:
+  repository: timberio/vector
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+tolerations:
+  - operator: Exists
+
+env:
+  - name: NODE_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: spec.nodeName
+
+customConfig:
+  data_dir: /vector-data-dir
+  api:
+    enabled: true
+    address: 127.0.0.1:8686
+    playground: false
+
+  sources:
+    kubescape_nodeagent_logs:
+      type: kubernetes_logs
+      extra_label_selector: "app=node-agent"
+
+  transforms:
+    kubescape_parse:
+      type: remap
+      inputs:
+        - kubescape_nodeagent_logs
+      source: |
+        . = parse_json!(.message)
+
+    kubescape_filter:
+      type: filter
+      inputs:
+        - kubescape_parse
+      condition: '.BaseRuntimeMetadata != null'
+
+    kubescape_enrich:
+      type: remap
+      inputs:
+        - kubescape_filter
+      source: |
+        .CloudMetadata = "empty"
+        .hostname = get_env_var!("NODE_NAME")
+        .event_time = to_unix_timestamp(now())
+        del(.time)
+
+  sinks:
+    kubescape_debug:
+      type: file
+      inputs:
+        - kubescape_enrich
+      encoding:
+        codec: json
+      path: "/tmp/kubescape.json"
+
+    kubescape_clickhouse:
+      type: clickhouse
+      inputs:
+        - kubescape_enrich
+      database: forensic_db
+      table: kubescape_logs
+      endpoint: "http://clickhouse.forensic.austrianopencloudcommunity.org:8123"
+      skip_unknown_fields: true
+      date_time_best_effort: true
+      auth:
+        strategy: "basic"
+        user: pixie
+        password: pixie_password
+      batch:
+        max_bytes: 5000000
+        timeout_secs: 2

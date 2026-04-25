@@ -85,10 +85,10 @@ func k8ssandraExperimentSuite() map[string]*pb.ExperimentSpec {
 //
 //	--prom_recorder_override clickhouse-operator=/path/to/kubeconfig:my-ctx
 func clickhouseExecSuite() map[string]*pb.ExperimentSpec {
-	defaultMetricPeriod := 20 * time.Second
+	defaultMetricPeriod := 30 * time.Second
 	preDur := 5 * time.Minute
 	// preDur := 2 * time.Minute
-	dur := 30 * time.Minute
+	dur := 20 * time.Minute
 	// dur := 5 * time.Minute
 	httpNumConns := 100
 	httpTargetRPS := 3000
@@ -187,22 +187,32 @@ func sovereignSOCSuite() map[string]*pb.ExperimentSpec {
 	exportWindow := 30 * time.Second
 	alertCountWindow := 1 * time.Minute
 
-	// Single DSN for both export and alert-read. MUST be reachable from the
-	// experiment cluster's network — the clickhouse-cpp client crashes
-	// Kelvin with SIGSEGV if DNS resolution fails
-	// (ClickHouseExportSinkNode::OpenImpl lets std::system_error propagate
-	// out and hit std::terminate). The external forensic endpoint is the
-	// known-good target used by the clickhouse-exec suite.
-	clickhouseDSN := "pixie:pixie_password@clickhouse.forensic.austrianopencloudcommunity.org:9000/default"
+	// Both DSNs target the same external forensic endpoint with the same
+	// pixie user (which has been granted SHOW/SELECT/INSERT on forensic_db.*
+	// out-of-band). The endpoint MUST be reachable from the experiment
+	// cluster's network — the clickhouse-cpp client will crash Kelvin with
+	// SIGSEGV if DNS fails (see ClickHouseExportSinkNode TODO).
+	//   - exportDSN:  /default       — where Pixie's CH export sink writes.
+	//   - alertsDSN:  /forensic_db   — where Vector lands Kubescape alerts.
+	// forensic_db must be pre-created via soc/tree/clickhouse-lab/schema.sql;
+	// this suite does not bootstrap CH schemas (CH is shared infra).
+	const clickhouseHost = "clickhouse.forensic.austrianopencloudcommunity.org:9000"
+	const clickhouseCreds = "pixie:pixie_password"
+	exportDSN := fmt.Sprintf("%s@%s/default", clickhouseCreds, clickhouseHost)
+	alertsDSN := fmt.Sprintf("%s@%s/forensic_db", clickhouseCreds, clickhouseHost)
 	exportTable := "redis_events"
-	alertsTable := "alerts"
+	// Vector writes raw kubescape alerts to forensic_db.kubescape_logs (see
+	// helm-rendered/vector-values.yaml kubescape_clickhouse sink). A
+	// separate forensic_db.alerts materialized view / projection exists in
+	// some demo variants but is not populated by the stock Vector config.
+	alertsTable := "kubescape_logs"
 
 	exps := map[string]*pb.ExperimentSpec{
 		"redis-attack": SovereignSOCRedisAttackExperiment(
 			defaultMetricPeriod,
 			exportPeriod, exportWindow,
-			clickhouseDSN, exportTable,
-			clickhouseDSN, alertsTable,
+			exportDSN, exportTable,
+			alertsDSN, alertsTable,
 			alertCountWindow,
 			preDur, dur,
 		),

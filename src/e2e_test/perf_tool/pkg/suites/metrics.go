@@ -289,8 +289,8 @@ func KubescapeNodeAgentMetrics(scrapePeriod time.Duration) *pb.MetricSpec {
 
 // ForensicAlertCountMetric runs a PxL script against the forensic
 // ClickHouse cluster (via clickhouse_dsn=…) to count Kubescape anomaly
-// alerts that Vector has landed in forensic_db.alerts. Emits one row per
-// rule_id per invocation; the recorder tags each row with its rule_id.
+// alerts that Vector has landed in forensic_db.kubescape_logs. Emits one
+// row per invocation with the total count over the windowed time range.
 func ForensicAlertCountMetric(period time.Duration, dsn string, table string, window time.Duration) *pb.MetricSpec {
 	return &pb.MetricSpec{
 		MetricType: &pb.MetricSpec_PxL{
@@ -306,20 +306,7 @@ func ForensicAlertCountMetric(period time.Duration, dsn string, table string, wi
 				TableOutputs: map[string]*pb.PxLScriptOutputList{
 					"*": {
 						Outputs: []*pb.PxLScriptOutputSpec{
-							{
-								OutputSpec: &pb.PxLScriptOutputSpec_SingleMetric{
-									SingleMetric: &pb.SingleMetricPxLOutput{
-										TimestampCol: "timestamp",
-										MetricName:   "forensic_alert_count",
-										ValueCol:     "alert_count",
-										TagCols: []string{
-											"node_name",
-											"pod",
-											"rule_id",
-										},
-									},
-								},
-							},
+							singleMetricOutputWithPodNodeName("alert_count", "forensic_alert_count"),
 						},
 					},
 				},

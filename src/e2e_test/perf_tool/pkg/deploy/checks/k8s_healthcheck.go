@@ -25,6 +25,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"px.dev/pixie/src/e2e_test/perf_tool/experimentpb"
@@ -68,6 +69,15 @@ func (hc *k8sHealthCheck) Wait(ctx context.Context, clusterCtx *cluster.Context,
 			)
 		}
 		for _, pod := range pl.Items {
+			// CronJob pods that exited 0 stay around in phase Succeeded
+			// (Kubernetes keeps them per successfulJobsHistoryLimit) and
+			// their containers report Ready: false forever. They are
+			// "done", not "not ready" — skip. Phase Failed is intentionally
+			// NOT skipped: a failed CronJob run is a real signal we want
+			// the healthcheck to surface, not paper over.
+			if pod.Status.Phase == v1.PodSucceeded {
+				continue
+			}
 			for _, cs := range pod.Status.InitContainerStatuses {
 				if cs.State.Terminated == nil {
 					return fmt.Errorf(

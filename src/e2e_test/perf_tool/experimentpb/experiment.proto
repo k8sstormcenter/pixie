@@ -124,6 +124,11 @@ message PatchTarget {
 message PrerenderedDeploy {
   repeated string yaml_paths = 1 [ (gogoproto.customname) = "YAMLPaths" ];
   repeated PatchSpec patches = 2;
+  // If true, the step will not return the deployed namespace in its cleanup list,
+  // so workload.Close() will not delete that namespace on teardown. Use this for
+  // resources applied into namespaces the experiment does not own (e.g. a
+  // RoleBinding in kube-system that has to live there for API aggregation auth).
+  bool skip_namespace_delete = 3;
 }
 
 // SkaffoldDeploy specifies how to use skaffold to deploy a component. SkaffoldDeploy is currently

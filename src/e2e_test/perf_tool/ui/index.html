@@ -170,6 +170,14 @@
           <div class="chart-card"><div id="exp-ch-row-rate" class="plotly-container"></div></div>
           <div class="chart-card"><div id="exp-ch-network-rate" class="plotly-container"></div></div>
         </div>
+
+        <h3 style="font-size:14px;margin:24px 0 12px 0;color:#1a1a2e;">Kubescape Metrics</h3>
+        <div class="chart-grid" id="experiment-kubescape-charts">
+          <div class="chart-card"><div id="exp-kubescape-cpu-rate" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-kubescape-memory" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-kubescape-goroutines" class="plotly-container"></div></div>
+          <div class="chart-card"><div id="exp-forensic-alerts" class="plotly-container"></div></div>
+        </div>
       </div>
     </div>
   </div>
@@ -547,6 +555,14 @@
         secondaryAxisNames: ['clickhouse_selected_rows_total'],
         primaryAxisTitle: 'Inserted rows/s', secondaryAxisTitle: 'Selected rows/s' },
       { id: 'exp-ch-network-rate', title: 'ClickHouse Network Rate', names: ['clickhouse_network_send_bytes_total', 'clickhouse_network_receive_bytes_total'], unit: 'bytes-rate', counter: true },
+      // Kubescape node-agent (sovereign-soc suite): self-emitted process
+      // metrics from the node-agent's prometheus exporter on :8080. One
+      // series per node-agent pod (per-node).
+      { id: 'exp-kubescape-cpu-rate', title: 'Kubescape Node-Agent CPU Rate', names: ['kubescape_node_agent_cpu_seconds_total'], unit: 'rate', counter: true },
+      { id: 'exp-kubescape-memory', title: 'Kubescape Node-Agent Memory', names: ['kubescape_node_agent_rss', 'kubescape_node_agent_vsize'], unit: 'bytes' },
+      { id: 'exp-kubescape-goroutines', title: 'Kubescape Node-Agent Goroutines', names: ['kubescape_node_agent_goroutines'], unit: 'count' },
+      // sovereign-soc: forensic_db.kubescape_logs row count over the metric window.
+      { id: 'exp-forensic-alerts', title: 'Forensic Alerts in Window', names: ['forensic_alert_count'], unit: 'count' },
     ];
 
     function buildExperimentQuery(experimentIds, metricConfig) {
@@ -776,20 +792,84 @@
         };
       });
 
-      // Add action markers as vertical lines
-      const runActions = actions.filter(a => a.action_type === 'run');
-      const shapes = runActions.map(a => ({
-        type: 'line',
-        x0: a.elapsed_s, x1: a.elapsed_s,
-        y0: 0, y1: 1, yref: 'paper',
-        line: { color: a.is_begin ? 'green' : 'red', width: 1, dash: 'dash' },
-      }));
-      const annotations = runActions.map(a => ({
-        x: a.elapsed_s, y: 1, yref: 'paper',
-        text: `${a.is_begin ? 'begin' : 'end'}_run${a.action_name ? ':' + a.action_name : ''}`,
-        showarrow: false, font: { size: 9, color: a.is_begin ? 'green' : 'red' },
-        yanchor: 'bottom',
-      }));
+      // Phase markers: BURNIN/RUN are time-spanning, drawn as translucent
+      // shaded regions. Instantaneous actions (start_vizier,
+      // start_metric_recorders, start_workloads, stop_*) are drawn as
+      // dashed vertical lines at their begin marker.
+      const phaseColors = {
+        burnin: { fill: 'rgba(150,150,150,0.10)', label: '#666' },
+        run:    { fill: 'rgba(60,160,60,0.10)',   label: '#2a7' },
+      };
+      const instantColors = {
+        start_vizier:           '#3a6cd6',
+        start_metric_recorders: '#8a4ad6',
+        start_workloads:        '#d68a3a',
+        stop_metric_recorders:  '#c14a4a',
+        stop_workloads:         '#c14a4a',
+        stop_vizier:            '#c14a4a',
+      };
+      const shapes = [];
+      const annotations = [];
+      // Pair up begin/end events per (action_type, action_name); span phases
+      // → shaded rect, instantaneous → vertical line at begin.
+      const pendingBegins = {}; // key = `${type}:${name}` → elapsed_s
+      for (const a of actions) {
+        const key = `${a.action_type}:${a.action_name || ''}`;
+        if (a.is_begin) {
+          pendingBegins[key] = a.elapsed_s;
+        } else {
+          // close: matched begin in pendingBegins
+          const x0 = pendingBegins[key];
+          const x1 = a.elapsed_s;
+          delete pendingBegins[key];
+          if (x0 == null) continue;
+          if (phaseColors[a.action_type] && (x1 - x0) >= 1) {
+            // Span phase — shaded rect spanning full y range, behind data.
+            const c = phaseColors[a.action_type];
+            shapes.push({
+              type: 'rect',
+              x0, x1, y0: 0, y1: 1, yref: 'paper',
+              fillcolor: c.fill, line: { width: 0 }, layer: 'below',
+            });
+            annotations.push({
+              x: (x0 + x1) / 2, y: 1, yref: 'paper',
+              text: `${a.action_type.toUpperCase()}${a.action_name ? ':' + a.action_name : ''}`,
+              showarrow: false, font: { size: 10, color: c.label },
+              yanchor: 'bottom',
+            });
+          } else {
+            // Same begin/end timestamp — instantaneous action; draw a line.
+            const color = instantColors[a.action_type] || '#888';
+            shapes.push({
+              type: 'line',
+              x0: x0, x1: x0, y0: 0, y1: 1, yref: 'paper',
+              line: { color, width: 1, dash: 'dash' },
+            });
+            annotations.push({
+              x: x0, y: 1, yref: 'paper',
+              text: a.action_type + (a.action_name ? ':' + a.action_name : ''),
+              showarrow: false, font: { size: 9, color },
+              yanchor: 'bottom', textangle: -45,
+            });
+          }
+        }
+      }
+      // Any begin without a matching end (truncated run) → render as a line.
+      for (const [key, x0] of Object.entries(pendingBegins)) {
+        const [type, name] = key.split(':');
+        const color = instantColors[type] || phaseColors[type]?.label || '#888';
+        shapes.push({
+          type: 'line',
+          x0, x1: x0, y0: 0, y1: 1, yref: 'paper',
+          line: { color, width: 1, dash: 'dash' },
+        });
+        annotations.push({
+          x: x0, y: 1, yref: 'paper',
+          text: 'begin_' + type + (name ? ':' + name : ''),
+          showarrow: false, font: { size: 9, color },
+          yanchor: 'bottom', textangle: -45,
+        });
+      }
 
       let yaxisTitle;
       if (config.unit === 'bytes-rate') yaxisTitle = 'MiB/s';

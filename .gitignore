@@ -68,7 +68,6 @@ skaffold_build/
 
 # Hide generated .deb files
 *.deb
-*.local
 
 compile_commands.json
 clang_tidy.log

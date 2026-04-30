@@ -26,16 +26,16 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
+
 	"px.dev/pixie/src/api/go/pxapi/utils"
 	"px.dev/pixie/src/api/proto/cloudpb"
 	"px.dev/pixie/src/api/proto/uuidpb"
-
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/script"
 )
 
 const (
-	clickhousePluginId = "clickhouse"
-	exportUrlConfig    = "exportURL"
+	clickhousePluginID = "clickhouse"
+	exportURLConfig    = "exportURL"
 )
 
 type Client struct {
@@ -88,40 +88,40 @@ func (c *Client) GetClickHousePlugin() (*cloudpb.Plugin, error) {
 		return nil, err
 	}
 	for _, plugin := range resp.Plugins {
-		if plugin.Id == clickhousePluginId {
+		if plugin.Id == clickhousePluginID {
 			return plugin, nil
 		}
 	}
-	return nil, fmt.Errorf("the %s plugin could not be found", clickhousePluginId)
+	return nil, fmt.Errorf("the %s plugin could not be found", clickhousePluginID)
 }
 
 type ClickHousePluginConfig struct {
-	ExportUrl string
+	ExportURL string
 }
 
 func (c *Client) GetClickHousePluginConfig() (*ClickHousePluginConfig, error) {
 	req := &cloudpb.GetOrgRetentionPluginConfigRequest{
-		PluginId: clickhousePluginId,
+		PluginId: clickhousePluginID,
 	}
 	resp, err := c.pluginClient.GetOrgRetentionPluginConfig(c.ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	exportUrl := resp.CustomExportUrl
-	if exportUrl == "" {
-		exportUrl, err = c.getDefaultClickHouseExportUrl()
+	exportURL := resp.CustomExportUrl
+	if exportURL == "" {
+		exportURL, err = c.getDefaultClickHouseExportURL()
 		if err != nil {
 			return nil, err
 		}
 	}
 	return &ClickHousePluginConfig{
-		ExportUrl: exportUrl,
+		ExportURL: exportURL,
 	}, nil
 }
 
-func (c *Client) getDefaultClickHouseExportUrl() (string, error) {
+func (c *Client) getDefaultClickHouseExportURL() (string, error) {
 	req := &cloudpb.GetRetentionPluginInfoRequest{
-		PluginId: clickhousePluginId,
+		PluginId: clickhousePluginID,
 	}
 	info, err := c.pluginClient.GetRetentionPluginInfo(c.ctx, req)
 	if err != nil {
@@ -132,13 +132,13 @@ func (c *Client) getDefaultClickHouseExportUrl() (string, error) {
 
 func (c *Client) EnableClickHousePlugin(config *ClickHousePluginConfig, version string) error {
 	req := &cloudpb.UpdateRetentionPluginConfigRequest{
-		PluginId: clickhousePluginId,
+		PluginId: clickhousePluginID,
 		Configs: map[string]string{
-			exportUrlConfig: config.ExportUrl,
+			exportURLConfig: config.ExportURL,
 		},
 		Enabled:         &types.BoolValue{Value: true},
 		Version:         &types.StringValue{Value: version},
-		CustomExportUrl: &types.StringValue{Value: config.ExportUrl},
+		CustomExportUrl: &types.StringValue{Value: config.ExportURL},
 		InsecureTLS:     &types.BoolValue{Value: false},
 		DisablePresets:  &types.BoolValue{Value: true},
 	}
@@ -150,7 +150,7 @@ func (c *Client) EnableClickHousePlugin(config *ClickHousePluginConfig, version 
 // Scripts are expected to be removed separately via DeleteDataRetentionScript.
 func (c *Client) DisableClickHousePlugin(version string) error {
 	req := &cloudpb.UpdateRetentionPluginConfigRequest{
-		PluginId: clickhousePluginId,
+		PluginId: clickhousePluginID,
 		Enabled:  &types.BoolValue{Value: false},
 		Version:  &types.StringValue{Value: version},
 	}
@@ -165,7 +165,7 @@ func (c *Client) GetPresetScripts() ([]*script.ScriptDefinition, error) {
 	}
 	var l []*script.ScriptDefinition
 	for _, s := range resp.Scripts {
-		if s.PluginId == clickhousePluginId && s.IsPreset {
+		if s.PluginId == clickhousePluginID && s.IsPreset {
 			sd, err := c.getScriptDefinition(s)
 			if err != nil {
 				return nil, err
@@ -176,14 +176,14 @@ func (c *Client) GetPresetScripts() ([]*script.ScriptDefinition, error) {
 	return l, nil
 }
 
-func (c *Client) GetClusterScripts(clusterId, clusterName string) ([]*script.Script, error) {
+func (c *Client) GetClusterScripts(clusterID, clusterName string) ([]*script.Script, error) {
 	resp, err := c.pluginClient.GetRetentionScripts(c.ctx, &cloudpb.GetRetentionScriptsRequest{})
 	if err != nil {
 		return nil, err
 	}
 	var l []*script.Script
 	for _, s := range resp.Scripts {
-		if s.PluginId == clickhousePluginId {
+		if s.PluginId == clickhousePluginID {
 			sd, err := c.getScriptDefinition(s)
 			if err != nil {
 				return nil, err
@@ -191,22 +191,22 @@ func (c *Client) GetClusterScripts(clusterId, clusterName string) ([]*script.Scr
 			l = append(l, &script.Script{
 				ScriptDefinition: *sd,
 				ScriptId:         utils.ProtoToUUIDStr(s.ScriptID),
-				ClusterIds:       getClusterIdsAsString(s.ClusterIDs),
+				ClusterIds:       getClusterIDsAsString(s.ClusterIDs),
 			})
 		}
 	}
 	return l, nil
 }
 
-func getClusterIdsAsString(clusterIDs []*uuidpb.UUID) string {
-	scriptClusterId := ""
+func getClusterIDsAsString(clusterIDs []*uuidpb.UUID) string {
+	scriptClusterID := ""
 	for i, id := range clusterIDs {
 		if i > 0 {
-			scriptClusterId = scriptClusterId + ","
+			scriptClusterID = scriptClusterID + ","
 		}
-		scriptClusterId = scriptClusterId + utils.ProtoToUUIDStr(id)
+		scriptClusterID = scriptClusterID + utils.ProtoToUUIDStr(id)
 	}
-	return scriptClusterId
+	return scriptClusterID
 }
 
 func (c *Client) getScriptDefinition(s *cloudpb.RetentionScript) (*script.ScriptDefinition, error) {
@@ -223,36 +223,36 @@ func (c *Client) getScriptDefinition(s *cloudpb.RetentionScript) (*script.Script
 	}, nil
 }
 
-func (c *Client) AddDataRetentionScript(clusterId string, scriptName string, description string, frequencyS int64, contents string) error {
+func (c *Client) AddDataRetentionScript(clusterID string, scriptName string, description string, frequencyS int64, contents string) error {
 	req := &cloudpb.CreateRetentionScriptRequest{
 		ScriptName:  scriptName,
 		Description: description,
 		FrequencyS:  frequencyS,
 		Contents:    contents,
-		ClusterIDs:  []*uuidpb.UUID{utils.ProtoFromUUIDStrOrNil(clusterId)},
-		PluginId:    clickhousePluginId,
+		ClusterIDs:  []*uuidpb.UUID{utils.ProtoFromUUIDStrOrNil(clusterID)},
+		PluginId:    clickhousePluginID,
 	}
 	_, err := c.pluginClient.CreateRetentionScript(c.ctx, req)
 	return err
 }
 
-func (c *Client) UpdateDataRetentionScript(clusterId string, scriptId string, scriptName string, description string, frequencyS int64, contents string) error {
+func (c *Client) UpdateDataRetentionScript(clusterID string, scriptID string, scriptName string, description string, frequencyS int64, contents string) error {
 	req := &cloudpb.UpdateRetentionScriptRequest{
-		ID:          utils.ProtoFromUUIDStrOrNil(scriptId),
+		ID:          utils.ProtoFromUUIDStrOrNil(scriptID),
 		ScriptName:  &types.StringValue{Value: scriptName},
 		Description: &types.StringValue{Value: description},
 		Enabled:     &types.BoolValue{Value: true},
 		FrequencyS:  &types.Int64Value{Value: frequencyS},
 		Contents:    &types.StringValue{Value: contents},
-		ClusterIDs:  []*uuidpb.UUID{utils.ProtoFromUUIDStrOrNil(clusterId)},
+		ClusterIDs:  []*uuidpb.UUID{utils.ProtoFromUUIDStrOrNil(clusterID)},
 	}
 	_, err := c.pluginClient.UpdateRetentionScript(c.ctx, req)
 	return err
 }
 
-func (c *Client) DeleteDataRetentionScript(scriptId string) error {
+func (c *Client) DeleteDataRetentionScript(scriptID string) error {
 	req := &cloudpb.DeleteRetentionScriptRequest{
-		ID: utils.ProtoFromUUIDStrOrNil(scriptId),
+		ID: utils.ProtoFromUUIDStrOrNil(scriptID),
 	}
 	_, err := c.pluginClient.DeleteRetentionScript(c.ctx, req)
 	return err

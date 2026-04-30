@@ -18,17 +18,12 @@ spec:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
+            # The beta.kubernetes.io/os label has been deprecated since
+            # k8s v1.14; every modern kubelet sets kubernetes.io/os. The
+            # single term below is enough — kept both ORed terms in the
+            # past for pre-1.14 compatibility.
             - matchExpressions:
               - key: kubernetes.io/os
-                operator: Exists
-              - key: kubernetes.io/os
-                operator: In
-                values:
-                - linux
-            - matchExpressions:
-              - key: beta.kubernetes.io/os
-                operator: Exists
-              - key: beta.kubernetes.io/os
                 operator: In
                 values:
                 - linux
@@ -68,6 +63,8 @@ spec:
           value: "6"
         # Optional overrides for the ClickHouse PxL scripts. When unset they are
         # parsed from CLICKHOUSE_DSN. Individual fields win over the parsed DSN.
+        # Defaults below match soc/tree/clickhouse-lab (forensic-soc-db CHI,
+        # ingest_writer user, forensic_db database).
         - name: KUBESCAPE_TABLE
           value: "kubescape_logs"
         # - name: CLICKHOUSE_HOST
@@ -75,11 +72,11 @@ spec:
         # - name: CLICKHOUSE_PORT
         #   value: "9000"
         # - name: CLICKHOUSE_USER
-        #   value: "otelcollector"
+        #   value: "ingest_writer"
         # - name: CLICKHOUSE_PASSWORD
-        #   value: "changeme"
+        #   value: "changeme-ingest"
         # - name: CLICKHOUSE_DATABASE
-        #   value: "default"
+        #   value: "forensic_db"
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

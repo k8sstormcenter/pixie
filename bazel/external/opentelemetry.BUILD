@@ -162,3 +162,44 @@ cc_grpc_library(
     grpc_only = True,
     deps = [":logs_service_proto_cc"],
 )
+
+# Profiles signal — v1development (alpha). Pinned via opentelemetry-proto v1.10.0.
+# Schema is explicitly experimental; expect to re-pin on upstream changes.
+proto_library(
+    name = "profiles_proto",
+    srcs = [
+        "opentelemetry/proto/profiles/v1development/profiles.proto",
+    ],
+    deps = [
+        ":common_proto",
+        ":resource_proto",
+    ],
+)
+
+cc_proto_library(
+    name = "profiles_proto_cc",
+    deps = [":profiles_proto"],
+)
+
+proto_library(
+    name = "profiles_service_proto",
+    srcs = [
+        "opentelemetry/proto/collector/profiles/v1development/profiles_service.proto",
+    ],
+    deps = [
+        ":profiles_proto",
+    ],
+)
+
+cc_proto_library(
+    name = "profiles_service_proto_cc",
+    deps = [":profiles_service_proto"],
+)
+
+cc_grpc_library(
+    name = "profiles_service_grpc_cc",
+    srcs = [":profiles_service_proto"],
+    generate_mocks = True,
+    grpc_only = True,
+    deps = [":profiles_service_proto_cc"],
+)

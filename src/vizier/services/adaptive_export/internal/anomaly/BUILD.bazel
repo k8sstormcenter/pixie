@@ -15,10 +15,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
-    name = "script",
-    srcs = ["script.go"],
-    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/script",
+    name = "anomaly",
+    srcs = ["hash.go"],
+    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/anomaly",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
+)
+
+pl_go_test(
+    name = "anomaly_test",
+    srcs = ["hash_test.go"],
+    embed = [":anomaly"],
 )

@@ -15,17 +15,28 @@
 # SPDX-License-Identifier: Apache-2.0
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
-    name = "config",
-    srcs = ["config.go"],
-    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/config",
+    name = "controller",
+    srcs = ["controller.go"],
+    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/controller",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
     deps = [
-        "//src/utils/shared/k8s",
+        "//src/vizier/services/adaptive_export/internal/anomaly",
+        "//src/vizier/services/adaptive_export/internal/kubescape",
+        "//src/vizier/services/adaptive_export/internal/sink",
         "@com_github_sirupsen_logrus//:logrus",
-        "@io_k8s_apimachinery//pkg/apis/meta/v1:meta",
-        "@io_k8s_client_go//kubernetes",
-        "@io_k8s_client_go//rest",
+    ],
+)
+
+pl_go_test(
+    name = "controller_test",
+    srcs = ["controller_test.go"],
+    embed = [":controller"],
+    deps = [
+        "//src/vizier/services/adaptive_export/internal/anomaly",
+        "//src/vizier/services/adaptive_export/internal/kubescape",
+        "//src/vizier/services/adaptive_export/internal/sink",
     ],
 )

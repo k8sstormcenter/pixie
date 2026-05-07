@@ -15,17 +15,21 @@
 # SPDX-License-Identifier: Apache-2.0
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
-    name = "config",
-    srcs = ["config.go"],
-    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/config",
+    name = "trigger",
+    srcs = ["clickhouse.go"],
+    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/trigger",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
     deps = [
-        "//src/utils/shared/k8s",
+        "//src/vizier/services/adaptive_export/internal/kubescape",
         "@com_github_sirupsen_logrus//:logrus",
-        "@io_k8s_apimachinery//pkg/apis/meta/v1:meta",
-        "@io_k8s_client_go//kubernetes",
-        "@io_k8s_client_go//rest",
     ],
+)
+
+pl_go_test(
+    name = "trigger_test",
+    srcs = ["clickhouse_test.go"],
+    embed = [":trigger"],
 )

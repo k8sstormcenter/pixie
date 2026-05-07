@@ -22,10 +22,7 @@ go_library(
     importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/pixie",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
     deps = [
-        "//src/api/go/pxapi/utils",
         "//src/api/proto/cloudpb:cloudapi_pl_go_proto",
-        "//src/api/proto/uuidpb:uuid_pl_go_proto",
-        "//src/vizier/services/adaptive_export/internal/script",
         "@com_github_gogo_protobuf//types",
         "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//credentials",

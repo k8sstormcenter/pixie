@@ -14,6 +14,27 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+// Adaptive-export operator (push flow, design rev 2).
+//
+// Lifecycle (one pod per node, deployed as a DaemonSet):
+//
+//   1. boot:
+//      - load config (env + k8s downward API for NODE_NAME)
+//      - ensure ClickHouse retention plugin is enabled (idempotent;
+//        retention scripts themselves are user-defined in the Pixie UI)
+//      - rehydrate the in-memory active set from
+//        forensic_db.adaptive_attribution FINAL WHERE hostname=<node>
+//      - start the trigger + controller
+//
+//   2. steady state:
+//      - trigger polls forensic_db.kubescape_logs WHERE hostname=<node>
+//      - controller derives anomaly hash from each event and writes a
+//        forensic_db.adaptive_attribution row (one INSERT per event;
+//        ReplacingMergeTree(t_end) collapses re-inserts to the latest
+//        end_time, extending the active window)
+//
+//   3. shutdown:
+//      - on SIGINT/SIGTERM, cancel context, drain.
 package main
 
 import (
@@ -21,387 +42,215 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
-	"px.dev/pixie/src/api/go/pxapi"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/clickhouse"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/config"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/controller"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pixie"
-	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl"
-	"px.dev/pixie/src/vizier/services/adaptive_export/internal/script"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/sink"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/trigger"
 )
 
 const (
-	defaultRetries         = 100
-	defaultSleepTime       = 15 * time.Second
-	schemaCreationInterval = 2 * time.Minute
-	setupTimeout           = 30 * time.Second
-	scriptExecutionTimeout = 60 * time.Second
+	// envCHHTTPEndpoint overrides the ClickHouse HTTP endpoint used by
+	// both the trigger (poll kubescape_logs) and the sink (write
+	// adaptive_attribution). Defaults to http://<config.ClickHouse.Host>:8123.
+	envCHHTTPEndpoint = "FORENSIC_CH_HTTP_ENDPOINT"
+
+	// envNodeName is the k8s downward API var the DaemonSet sets via
+	// `valueFrom: fieldRef: spec.nodeName`. Falls back to os.Hostname().
+	envNodeName = "NODE_NAME"
+
+	// envWindowBeforeSec / envWindowAfterSec / envTriggerPollMS /
+	// envPruneIntervalSec are programmatic overrides per the spec.
+	envWindowBeforeSec  = "ADAPTIVE_WINDOW_BEFORE_SEC"
+	envWindowAfterSec   = "ADAPTIVE_WINDOW_AFTER_SEC"
+	envTriggerPollMS    = "ADAPTIVE_TRIGGER_POLL_MS"
+	envPruneIntervalSec = "ADAPTIVE_PRUNE_INTERVAL_SEC"
 )
-
-const (
-	schemaCreationScriptTmpl = `
-import px
-px.display(px.CreateClickHouseSchemas(
-  host="%s",
-  port=%s,
-  username="%s",
-  password="%s",
-  database="%s"
-))
-`
-	detectionScriptTmpl = `
-import px
-
-df = px.DataFrame('%s', clickhouse_dsn='%s', start_time='-%ds')
-df.alert = df.message
-df.namespace = px.pluck(df.RuntimeK8sDetails, "podNamespace")
-df.podName = px.pluck(df.RuntimeK8sDetails, "podName")
-df.time_ = px.int64_to_time(df.event_time * 1000000000)
-df = df[['time_', 'alert', 'namespace', 'podName']]
-px.display(df)
-`
-)
-
-func renderSchemaScript(cfg config.ClickHouse) string {
-	return fmt.Sprintf(schemaCreationScriptTmpl,
-		cfg.Host(), cfg.Port(), cfg.User(), cfg.Password(), cfg.Database())
-}
-
-func renderDetectionScript(cfg config.ClickHouse, lookback int64) string {
-	return fmt.Sprintf(detectionScriptTmpl, cfg.Table(), cfg.DSN(), lookback)
-}
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	log.Info("Starting the ClickHouse Adaptive Export service")
+	log.Info("starting adaptive-export operator (push flow, rev 2)")
 	cfg, err := config.GetConfig()
 	if err != nil {
 		log.WithError(err).Fatal("failed to load configuration")
 	}
 
-	clusterID := cfg.Pixie().ClusterID()
-	clusterName := cfg.Worker().ClusterName()
+	hostname := resolveHostname()
+	log.WithField("hostname", hostname).Info("operator pod is node-local")
 
-	// Setup Pixie Plugin API client
-	log.Infof("Setting up Pixie plugin API client for cluster-id %s", clusterID)
-	pluginClient, err := setupPixie(ctx, cfg.Pixie(), defaultRetries, defaultSleepTime)
+	chEndpoint := chHTTPEndpoint(cfg.ClickHouse().Host(), os.Getenv(envCHHTTPEndpoint))
+	log.WithField("endpoint", chEndpoint).Info("clickhouse HTTP endpoint resolved")
+
+	// 1. Apply operator-owned DDL FIRST, before Pixie's retention plugin
+	//    has a chance to auto-create pixie tables with its minimal
+	//    column set (no namespace / pod). The kubescape tables
+	//    (alerts, kubescape_logs) are owned by the soc installer and
+	//    are NOT touched here.
+	applier, err := clickhouse.NewApplier(chEndpoint, cfg.ClickHouse().User(), cfg.ClickHouse().Password())
 	if err != nil {
-		log.WithError(err).Fatal("setting up Pixie plugin client failed")
+		log.WithError(err).Fatal("failed to construct schema applier")
 	}
+	if err := applier.Apply(ctx); err != nil {
+		log.WithError(err).Fatal("schema apply failed; refusing to proceed with possibly drifted tables")
+	}
+	log.WithField("tables", clickhouse.OperatorOwnedTables).Info("operator-owned DDL applied")
 
-	// Setup Pixie pxapi client for executing PxL scripts
-	log.Info("Setting up Pixie pxapi client")
-	// Use parent context - client stores this and uses it for all subsequent operations
-	pxClient, err := pxapi.NewClient(ctx, pxapi.WithAPIKey(cfg.Pixie().APIKey()), pxapi.WithCloudAddr(cfg.Pixie().Host()))
+	// 2. Defensive guard against Pixie's retention plugin having
+	//    auto-created any pixie table BEFORE our Apply ran (e.g. a
+	//    pre-existing cluster install). Refuse to start if drift
+	//    detected so the misconfig is loud, not silent.
+	if err := applier.VerifyPixieSchema(ctx); err != nil {
+		log.WithError(err).Fatal("pixie table schema drift detected — pre-existing tables are missing operator-required columns; drop and re-create OR ALTER TABLE ADD COLUMN before retrying")
+	}
+	log.Info("pixie table schemas verified — namespace + pod columns present on all 12 tables")
+
+	// 3. Ensure the Pixie ClickHouse retention plugin is enabled. The
+	//    retention scripts themselves are defined by the user via the
+	//    Pixie UI — we don't manage them.
+	pluginClient, err := pixie.NewClient(ctx, cfg.Pixie().APIKey(), cfg.Pixie().Host())
 	if err != nil {
-		log.WithError(err).Fatal("failed to create pxapi client")
+		log.WithError(err).Fatal("failed to create pixie plugin client")
 	}
-
-	// Start schema creation background task. This drives
-	// px.CreateClickHouseSchemas, which issues CREATE TABLE IF NOT EXISTS
-	// for every Pixie stirling table the metadata service knows about. In
-	// labs where ClickHouse users don't have DDL rights (e.g. soc's
-	// ingest_writer with allow_ddl=0), the CREATE silently fails and only
-	// tables pre-created by external schema.sql work. Off by default to
-	// avoid noisy server logs; opt-in via env when you want Pixie's
-	// automatic schema bootstrap.
-	if strings.EqualFold(os.Getenv("ENABLE_SCHEMA_CREATION"), "true") {
-		log.Info("ENABLE_SCHEMA_CREATION=true — starting schema creation task")
-		go runSchemaCreationTask(ctx, pxClient, clusterID, cfg.ClickHouse())
+	chDSN := cfg.ClickHouse().DSN()
+	exportURL, err := pluginClient.EnsureClickHousePluginEnabled(chDSN)
+	if err != nil {
+		// non-fatal — the operator's own write path doesn't depend on
+		// the plugin; analyst joins against pixie-table rows do, but a
+		// missing plugin is a deployment misconfiguration the user
+		// surfaces via UI.
+		log.WithError(err).Warn("could not ensure ClickHouse plugin is enabled — pixie tables will not be populated until you turn it on in the Pixie UI")
 	} else {
-		log.Info("Schema creation task disabled (set ENABLE_SCHEMA_CREATION=true to opt in)")
+		log.WithField("export_url", exportURL).Info("clickhouse retention plugin is enabled")
 	}
 
-	// Start detection + reconcile loop that turns the retention plugin on/off
-	go runDetectionTask(ctx, pxClient, pluginClient, cfg, clusterID, clusterName)
+	// 2. Build trigger + sink + controller.
+	pollInterval := durEnv(envTriggerPollMS, 250*time.Millisecond, time.Millisecond)
+	trg, err := trigger.New(trigger.Config{
+		Endpoint:     chEndpoint,
+		Database:     cfg.ClickHouse().Database(),
+		Table:        cfg.ClickHouse().Table(),
+		Username:     cfg.ClickHouse().User(),
+		Password:     cfg.ClickHouse().Password(),
+		Hostname:     hostname,
+		PollInterval: pollInterval,
+	})
+	if err != nil {
+		log.WithError(err).Fatal("failed to create trigger")
+	}
 
-	// Wait for signal to shutdown
+	snk, err := sink.New(sink.Config{
+		Endpoint: chEndpoint,
+		Database: cfg.ClickHouse().Database(),
+		Username: cfg.ClickHouse().User(),
+		Password: cfg.ClickHouse().Password(),
+	})
+	if err != nil {
+		log.WithError(err).Fatal("failed to create sink")
+	}
+
+	ctlCfg := controller.Config{
+		Hostname: hostname,
+		Before:   durEnv(envWindowBeforeSec, 5*time.Minute, time.Second),
+		After:    durEnv(envWindowAfterSec, 5*time.Minute, time.Second),
+	}
+	ctl := controller.New(trg, snk, ctlCfg, nil)
+
+	// 3. Rehydrate active state across crashes.
+	if err := ctl.Rehydrate(ctx); err != nil {
+		log.WithError(err).Warn("could not rehydrate active set; starting cold")
+	} else {
+		log.WithField("active", ctl.Active()).Info("active set rehydrated")
+	}
+
+	// 4. Periodic prune of in-memory expired entries.
+	pruneInterval := durEnv(envPruneIntervalSec, 30*time.Second, time.Second)
+	go func() {
+		t := time.NewTicker(pruneInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if removed := ctl.PruneExpired(); removed > 0 {
+					log.WithField("removed", removed).Debug("pruned expired active entries")
+				}
+			}
+		}
+	}()
+
+	// 5. Run the controller.
+	go func() {
+		if err := ctl.Run(ctx); err != nil && err != context.Canceled {
+			log.WithError(err).Error("controller exited with error")
+		}
+	}()
+
+	log.WithFields(log.Fields{
+		"hostname":           hostname,
+		"poll_interval":      pollInterval,
+		"prune_interval":     pruneInterval,
+		"window_before":      ctlCfg.Before,
+		"window_after":       ctlCfg.After,
+	}).Info("operator running")
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
-
-	log.Info("Shutting down adaptive export service")
+	log.Info("shutdown signal received")
 	cancel()
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 }
 
-func runSchemaCreationTask(ctx context.Context, client *pxapi.Client, clusterID string, chCfg config.ClickHouse) {
-	ticker := time.NewTicker(schemaCreationInterval)
-	defer ticker.Stop()
-
-	runOnce := func() {
-		log.Info("Running schema creation script")
-		execCtx, cancel := context.WithTimeout(ctx, scriptExecutionTimeout)
-		defer cancel()
-		if _, err := pxl.ExecuteScript(execCtx, client, clusterID, renderSchemaScript(chCfg)); err != nil {
-			log.WithError(err).Error("failed to execute schema creation script")
-			return
-		}
-		log.Info("Schema creation script completed successfully")
+// chHTTPEndpoint resolves the ClickHouse HTTP endpoint. Explicit env
+// override wins; otherwise build "http://<host>:8123" from config.
+func chHTTPEndpoint(host, override string) string {
+	if override != "" {
+		return strings.TrimRight(override, "/")
 	}
-
-	runOnce()
-	for {
-		select {
-		case <-ctx.Done():
-			log.Info("Schema creation task shutting down")
-			return
-		case <-ticker.C:
-			runOnce()
-		}
+	if host == "" {
+		host = "localhost"
 	}
+	return "http://" + host + ":8123"
 }
 
-func runDetectionTask(ctx context.Context, pxClient *pxapi.Client, pluginClient *pixie.Client, cfg config.Config, clusterID string, clusterName string) {
-	detectionInterval := time.Duration(cfg.Worker().DetectionInterval()) * time.Second
-	detectionLookback := cfg.Worker().DetectionLookback()
-	quietTicks := cfg.Worker().ExportQuietTicks()
-	mode := cfg.Worker().ExportMode()
-
-	ticker := time.NewTicker(detectionInterval)
-	defer ticker.Stop()
-
-	// pluginEnabled tracks our last-known retention-plugin state. A nil value means
-	// we haven't reconciled yet; we always query on the first tick.
-	var pluginEnabled *bool
-	quietStreak := int64(0)
-
-	reconcile := func(want bool) {
-		if pluginEnabled != nil && *pluginEnabled == want {
-			log.Debugf("export already in desired state (enabled=%v), no action taken", want)
-			return
-		}
-		pluginCtx, pluginCancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer pluginCancel()
-		if want {
-			log.Info("Enabling forensic export")
-			if err := enableClickHousePlugin(pluginCtx, pluginClient, cfg, clusterID, clusterName); err != nil {
-				log.WithError(err).Error("failed to enable forensic export")
-				return
-			}
-			v := true
-			pluginEnabled = &v
-			log.Info("Forensic export enabled successfully")
-		} else {
-			log.Info("Disabling forensic export")
-			if err := disableClickHousePlugin(pluginCtx, pluginClient, cfg, clusterID, clusterName); err != nil {
-				log.WithError(err).Error("failed to disable forensic export")
-				return
-			}
-			v := false
-			pluginEnabled = &v
-			quietStreak = 0
-			log.Info("Forensic export disabled successfully")
-		}
+// resolveHostname picks the node identity for node-local scoping.
+// Priority: NODE_NAME env (k8s downward API) → os.Hostname() → "unknown".
+func resolveHostname() string {
+	if v := strings.TrimSpace(os.Getenv(envNodeName)); v != "" {
+		return v
 	}
-
-	log.Infof("Detection task starting (mode=%s, quietTicks=%d)", mode, quietTicks)
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Info("Detection task shutting down")
-			return
-		case <-ticker.C:
-			switch mode {
-			case config.ExportModeAlways:
-				reconcile(true)
-				continue
-			case config.ExportModeNever:
-				reconcile(false)
-				continue
-			}
-
-			// auto mode: detection drives the state.
-			log.Debug("Running detection script")
-			execCtx, cancel := context.WithTimeout(ctx, scriptExecutionTimeout)
-			recordCount, err := pxl.ExecuteScript(execCtx, pxClient, clusterID, renderDetectionScript(cfg.ClickHouse(), detectionLookback))
-			cancel()
-			if err != nil {
-				log.WithError(err).Error("failed to execute detection script")
-				continue
-			}
-			log.Debugf("Detection script returned %d records", recordCount)
-
-			if recordCount > 0 {
-				quietStreak = 0
-				reconcile(true)
-			} else {
-				quietStreak++
-				if quietStreak >= quietTicks {
-					reconcile(false)
-				}
-			}
-		}
+	if h, err := os.Hostname(); err == nil && h != "" {
+		return h
 	}
+	return "unknown"
 }
 
-func disableClickHousePlugin(ctx context.Context, client *pixie.Client, cfg config.Config, clusterID string, clusterName string) error {
-	plugin, err := client.GetClickHousePlugin()
+// durEnv reads an integer-valued duration env var. unit defines the
+// unit (time.Second, time.Millisecond). Returns dflt on missing /
+// unparseable values.
+func durEnv(key string, dflt, unit time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return dflt
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
 	if err != nil {
-		return fmt.Errorf("getting data retention plugins failed: %w", err)
+		log.WithError(err).WithFields(log.Fields{"key": key, "value": v}).
+			Warn("invalid duration env; using default")
+		return dflt
 	}
-	if !plugin.RetentionEnabled {
-		log.Info("ClickHouse plugin already disabled; removing any lingering ch-* scripts")
-	} else {
-		if err := client.DisableClickHousePlugin(plugin.LatestVersion); err != nil {
-			return fmt.Errorf("failed to disable ClickHouse plugin: %w", err)
-		}
-	}
-
-	// Tear down the per-cluster ch-* retention scripts so the demo can be re-run cleanly.
-	current, err := client.GetClusterScripts(clusterID, clusterName)
-	if err != nil {
-		return fmt.Errorf("failed to list retention scripts: %w", err)
-	}
-	var errs []error
-	for _, s := range current {
-		log.Infof("Deleting retention script %s", s.Name)
-		if err := client.DeleteDataRetentionScript(s.ScriptId); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("errors while deleting retention scripts: %v", errs)
-	}
-	return nil
+	return time.Duration(n) * unit
 }
 
-func enableClickHousePlugin(ctx context.Context, client *pixie.Client, cfg config.Config, clusterID string, clusterName string) error {
-	log.Info("Checking the current ClickHouse plugin configuration")
-	plugin, err := client.GetClickHousePlugin()
-	if err != nil {
-		return fmt.Errorf("getting data retention plugins failed: %w", err)
-	}
-
-	enablePlugin := true
-	if plugin.RetentionEnabled {
-		enablePlugin = false
-		config, err := client.GetClickHousePluginConfig()
-		if err != nil {
-			return fmt.Errorf("getting ClickHouse plugin config failed: %w", err)
-		}
-		if config.ExportURL != cfg.ClickHouse().DSN() {
-			log.Info("ClickHouse plugin is configured with different DSN... Overwriting")
-			enablePlugin = true
-		}
-	}
-
-	if enablePlugin {
-		log.Info("Enabling ClickHouse plugin")
-		err := client.EnableClickHousePlugin(&pixie.ClickHousePluginConfig{
-			ExportURL: cfg.ClickHouse().DSN(),
-		}, plugin.LatestVersion)
-		if err != nil {
-			return fmt.Errorf("failed to enable ClickHouse plugin: %w", err)
-		}
-	}
-
-	log.Info("Setting up the data retention scripts")
-
-	log.Info("Getting preset script from the Pixie plugin")
-	defsFromPixie, err := client.GetPresetScripts()
-	if err != nil {
-		return fmt.Errorf("failed to get preset scripts: %w", err)
-	}
-
-	// Filter presets by an allow-list of case-insensitive substrings in the
-	// script name. Useful when the destination ClickHouse doesn't have every
-	// target table pre-created (Pixie's C++ ClickHouseExportSinkNode aborts
-	// kelvin on UNKNOWN_TABLE from CH — upstream bug), so we must not install
-	// retention scripts whose target table is missing.
-	//
-	// Example: ALLOWED_RETENTION_SCRIPTS="conn_stats" installs only the
-	// conn_stats preset (matches "conn_stats export"), skipping dc_snoop +
-	// stack_traces which target tables that don't exist in soc's schema.sql.
-	//
-	// Empty/unset = no filter (install every preset — the prior behavior).
-	definitions := defsFromPixie
-	if allow := strings.TrimSpace(os.Getenv("ALLOWED_RETENTION_SCRIPTS")); allow != "" {
-		tokens := strings.Split(allow, ",")
-		filtered := make([]*script.ScriptDefinition, 0, len(defsFromPixie))
-		for _, d := range defsFromPixie {
-			nameLower := strings.ToLower(d.Name)
-			for _, t := range tokens {
-				t = strings.ToLower(strings.TrimSpace(t))
-				if t != "" && strings.Contains(nameLower, t) {
-					filtered = append(filtered, d)
-					break
-				}
-			}
-		}
-		log.Infof("ALLOWED_RETENTION_SCRIPTS=%q; filtered presets: %d of %d kept", allow, len(filtered), len(defsFromPixie))
-		definitions = filtered
-	}
-
-	log.Infof("Getting current scripts for cluster")
-	currentScripts, err := client.GetClusterScripts(clusterID, clusterName)
-	if err != nil {
-		return fmt.Errorf("failed to get data retention scripts: %w", err)
-	}
-
-	actions := script.GetActions(definitions, currentScripts, script.ScriptConfig{
-		ClusterName:     clusterName,
-		ClusterId:       clusterID,
-		CollectInterval: cfg.Worker().CollectInterval(),
-	})
-
-	var errs []error
-
-	for _, s := range actions.ToDelete {
-		log.Infof("Deleting script %s", s.Name)
-		err := client.DeleteDataRetentionScript(s.ScriptId)
-		if err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	for _, s := range actions.ToUpdate {
-		log.Infof("Updating script %s", s.Name)
-		err := client.UpdateDataRetentionScript(clusterID, s.ScriptId, s.Name, s.Description, s.FrequencyS, s.Script)
-		if err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	for _, s := range actions.ToCreate {
-		log.Infof("Creating script %s", s.Name)
-		err := client.AddDataRetentionScript(clusterID, s.Name, s.Description, s.FrequencyS, s.Script)
-		if err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("errors while setting up data retention scripts: %v", errs)
-	}
-
-	log.Info("All done! The ClickHouse plugin is now configured.")
-	return nil
-}
-
-func setupPixie(ctx context.Context, cfg config.Pixie, tries int, sleepTime time.Duration) (*pixie.Client, error) {
-	apiKey := cfg.APIKey()
-	host := cfg.Host()
-	log.Infof("setupPixie: API Key length=%d, Host=%s", len(apiKey), host)
-
-	for tries > 0 {
-		// Use parent context - client stores this and uses it for all subsequent operations
-		client, err := pixie.NewClient(ctx, apiKey, host)
-		if err == nil {
-			return client, nil
-		}
-		tries -= 1
-		log.WithError(err).Warning("error creating Pixie API client")
-		if tries > 0 {
-			time.Sleep(sleepTime)
-		}
-	}
-	return nil, fmt.Errorf("exceeded maximum number of retries")
-}
+var _ = fmt.Sprintf

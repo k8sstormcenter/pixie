@@ -27,6 +27,7 @@ go_library(
         "//src/vizier/services/adaptive_export/internal/config",
         "//src/vizier/services/adaptive_export/internal/controller",
         "//src/vizier/services/adaptive_export/internal/pixie",
+        "//src/vizier/services/adaptive_export/internal/script",
         "//src/vizier/services/adaptive_export/internal/sink",
         "//src/vizier/services/adaptive_export/internal/trigger",
         "@com_github_sirupsen_logrus//:logrus",

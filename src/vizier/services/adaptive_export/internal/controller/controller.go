@@ -244,6 +244,12 @@ func (c *Controller) pushPixieRows(ctx context.Context, row sink.AttributionRow)
 		Pod:       row.Pod,
 		Namespace: row.Namespace,
 	}
+	log.WithFields(log.Fields{
+		"hash":   row.AnomalyHash,
+		"pod":    row.Pod,
+		"comm":   row.Comm,
+		"tables": len(c.cfg.PushPixieTables),
+	}).Info("pushPixieRows: starting fan-out")
 	for _, table := range c.cfg.PushPixieTables {
 		if ctx.Err() != nil {
 			return
@@ -253,11 +259,18 @@ func (c *Controller) pushPixieRows(ctx context.Context, row sink.AttributionRow)
 			log.WithError(err).WithField("table", table).Warn("controller: QueryFor")
 			continue
 		}
-		rows, err := c.querier.Query(ctx, q)
+		// Per-query timeout — vizier dial + ExecuteScript can otherwise
+		// block forever if the pixie cluster is unhealthy, leaving the
+		// goroutine silently stuck.
+		qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		log.WithField("table", table).Debug("pushPixieRows: querying pixie")
+		rows, err := c.querier.Query(qctx, q)
+		cancel()
 		if err != nil {
 			log.WithError(err).WithField("table", table).Warn("controller: pixie query")
 			continue
 		}
+		log.WithFields(log.Fields{"table": table, "rows": len(rows)}).Info("pushPixieRows: query returned")
 		if len(rows) == 0 {
 			continue
 		}
@@ -271,6 +284,7 @@ func (c *Controller) pushPixieRows(ctx context.Context, row sink.AttributionRow)
 			"hash":  row.AnomalyHash,
 		}).Info("pushed pixie rows for active anomaly window")
 	}
+	log.WithField("hash", row.AnomalyHash).Info("pushPixieRows: fan-out complete")
 }
 
 // Active returns the count of in-memory active hashes (test helper).

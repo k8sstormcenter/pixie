@@ -208,7 +208,19 @@ func main() {
 		After:    durEnv(envWindowAfterSec, 5*time.Minute, time.Second),
 	}
 	if strings.EqualFold(os.Getenv(envPushPixieTables), "true") {
-		ctlCfg.PushPixieTables = pxl.Names(pxl.BuiltinTables)
+		// PxL's px.DataFrame(table=…) rejects dotted table names even
+		// though px.GetSchemas() lists them. Drop them from the push
+		// list; the cloud-side retention plugin would have to handle
+		// those if the user wants them.
+		var tables []string
+		for _, t := range pxl.Names(pxl.BuiltinTables) {
+			if strings.Contains(t, ".") {
+				log.WithField("table", t).Info("skipping dotted-name table from push list — PxL DataFrame rejects it")
+				continue
+			}
+			tables = append(tables, t)
+		}
+		ctlCfg.PushPixieTables = tables
 		log.WithField("tables", ctlCfg.PushPixieTables).
 			Info("ADAPTIVE_PUSH_PIXIE_ROWS=true — operator will query pixie + write rows directly on each anomaly")
 	}

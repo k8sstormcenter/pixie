@@ -79,7 +79,7 @@ func (s *stubClickHouse) handle(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		w.WriteHeader(200)
 	default:
-		http.Error(w, "method", 405)
+		http.Error(w, "method", http.StatusMethodNotAllowed)
 	}
 }
 

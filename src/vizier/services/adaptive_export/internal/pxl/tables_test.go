@@ -20,14 +20,16 @@ import (
 	"testing"
 )
 
-// TestBuiltinTables_Has13 — guard against accidental list churn. The
-// 13-table set is the user-defined contract.
-func TestBuiltinTables_Has13(t *testing.T) {
-	if got := len(BuiltinTables); got != 12 {
-		// 12 entries above (the user listed 13 protocols including
-		// http2_messages.beta separately from http_events). Update
-		// this guard if the spec changes.
-		t.Fatalf("BuiltinTables = %d entries, want 12", got)
+// TestBuiltinTables_Count — guard against accidental list churn.
+// The set is the 12 socket_tracer tables in pixie's stirling layer
+// (http_events, http2_messages.beta, dns_events, redis_events,
+// mysql_events, pgsql_events, cql_events, mongodb_events,
+// kafka_events.beta, amqp_events, mux_events, tls_events). Update
+// this guard if the spec adds / removes a table.
+func TestBuiltinTables_Count(t *testing.T) {
+	const want = 12
+	if got := len(BuiltinTables); got != want {
+		t.Fatalf("BuiltinTables = %d entries, want %d", got, want)
 	}
 }
 

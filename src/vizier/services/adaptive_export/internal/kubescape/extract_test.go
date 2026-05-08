@@ -91,8 +91,11 @@ func TestExtract_StableUnderJSONReorder(t *testing.T) {
 	r := canonicalRow()
 	r.K8sDetails = `{"workloadKind":"Deployment","podNamespace":"redis","podName":"redis-578d5dc9bd-kjj78","clusterName":"bobexample"}`
 	r.ProcessDetails = `{"processTree":{"comm":"redis-server","ppid":1,"pid":106040,"cmdline":"redis-server","uid":0}}`
-	a, _ := Extract(canonicalRow())
-	b, _ := Extract(r)
+	a, errA := Extract(canonicalRow())
+	b, errB := Extract(r)
+	if errA != nil || errB != nil {
+		t.Fatalf("Extract errors: a=%v b=%v", errA, errB)
+	}
 	if a.Target != b.Target {
 		t.Fatalf("Target differs under JSON reorder: %+v vs %+v", a.Target, b.Target)
 	}

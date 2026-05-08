@@ -66,7 +66,7 @@ func NewClient(ctx context.Context, apiKey string, cloudAddr string) (*Client, e
 }
 
 func (c *Client) init() error {
-	isInternal := strings.ContainsAny(c.cloudAddr, "cluster.local")
+	isInternal := strings.Contains(c.cloudAddr, "cluster.local")
 	tlsConfig := &tls.Config{InsecureSkipVerify: isInternal}
 	creds := credentials.NewTLS(tlsConfig)
 	conn, err := grpc.Dial(c.cloudAddr, grpc.WithTransportCredentials(creds))

@@ -79,11 +79,15 @@ func NewApplier(endpoint, user, pass string) (*Applier, error) {
 	}, nil
 }
 
-// Apply runs CREATE TABLE IF NOT EXISTS for every OperatorOwnedTables
-// entry, in declared order. Idempotent. Returns the first error
-// encountered without continuing — callers should treat schema apply
-// as a precondition for the rest of boot.
+// Apply ensures forensic_db exists, then runs CREATE TABLE IF NOT
+// EXISTS for every OperatorOwnedTables entry in declared order.
+// Idempotent. Returns the first error encountered without continuing —
+// callers should treat schema apply as a precondition for the rest of
+// boot.
 func (a *Applier) Apply(ctx context.Context) error {
+	if err := a.execute(ctx, "CREATE DATABASE IF NOT EXISTS forensic_db"); err != nil {
+		return fmt.Errorf("apply: create database forensic_db: %w", err)
+	}
 	for _, table := range OperatorOwnedTables {
 		ddl, err := DDL(table)
 		if err != nil {

@@ -18,23 +18,23 @@
 //
 // Lifecycle (one pod per node, deployed as a DaemonSet):
 //
-//   1. boot:
-//      - load config (env + k8s downward API for NODE_NAME)
-//      - ensure ClickHouse retention plugin is enabled (idempotent;
-//        retention scripts themselves are user-defined in the Pixie UI)
-//      - rehydrate the in-memory active set from
-//        forensic_db.adaptive_attribution FINAL WHERE hostname=<node>
-//      - start the trigger + controller
+//  1. boot:
+//     - load config (env + k8s downward API for NODE_NAME)
+//     - ensure ClickHouse retention plugin is enabled (idempotent;
+//     retention scripts themselves are user-defined in the Pixie UI)
+//     - rehydrate the in-memory active set from
+//     forensic_db.adaptive_attribution FINAL WHERE hostname=<node>
+//     - start the trigger + controller
 //
-//   2. steady state:
-//      - trigger polls forensic_db.kubescape_logs WHERE hostname=<node>
-//      - controller derives anomaly hash from each event and writes a
-//        forensic_db.adaptive_attribution row (one INSERT per event;
-//        ReplacingMergeTree(t_end) collapses re-inserts to the latest
-//        end_time, extending the active window)
+//  2. steady state:
+//     - trigger polls forensic_db.kubescape_logs WHERE hostname=<node>
+//     - controller derives anomaly hash from each event and writes a
+//     forensic_db.adaptive_attribution row (one INSERT per event;
+//     ReplacingMergeTree(t_end) collapses re-inserts to the latest
+//     end_time, extending the active window)
 //
-//   3. shutdown:
-//      - on SIGINT/SIGTERM, cancel context, drain.
+//  3. shutdown:
+//     - on SIGINT/SIGTERM, cancel context, drain.
 package main
 
 import (
@@ -44,6 +44,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -85,7 +86,10 @@ func main() {
 		log.WithError(err).Fatal("failed to load configuration")
 	}
 
-	hostname := resolveHostname()
+	hostname, err := resolveHostname()
+	if err != nil {
+		log.WithError(err).Fatal("failed to resolve node identity — set NODE_NAME via k8s downward API (spec.nodeName)")
+	}
 	log.WithField("hostname", hostname).Info("operator pod is node-local")
 
 	chEndpoint := chHTTPEndpoint(cfg.ClickHouse().Host(), os.Getenv(envCHHTTPEndpoint))
@@ -172,9 +176,15 @@ func main() {
 		log.WithField("active", ctl.Active()).Info("active set rehydrated")
 	}
 
-	// 4. Periodic prune of in-memory expired entries.
+	// 4. Periodic prune of in-memory expired entries + main controller loop.
+	//    Both goroutines are tracked in a WaitGroup so SIGTERM cleanly waits
+	//    for in-flight HTTP calls (trigger 5s timeout, sink 30s timeout)
+	//    instead of being cut off by an arbitrary 500ms sleep.
 	pruneInterval := durEnv(envPruneIntervalSec, 30*time.Second, time.Second)
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		t := time.NewTicker(pruneInterval)
 		defer t.Stop()
 		for {
@@ -190,26 +200,36 @@ func main() {
 	}()
 
 	// 5. Run the controller.
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		if err := ctl.Run(ctx); err != nil && err != context.Canceled {
 			log.WithError(err).Error("controller exited with error")
 		}
 	}()
 
 	log.WithFields(log.Fields{
-		"hostname":           hostname,
-		"poll_interval":      pollInterval,
-		"prune_interval":     pruneInterval,
-		"window_before":      ctlCfg.Before,
-		"window_after":       ctlCfg.After,
+		"hostname":       hostname,
+		"poll_interval":  pollInterval,
+		"prune_interval": pruneInterval,
+		"window_before":  ctlCfg.Before,
+		"window_after":   ctlCfg.After,
 	}).Info("operator running")
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
-	log.Info("shutdown signal received")
+	log.Info("shutdown signal received; waiting for goroutines to drain")
 	cancel()
-	time.Sleep(500 * time.Millisecond)
+	// Bound the wait so a hung HTTP call can't keep the process up forever.
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+		log.Info("clean shutdown")
+	case <-time.After(35 * time.Second):
+		log.Warn("shutdown deadline reached with goroutines still running; exiting")
+	}
 }
 
 // chHTTPEndpoint resolves the ClickHouse HTTP endpoint. Explicit env
@@ -225,20 +245,21 @@ func chHTTPEndpoint(host, override string) string {
 }
 
 // resolveHostname picks the node identity for node-local scoping.
-// Priority: NODE_NAME env (k8s downward API) → os.Hostname() → "unknown".
-func resolveHostname() string {
+// REQUIRES NODE_NAME (set via k8s downward API spec.nodeName). The
+// previous os.Hostname() fallback returned the POD hostname, not the
+// node — making the operator silently miss its node's rows.
+func resolveHostname() (string, error) {
 	if v := strings.TrimSpace(os.Getenv(envNodeName)); v != "" {
-		return v
+		return v, nil
 	}
-	if h, err := os.Hostname(); err == nil && h != "" {
-		return h
-	}
-	return "unknown"
+	return "", fmt.Errorf("%s env var is required (set via k8s downward API: valueFrom.fieldRef.fieldPath=spec.nodeName)", envNodeName)
 }
 
-// durEnv reads an integer-valued duration env var. unit defines the
-// unit (time.Second, time.Millisecond). Returns dflt on missing /
-// unparseable values.
+// durEnv reads a positive-integer-valued duration env var. unit
+// defines the unit (time.Second, time.Millisecond). Returns dflt on
+// missing / unparseable / non-positive values — non-positive would
+// either panic time.NewTicker or invert the attribution window, so
+// we fall back to the default and log loudly.
 func durEnv(key string, dflt, unit time.Duration) time.Duration {
 	v := strings.TrimSpace(os.Getenv(key))
 	if v == "" {
@@ -248,6 +269,11 @@ func durEnv(key string, dflt, unit time.Duration) time.Duration {
 	if err != nil {
 		log.WithError(err).WithFields(log.Fields{"key": key, "value": v}).
 			Warn("invalid duration env; using default")
+		return dflt
+	}
+	if n <= 0 {
+		log.WithFields(log.Fields{"key": key, "value": v}).
+			Warn("non-positive duration env; using default")
 		return dflt
 	}
 	return time.Duration(n) * unit

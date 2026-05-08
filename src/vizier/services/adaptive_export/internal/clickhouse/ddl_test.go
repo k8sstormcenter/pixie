@@ -65,7 +65,10 @@ func TestDDL_PixieTablesIncludeNamespaceAndPod(t *testing.T) {
 func TestDDL_PixieTables_NoAnomalyHashColumn(t *testing.T) {
 	for _, name := range PixieTables() {
 		t.Run(name, func(t *testing.T) {
-			ddl, _ := DDL(name)
+			ddl, err := DDL(name)
+			if err != nil {
+				t.Fatalf("DDL(%q): %v", name, err)
+			}
 			if strings.Contains(ddl, "anomaly_hash") || strings.Contains(ddl, "anomaly_hashes") {
 				t.Fatalf("pixie table %q must not carry anomaly_hash column; got:\n%s", name, ddl)
 			}
@@ -94,7 +97,7 @@ func TestDDL_AdaptiveAttribution_HasExpectedColumns(t *testing.T) {
 }
 
 // TestDDL_KubescapeLogs_PreservesAnomalyHash — kubescape_logs keeps its
-// existing anomaly_hash DEFAULT '' column for pipeline compat.
+// existing anomaly_hash DEFAULT ” column for pipeline compat.
 func TestDDL_KubescapeLogs_PreservesAnomalyHash(t *testing.T) {
 	ddl, err := DDL("kubescape_logs")
 	if err != nil {

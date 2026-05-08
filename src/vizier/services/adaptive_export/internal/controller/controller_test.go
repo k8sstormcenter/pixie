@@ -317,11 +317,8 @@ func TestController_SinkErrorNonFatal(t *testing.T) {
 	defer stop()
 
 	trig.push(canonicalEvent())
-	// give the handler a tick
-	time.Sleep(50 * time.Millisecond)
-	if c.Active() != 1 {
-		t.Fatalf("controller dropped event despite sink error; Active=%d", c.Active())
-	}
+	// Wait for the handler to process the event (no fixed sleep).
+	waitFor(t, "active=1 despite sink error", 200*time.Millisecond, func() bool { return c.Active() == 1 })
 }
 
 // TestController_RestartMidStream_Aborts — context cancel terminates Run.
@@ -336,7 +333,7 @@ func TestController_RestartMidStream_Aborts(t *testing.T) {
 	go func() { _ = c.Run(ctx); close(done) }()
 
 	trig.push(canonicalEvent())
-	time.Sleep(50 * time.Millisecond)
+	waitFor(t, "controller picked up event", 200*time.Millisecond, func() bool { return c.Active() == 1 })
 	cancel()
 	select {
 	case <-done:

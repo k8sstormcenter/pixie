@@ -19,7 +19,7 @@
 // downstream:
 //   - anomaly.Target — workload identity (used to compute the hash)
 //   - Event          — Target plus event-specific fields (event_time,
-//                       rule id, hostname) needed for window math + persistence
+//     rule id, hostname) needed for window math + persistence
 //
 // This package is the only place in the operator that knows the JSON
 // shape of RuntimeK8sDetails / RuntimeProcessDetails. Once an Event

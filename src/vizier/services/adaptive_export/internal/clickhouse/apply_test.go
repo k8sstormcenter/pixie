@@ -48,13 +48,17 @@ func TestApply_ExecutesEveryOperatorOwnedTable(t *testing.T) {
 	if err := a.Apply(context.Background()); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if len(bodies) != len(OperatorOwnedTables) {
-		t.Fatalf("Apply made %d calls, want %d", len(bodies), len(OperatorOwnedTables))
+	// 1 CREATE DATABASE + len(OperatorOwnedTables) CREATE TABLE calls.
+	if got, want := len(bodies), len(OperatorOwnedTables)+1; got != want {
+		t.Fatalf("Apply made %d calls, want %d", got, want)
 	}
-	// Spot-check that the FIRST call is for the first OperatorOwnedTables entry,
+	if !strings.Contains(bodies[0], "CREATE DATABASE IF NOT EXISTS forensic_db") {
+		t.Fatalf("first DDL must create the database; got: %s", bodies[0])
+	}
+	// Spot-check that the SECOND call is for the first OperatorOwnedTables entry,
 	// and that the LAST call is for adaptive_attribution.
-	if !strings.Contains(bodies[0], "forensic_db."+OperatorOwnedTables[0]) {
-		t.Fatalf("first DDL not for %s; got: %s", OperatorOwnedTables[0], bodies[0])
+	if !strings.Contains(bodies[1], "forensic_db."+OperatorOwnedTables[0]) {
+		t.Fatalf("second DDL not for %s; got: %s", OperatorOwnedTables[0], bodies[1])
 	}
 	if !strings.Contains(bodies[len(bodies)-1], "forensic_db.adaptive_attribution") {
 		t.Fatalf("last DDL not for adaptive_attribution; got: %s", bodies[len(bodies)-1])

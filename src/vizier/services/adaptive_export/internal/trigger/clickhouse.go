@@ -70,8 +70,15 @@ func New(cfg Config) (*ClickHouseHTTP, error) {
 	if cfg.Hostname == "" {
 		return nil, fmt.Errorf("trigger: empty Hostname (operator must run node-local)")
 	}
-	if _, err := url.Parse(cfg.Endpoint); err != nil {
+	u, err := url.Parse(cfg.Endpoint)
+	if err != nil {
 		return nil, fmt.Errorf("trigger: invalid Endpoint %q: %w", cfg.Endpoint, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("trigger: Endpoint %q must use http or https scheme", cfg.Endpoint)
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("trigger: Endpoint %q has empty host", cfg.Endpoint)
 	}
 	if cfg.Database == "" {
 		cfg.Database = "forensic_db"
@@ -211,17 +218,18 @@ func (t *ClickHouseHTTP) fetchSince(ctx context.Context, watermark uint64) ([]ku
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, 0, err
-	}
-	return parseJSONEachRow(body)
+	return parseJSONEachRow(resp.Body)
 }
 
-func parseJSONEachRow(body []byte) ([]kubescape.Row, uint64, error) {
-	if len(bytes.TrimSpace(body)) == 0 {
-		return nil, 0, nil
-	}
+// parseJSONEachRow streams JSONEachRow output line-by-line from r.
+// Streaming (vs io.ReadAll into a []byte) bounds memory at one row
+// regardless of how large the ClickHouse result set is.
+//
+// Malformed rows are LOGGED + SKIPPED, never fatal: a single bad line
+// must not block watermark advancement and re-pin the bad row on every
+// subsequent poll. Only an unrecoverable scanner error (e.g. line
+// exceeds the 16 MiB buffer) fails the call.
+func parseJSONEachRow(r io.Reader) ([]kubescape.Row, uint64, error) {
 	type rawRow struct {
 		RuleID                string          `json:"RuleID"`
 		RuntimeK8sDetails     string          `json:"RuntimeK8sDetails"`
@@ -233,7 +241,7 @@ func parseJSONEachRow(body []byte) ([]kubescape.Row, uint64, error) {
 		rows    []kubescape.Row
 		maxSeen uint64
 	)
-	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1<<20), 1<<24)
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
@@ -242,11 +250,13 @@ func parseJSONEachRow(body []byte) ([]kubescape.Row, uint64, error) {
 		}
 		var rr rawRow
 		if err := json.Unmarshal(line, &rr); err != nil {
-			return nil, 0, fmt.Errorf("trigger: parse row: %w (line=%q)", err, string(line))
+			log.WithError(err).Debug("trigger: skip malformed JSON row")
+			continue
 		}
 		ev, err := parseUint64Loose(rr.EventTime)
 		if err != nil {
-			return nil, 0, fmt.Errorf("trigger: parse event_time: %w", err)
+			log.WithError(err).Debug("trigger: skip row with bad event_time")
+			continue
 		}
 		rows = append(rows, kubescape.Row{
 			EventTime:      ev,

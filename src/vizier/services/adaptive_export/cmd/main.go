@@ -327,9 +327,14 @@ func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (
 	for _, s := range current {
 		have[s.Name] = true
 	}
+	log.WithFields(log.Fields{
+		"presets_from_cloud": len(presets),
+		"already_on_cluster": len(current),
+	}).Info("preset script install — sources")
 	if len(presets) == 0 {
 		log.Warn("no preset retention scripts available on this Pixie cloud — falling back to built-in minimum set")
 		presets = builtinPresetScripts()
+		log.WithField("builtin_count", len(presets)).Info("using built-in preset fallback")
 	}
 	installed := 0
 	for _, p := range presets {

@@ -1,0 +1,13 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "pixieapi",
+    srcs = ["pixieapi.go"],
+    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/pixieapi",
+    visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
+    deps = [
+        "//src/api/go/pxapi",
+        "//src/api/go/pxapi/errdefs",
+        "//src/api/go/pxapi/types",
+    ],
+)

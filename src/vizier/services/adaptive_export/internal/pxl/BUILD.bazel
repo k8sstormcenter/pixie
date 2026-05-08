@@ -19,9 +19,15 @@ load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
     name = "pxl",
-    srcs = ["tables.go"],
+    srcs = [
+        "queryfor.go",
+        "tables.go",
+    ],
     importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
+    deps = [
+        "//src/vizier/services/adaptive_export/internal/anomaly",
+    ],
 )
 
 pl_go_test(

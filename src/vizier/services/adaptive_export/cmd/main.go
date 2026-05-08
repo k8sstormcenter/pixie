@@ -53,7 +53,10 @@ import (
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/clickhouse"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/config"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/controller"
+	"px.dev/pixie/src/api/go/pxapi"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pixie"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pixieapi"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/script"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/sink"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/trigger"
@@ -88,6 +91,13 @@ const (
 	// match → skip). Defaults to false because the production design has
 	// users author scripts in the Pixie UI.
 	envInstallPresets = "INSTALL_PRESET_SCRIPTS"
+
+	// envPushPixieTables — when true, the operator queries vizier
+	// directly via pxapi on each fresh anomaly and writes the resulting
+	// rows to forensic_db.<table> (rev-1 path). Required when the
+	// cloud's retention plugin can't reach the in-cluster CH (e.g.
+	// AOCC pixie cloud + CH ClusterIP service).
+	envPushPixieTables = "ADAPTIVE_PUSH_PIXIE_ROWS"
 )
 
 func main() {
@@ -197,7 +207,21 @@ func main() {
 		Before:   durEnv(envWindowBeforeSec, 5*time.Minute, time.Second),
 		After:    durEnv(envWindowAfterSec, 5*time.Minute, time.Second),
 	}
+	if strings.EqualFold(os.Getenv(envPushPixieTables), "true") {
+		ctlCfg.PushPixieTables = pxl.Names(pxl.BuiltinTables)
+		log.WithField("tables", ctlCfg.PushPixieTables).
+			Info("ADAPTIVE_PUSH_PIXIE_ROWS=true — operator will query pixie + write rows directly on each anomaly")
+	}
 	ctl := controller.New(trg, snk, ctlCfg, nil)
+	if len(ctlCfg.PushPixieTables) > 0 {
+		pxClient, err := pxapi.NewClient(ctx,
+			pxapi.WithAPIKey(cfg.Pixie().APIKey()),
+			pxapi.WithCloudAddr(cfg.Pixie().Host()))
+		if err != nil {
+			log.WithError(err).Fatal("ADAPTIVE_PUSH_PIXIE_ROWS=true but failed to create pxapi client")
+		}
+		ctl = ctl.WithPixieQuerier(&pixieAdapter{a: pixieapi.New(pxClient, cfg.Pixie().ClusterID())})
+	}
 
 	// 3. Rehydrate active state across crashes.
 	if err := ctl.Rehydrate(ctx); err != nil {
@@ -307,6 +331,23 @@ func durEnv(key string, dflt, unit time.Duration) time.Duration {
 		return dflt
 	}
 	return time.Duration(n) * unit
+}
+
+// pixieAdapter wraps pixieapi.Adapter so its return type matches the
+// controller's PixieQuerier interface (which uses []map[string]any
+// rather than the pixieapi-internal Row alias).
+type pixieAdapter struct{ a *pixieapi.Adapter }
+
+func (p *pixieAdapter) Query(ctx context.Context, src string) ([]map[string]any, error) {
+	rows, err := p.a.Query(ctx, src)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, len(rows))
+	for i, r := range rows {
+		out[i] = map[string]any(r)
+	}
+	return out, nil
 }
 
 // installPresetScripts purges any stale ClickHouse-plugin retention

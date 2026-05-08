@@ -107,4 +107,3 @@ func TestInsertSQL_Unknown(t *testing.T) {
 		}
 	}
 }
-

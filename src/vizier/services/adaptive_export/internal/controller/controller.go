@@ -17,11 +17,11 @@
 // Package controller orchestrates the adaptive-write push flow on a
 // single node:
 //
-//   1. Subscribe to a Trigger that produces kubescape.Event values.
-//   2. For each event, derive the workload anomaly.Target + AnomalyHash,
-//      look up the in-memory active set for this hostname, and either
-//      open a new active row or extend an existing one (t_end ← now+after).
-//   3. Persist the resulting AttributionRow to ClickHouse via Sink.
+//  1. Subscribe to a Trigger that produces kubescape.Event values.
+//  2. For each event, derive the workload anomaly.Target + AnomalyHash,
+//     look up the in-memory active set for this hostname, and either
+//     open a new active row or extend an existing one (t_end ← now+after).
+//  3. Persist the resulting AttributionRow to ClickHouse via Sink.
 //
 // The controller does NOT execute PxL itself, does NOT write pixie
 // observation rows, and does NOT manage retention scripts. Pixie's

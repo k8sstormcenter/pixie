@@ -309,50 +309,42 @@ func durEnv(key string, dflt, unit time.Duration) time.Duration {
 	return time.Duration(n) * unit
 }
 
-// installPresetScripts fetches Pixie's preset retention scripts and
-// installs the ones that aren't already on this cluster. If the cloud
-// has no presets registered for the ClickHouse plugin (common on
-// self-hosted clouds like AOCC), falls back to a built-in minimum
-// set covering the 12 socket_tracer tables.
+// installPresetScripts purges any stale ClickHouse-plugin retention
+// scripts on the cluster, then installs the operator's built-in PxL
+// scripts targeting the 12 socket_tracer tables we DDL'd. Cloud-side
+// "presets" are deliberately ignored: in this fork they target legacy
+// tables (conn_stats, stack_traces, dc_snoop) that aren't in the
+// rev-2 schema, so installing them would just silently fail to write.
 func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (int, error) {
-	presets, err := client.GetPresetScripts()
-	if err != nil {
-		return 0, fmt.Errorf("get preset scripts: %w", err)
-	}
 	current, err := client.GetClusterScripts(clusterID, clusterName)
 	if err != nil {
 		return 0, fmt.Errorf("get cluster scripts: %w", err)
-	}
-	have := map[string]bool{}
-	for _, s := range current {
-		have[s.Name] = true
 	}
 	currentNames := make([]string, 0, len(current))
 	for _, s := range current {
 		currentNames = append(currentNames, s.Name)
 	}
-	presetNames := make([]string, 0, len(presets))
-	for _, p := range presets {
-		presetNames = append(presetNames, p.Name)
-	}
 	log.WithFields(log.Fields{
-		"presets_from_cloud":   len(presets),
 		"already_on_cluster":   len(current),
 		"cluster_script_names": currentNames,
-		"preset_script_names":  presetNames,
-	}).Info("preset script install — sources")
-	if len(presets) == 0 {
-		log.Warn("no preset retention scripts available on this Pixie cloud — falling back to built-in minimum set")
-		presets = builtinPresetScripts()
-		log.WithField("builtin_count", len(presets)).Info("using built-in preset fallback")
-	}
-	installed := 0
-	for _, p := range presets {
-		if have[p.Name] {
+	}).Info("preset script install — purging stale + installing built-ins")
+
+	// Purge stale ClickHouse-plugin scripts so the tables we DDL'd are
+	// the only write targets.
+	for _, s := range current {
+		if err := client.DeleteDataRetentionScript(s.ScriptId); err != nil {
+			log.WithError(err).WithField("script", s.Name).Warn("failed to delete stale script")
 			continue
 		}
+		log.WithField("script", s.Name).Info("purged stale retention script")
+	}
+
+	// Install built-ins.
+	presets := builtinPresetScripts()
+	installed := 0
+	for _, p := range presets {
 		if err := client.AddDataRetentionScript(clusterID, p.Name, p.Description, p.FrequencyS, p.Script); err != nil {
-			log.WithError(err).WithField("script", p.Name).Warn("failed to install preset script")
+			log.WithError(err).WithField("script", p.Name).Warn("failed to install built-in script")
 			continue
 		}
 		installed++

@@ -213,6 +213,17 @@ func (c *Client) getScriptDefinition(s *cloudpb.RetentionScript) (*script.Script
 	}, nil
 }
 
+// DeleteDataRetentionScript removes the script with the given UUID.
+// Used by INSTALL_PRESET_SCRIPTS to purge stale scripts that target
+// tables no longer in the schema.
+func (c *Client) DeleteDataRetentionScript(scriptID string) error {
+	req := &cloudpb.DeleteRetentionScriptRequest{
+		ID: utils.ProtoFromUUIDStrOrNil(scriptID),
+	}
+	_, err := c.pluginClient.DeleteRetentionScript(c.ctx, req)
+	return err
+}
+
 // AddDataRetentionScript creates a new retention script on clusterID,
 // running every frequencyS seconds with the given PxL contents.
 func (c *Client) AddDataRetentionScript(clusterID string, scriptName string, description string, frequencyS int64, contents string) error {

@@ -68,8 +68,8 @@ func TestTrigger_Polls_HostnameAndWatermark(t *testing.T) {
 	if !strings.Contains(lastQuery, "hostname = 'node-1'") {
 		t.Fatalf("query missing hostname filter: %q", lastQuery)
 	}
-	if !strings.Contains(lastQuery, "event_time > 1744477360303026359") {
-		t.Fatalf("watermark didn't advance: %q", lastQuery)
+	if !strings.Contains(lastQuery, "event_time >= 1744477360303026359") {
+		t.Fatalf("watermark didn't advance to inclusive boundary: %q", lastQuery)
 	}
 }
 

@@ -81,6 +81,12 @@ const (
 	// the operator runs with INSERT-only creds and skips Apply).
 	// VerifyPixieSchema still runs and refuses to start on drift.
 	envSkipApply = "ADAPTIVE_SKIP_APPLY"
+
+	// envInstallPresets makes the operator boot install Pixie's preset
+	// retention scripts on this cluster. One-shot, idempotent (script-name
+	// match → skip). Defaults to false because the production design has
+	// users author scripts in the Pixie UI.
+	envInstallPresets = "INSTALL_PRESET_SCRIPTS"
 )
 
 func main() {
@@ -146,6 +152,18 @@ func main() {
 		log.WithError(err).Warn("could not ensure ClickHouse plugin is enabled — pixie tables will not be populated until you turn it on in the Pixie UI")
 	} else {
 		log.WithField("export_url", exportURL).Info("clickhouse retention plugin is enabled")
+	}
+
+	// 3b. (optional) install Pixie's preset retention scripts so the
+	//     pixie observation tables actually receive rows. Without this,
+	//     the plugin is enabled but does nothing.
+	if strings.EqualFold(os.Getenv(envInstallPresets), "true") {
+		installed, err := installPresetScripts(pluginClient, cfg.Pixie().ClusterID(), cfg.Worker().ClusterName())
+		if err != nil {
+			log.WithError(err).Warn("INSTALL_PRESET_SCRIPTS=true but install failed — pixie tables will stay empty")
+		} else {
+			log.WithField("installed", installed).Info("preset retention scripts installed on cluster")
+		}
 	}
 
 	// 2. Build trigger + sink + controller.
@@ -288,6 +306,40 @@ func durEnv(key string, dflt, unit time.Duration) time.Duration {
 		return dflt
 	}
 	return time.Duration(n) * unit
+}
+
+// installPresetScripts fetches Pixie's preset retention scripts and
+// installs the ones that aren't already on this cluster (matched by
+// script name, not preset id, since cluster-scoped scripts get unique
+// uuids). Returns the count newly installed.
+func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (int, error) {
+	presets, err := client.GetPresetScripts()
+	if err != nil {
+		return 0, fmt.Errorf("get preset scripts: %w", err)
+	}
+	if len(presets) == 0 {
+		return 0, fmt.Errorf("no preset scripts available on this Pixie cloud — plugin may not be properly registered")
+	}
+	current, err := client.GetClusterScripts(clusterID, clusterName)
+	if err != nil {
+		return 0, fmt.Errorf("get cluster scripts: %w", err)
+	}
+	have := map[string]bool{}
+	for _, s := range current {
+		have[s.Name] = true
+	}
+	installed := 0
+	for _, p := range presets {
+		if have[p.Name] {
+			continue
+		}
+		if err := client.AddDataRetentionScript(clusterID, p.Name, p.Description, p.FrequencyS, p.Script); err != nil {
+			log.WithError(err).WithField("script", p.Name).Warn("failed to install preset script")
+			continue
+		}
+		installed++
+	}
+	return installed, nil
 }
 
 var _ = fmt.Sprintf

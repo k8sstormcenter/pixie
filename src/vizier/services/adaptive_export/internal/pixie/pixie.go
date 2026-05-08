@@ -32,7 +32,10 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 
+	"px.dev/pixie/src/api/go/pxapi/utils"
 	"px.dev/pixie/src/api/proto/cloudpb"
+	"px.dev/pixie/src/api/proto/uuidpb"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/script"
 )
 
 const (
@@ -138,6 +141,90 @@ func (c *Client) EnableClickHousePlugin(config *ClickHousePluginConfig, version 
 		DisablePresets:  &types.BoolValue{Value: true},
 	}
 	_, err := c.pluginClient.UpdateRetentionPluginConfig(c.ctx, req)
+	return err
+}
+
+// GetPresetScripts returns the ClickHouse-plugin preset retention scripts.
+// These are the canonical http_events / dns_events / … bulk-write PxL
+// scripts the plugin ships with. INSTALL_PRESET_SCRIPTS=true on the
+// adaptive_export operator boot path uses this to bootstrap a cluster
+// that has no user-defined retention scripts yet (DEMO PATH).
+func (c *Client) GetPresetScripts() ([]*script.ScriptDefinition, error) {
+	resp, err := c.pluginClient.GetRetentionScripts(c.ctx, &cloudpb.GetRetentionScriptsRequest{})
+	if err != nil {
+		return nil, err
+	}
+	var l []*script.ScriptDefinition
+	for _, s := range resp.Scripts {
+		if s.PluginId == clickhousePluginID && s.IsPreset {
+			sd, err := c.getScriptDefinition(s)
+			if err != nil {
+				return nil, err
+			}
+			l = append(l, sd)
+		}
+	}
+	return l, nil
+}
+
+// GetClusterScripts returns the retention scripts CURRENTLY installed on
+// clusterID. Caller diffs against GetPresetScripts to figure out what
+// to add / update / delete.
+func (c *Client) GetClusterScripts(clusterID, clusterName string) ([]*script.Script, error) {
+	resp, err := c.pluginClient.GetRetentionScripts(c.ctx, &cloudpb.GetRetentionScriptsRequest{})
+	if err != nil {
+		return nil, err
+	}
+	var l []*script.Script
+	for _, s := range resp.Scripts {
+		if s.PluginId == clickhousePluginID {
+			sd, err := c.getScriptDefinition(s)
+			if err != nil {
+				return nil, err
+			}
+			cIDs := ""
+			for i, id := range s.ClusterIDs {
+				if i > 0 {
+					cIDs += ","
+				}
+				cIDs += utils.ProtoToUUIDStr(id)
+			}
+			l = append(l, &script.Script{
+				ScriptDefinition: *sd,
+				ScriptId:         utils.ProtoToUUIDStr(s.ScriptID),
+				ClusterIds:       cIDs,
+			})
+		}
+	}
+	return l, nil
+}
+
+func (c *Client) getScriptDefinition(s *cloudpb.RetentionScript) (*script.ScriptDefinition, error) {
+	resp, err := c.pluginClient.GetRetentionScript(c.ctx, &cloudpb.GetRetentionScriptRequest{ID: s.ScriptID})
+	if err != nil {
+		return nil, err
+	}
+	return &script.ScriptDefinition{
+		Name:        s.ScriptName,
+		Description: s.Description,
+		FrequencyS:  s.FrequencyS,
+		Script:      resp.Contents,
+		IsPreset:    s.IsPreset,
+	}, nil
+}
+
+// AddDataRetentionScript creates a new retention script on clusterID,
+// running every frequencyS seconds with the given PxL contents.
+func (c *Client) AddDataRetentionScript(clusterID string, scriptName string, description string, frequencyS int64, contents string) error {
+	req := &cloudpb.CreateRetentionScriptRequest{
+		ScriptName:  scriptName,
+		Description: description,
+		FrequencyS:  frequencyS,
+		Contents:    contents,
+		ClusterIDs:  []*uuidpb.UUID{utils.ProtoFromUUIDStrOrNil(clusterID)},
+		PluginId:    clickhousePluginID,
+	}
+	_, err := c.pluginClient.CreateRetentionScript(c.ctx, req)
 	return err
 }
 

@@ -156,7 +156,7 @@ func (c *Controller) Run(ctx context.Context) error {
 func (c *Controller) handle(ctx context.Context, ev kubescape.Event) {
 	hash := anomaly.Hash(ev.Target)
 	now := c.clock.Now()
-	tEvent := time.Unix(0, int64(ev.EventTime)).UTC()
+	tEvent := eventTimeToTime(ev.EventTime)
 
 	c.mu.Lock()
 	row, exists := c.active[hash]
@@ -200,6 +200,23 @@ func (c *Controller) Active() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.active)
+}
+
+// eventTimeToTime converts forensic_db.kubescape_logs.event_time (UInt64)
+// into a time.Time, auto-detecting the unit. Vector's kubescape sink in
+// the soc lab writes unix SECONDS (~1.7e9), but other deployments may
+// emit millis (~1.7e12) or nanos (~1.7e18) per kubescape's own field
+// conventions. Magnitude check picks the unit so we don't silently
+// misinterpret the same UInt64 across pipeline variants.
+func eventTimeToTime(et uint64) time.Time {
+	switch {
+	case et < 1e10:
+		return time.Unix(int64(et), 0).UTC() // seconds
+	case et < 1e13:
+		return time.Unix(0, int64(et)*int64(time.Millisecond)).UTC() // millis
+	default:
+		return time.Unix(0, int64(et)).UTC() // nanos
+	}
 }
 
 // PruneExpired removes from the in-memory active set every entry whose

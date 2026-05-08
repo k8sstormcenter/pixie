@@ -54,6 +54,7 @@ import (
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/config"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/controller"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pixie"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/script"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/sink"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/trigger"
 )
@@ -309,16 +310,14 @@ func durEnv(key string, dflt, unit time.Duration) time.Duration {
 }
 
 // installPresetScripts fetches Pixie's preset retention scripts and
-// installs the ones that aren't already on this cluster (matched by
-// script name, not preset id, since cluster-scoped scripts get unique
-// uuids). Returns the count newly installed.
+// installs the ones that aren't already on this cluster. If the cloud
+// has no presets registered for the ClickHouse plugin (common on
+// self-hosted clouds like AOCC), falls back to a built-in minimum
+// set covering the 12 socket_tracer tables.
 func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (int, error) {
 	presets, err := client.GetPresetScripts()
 	if err != nil {
 		return 0, fmt.Errorf("get preset scripts: %w", err)
-	}
-	if len(presets) == 0 {
-		return 0, fmt.Errorf("no preset scripts available on this Pixie cloud — plugin may not be properly registered")
 	}
 	current, err := client.GetClusterScripts(clusterID, clusterName)
 	if err != nil {
@@ -327,6 +326,10 @@ func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (
 	have := map[string]bool{}
 	for _, s := range current {
 		have[s.Name] = true
+	}
+	if len(presets) == 0 {
+		log.Warn("no preset retention scripts available on this Pixie cloud — falling back to built-in minimum set")
+		presets = builtinPresetScripts()
 	}
 	installed := 0
 	for _, p := range presets {
@@ -338,8 +341,45 @@ func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (
 			continue
 		}
 		installed++
+		log.WithField("script", p.Name).Info("installed retention script")
 	}
 	return installed, nil
+}
+
+// builtinPresetScripts returns a minimum set of PxL scripts mirroring
+// the canonical Pixie preset shape — one bulk-write script per
+// socket_tracer table. Each adds namespace + pod columns and emits to
+// the matching CH table via px.display(name='<table>') which the
+// retention plugin maps to forensic_db.<table>.
+//
+// Schedule: 10s. Window: -15s (overlap so we don't lose rows during
+// schedule jitter).
+func builtinPresetScripts() []*script.ScriptDefinition {
+	tables := []string{
+		"http_events", "dns_events", "redis_events", "mysql_events",
+		"pgsql_events", "cql_events", "mongodb_events", "amqp_events",
+		"mux_events", "tls_events",
+		// http2_messages.beta and kafka_events.beta have dotted names
+		// that need backtick-quoting in CH but Pixie's px.display uses
+		// the dotted form unchanged. Including with their PxL name.
+		"http2_messages.beta", "kafka_events.beta",
+	}
+	out := make([]*script.ScriptDefinition, 0, len(tables))
+	for _, t := range tables {
+		body := "import px\n" +
+			"df = px.DataFrame(table='" + t + "', start_time='-15s')\n" +
+			"df.namespace = px.upid_to_namespace(df.upid)\n" +
+			"df.pod = px.upid_to_pod_name(df.upid)\n" +
+			"px.display(df, '" + t + "')\n"
+		out = append(out, &script.ScriptDefinition{
+			Name:        "ch-" + t,
+			Description: "adaptive_export builtin preset for " + t,
+			FrequencyS:  10,
+			Script:      body,
+			IsPreset:    false,
+		})
+	}
+	return out
 }
 
 var _ = fmt.Sprintf

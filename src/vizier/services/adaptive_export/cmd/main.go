@@ -74,6 +74,13 @@ const (
 	envWindowAfterSec   = "ADAPTIVE_WINDOW_AFTER_SEC"
 	envTriggerPollMS    = "ADAPTIVE_TRIGGER_POLL_MS"
 	envPruneIntervalSec = "ADAPTIVE_PRUNE_INTERVAL_SEC"
+
+	// envSkipApply lets a deployment opt out of in-process DDL when
+	// the schema has been pre-applied by a separate Job (recommended
+	// production split: high-priv Job for CREATE TABLE / ALTER, then
+	// the operator runs with INSERT-only creds and skips Apply).
+	// VerifyPixieSchema still runs and refuses to start on drift.
+	envSkipApply = "ADAPTIVE_SKIP_APPLY"
 )
 
 func main() {
@@ -104,10 +111,14 @@ func main() {
 	if err != nil {
 		log.WithError(err).Fatal("failed to construct schema applier")
 	}
-	if err := applier.Apply(ctx); err != nil {
-		log.WithError(err).Fatal("schema apply failed; refusing to proceed with possibly drifted tables")
+	if strings.EqualFold(os.Getenv(envSkipApply), "true") {
+		log.Info("ADAPTIVE_SKIP_APPLY=true — schema apply skipped; expecting an out-of-band DDL Job to have created the tables")
+	} else {
+		if err := applier.Apply(ctx); err != nil {
+			log.WithError(err).Fatal("schema apply failed; refusing to proceed with possibly drifted tables")
+		}
+		log.WithField("tables", clickhouse.OperatorOwnedTables).Info("operator-owned DDL applied")
 	}
-	log.WithField("tables", clickhouse.OperatorOwnedTables).Info("operator-owned DDL applied")
 
 	// 2. Defensive guard against Pixie's retention plugin having
 	//    auto-created any pixie table BEFORE our Apply ran (e.g. a

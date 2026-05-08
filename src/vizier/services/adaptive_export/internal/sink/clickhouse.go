@@ -214,13 +214,13 @@ func parseActiveRows(body []byte) ([]AttributionRow, error) {
 		Namespace   string          `json:"namespace"`
 		Pod         string          `json:"pod"`
 		Comm        string          `json:"comm"`
-		PID         uint64          `json:"pid"`
+		PID         json.RawMessage `json:"pid"`
 		Hostname    string          `json:"hostname"`
 		TStartNs    json.RawMessage `json:"t_start_ns"`
 		TEndNs      json.RawMessage `json:"t_end_ns"`
 		LastSeenNs  json.RawMessage `json:"last_seen_ns"`
 		LastRuleID  string          `json:"last_rule_id"`
-		NAnomalies  uint64          `json:"n_anomalies"`
+		NAnomalies  json.RawMessage `json:"n_anomalies"`
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
 		return nil, nil
@@ -238,21 +238,23 @@ func parseActiveRows(body []byte) ([]AttributionRow, error) {
 		ts, err1 := nsFromRaw(w.TStartNs)
 		te, err2 := nsFromRaw(w.TEndNs)
 		ls, err3 := nsFromRaw(w.LastSeenNs)
-		if err1 != nil || err2 != nil || err3 != nil {
-			return nil, fmt.Errorf("sink: parse ns: %v / %v / %v", err1, err2, err3)
+		pidI64, errPID := nsFromRaw(w.PID)
+		nAn, errN := nsFromRaw(w.NAnomalies)
+		if err1 != nil || err2 != nil || err3 != nil || errPID != nil || errN != nil {
+			return nil, fmt.Errorf("sink: parse uint64 fields: t_start=%v t_end=%v last_seen=%v pid=%v n_anomalies=%v", err1, err2, err3, errPID, errN)
 		}
 		out = append(out, AttributionRow{
 			AnomalyHash: anomaly.AnomalyHash(w.AnomalyHash),
 			Namespace:   w.Namespace,
 			Pod:         w.Pod,
 			Comm:        w.Comm,
-			PID:         w.PID,
+			PID:         uint64(pidI64),
 			Hostname:    w.Hostname,
 			TStart:      time.Unix(0, ts).UTC(),
 			TEnd:        time.Unix(0, te).UTC(),
 			LastSeen:    time.Unix(0, ls).UTC(),
 			LastRuleID:  w.LastRuleID,
-			NAnomalies:  w.NAnomalies,
+			NAnomalies:  uint64(nAn),
 		})
 	}
 	return out, nil

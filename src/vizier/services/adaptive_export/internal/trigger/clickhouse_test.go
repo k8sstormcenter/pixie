@@ -28,14 +28,18 @@ import (
 
 const canonicalRowJSON = `{"RuleID":"R1005","RuntimeK8sDetails":"{\"podName\":\"redis-578d5dc9bd-kjj78\",\"podNamespace\":\"redis\"}","RuntimeProcessDetails":"{\"processTree\":{\"pid\":106040,\"comm\":\"redis-server\"}}","event_time":"1744477360303026359","hostname":"node-1"}`
 
-// TestTrigger_Polls_HostnameAndWatermark — query carries WHERE hostname=… AND event_time>… .
+// TestTrigger_Polls_HostnameAndWatermark — query carries
+// WHERE hostname=… AND event_time>=… . Race-free: the server pushes
+// each query string into a buffered channel; the test waits for the
+// SECOND request deterministically (no fixed sleep, no shared
+// non-atomic variable).
 func TestTrigger_Polls_HostnameAndWatermark(t *testing.T) {
-	var lastQuery string
+	queries := make(chan string, 8)
 	var calls int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt64(&calls, 1)
-		lastQuery = r.URL.Query().Get("query")
-		if calls == 1 {
+		n := atomic.AddInt64(&calls, 1)
+		queries <- r.URL.Query().Get("query")
+		if n == 1 {
 			_, _ = w.Write([]byte(canonicalRowJSON + "\n"))
 			return
 		}
@@ -63,8 +67,15 @@ func TestTrigger_Polls_HostnameAndWatermark(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatalf("timeout waiting for first event")
 	}
-	// Wait for at least one more poll so we can assert watermark.
-	time.Sleep(100 * time.Millisecond)
+	// Drain the first query, then wait for the second (advanced
+	// watermark) — channel-based, so no fixed sleep races.
+	<-queries
+	var lastQuery string
+	select {
+	case lastQuery = <-queries:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("timeout waiting for second poll")
+	}
 	if !strings.Contains(lastQuery, "hostname = 'node-1'") {
 		t.Fatalf("query missing hostname filter: %q", lastQuery)
 	}

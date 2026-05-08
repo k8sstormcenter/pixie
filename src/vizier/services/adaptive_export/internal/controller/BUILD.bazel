@@ -25,6 +25,7 @@ go_library(
     deps = [
         "//src/vizier/services/adaptive_export/internal/anomaly",
         "//src/vizier/services/adaptive_export/internal/kubescape",
+        "//src/vizier/services/adaptive_export/internal/pxl",
         "//src/vizier/services/adaptive_export/internal/sink",
         "@com_github_sirupsen_logrus//:logrus",
     ],

@@ -38,6 +38,7 @@ import (
 
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/anomaly"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/kubescape"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/sink"
 )
 
@@ -48,9 +49,20 @@ type Trigger interface {
 
 // Sink writes attribution rows to ClickHouse and, on boot, can fetch
 // still-active rows so the controller can rehydrate after a crash.
+// WritePixieRows is the rev-1 fallback path for environments where
+// the cloud's retention plugin can't reach the in-cluster CH (so the
+// operator queries pixie itself and pushes rows directly).
 type Sink interface {
 	Write(ctx context.Context, rows []sink.AttributionRow) error
 	QueryActive(ctx context.Context, hostname string) ([]sink.AttributionRow, error)
+	WritePixieRows(ctx context.Context, table string, rows []map[string]any) error
+}
+
+// PixieQuerier is the rev-1 path's executor: take a PxL string and
+// return the resulting rows. nil disables operator-side pixie pushes
+// (rev-2 default — the cloud's plugin handles it).
+type PixieQuerier interface {
+	Query(ctx context.Context, pxl string) ([]map[string]any, error)
 }
 
 // Clock abstracts time for tests.
@@ -73,6 +85,13 @@ type Config struct {
 	// t_end = max(t_end, now + After). Both default to 5 min.
 	Before time.Duration
 	After  time.Duration
+
+	// PushPixieTables, when non-empty alongside a non-nil Pixie querier,
+	// makes the controller query pixie for every named table on each
+	// fresh anomaly window and push the result directly to
+	// forensic_db.<table>. Used in environments where the cloud's
+	// retention plugin can't reach the in-cluster CH service.
+	PushPixieTables []string
 }
 
 func (c *Config) defaulted() Config {
@@ -88,16 +107,20 @@ func (c *Config) defaulted() Config {
 
 // Controller is the live orchestrator. One instance per operator process.
 type Controller struct {
-	trig  Trigger
-	sink  Sink
-	clock Clock
-	cfg   Config
+	trig    Trigger
+	sink    Sink
+	clock   Clock
+	cfg     Config
+	querier PixieQuerier // nil disables operator-side pixie pushes
 
 	mu     sync.Mutex
 	active map[anomaly.AnomalyHash]*sink.AttributionRow
 }
 
 // New wires a Controller. nil clock falls through to RealClock.
+// nil querier disables the rev-1 push path (controller will only
+// write attribution rows; expects cloud's retention plugin to write
+// pixie tables).
 func New(trig Trigger, snk Sink, cfg Config, clk Clock) *Controller {
 	if clk == nil {
 		clk = RealClock{}
@@ -109,6 +132,13 @@ func New(trig Trigger, snk Sink, cfg Config, clk Clock) *Controller {
 		cfg:    cfg.defaulted(),
 		active: map[anomaly.AnomalyHash]*sink.AttributionRow{},
 	}
+}
+
+// WithPixieQuerier wires the rev-1 path. Returns the receiver for
+// chaining. Idempotent — call before Run.
+func (c *Controller) WithPixieQuerier(q PixieQuerier) *Controller {
+	c.querier = q
+	return c
 }
 
 // Rehydrate populates the in-memory active set from ClickHouse so a
@@ -192,6 +222,54 @@ func (c *Controller) handle(ctx context.Context, ev kubescape.Event) {
 
 	if err := c.sink.Write(ctx, []sink.AttributionRow{snapshot}); err != nil {
 		log.WithError(err).Warn("controller: sink write failed")
+	}
+	// Rev-1 path: on a NEW window, query pixie for the [t_start, t_end)
+	// slice of every PushPixieTables table for this (namespace, pod)
+	// and write rows directly to CH. Done in a goroutine so the
+	// controller doesn't block on PxL execution (each query can take
+	// hundreds of ms; 12 tables sequentially would stall the trigger).
+	if !exists && c.querier != nil && len(c.cfg.PushPixieTables) > 0 {
+		go c.pushPixieRows(ctx, snapshot)
+	}
+}
+
+// pushPixieRows fans out per-table PxL queries and writes the results
+// to forensic_db.<table>. One goroutine per anomaly window; failures
+// are logged + non-fatal so the controller's main loop is never blocked.
+func (c *Controller) pushPixieRows(ctx context.Context, row sink.AttributionRow) {
+	now := c.clock.Now()
+	target := anomaly.Target{
+		PID:       row.PID,
+		Comm:      row.Comm,
+		Pod:       row.Pod,
+		Namespace: row.Namespace,
+	}
+	for _, table := range c.cfg.PushPixieTables {
+		if ctx.Err() != nil {
+			return
+		}
+		q, err := pxl.QueryFor(table, target, row.TStart, row.TEnd, now)
+		if err != nil {
+			log.WithError(err).WithField("table", table).Warn("controller: QueryFor")
+			continue
+		}
+		rows, err := c.querier.Query(ctx, q)
+		if err != nil {
+			log.WithError(err).WithField("table", table).Warn("controller: pixie query")
+			continue
+		}
+		if len(rows) == 0 {
+			continue
+		}
+		if err := c.sink.WritePixieRows(ctx, table, rows); err != nil {
+			log.WithError(err).WithField("table", table).Warn("controller: pixie row sink")
+			continue
+		}
+		log.WithFields(log.Fields{
+			"table": table,
+			"rows":  len(rows),
+			"hash":  row.AnomalyHash,
+		}).Info("pushed pixie rows for active anomaly window")
 	}
 }
 

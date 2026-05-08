@@ -55,6 +55,10 @@ type fakeSink struct {
 	qerr    error
 }
 
+func (f *fakeSink) WritePixieRows(_ context.Context, _ string, _ []map[string]any) error {
+	return nil
+}
+
 func (f *fakeSink) Write(_ context.Context, rows []sink.AttributionRow) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

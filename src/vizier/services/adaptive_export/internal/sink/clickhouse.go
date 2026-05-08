@@ -90,6 +90,67 @@ func New(cfg Config) (*ClickHouseHTTP, error) {
 	}, nil
 }
 
+// WritePixieRows POSTs a batch of arbitrary rows (one map per CH row,
+// keyed by column name) into forensic_db.<table> via FORMAT JSONEachRow.
+// Used by the operator's per-anomaly fan-out path that queries pixie
+// directly and pushes the resulting rows into CH (bypasses the cloud's
+// retention plugin, which can't reach an in-cluster CH endpoint).
+func (s *ClickHouseHTTP) WritePixieRows(ctx context.Context, table string, rows []map[string]any) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	for _, r := range rows {
+		obj := make(map[string]any, len(r))
+		for k, v := range r {
+			obj[k] = normalisePixieValue(v)
+		}
+		if err := enc.Encode(obj); err != nil {
+			return fmt.Errorf("sink: encode pixie row for %s: %w", table, err)
+		}
+	}
+	identifier := table
+	if strings.Contains(table, ".") {
+		identifier = "`" + table + "`"
+	}
+	q := url.Values{}
+	q.Set("query", fmt.Sprintf("INSERT INTO %s.%s FORMAT JSONEachRow", s.cfg.Database, identifier))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.Endpoint+"/?"+q.Encode(), bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-ndjson")
+	if s.cfg.Username != "" {
+		req.SetBasicAuth(s.cfg.Username, s.cfg.Password)
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("sink: pixie POST %s: %w", table, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("sink: pixie HTTP %d (%s): %s", resp.StatusCode, table, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// normalisePixieValue coerces pxapi-emitted Go values into JSON-friendly
+// shapes ClickHouse parses cleanly. time.Time → "YYYY-MM-DD HH:MM:SS.NNN…"
+// (CH's DateTime64 input format); []byte → string; everything else → as-is.
+func normalisePixieValue(v any) any {
+	switch x := v.(type) {
+	case time.Time:
+		return x.UTC().Format("2006-01-02 15:04:05.000000000")
+	case []byte:
+		return string(x)
+	default:
+		return v
+	}
+}
+
 // Write upserts a batch of AttributionRows. Implementation: HTTP POST
 // `INSERT INTO forensic_db.adaptive_attribution FORMAT JSONEachRow`
 // with one JSON object per row. Empty batch is a no-op.

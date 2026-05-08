@@ -327,9 +327,19 @@ func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (
 	for _, s := range current {
 		have[s.Name] = true
 	}
+	currentNames := make([]string, 0, len(current))
+	for _, s := range current {
+		currentNames = append(currentNames, s.Name)
+	}
+	presetNames := make([]string, 0, len(presets))
+	for _, p := range presets {
+		presetNames = append(presetNames, p.Name)
+	}
 	log.WithFields(log.Fields{
-		"presets_from_cloud": len(presets),
-		"already_on_cluster": len(current),
+		"presets_from_cloud":   len(presets),
+		"already_on_cluster":   len(current),
+		"cluster_script_names": currentNames,
+		"preset_script_names":  presetNames,
 	}).Info("preset script install — sources")
 	if len(presets) == 0 {
 		log.Warn("no preset retention scripts available on this Pixie cloud — falling back to built-in minimum set")

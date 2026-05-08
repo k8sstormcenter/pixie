@@ -25,6 +25,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -95,7 +97,14 @@ func (t *ClickHouseHTTP) Subscribe(ctx context.Context) (<-chan kubescape.Event,
 
 func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 	defer close(out)
+	// Watermark uses event_time as the cursor PLUS a set of row
+	// fingerprints already pushed at that exact event_time. This
+	// closes the race where two kubescape rows share the same
+	// event_time but the second arrives after our previous poll: the
+	// query is `event_time >= watermark` (inclusive) and we skip rows
+	// whose fingerprint we have already seen at the boundary.
 	watermark := t.cfg.InitialWatermark
+	seenAtBoundary := map[string]bool{}
 	ticker := time.NewTicker(t.cfg.PollInterval)
 	defer ticker.Stop()
 
@@ -105,7 +114,12 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 			log.WithError(err).Warn("trigger: poll failed")
 			return
 		}
+		nextSeen := map[string]bool{}
 		for _, row := range rows {
+			fp := rowFingerprint(row)
+			if row.EventTime == watermark && seenAtBoundary[fp] {
+				continue // already pushed in a prior poll at this exact boundary
+			}
 			ev, err := kubescape.Extract(row)
 			if err != nil {
 				log.WithError(err).Debug("trigger: skip incomplete row")
@@ -116,9 +130,18 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 			case <-ctx.Done():
 				return
 			}
+			if row.EventTime == maxSeen {
+				nextSeen[fp] = true
+			}
 		}
 		if maxSeen > watermark {
 			watermark = maxSeen
+			seenAtBoundary = nextSeen
+		} else if maxSeen == watermark {
+			// no progress this tick — preserve boundary set, optionally extend
+			for fp := range nextSeen {
+				seenAtBoundary[fp] = true
+			}
 		}
 	}
 
@@ -133,12 +156,21 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 	}
 }
 
+// rowFingerprint hashes the row's content so we can dedupe at the
+// watermark boundary without trusting kubescape to give us a unique row id.
+func rowFingerprint(r kubescape.Row) string {
+	h := sha256.New()
+	_, _ = fmt.Fprintf(h, "%d\x00%s\x00%s\x00%s\x00%s",
+		r.EventTime, r.RuleID, r.Hostname, r.K8sDetails, r.ProcessDetails)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 func (t *ClickHouseHTTP) fetchSince(ctx context.Context, watermark uint64) ([]kubescape.Row, uint64, error) {
 	q := url.Values{}
 	q.Set("query", fmt.Sprintf(
 		"SELECT RuleID, RuntimeK8sDetails, RuntimeProcessDetails, event_time, hostname "+
 			"FROM %s.%s "+
-			"WHERE hostname = %s AND event_time > %d "+
+			"WHERE hostname = %s AND event_time >= %d "+
 			"ORDER BY event_time FORMAT JSONEachRow",
 		t.cfg.Database, t.cfg.Table, quoteCH(t.cfg.Hostname), watermark))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,

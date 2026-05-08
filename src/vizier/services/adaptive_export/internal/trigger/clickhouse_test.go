@@ -124,6 +124,90 @@ func TestTrigger_HTTPErrorContinues(t *testing.T) {
 	}
 }
 
+// TestTrigger_DedupesAtWatermarkBoundary — same-event_time rows that
+// arrive in a later poll than they were already observed must NOT be
+// re-emitted. Distinct rows at the same boundary timestamp must still
+// be emitted (only the duplicate is suppressed).
+func TestTrigger_DedupesAtWatermarkBoundary(t *testing.T) {
+	const distinctRowJSON = `{"RuleID":"R0006","RuntimeK8sDetails":"{\"podName\":\"redis-578d5dc9bd-kjj78\",\"podNamespace\":\"redis\"}","RuntimeProcessDetails":"{\"processTree\":{\"pid\":222222,\"comm\":\"redis-cli\"}}","event_time":"1744477360303026359","hostname":"node-1"}`
+	var calls int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt64(&calls, 1)
+		switch n {
+		case 1:
+			// First poll emits the canonical row.
+			_, _ = w.Write([]byte(canonicalRowJSON + "\n"))
+		case 2:
+			// Second poll: server "re-discovers" the SAME row at the
+			// boundary timestamp PLUS one DISTINCT row at the same
+			// event_time. The trigger must suppress the duplicate
+			// fingerprint and pass through the distinct one.
+			_, _ = w.Write([]byte(canonicalRowJSON + "\n" + distinctRowJSON + "\n"))
+		default:
+			_, _ = w.Write([]byte(""))
+		}
+	}))
+	defer srv.Close()
+
+	tr, _ := New(Config{Endpoint: srv.URL, Hostname: "node-1", PollInterval: 30 * time.Millisecond})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, _ := tr.Subscribe(ctx)
+
+	// Collect events for ~250 ms — long enough for at least 3 polls.
+	deadline := time.Now().Add(250 * time.Millisecond)
+	var got []uint64 // PIDs we observed
+	for time.Now().Before(deadline) {
+		select {
+		case ev := <-ch:
+			got = append(got, ev.Target.PID)
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	// Expect exactly 2 events: PID 106040 (canonical, emitted once
+	// even though server returned it twice) and PID 222222 (distinct
+	// row at same boundary, emitted exactly once).
+	if len(got) != 2 {
+		t.Fatalf("got %d events, want 2 (canonical + distinct, no dup); pids=%v", len(got), got)
+	}
+	canonicalSeen, distinctSeen := 0, 0
+	for _, pid := range got {
+		switch pid {
+		case 106040:
+			canonicalSeen++
+		case 222222:
+			distinctSeen++
+		}
+	}
+	if canonicalSeen != 1 {
+		t.Fatalf("canonical row emitted %dx, want 1 (dedup failed)", canonicalSeen)
+	}
+	if distinctSeen != 1 {
+		t.Fatalf("distinct same-event_time row emitted %dx, want 1 (over-aggressive dedup)", distinctSeen)
+	}
+}
+
+// TestTrigger_RejectsInvalidIdentifiers — defensive: SQL injection via
+// Database/Table config is refused at construction time.
+func TestTrigger_RejectsInvalidIdentifiers(t *testing.T) {
+	for _, bad := range []string{
+		"forensic_db; DROP TABLE alerts",
+		"db with space",
+		"123starts_with_digit",
+		"backtick`injection",
+		"forensic_db.kubescape_logs", // dotted not allowed for this table param
+	} {
+		_, err := New(Config{Endpoint: "http://x", Hostname: "node-1", Database: bad})
+		if err == nil {
+			t.Errorf("New accepted bad Database %q; expected error", bad)
+		}
+		_, err = New(Config{Endpoint: "http://x", Hostname: "node-1", Table: bad})
+		if err == nil {
+			t.Errorf("New accepted bad Table %q; expected error", bad)
+		}
+	}
+}
+
 // TestTrigger_BadRowSkipped — incomplete kubescape row is skipped, good rows still arrive.
 func TestTrigger_BadRowSkipped(t *testing.T) {
 	bad := `{"RuleID":"","RuntimeK8sDetails":"","RuntimeProcessDetails":"","event_time":"1","hostname":"node-1"}` + "\n"

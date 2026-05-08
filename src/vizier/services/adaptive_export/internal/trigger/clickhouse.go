@@ -32,6 +32,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -78,6 +79,17 @@ func New(cfg Config) (*ClickHouseHTTP, error) {
 	if cfg.Table == "" {
 		cfg.Table = "kubescape_logs"
 	}
+	// Validate Database / Table as plain ClickHouse identifiers
+	// (alphanumeric + underscore, not starting with a digit) so the
+	// SELECT in fetchSince cannot be subverted by an attacker-controlled
+	// Config. Hostname is value-quoted via quoteCH; identifiers cannot
+	// be parameterised, hence validation here.
+	if !validIdentifier(cfg.Database) {
+		return nil, fmt.Errorf("trigger: invalid Database identifier %q (must match [A-Za-z_][A-Za-z0-9_]*)", cfg.Database)
+	}
+	if !validIdentifier(cfg.Table) {
+		return nil, fmt.Errorf("trigger: invalid Table identifier %q (must match [A-Za-z_][A-Za-z0-9_]*)", cfg.Table)
+	}
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = 250 * time.Millisecond
 	}
@@ -86,6 +98,15 @@ func New(cfg Config) (*ClickHouseHTTP, error) {
 		client: &http.Client{Timeout: 5 * time.Second},
 	}, nil
 }
+
+// identifierRE accepts plain ClickHouse identifiers — letters, digits,
+// underscores; not starting with a digit. Dotted identifiers (e.g.
+// "http2_messages.beta") are deliberately rejected here because the
+// trigger only ever queries the kubescape ingest table, not a pixie
+// observation table.
+var identifierRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func validIdentifier(s string) bool { return identifierRE.MatchString(s) }
 
 // Subscribe starts the background poll loop. The returned channel
 // produces kubescape.Event values until ctx is cancelled, then closes.

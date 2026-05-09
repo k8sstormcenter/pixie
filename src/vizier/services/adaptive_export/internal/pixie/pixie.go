@@ -75,7 +75,10 @@ func (c *Client) init() error {
 		host = h
 	}
 	isInternal := host == "cluster.local" || strings.HasSuffix(host, ".cluster.local")
-	tlsConfig := &tls.Config{InsecureSkipVerify: isInternal} //nolint:gosec // in-cluster vizier traffic only
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: isInternal, //nolint:gosec // in-cluster vizier traffic only
+		MinVersion:         tls.VersionTLS12,
+	}
 	creds := credentials.NewTLS(tlsConfig)
 	conn, err := grpc.Dial(c.cloudAddr, grpc.WithTransportCredentials(creds))
 	if err != nil {

@@ -21,7 +21,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -175,5 +174,3 @@ func TestSink_QuoteEscape(t *testing.T) {
 	}
 }
 
-// silence the unused import on URL parser if compilation drops it
-var _ = url.Parse

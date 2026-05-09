@@ -70,6 +70,8 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	return b.String(), nil
 }
 
+var pxlEscaper = strings.NewReplacer(`\`, `\\`, `'`, `\'`)
+
 func escapePxL(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s)
+	return pxlEscaper.Replace(s)
 }

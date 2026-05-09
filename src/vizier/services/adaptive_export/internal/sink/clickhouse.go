@@ -33,11 +33,24 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/anomaly"
 )
+
+// pixieTableIdentRE accepts plain CH identifiers and dotted protobuf
+// extensions like `http2_messages.beta`. Used to gate `table` strings
+// before they're interpolated into the INSERT query.
+var pixieTableIdentRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
+
+func validateTableIdentifier(t string) error {
+	if !pixieTableIdentRE.MatchString(t) {
+		return fmt.Errorf("sink: invalid table identifier %q", t)
+	}
+	return nil
+}
 
 // Config configures a ClickHouseHTTP sink.
 type Config struct {
@@ -75,8 +88,12 @@ func New(cfg Config) (*ClickHouseHTTP, error) {
 	if cfg.Endpoint == "" {
 		return nil, fmt.Errorf("sink: empty Endpoint")
 	}
-	if _, err := url.Parse(cfg.Endpoint); err != nil {
+	u, err := url.Parse(cfg.Endpoint)
+	if err != nil {
 		return nil, fmt.Errorf("sink: invalid Endpoint %q: %w", cfg.Endpoint, err)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, fmt.Errorf("sink: Endpoint must be an absolute http(s) URL: %q", cfg.Endpoint)
 	}
 	if cfg.Database == "" {
 		cfg.Database = "forensic_db"
@@ -98,6 +115,9 @@ func New(cfg Config) (*ClickHouseHTTP, error) {
 func (s *ClickHouseHTTP) WritePixieRows(ctx context.Context, table string, rows []map[string]any) error {
 	if len(rows) == 0 {
 		return nil
+	}
+	if err := validateTableIdentifier(table); err != nil {
+		return err
 	}
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)

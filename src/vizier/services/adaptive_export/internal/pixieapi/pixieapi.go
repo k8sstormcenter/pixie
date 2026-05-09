@@ -22,12 +22,15 @@ package pixieapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"sync"
 
 	"px.dev/pixie/src/api/go/pxapi"
 	"px.dev/pixie/src/api/go/pxapi/errdefs"
 	"px.dev/pixie/src/api/go/pxapi/types"
+	jwtutils "px.dev/pixie/src/shared/services/utils"
 )
 
 // Row is a flat per-pixie-row map[col]any. Compatible with sink's
@@ -38,17 +41,94 @@ type Row map[string]any
 type Adapter struct {
 	client    *pxapi.Client
 	clusterID string
+	// directOpts, when non-nil, makes Query rebuild a pxapi.Client per
+	// call with a freshly-minted service JWT in WithBearerAuth. Used
+	// for direct-mode (in-cluster vizier-query-broker), where the cloud
+	// passthrough proxy is bypassed entirely. JWTs are minted fresh
+	// because GenerateJWTForService produces 10-minute claims and we
+	// want each fan-out window to carry its own valid token.
+	directOpts *DirectOptions
 }
 
-// New constructs an Adapter wired to the cluster's vizier.
+// DirectOptions configures direct-mode connection to vizier in-cluster.
+// Use when the cloud's passthrough proxy can't authorize the operator's
+// API key (e.g. self-hosted clouds where API keys are scoped per-cluster
+// and a freshly-deployed cluster isn't yet linked to the key's owner).
+type DirectOptions struct {
+	// VizierAddr is the in-cluster gRPC endpoint, typically
+	// "vizier-query-broker-svc.pl.svc.cluster.local:50300".
+	VizierAddr string
+	// SigningKey is the cluster's JWT signing key, mounted from
+	// pl-cluster-secrets/jwt-signing-key.
+	SigningKey string
+	// ServiceID is the issuer-side service identifier (claim "sub").
+	// Defaults to "adaptive_export" if empty.
+	ServiceID string
+}
+
+// New constructs an Adapter wired to the cluster's vizier via cloud passthrough.
 func New(client *pxapi.Client, clusterID string) *Adapter {
 	return &Adapter{client: client, clusterID: clusterID}
+}
+
+// NewDirect constructs an Adapter that bypasses the pixie cloud and
+// connects directly to the in-cluster vizier-query-broker. Each Query
+// call rebuilds the gRPC client with a fresh service JWT.
+func NewDirect(clusterID string, opts DirectOptions) *Adapter {
+	if opts.ServiceID == "" {
+		opts.ServiceID = "adaptive_export"
+	}
+	return &Adapter{clusterID: clusterID, directOpts: &opts}
+}
+
+// NewDirectFromEnv builds a direct-mode Adapter from the runtime env.
+// Reads ADAPTIVE_VIZIER_DIRECT_ADDR for the broker addr and
+// PL_JWT_SIGNING_KEY for the signing key (matching kelvin/metadata
+// pod env conventions). Returns an error if either is missing.
+//
+// The caller MUST also set PX_DISABLE_TLS=1 in the operator pod —
+// pxapi's WithDisableTLSVerification only sets InsecureSkipVerify when
+// that env is "1" AND the addr contains "cluster.local"; without it,
+// pxapi log.Fatal's at NewClient time. We accept skip-verify because
+// query-broker's TLS uses a self-signed in-cluster CA we don't have a
+// clean way to mount here.
+func NewDirectFromEnv(clusterID string) (*Adapter, error) {
+	addr := os.Getenv("ADAPTIVE_VIZIER_DIRECT_ADDR")
+	if addr == "" {
+		return nil, errors.New("pixieapi: ADAPTIVE_VIZIER_DIRECT_ADDR not set")
+	}
+	sk := os.Getenv("PL_JWT_SIGNING_KEY")
+	if sk == "" {
+		return nil, errors.New("pixieapi: PL_JWT_SIGNING_KEY not set (mount pl-cluster-secrets/jwt-signing-key)")
+	}
+	return NewDirect(clusterID, DirectOptions{VizierAddr: addr, SigningKey: sk}), nil
 }
 
 // Query executes pxl on the configured cluster and aggregates every
 // emitted record from every table into one []Row.
 func (a *Adapter) Query(ctx context.Context, pxl string) ([]Row, error) {
-	vz, err := a.client.NewVizierClient(ctx, a.clusterID)
+	client := a.client
+	if a.directOpts != nil {
+		// Direct mode: build fresh client + fresh service JWT for each
+		// query. JWT is 10-min; fan-out is seconds, so this is safe.
+		jwt, err := jwtutils.SignJWTClaims(
+			jwtutils.GenerateJWTForService(a.directOpts.ServiceID, "vizier"),
+			a.directOpts.SigningKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("pixieapi: sign JWT: %w", err)
+		}
+		c, err := pxapi.NewClient(ctx,
+			pxapi.WithCloudAddr(a.directOpts.VizierAddr),
+			pxapi.WithDisableTLSVerification(a.directOpts.VizierAddr),
+			pxapi.WithBearerAuth(jwt),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("pixieapi: direct dial: %w", err)
+		}
+		client = c
+	}
+	vz, err := client.NewVizierClient(ctx, a.clusterID)
 	if err != nil {
 		return nil, fmt.Errorf("pixieapi: vizier dial: %w", err)
 	}

@@ -92,6 +92,14 @@ type Config struct {
 	// forensic_db.<table>. Used in environments where the cloud's
 	// retention plugin can't reach the in-cluster CH service.
 	PushPixieTables []string
+
+	// PushRefreshInterval — how often pushPixieRows re-queries pixie
+	// while the attribution window is still active. The first query
+	// covers [t_start, now]; subsequent queries cover only the new
+	// slice [last_upper, now] so we don't duplicate rows. Defaults to
+	// 30s. Set to 0 to disable periodic re-fan-out (single-shot mode,
+	// which loses pixie traffic that arrives after the kubescape event).
+	PushRefreshInterval time.Duration
 }
 
 func (c *Config) defaulted() Config {
@@ -101,6 +109,9 @@ func (c *Config) defaulted() Config {
 	}
 	if out.After == 0 {
 		out.After = 5 * time.Minute
+	}
+	if out.PushRefreshInterval == 0 {
+		out.PushRefreshInterval = 30 * time.Second
 	}
 	return out
 }
@@ -234,57 +245,126 @@ func (c *Controller) handle(ctx context.Context, ev kubescape.Event) {
 }
 
 // pushPixieRows fans out per-table PxL queries and writes the results
-// to forensic_db.<table>. One goroutine per anomaly window; failures
-// are logged + non-fatal so the controller's main loop is never blocked.
-func (c *Controller) pushPixieRows(ctx context.Context, row sink.AttributionRow) {
-	now := c.clock.Now()
+// to forensic_db.<table>. One goroutine per anomaly window. The first
+// pass covers [t_start, now]; subsequent passes (every
+// PushRefreshInterval) cover only the new slice [last_upper, now] so
+// pixie traffic that arrives AFTER the initial kubescape event still
+// makes it into CH. Loop exits when the (possibly extended) t_end is
+// in the past or ctx is cancelled. All failures are logged + non-fatal.
+func (c *Controller) pushPixieRows(ctx context.Context, initial sink.AttributionRow) {
 	target := anomaly.Target{
-		PID:       row.PID,
-		Comm:      row.Comm,
-		Pod:       row.Pod,
-		Namespace: row.Namespace,
+		PID:       initial.PID,
+		Comm:      initial.Comm,
+		Pod:       initial.Pod,
+		Namespace: initial.Namespace,
 	}
 	log.WithFields(log.Fields{
-		"hash":   row.AnomalyHash,
-		"pod":    row.Pod,
-		"comm":   row.Comm,
-		"tables": len(c.cfg.PushPixieTables),
+		"hash":     initial.AnomalyHash,
+		"pod":      initial.Pod,
+		"comm":     initial.Comm,
+		"tables":   len(c.cfg.PushPixieTables),
+		"refresh":  c.cfg.PushRefreshInterval,
+		"t_start":  initial.TStart,
+		"t_end":    initial.TEnd,
 	}).Info("pushPixieRows: starting fan-out")
-	for _, table := range c.cfg.PushPixieTables {
+
+	// lastUpper is the high-water mark of pixie data we've already
+	// pulled for THIS hash. The first query slice is [t_start, now];
+	// every subsequent slice is [lastUpper, now] so we don't duplicate.
+	lastUpper := initial.TStart
+	pass := 0
+	for {
 		if ctx.Err() != nil {
 			return
 		}
-		q, err := pxl.QueryFor(table, target, row.TStart, row.TEnd, now)
-		if err != nil {
-			log.WithError(err).WithField("table", table).Warn("controller: QueryFor")
+		// Re-snapshot the active row each iteration so we pick up t_end
+		// extensions from concurrent kubescape events (extending the
+		// window beyond the initial t_end).
+		c.mu.Lock()
+		current, exists := c.active[initial.AnomalyHash]
+		c.mu.Unlock()
+		if !exists {
+			log.WithField("hash", initial.AnomalyHash).
+				Info("pushPixieRows: window closed (active entry gone)")
+			return
+		}
+		now := c.clock.Now()
+		if !current.TEnd.After(now) {
+			log.WithFields(log.Fields{
+				"hash":  initial.AnomalyHash,
+				"t_end": current.TEnd,
+			}).Info("pushPixieRows: fan-out complete (window expired)")
+			return
+		}
+		sliceStart := lastUpper
+		sliceEnd := now
+		if sliceEnd.Before(sliceStart) {
+			// Clock skew or tiny gap; skip this pass.
+			sleepOrCancel(ctx, c.cfg.PushRefreshInterval)
 			continue
 		}
-		// Per-query timeout — vizier dial + ExecuteScript can otherwise
-		// block forever if the pixie cluster is unhealthy, leaving the
-		// goroutine silently stuck.
-		qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		log.WithField("table", table).Debug("pushPixieRows: querying pixie")
-		rows, err := c.querier.Query(qctx, q)
-		cancel()
-		if err != nil {
-			log.WithError(err).WithField("table", table).Warn("controller: pixie query")
-			continue
-		}
-		log.WithFields(log.Fields{"table": table, "rows": len(rows)}).Info("pushPixieRows: query returned")
-		if len(rows) == 0 {
-			continue
-		}
-		if err := c.sink.WritePixieRows(ctx, table, rows); err != nil {
-			log.WithError(err).WithField("table", table).Warn("controller: pixie row sink")
-			continue
-		}
+
+		pass++
 		log.WithFields(log.Fields{
-			"table": table,
-			"rows":  len(rows),
-			"hash":  row.AnomalyHash,
-		}).Info("pushed pixie rows for active anomaly window")
+			"hash":  initial.AnomalyHash,
+			"pass":  pass,
+			"slice": sliceEnd.Sub(sliceStart),
+		}).Info("pushPixieRows: pass start")
+
+		for _, table := range c.cfg.PushPixieTables {
+			if ctx.Err() != nil {
+				return
+			}
+			q, err := pxl.QueryFor(table, target, sliceStart, sliceEnd, now)
+			if err != nil {
+				log.WithError(err).WithField("table", table).Warn("controller: QueryFor")
+				continue
+			}
+			qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			rows, err := c.querier.Query(qctx, q)
+			cancel()
+			if err != nil {
+				log.WithError(err).WithField("table", table).Warn("controller: pixie query")
+				continue
+			}
+			if len(rows) == 0 {
+				continue
+			}
+			if err := c.sink.WritePixieRows(ctx, table, rows); err != nil {
+				log.WithError(err).WithField("table", table).Warn("controller: pixie row sink")
+				continue
+			}
+			log.WithFields(log.Fields{
+				"table": table,
+				"rows":  len(rows),
+				"hash":  initial.AnomalyHash,
+				"pass":  pass,
+			}).Info("pushed pixie rows for active anomaly window")
+		}
+		lastUpper = sliceEnd
+
+		// If single-shot mode (refresh disabled), exit after first pass.
+		if c.cfg.PushRefreshInterval <= 0 {
+			log.WithField("hash", initial.AnomalyHash).
+				Info("pushPixieRows: fan-out complete (single-shot mode)")
+			return
+		}
+		if !sleepOrCancel(ctx, c.cfg.PushRefreshInterval) {
+			return
+		}
 	}
-	log.WithField("hash", row.AnomalyHash).Info("pushPixieRows: fan-out complete")
+}
+
+// sleepOrCancel returns true on normal sleep completion, false if ctx cancelled.
+func sleepOrCancel(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
 }
 
 // Active returns the count of in-memory active hashes (test helper).

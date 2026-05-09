@@ -96,9 +96,12 @@ type Config struct {
 	// PushRefreshInterval — how often pushPixieRows re-queries pixie
 	// while the attribution window is still active. The first query
 	// covers [t_start, now]; subsequent queries cover only the new
-	// slice [last_upper, now] so we don't duplicate rows. Defaults to
-	// 30s. Set to 0 to disable periodic re-fan-out (single-shot mode,
-	// which loses pixie traffic that arrives after the kubescape event).
+	// per-table slice [last_upper[table], now] so we don't duplicate
+	// rows. Zero (the natural Go default for unset env vars) is
+	// rewritten to 30s in defaulted(). To DISABLE periodic re-fan-out
+	// (single-shot mode, which loses pixie traffic that arrives after
+	// the kubescape event) set this to a NEGATIVE duration — pick -1
+	// to be unambiguous.
 	PushRefreshInterval time.Duration
 }
 
@@ -110,6 +113,9 @@ func (c *Config) defaulted() Config {
 	if out.After == 0 {
 		out.After = 5 * time.Minute
 	}
+	// Zero → fall through to the 30s default. NEGATIVE values are
+	// preserved so callers can explicitly request single-shot mode
+	// (see PushRefreshInterval doc above).
 	if out.PushRefreshInterval == 0 {
 		out.PushRefreshInterval = 30 * time.Second
 	}
@@ -268,10 +274,14 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 		"t_end":    initial.TEnd,
 	}).Info("pushPixieRows: starting fan-out")
 
-	// lastUpper is the high-water mark of pixie data we've already
-	// pulled for THIS hash. The first query slice is [t_start, now];
-	// every subsequent slice is [lastUpper, now] so we don't duplicate.
-	lastUpper := initial.TStart
+	// Per-table watermark of pixie data we've already pulled for THIS
+	// hash. We advance a table's cursor only after BOTH the query AND
+	// the sink-write succeed; failures keep the cursor in place so the
+	// next pass retries the same slice instead of dropping it.
+	lastUpper := make(map[string]time.Time, len(c.cfg.PushPixieTables))
+	for _, t := range c.cfg.PushPixieTables {
+		lastUpper[t] = initial.TStart
+	}
 	pass := 0
 	for {
 		if ctx.Err() != nil {
@@ -279,9 +289,15 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 		}
 		// Re-snapshot the active row each iteration so we pick up t_end
 		// extensions from concurrent kubescape events (extending the
-		// window beyond the initial t_end).
+		// window beyond the initial t_end). COPY the row out of the
+		// shared pointer before releasing the mutex — handle() mutates
+		// the same struct, so reading TEnd after Unlock would race.
 		c.mu.Lock()
-		current, exists := c.active[initial.AnomalyHash]
+		live, exists := c.active[initial.AnomalyHash]
+		var current sink.AttributionRow
+		if exists {
+			current = *live
+		}
 		c.mu.Unlock()
 		if !exists {
 			log.WithField("hash", initial.AnomalyHash).
@@ -296,24 +312,16 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 			}).Info("pushPixieRows: fan-out complete (window expired)")
 			return
 		}
-		sliceStart := lastUpper
-		sliceEnd := now
-		if sliceEnd.Before(sliceStart) {
-			// Clock skew or tiny gap; skip this pass.
-			sleepOrCancel(ctx, c.cfg.PushRefreshInterval)
-			continue
-		}
 
 		pass++
-		log.WithFields(log.Fields{
-			"hash":  initial.AnomalyHash,
-			"pass":  pass,
-			"slice": sliceEnd.Sub(sliceStart),
-		}).Info("pushPixieRows: pass start")
-
 		for _, table := range c.cfg.PushPixieTables {
 			if ctx.Err() != nil {
 				return
+			}
+			sliceStart := lastUpper[table]
+			sliceEnd := now
+			if !sliceEnd.After(sliceStart) {
+				continue // tiny / inverted slice — skip
 			}
 			q, err := pxl.QueryFor(table, target, sliceStart, sliceEnd, now)
 			if err != nil {
@@ -325,26 +333,28 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 			cancel()
 			if err != nil {
 				log.WithError(err).WithField("table", table).Warn("controller: pixie query")
-				continue
+				continue // do NOT advance lastUpper — retry next pass
 			}
-			if len(rows) == 0 {
-				continue
+			if len(rows) > 0 {
+				if err := c.sink.WritePixieRows(ctx, table, rows); err != nil {
+					log.WithError(err).WithField("table", table).Warn("controller: pixie row sink")
+					continue // do NOT advance lastUpper — retry next pass
+				}
+				log.WithFields(log.Fields{
+					"table": table,
+					"rows":  len(rows),
+					"hash":  initial.AnomalyHash,
+					"pass":  pass,
+				}).Info("pushed pixie rows for active anomaly window")
 			}
-			if err := c.sink.WritePixieRows(ctx, table, rows); err != nil {
-				log.WithError(err).WithField("table", table).Warn("controller: pixie row sink")
-				continue
-			}
-			log.WithFields(log.Fields{
-				"table": table,
-				"rows":  len(rows),
-				"hash":  initial.AnomalyHash,
-				"pass":  pass,
-			}).Info("pushed pixie rows for active anomaly window")
+			lastUpper[table] = sliceEnd
 		}
-		lastUpper = sliceEnd
 
-		// If single-shot mode (refresh disabled), exit after first pass.
-		if c.cfg.PushRefreshInterval <= 0 {
+		// Refresh interval treats negative as "single-shot" so callers
+		// can opt out via the dedicated negative sentinel; the default
+		// is 30s, set in defaulted(). Zero is reserved for "use default"
+		// to keep the env-parsing layer simple (env unset → 0 → default).
+		if c.cfg.PushRefreshInterval < 0 {
 			log.WithField("hash", initial.AnomalyHash).
 				Info("pushPixieRows: fan-out complete (single-shot mode)")
 			return

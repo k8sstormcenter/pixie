@@ -118,6 +118,13 @@ func (a *Adapter) Query(ctx context.Context, pxl string) ([]Row, error) {
 		if err != nil {
 			return nil, fmt.Errorf("pixieapi: sign JWT: %w", err)
 		}
+		// pxapi.Client doesn't expose a Close — its grpc.ClientConn is
+		// unexported. We accept GC-time reclamation: a Query in direct
+		// mode runs once per anomaly window per refresh interval (≥30s
+		// in production), so the per-query connection-leak rate is
+		// bounded and matched by goroutine + JWT expiry every ~10min.
+		// If we ever build a high-throughput direct-mode path, swap to
+		// a long-lived client + JWT-refresh ticker instead.
 		c, err := pxapi.NewClient(ctx,
 			pxapi.WithCloudAddr(a.directOpts.VizierAddr),
 			pxapi.WithDisableTLSVerification(a.directOpts.VizierAddr),

@@ -18,6 +18,7 @@ package pxl
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -117,8 +118,10 @@ func TestQueryFor_TimeBoundsAreInclusiveLowerExclusiveUpper(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryFor: %v", err)
 	}
-	wantLower := `df = df[df.time_ >= px.int64_to_time(1778339924000000000)]` // 15:18:44 UTC ns
-	wantUpper := `df = df[df.time_ <  px.int64_to_time(1778340524000000000)]` // 15:28:44 UTC ns
+	// Derive the expected boundary calls from the fixtures so the
+	// assertion stays valid if anyone retunes the reference window.
+	wantLower := fmt.Sprintf("df = df[df.time_ >= px.int64_to_time(%d)]", fixedStart.UnixNano())
+	wantUpper := fmt.Sprintf("df = df[df.time_ <  px.int64_to_time(%d)]", fixedEnd.UnixNano())
 	if !strings.Contains(q, wantLower) {
 		t.Fatalf("expected lower bound %q in:\n%s", wantLower, q)
 	}
@@ -189,8 +192,14 @@ func TestQueryFor_EscapesBackslashInTarget(t *testing.T) {
 
 // TestQueryFor_EveryBuiltinTableEmits — smoke-test all known tables
 // produce a syntactically-shaped PxL output (compile-not-tested).
+// Fails fast if BuiltinTables ever becomes empty so the smoke loop
+// can't silently no-op.
 func TestQueryFor_EveryBuiltinTableEmits(t *testing.T) {
-	for _, table := range Names(BuiltinTables) {
+	tables := Names(BuiltinTables)
+	if len(tables) == 0 {
+		t.Fatal("BuiltinTables is empty — smoke loop would no-op")
+	}
+	for _, table := range tables {
 		q, err := QueryFor(table, target, fixedStart, fixedEnd, fixedNow)
 		if err != nil {
 			t.Fatalf("table %s: %v", table, err)

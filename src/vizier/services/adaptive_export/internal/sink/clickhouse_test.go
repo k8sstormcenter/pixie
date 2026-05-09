@@ -100,7 +100,10 @@ func TestSink_Write_EmptyBatch(t *testing.T) {
 		called = true
 	}))
 	defer srv.Close()
-	s, _ := New(Config{Endpoint: srv.URL})
+	s, err := New(Config{Endpoint: srv.URL})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 	if err := s.Write(context.Background(), nil); err != nil {
 		t.Fatalf("Write empty: %v", err)
 	}
@@ -116,8 +119,11 @@ func TestSink_Write_HTTPErrorPropagates(t *testing.T) {
 		_, _ = w.Write([]byte("clickhouse exploded"))
 	}))
 	defer srv.Close()
-	s, _ := New(Config{Endpoint: srv.URL})
-	err := s.Write(context.Background(), []AttributionRow{canonicalAttribution()})
+	s, err := New(Config{Endpoint: srv.URL})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	err = s.Write(context.Background(), []AttributionRow{canonicalAttribution()})
 	if err == nil {
 		t.Fatalf("expected HTTP error")
 	}
@@ -134,7 +140,10 @@ func TestSink_QueryActive_BuildsCorrectSQL(t *testing.T) {
 		_, _ = w.Write([]byte(`{"anomaly_hash":"abc","namespace":"redis","pod":"redis-x","comm":"redis-server","pid":106040,"hostname":"node-1","t_start_ns":"1744477060303026359","t_end_ns":"1744477660303026359","last_seen_ns":"1744477360303026359","last_rule_id":"R1005","n_anomalies":1}` + "\n"))
 	}))
 	defer srv.Close()
-	s, _ := New(Config{Endpoint: srv.URL})
+	s, err := New(Config{Endpoint: srv.URL})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 	rows, err := s.QueryActive(context.Background(), "node-1")
 	if err != nil {
 		t.Fatalf("QueryActive: %v", err)
@@ -163,7 +172,10 @@ func TestSink_QueryActive_BuildsCorrectSQL(t *testing.T) {
 func TestSink_QueryActive_RequiresHostname(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer srv.Close()
-	s, _ := New(Config{Endpoint: srv.URL})
+	s, err := New(Config{Endpoint: srv.URL})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 	if _, err := s.QueryActive(context.Background(), ""); err == nil {
 		t.Fatalf("empty hostname should error")
 	}

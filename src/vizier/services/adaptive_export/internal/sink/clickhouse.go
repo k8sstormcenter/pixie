@@ -14,15 +14,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// Package sink writes adaptive_attribution rows to ClickHouse over the
-// HTTP interface (default port 8123). One row per arriving kubescape
-// anomaly: ReplacingMergeTree(t_end) on the table side collapses
-// re-inserts with the same (hostname, anomaly_hash) primary key into
-// the row with the largest t_end.
+// Package sink writes operator-owned rows to ClickHouse over the HTTP
+// interface (default port 8123). It has two write surfaces:
 //
-// The sink does NOT write pixie observation rows — those are
-// populated by Pixie's retention plugin from user-defined PxL scripts.
-// The operator's only ClickHouse write surface is forensic_db.adaptive_attribution.
+//  1. forensic_db.adaptive_attribution — one row per arriving kubescape
+//     anomaly. ReplacingMergeTree(t_end) on the table side collapses
+//     re-inserts with the same (hostname, anomaly_hash) primary key
+//     into the row with the largest t_end.
+//
+//  2. forensic_db.<pixie_table> — operator-pushed pixie observation rows
+//     (rev-1 fan-out path, gated on ADAPTIVE_PUSH_PIXIE_ROWS=true).
+//     Used when Pixie's cloud-side retention plugin can't reach an
+//     in-cluster CH endpoint; the operator queries pixie itself and
+//     writes the result with WritePixieRows.
 package sink
 
 import (
@@ -44,6 +48,11 @@ import (
 // extensions like `http2_messages.beta`. Used to gate `table` strings
 // before they're interpolated into the INSERT query.
 var pixieTableIdentRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
+
+// chIdentRE — strict CH identifier (no dots). Used to gate Database
+// (and any future single-segment identifier) against SQL injection
+// from env/config-driven values.
+var chIdentRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func validateTableIdentifier(t string) error {
 	if !pixieTableIdentRE.MatchString(t) {
@@ -97,6 +106,12 @@ func New(cfg Config) (*ClickHouseHTTP, error) {
 	}
 	if cfg.Database == "" {
 		cfg.Database = "forensic_db"
+	}
+	// Database is interpolated directly into INSERT/SELECT statements
+	// (used in WriteAttribution, WritePixieRows, QueryActive). Block
+	// injection via env/config-supplied values.
+	if !chIdentRE.MatchString(cfg.Database) {
+		return nil, fmt.Errorf("sink: invalid Database identifier %q (must match [A-Za-z_][A-Za-z0-9_]*)", cfg.Database)
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second

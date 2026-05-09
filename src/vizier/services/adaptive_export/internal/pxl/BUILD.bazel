@@ -32,6 +32,12 @@ go_library(
 
 pl_go_test(
     name = "pxl_test",
-    srcs = ["tables_test.go"],
+    srcs = [
+        "queryfor_test.go",
+        "tables_test.go",
+    ],
     embed = [":pxl"],
+    deps = [
+        "//src/vizier/services/adaptive_export/internal/anomaly",
+    ],
 )

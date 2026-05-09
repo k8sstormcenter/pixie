@@ -38,6 +38,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -339,8 +340,8 @@ func parseActiveRows(body []byte) ([]AttributionRow, error) {
 		ts, err1 := nsFromRaw(w.TStartNs)
 		te, err2 := nsFromRaw(w.TEndNs)
 		ls, err3 := nsFromRaw(w.LastSeenNs)
-		pidI64, errPID := nsFromRaw(w.PID)
-		nAn, errN := nsFromRaw(w.NAnomalies)
+		pid, errPID := uintFromRaw(w.PID)
+		nAn, errN := uintFromRaw(w.NAnomalies)
 		if err1 != nil || err2 != nil || err3 != nil || errPID != nil || errN != nil {
 			return nil, fmt.Errorf("sink: parse uint64 fields: t_start=%v t_end=%v last_seen=%v pid=%v n_anomalies=%v", err1, err2, err3, errPID, errN)
 		}
@@ -349,22 +350,31 @@ func parseActiveRows(body []byte) ([]AttributionRow, error) {
 			Namespace:   w.Namespace,
 			Pod:         w.Pod,
 			Comm:        w.Comm,
-			PID:         uint64(pidI64),
+			PID:         pid,
 			Hostname:    w.Hostname,
 			TStart:      time.Unix(0, ts).UTC(),
 			TEnd:        time.Unix(0, te).UTC(),
 			LastSeen:    time.Unix(0, ls).UTC(),
 			LastRuleID:  w.LastRuleID,
-			NAnomalies:  uint64(nAn),
+			NAnomalies:  nAn,
 		})
 	}
 	return out, nil
 }
 
+// nsFromRaw parses a CH UInt64-as-JSON value (CH may emit either
+// `12345` or `"12345"`) into an int64. Used for time_ columns.
 func nsFromRaw(raw json.RawMessage) (int64, error) {
 	s := strings.TrimSpace(string(raw))
 	s = strings.Trim(s, `"`)
-	var v int64
-	_, err := fmt.Sscanf(s, "%d", &v)
+	v, err := strconv.ParseInt(s, 10, 64)
 	return v, err
+}
+
+// uintFromRaw is the uint64 equivalent — covers values above INT64_MAX
+// for fields like PID and NAnomalies that are documented uint64 in CH.
+func uintFromRaw(raw json.RawMessage) (uint64, error) {
+	s := strings.TrimSpace(string(raw))
+	s = strings.Trim(s, `"`)
+	return strconv.ParseUint(s, 10, 64)
 }

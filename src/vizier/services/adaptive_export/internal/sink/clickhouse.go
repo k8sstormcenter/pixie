@@ -30,6 +30,7 @@
 package sink
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -281,14 +282,13 @@ func (s *ClickHouseHTTP) QueryActive(ctx context.Context, hostname string) ([]At
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("sink: QueryActive HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+		// Drain (don't echo) — body may carry attribution rows.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("sink: QueryActive HTTP %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return parseActiveRows(body)
+	// Stream the response line-by-line so the per-call buffer is
+	// bounded by max_line_length, not by the total active-set size.
+	return parseActiveRowsStream(resp.Body)
 }
 
 // chLiteralEscaper escapes a string for ClickHouse single-quoted literals.
@@ -326,60 +326,87 @@ func encodeJSONEachRow(rows []AttributionRow) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// parseActiveRows ingests JSONEachRow output from QueryActive and
-// converts unix-nano integer fields back into time.Time.
-func parseActiveRows(body []byte) ([]AttributionRow, error) {
-	type wireRow struct {
-		AnomalyHash string          `json:"anomaly_hash"`
-		Namespace   string          `json:"namespace"`
-		Pod         string          `json:"pod"`
-		Comm        string          `json:"comm"`
-		PID         json.RawMessage `json:"pid"`
-		Hostname    string          `json:"hostname"`
-		TStartNs    json.RawMessage `json:"t_start_ns"`
-		TEndNs      json.RawMessage `json:"t_end_ns"`
-		LastSeenNs  json.RawMessage `json:"last_seen_ns"`
-		LastRuleID  string          `json:"last_rule_id"`
-		NAnomalies  json.RawMessage `json:"n_anomalies"`
-	}
-	if len(bytes.TrimSpace(body)) == 0 {
-		return nil, nil
-	}
+// activeWireRow mirrors the JSONEachRow shape emitted by QueryActive.
+// json.RawMessage on UInt64 fields lets us tolerate CH's two wire
+// formats (`12345` and `"12345"`).
+type activeWireRow struct {
+	AnomalyHash string          `json:"anomaly_hash"`
+	Namespace   string          `json:"namespace"`
+	Pod         string          `json:"pod"`
+	Comm        string          `json:"comm"`
+	PID         json.RawMessage `json:"pid"`
+	Hostname    string          `json:"hostname"`
+	TStartNs    json.RawMessage `json:"t_start_ns"`
+	TEndNs      json.RawMessage `json:"t_end_ns"`
+	LastSeenNs  json.RawMessage `json:"last_seen_ns"`
+	LastRuleID  string          `json:"last_rule_id"`
+	NAnomalies  json.RawMessage `json:"n_anomalies"`
+}
+
+// parseActiveRowsStream ingests JSONEachRow output from QueryActive
+// directly from a reader so the per-call buffer is bounded by
+// `max_active_row_bytes` (per row) rather than by the entire active
+// set. Mirrors trigger.parseJSONEachRow's streaming posture.
+func parseActiveRowsStream(r io.Reader) ([]AttributionRow, error) {
+	const maxActiveRowBytes = 1 << 20 // 1 MiB per JSONEachRow line
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxActiveRowBytes)
 	var out []AttributionRow
-	for _, line := range bytes.Split(body, []byte{'\n'}) {
-		line = bytes.TrimSpace(line)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
 			continue
 		}
-		var w wireRow
-		if err := json.Unmarshal(line, &w); err != nil {
-			// Don't echo the raw line — it can carry CH row payloads
-			// that propagate to logs / surfaced errors. Length only.
-			return nil, fmt.Errorf("sink: parse active row (%d bytes): %w", len(line), err)
+		row, err := parseActiveRowLine(line)
+		if err != nil {
+			return nil, err
 		}
-		ts, err1 := nsFromRaw(w.TStartNs)
-		te, err2 := nsFromRaw(w.TEndNs)
-		ls, err3 := nsFromRaw(w.LastSeenNs)
-		pid, errPID := uintFromRaw(w.PID)
-		nAn, errN := uintFromRaw(w.NAnomalies)
-		if err1 != nil || err2 != nil || err3 != nil || errPID != nil || errN != nil {
-			return nil, fmt.Errorf("sink: parse uint64 fields: t_start=%v t_end=%v last_seen=%v pid=%v n_anomalies=%v", err1, err2, err3, errPID, errN)
-		}
-		out = append(out, AttributionRow{
-			AnomalyHash: anomaly.AnomalyHash(w.AnomalyHash),
-			Namespace:   w.Namespace,
-			Pod:         w.Pod,
-			Comm:        w.Comm,
-			PID:         pid,
-			Hostname:    w.Hostname,
-			TStart:      time.Unix(0, ts).UTC(),
-			TEnd:        time.Unix(0, te).UTC(),
-			LastSeen:    time.Unix(0, ls).UTC(),
-			LastRuleID:  w.LastRuleID,
-			NAnomalies:  nAn,
-		})
+		out = append(out, row)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("sink: QueryActive scan: %w", err)
 	}
 	return out, nil
+}
+
+// parseActiveRowLine decodes a single JSONEachRow line into one
+// AttributionRow. Used by parseActiveRowsStream and accessible to
+// tests via parseActiveRows.
+func parseActiveRowLine(line []byte) (AttributionRow, error) {
+	var w activeWireRow
+	if err := json.Unmarshal(line, &w); err != nil {
+		// Don't echo the raw line — it can carry CH row payloads
+		// that propagate to logs / surfaced errors. Length only.
+		return AttributionRow{}, fmt.Errorf("sink: parse active row (%d bytes): %w", len(line), err)
+	}
+	ts, err1 := nsFromRaw(w.TStartNs)
+	te, err2 := nsFromRaw(w.TEndNs)
+	ls, err3 := nsFromRaw(w.LastSeenNs)
+	pid, errPID := uintFromRaw(w.PID)
+	nAn, errN := uintFromRaw(w.NAnomalies)
+	if err1 != nil || err2 != nil || err3 != nil || errPID != nil || errN != nil {
+		return AttributionRow{}, fmt.Errorf("sink: parse uint64 fields: t_start=%v t_end=%v last_seen=%v pid=%v n_anomalies=%v", err1, err2, err3, errPID, errN)
+	}
+	return AttributionRow{
+		AnomalyHash: anomaly.AnomalyHash(w.AnomalyHash),
+		Namespace:   w.Namespace,
+		Pod:         w.Pod,
+		Comm:        w.Comm,
+		PID:         pid,
+		Hostname:    w.Hostname,
+		TStart:      time.Unix(0, ts).UTC(),
+		TEnd:        time.Unix(0, te).UTC(),
+		LastSeen:    time.Unix(0, ls).UTC(),
+		LastRuleID:  w.LastRuleID,
+		NAnomalies:  nAn,
+	}, nil
+}
+
+// parseActiveRows is the byte-slice convenience wrapper around
+// parseActiveRowsStream — kept for tests and e2e fixtures that have
+// already buffered the full response.
+func parseActiveRows(body []byte) ([]AttributionRow, error) {
+	return parseActiveRowsStream(bytes.NewReader(body))
 }
 
 // nsFromRaw parses a CH UInt64-as-JSON value (CH may emit either

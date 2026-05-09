@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.kubescape_logs (
 
 -- http_events — pixie/src/stirling/source_connectors/socket_tracer/http_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.http_events (
-    time_          DateTime64(9),
+    time_          DateTime64(9, 'UTC'),
     upid           String,
     namespace      String,
     pod            String,
@@ -102,14 +102,14 @@ CREATE TABLE IF NOT EXISTS forensic_db.http_events (
     resp_body_size Int64,
     latency        Int64,
     hostname       String,
-    event_time     DateTime64(3)
+    event_time     DateTime64(3, 'UTC')
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
 
 -- http2_messages.beta — http2_messages_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.`http2_messages.beta` (
-    time_       DateTime64(9),
+    time_       DateTime64(9, 'UTC'),
     upid        String,
     namespace   String,
     pod         String,
@@ -124,14 +124,14 @@ CREATE TABLE IF NOT EXISTS forensic_db.`http2_messages.beta` (
     body        String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3)
+    event_time  DateTime64(3, 'UTC')
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
 
 -- dns_events — dns_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.dns_events (
-    time_       DateTime64(9),
+    time_       DateTime64(9, 'UTC'),
     upid        String,
     namespace   String,
     pod         String,
@@ -147,14 +147,14 @@ CREATE TABLE IF NOT EXISTS forensic_db.dns_events (
     resp_body   String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3)
+    event_time  DateTime64(3, 'UTC')
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
 
 -- redis_events — redis_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.redis_events (
-    time_       DateTime64(9),
+    time_       DateTime64(9, 'UTC'),
     upid        String,
     namespace   String,
     pod         String,
@@ -169,14 +169,14 @@ CREATE TABLE IF NOT EXISTS forensic_db.redis_events (
     resp        String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3)
+    event_time  DateTime64(3, 'UTC')
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
 
 -- mysql_events — mysql_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.mysql_events (
-    time_       DateTime64(9),
+    time_       DateTime64(9, 'UTC'),
     upid        String,
     namespace   String,
     pod         String,
@@ -192,14 +192,14 @@ CREATE TABLE IF NOT EXISTS forensic_db.mysql_events (
     resp_body   String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3)
+    event_time  DateTime64(3, 'UTC')
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
 
 -- pgsql_events — pgsql_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.pgsql_events (
-    time_       DateTime64(9),
+    time_       DateTime64(9, 'UTC'),
     upid        String,
     namespace   String,
     pod         String,
@@ -213,14 +213,14 @@ CREATE TABLE IF NOT EXISTS forensic_db.pgsql_events (
     resp        String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3)
+    event_time  DateTime64(3, 'UTC')
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
 
 -- cql_events — cass_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.cql_events (
-    time_       DateTime64(9),
+    time_       DateTime64(9, 'UTC'),
     upid        String,
     namespace   String,
     pod         String,
@@ -236,14 +236,14 @@ CREATE TABLE IF NOT EXISTS forensic_db.cql_events (
     resp_body   String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3)
+    event_time  DateTime64(3, 'UTC')
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
 
 -- mongodb_events — mongodb_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.mongodb_events (
-    time_       DateTime64(9),
+    time_       DateTime64(9, 'UTC'),
     upid        String,
     namespace   String,
     pod         String,
@@ -259,14 +259,14 @@ CREATE TABLE IF NOT EXISTS forensic_db.mongodb_events (
     resp_body   String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3)
+    event_time  DateTime64(3, 'UTC')
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
 
 -- kafka_events.beta — kafka_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.`kafka_events.beta` (
-    time_       DateTime64(9),
+    time_       DateTime64(9, 'UTC'),
     upid        String,
     namespace   String,
     pod         String,
@@ -282,14 +282,14 @@ CREATE TABLE IF NOT EXISTS forensic_db.`kafka_events.beta` (
     resp        String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3)
+    event_time  DateTime64(3, 'UTC')
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
 
 -- amqp_events — amqp_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.amqp_events (
-    time_       DateTime64(9),
+    time_       DateTime64(9, 'UTC'),
     upid        String,
     namespace   String,
     pod         String,
@@ -305,14 +305,14 @@ CREATE TABLE IF NOT EXISTS forensic_db.amqp_events (
     payload     String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3)
+    event_time  DateTime64(3, 'UTC')
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
 
 -- mux_events — mux_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.mux_events (
-    time_       DateTime64(9),
+    time_       DateTime64(9, 'UTC'),
     upid        String,
     namespace   String,
     pod         String,
@@ -327,14 +327,14 @@ CREATE TABLE IF NOT EXISTS forensic_db.mux_events (
     resp        String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3)
+    event_time  DateTime64(3, 'UTC')
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
 
 -- tls_events — tls_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.tls_events (
-    time_         DateTime64(9),
+    time_         DateTime64(9, 'UTC'),
     upid          String,
     namespace     String,
     pod           String,
@@ -347,7 +347,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.tls_events (
     handshake     String,
     latency       Int64,
     hostname      String,
-    event_time    DateTime64(3)
+    event_time    DateTime64(3, 'UTC')
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);

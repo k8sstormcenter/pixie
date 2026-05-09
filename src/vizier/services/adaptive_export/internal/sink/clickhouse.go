@@ -255,11 +255,14 @@ func (s *ClickHouseHTTP) QueryActive(ctx context.Context, hostname string) ([]At
 	return parseActiveRows(body)
 }
 
+// chLiteralEscaper escapes a string for ClickHouse single-quoted literals.
+// Hoisted to a package-level var so we don't allocate a Replacer per call
+// — quoteCH runs in the per-row write path.
+var chLiteralEscaper = strings.NewReplacer(`\`, `\\`, `'`, `\'`)
+
 // quoteCH wraps a string literal for safe ClickHouse SQL embedding.
 func quoteCH(s string) string {
-	// ClickHouse uses backslash escapes inside single-quoted literals.
-	r := strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s)
-	return "'" + r + "'"
+	return "'" + chLiteralEscaper.Replace(s) + "'"
 }
 
 func encodeJSONEachRow(rows []AttributionRow) ([]byte, error) {

@@ -396,11 +396,17 @@ func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (
 	log.WithFields(log.Fields{
 		"already_on_cluster":   len(current),
 		"cluster_script_names": currentNames,
-	}).Info("preset script install — purging stale + installing built-ins")
+	}).Info("preset script install — purging managed + installing built-ins")
 
-	// Purge stale ClickHouse-plugin scripts so the tables we DDL'd are
-	// the only write targets.
+	// Purge ONLY scripts we recognise as operator-managed or as legacy
+	// presets we know are broken in the rev-2 schema. User-authored
+	// retention scripts are left alone.
 	for _, s := range current {
+		if !isOperatorManagedScript(s.Name) {
+			log.WithField("script", s.Name).
+				Debug("preset install — leaving user-authored script alone")
+			continue
+		}
 		if err := client.DeleteDataRetentionScript(s.ScriptId); err != nil {
 			log.WithError(err).WithField("script", s.Name).Warn("failed to delete stale script")
 			continue
@@ -422,6 +428,27 @@ func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (
 	return installed, nil
 }
 
+// isOperatorManagedScript decides whether a cluster-side retention
+// script is safe to delete during INSTALL_PRESET_SCRIPTS. The criteria:
+//
+//  1. Anything with the "ch-" prefix matches the operator's own
+//     builtinPresetScripts naming (ch-<table>) — managed.
+//  2. The legacy AOCC presets we explicitly want to retire because
+//     their target tables don't exist in the rev-2 schema:
+//     "conn_stats export", "dc snoop export", "stack_traces export".
+//
+// Any other script is assumed user-authored and left alone.
+func isOperatorManagedScript(name string) bool {
+	if strings.HasPrefix(name, "ch-") {
+		return true
+	}
+	switch name {
+	case "conn_stats export", "dc snoop export", "stack_traces export":
+		return true
+	}
+	return false
+}
+
 // builtinPresetScripts returns a minimum set of PxL scripts mirroring
 // the canonical Pixie preset shape — one bulk-write script per
 // socket_tracer table. Each adds namespace + pod columns and emits to
@@ -431,14 +458,14 @@ func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (
 // Schedule: 10s. Window: -15s (overlap so we don't lose rows during
 // schedule jitter).
 func builtinPresetScripts() []*script.ScriptDefinition {
+	// Drop dotted-name tables (http2_messages.beta, kafka_events.beta):
+	// `px.DataFrame(table='…')` rejects them at PxL compile time, so a
+	// preset for them would be permanently broken. The cloud-side
+	// retention plugin would have to handle those if needed.
 	tables := []string{
 		"http_events", "dns_events", "redis_events", "mysql_events",
 		"pgsql_events", "cql_events", "mongodb_events", "amqp_events",
 		"mux_events", "tls_events",
-		// http2_messages.beta and kafka_events.beta have dotted names
-		// that need backtick-quoting in CH but Pixie's px.display uses
-		// the dotted form unchanged. Including with their PxL name.
-		"http2_messages.beta", "kafka_events.beta",
 	}
 	out := make([]*script.ScriptDefinition, 0, len(tables))
 	for _, t := range tables {

@@ -112,6 +112,10 @@ func New(cfg Config) (*ClickHouseHTTP, error) {
 	if u.RawQuery != "" || u.Fragment != "" {
 		return nil, fmt.Errorf("sink: Endpoint must not include query parameters or a fragment: %q", cfg.Endpoint)
 	}
+	// Strip a trailing "/" from the path so downstream concatenation
+	// (Endpoint + "/?query=…") doesn't produce a "//?query=…" — some
+	// proxies / ingress controllers reject double-slashes.
+	cfg.Endpoint = strings.TrimRight(cfg.Endpoint, "/")
 	if cfg.Database == "" {
 		cfg.Database = "forensic_db"
 	}
@@ -180,8 +184,11 @@ func (s *ClickHouseHTTP) WritePixieRows(ctx context.Context, table string, rows 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("sink: pixie HTTP %d (%s): %s", resp.StatusCode, table, strings.TrimSpace(string(body)))
+		// CH echoes failing rows back in the error body — would leak
+		// pixie traffic into operator logs. Drain (so the conn is
+		// reusable) but don't echo it.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("sink: pixie HTTP %d (%s)", resp.StatusCode, table)
 	}
 	return nil
 }

@@ -317,7 +317,9 @@ func parseActiveRows(body []byte) ([]AttributionRow, error) {
 		}
 		var w wireRow
 		if err := json.Unmarshal(line, &w); err != nil {
-			return nil, fmt.Errorf("sink: parse active row: %w (line=%q)", err, string(line))
+			// Don't echo the raw line — it can carry CH row payloads
+			// that propagate to logs / surfaced errors. Length only.
+			return nil, fmt.Errorf("sink: parse active row (%d bytes): %w", len(line), err)
 		}
 		ts, err1 := nsFromRaw(w.TStartNs)
 		te, err2 := nsFromRaw(w.TEndNs)

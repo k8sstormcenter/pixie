@@ -177,7 +177,7 @@ func main() {
 		}
 	}
 
-	// 2. Build trigger + sink + controller.
+	// 4. Build trigger + sink + controller.
 	pollInterval := durEnv(envTriggerPollMS, 250*time.Millisecond, time.Millisecond)
 	trg, err := trigger.New(trigger.Config{
 		Endpoint:     chEndpoint,
@@ -235,14 +235,14 @@ func main() {
 		ctl = ctl.WithPixieQuerier(&pixieAdapter{a: pixieapi.New(pxClient, cfg.Pixie().ClusterID())})
 	}
 
-	// 3. Rehydrate active state across crashes.
+	// 5. Rehydrate active state across crashes.
 	if err := ctl.Rehydrate(ctx); err != nil {
 		log.WithError(err).Warn("could not rehydrate active set; starting cold")
 	} else {
 		log.WithField("active", ctl.Active()).Info("active set rehydrated")
 	}
 
-	// 4. Periodic prune of in-memory expired entries + main controller loop.
+	// 6. Periodic prune of in-memory expired entries + main controller loop.
 	//    Both goroutines are tracked in a WaitGroup so SIGTERM cleanly waits
 	//    for in-flight HTTP calls (trigger 5s timeout, sink 30s timeout)
 	//    instead of being cut off by an arbitrary 500ms sleep.
@@ -265,7 +265,7 @@ func main() {
 		}
 	}()
 
-	// 5. Run the controller.
+	// 7. Run the controller.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -441,5 +441,3 @@ func builtinPresetScripts() []*script.ScriptDefinition {
 	}
 	return out
 }
-
-var _ = fmt.Sprintf

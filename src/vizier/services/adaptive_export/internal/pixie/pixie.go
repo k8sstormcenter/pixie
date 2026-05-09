@@ -25,6 +25,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/gogo/protobuf/types"
@@ -69,8 +70,12 @@ func NewClient(ctx context.Context, apiKey string, cloudAddr string) (*Client, e
 }
 
 func (c *Client) init() error {
-	isInternal := strings.Contains(c.cloudAddr, "cluster.local")
-	tlsConfig := &tls.Config{InsecureSkipVerify: isInternal}
+	host := c.cloudAddr
+	if h, _, err := net.SplitHostPort(c.cloudAddr); err == nil {
+		host = h
+	}
+	isInternal := host == "cluster.local" || strings.HasSuffix(host, ".cluster.local")
+	tlsConfig := &tls.Config{InsecureSkipVerify: isInternal} //nolint:gosec // in-cluster vizier traffic only
 	creds := credentials.NewTLS(tlsConfig)
 	conn, err := grpc.Dial(c.cloudAddr, grpc.WithTransportCredentials(creds))
 	if err != nil {

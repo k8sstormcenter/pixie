@@ -39,6 +39,9 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	if !IsBuiltin(table) {
 		return "", fmt.Errorf("%w: %q", ErrUnknownTable, table)
 	}
+	// pad covers (now - sliceStart) plus a 30s safety margin. When
+	// sliceStart is in the future (caller bug), now.Sub is negative and
+	// we'd ask pixie for a positive-only relative start; clamp to 30s.
 	pad := now.Sub(sliceStart) + 30*time.Second
 	if pad < 30*time.Second {
 		pad = 30 * time.Second

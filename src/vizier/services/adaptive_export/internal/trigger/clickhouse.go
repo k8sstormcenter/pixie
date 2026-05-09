@@ -281,7 +281,10 @@ func parseUint64Loose(raw json.RawMessage) (uint64, error) {
 	return strconv.ParseUint(s, 10, 64)
 }
 
+// chLiteralEscaper — hoisted to a package-level var so we don't allocate
+// a Replacer per call (quoteCH is hot in rowFingerprint).
+var chLiteralEscaper = strings.NewReplacer(`\`, `\\`, `'`, `\'`)
+
 func quoteCH(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s)
-	return "'" + r + "'"
+	return "'" + chLiteralEscaper.Replace(s) + "'"
 }

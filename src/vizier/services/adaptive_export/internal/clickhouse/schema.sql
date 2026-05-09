@@ -377,6 +377,10 @@ CREATE TABLE IF NOT EXISTS forensic_db.tls_events (
 --
 --   SELECT * FROM forensic_db.adaptive_attribution FINAL
 --   WHERE hostname = '<node>' AND t_end > now64(9);
+--
+-- DateTime64(9, 'UTC') — pin tz so bare-string serialization is
+-- unambiguous; without it, CH parses incoming timestamps in the
+-- server-session timezone and silently shifts values on non-UTC hosts.
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS forensic_db.adaptive_attribution (
     anomaly_hash String,
@@ -385,9 +389,9 @@ CREATE TABLE IF NOT EXISTS forensic_db.adaptive_attribution (
     comm         String,
     pid          UInt64,
     hostname     String,
-    t_start      DateTime64(9),
-    t_end        DateTime64(9),
-    last_seen    DateTime64(9),
+    t_start      DateTime64(9, 'UTC'),
+    t_end        DateTime64(9, 'UTC'),
+    last_seen    DateTime64(9, 'UTC'),
     last_rule_id String,
     n_anomalies  UInt64
 ) ENGINE = ReplacingMergeTree(t_end)

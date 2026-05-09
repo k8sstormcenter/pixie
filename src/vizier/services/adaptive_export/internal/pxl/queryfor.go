@@ -51,12 +51,20 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	b.WriteString("df = df[df.time_ >= px.int64_to_time(" + strconv.FormatInt(sliceStart.UnixNano(), 10) + ")]\n")
 	b.WriteString("df = df[df.time_ <  px.int64_to_time(" + strconv.FormatInt(sliceEnd.UnixNano(), 10) + ")]\n")
 	b.WriteString("df.namespace = px.upid_to_namespace(df.upid)\n")
+	// px.upid_to_pod_name returns "<namespace>/<pod>" (carnot:
+	// metadata_ops.h UPIDToPodNameUDF::Exec → absl::Substitute("$0/$1", ns, name)),
+	// not the bare pod name. Filtering against bare t.Pod would always
+	// miss; build the namespaced key when we have both fields.
 	b.WriteString("df.pod = px.upid_to_pod_name(df.upid)\n")
 	if t.Namespace != "" {
 		b.WriteString("df = df[df.namespace == '" + escapePxL(t.Namespace) + "']\n")
 	}
 	if t.Pod != "" {
-		b.WriteString("df = df[df.pod == '" + escapePxL(t.Pod) + "']\n")
+		podKey := t.Pod
+		if t.Namespace != "" {
+			podKey = t.Namespace + "/" + t.Pod
+		}
+		b.WriteString("df = df[df.pod == '" + escapePxL(podKey) + "']\n")
 	}
 	b.WriteString("px.display(df, '" + table + "')\n")
 	return b.String(), nil

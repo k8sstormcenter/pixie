@@ -52,9 +52,7 @@ func canonicalAttribution() AttributionRow {
 // TestSink_Write_PostsCorrectQueryAndBody — INSERT targets the right
 // table; body is one JSON object per line with all attribution fields.
 func TestSink_Write_PostsCorrectQueryAndBody(t *testing.T) {
-	var (
-		gotQuery, gotBody string
-	)
+	var gotQuery, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.Query().Get("query")
 		b, _ := io.ReadAll(r.Body)

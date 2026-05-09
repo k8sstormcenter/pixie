@@ -9,5 +9,6 @@ go_library(
         "//src/api/go/pxapi",
         "//src/api/go/pxapi/errdefs",
         "//src/api/go/pxapi/types",
+        "//src/shared/services/utils",
     ],
 )

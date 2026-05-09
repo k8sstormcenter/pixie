@@ -226,13 +226,29 @@ func main() {
 	}
 	ctl := controller.New(trg, snk, ctlCfg, nil)
 	if len(ctlCfg.PushPixieTables) > 0 {
-		pxClient, err := pxapi.NewClient(ctx,
-			pxapi.WithAPIKey(cfg.Pixie().APIKey()),
-			pxapi.WithCloudAddr(cfg.Pixie().Host()))
-		if err != nil {
-			log.WithError(err).Fatal("ADAPTIVE_PUSH_PIXIE_ROWS=true but failed to create pxapi client")
+		var adapter *pixieapi.Adapter
+		if direct := os.Getenv("ADAPTIVE_VIZIER_DIRECT_ADDR"); direct != "" {
+			// Direct mode — bypass the cloud's passthrough proxy and
+			// connect to the in-cluster vizier-query-broker. Use this
+			// on self-hosted clouds where pxapi.WithAPIKey isn't
+			// authorized for the cluster (e.g. a freshly-deployed
+			// vizier whose ID isn't yet linked to the API key's owner).
+			a, err := pixieapi.NewDirectFromEnv(cfg.Pixie().ClusterID())
+			if err != nil {
+				log.WithError(err).Fatal("ADAPTIVE_VIZIER_DIRECT_ADDR set but direct-mode adapter init failed")
+			}
+			log.WithField("addr", direct).Info("pixieapi: direct mode (bypassing cloud proxy)")
+			adapter = a
+		} else {
+			pxClient, err := pxapi.NewClient(ctx,
+				pxapi.WithAPIKey(cfg.Pixie().APIKey()),
+				pxapi.WithCloudAddr(cfg.Pixie().Host()))
+			if err != nil {
+				log.WithError(err).Fatal("ADAPTIVE_PUSH_PIXIE_ROWS=true but failed to create pxapi client")
+			}
+			adapter = pixieapi.New(pxClient, cfg.Pixie().ClusterID())
 		}
-		ctl = ctl.WithPixieQuerier(&pixieAdapter{a: pixieapi.New(pxClient, cfg.Pixie().ClusterID())})
+		ctl = ctl.WithPixieQuerier(&pixieAdapter{a: adapter})
 	}
 
 	// 5. Rehydrate active state across crashes.

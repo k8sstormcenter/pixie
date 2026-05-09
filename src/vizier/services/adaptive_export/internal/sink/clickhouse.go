@@ -105,6 +105,13 @@ func New(cfg Config) (*ClickHouseHTTP, error) {
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return nil, fmt.Errorf("sink: Endpoint must be an absolute http(s) URL: %q", cfg.Endpoint)
 	}
+	// We append "/?query=…" downstream via string concatenation; if
+	// the configured Endpoint already carries a query or fragment, the
+	// concatenated URL is malformed (a second '?' becomes path data,
+	// fragments swallow trailing characters). Forbid both up-front.
+	if u.RawQuery != "" || u.Fragment != "" {
+		return nil, fmt.Errorf("sink: Endpoint must not include query parameters or a fragment: %q", cfg.Endpoint)
+	}
 	if cfg.Database == "" {
 		cfg.Database = "forensic_db"
 	}
@@ -113,6 +120,12 @@ func New(cfg Config) (*ClickHouseHTTP, error) {
 	// injection via env/config-supplied values.
 	if !chIdentRE.MatchString(cfg.Database) {
 		return nil, fmt.Errorf("sink: invalid Database identifier %q (must match [A-Za-z_][A-Za-z0-9_]*)", cfg.Database)
+	}
+	// http.Client.Timeout enforces only when >0; a negative value
+	// would silently disable the deadline. Reject explicitly so the
+	// "0 → 30s default" branch below is the only zero-handling path.
+	if cfg.Timeout < 0 {
+		return nil, fmt.Errorf("sink: Timeout must be >= 0 (got %s)", cfg.Timeout)
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second

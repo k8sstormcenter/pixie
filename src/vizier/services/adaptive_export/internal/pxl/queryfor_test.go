@@ -28,8 +28,8 @@ import (
 // fixed reference time for deterministic relStart computation.
 var (
 	fixedNow   = time.Date(2026, 5, 9, 15, 23, 44, 0, time.UTC)
-	fixedStart = fixedNow.Add(-5 * time.Minute)             // ATTACK − 5 min
-	fixedEnd   = fixedNow.Add(5 * time.Minute)              // ATTACK + 5 min
+	fixedStart = fixedNow.Add(-5 * time.Minute) // ATTACK − 5 min
+	fixedEnd   = fixedNow.Add(5 * time.Minute)  // ATTACK + 5 min
 	target     = anomaly.Target{
 		PID: 12345, Comm: "redis-server",
 		Pod: "redis-6fbcfb97c-82qxv", Namespace: "redis",
@@ -170,7 +170,9 @@ func TestQueryFor_EscapesSingleQuoteInTarget(t *testing.T) {
 	}
 }
 
-// TestQueryFor_EscapesBackslashInTarget — backslashes too.
+// TestQueryFor_EscapesBackslashInTarget — backslashes too. Asserts
+// both namespace and the namespaced pod-key forms are escaped, so a
+// `Pod` containing `\` can't terminate the PxL string literal.
 func TestQueryFor_EscapesBackslashInTarget(t *testing.T) {
 	tWeird := anomaly.Target{Namespace: `ns\back`, Pod: `p\od`}
 	q, err := QueryFor("redis_events", tWeird, fixedStart, fixedEnd, fixedNow)
@@ -179,6 +181,9 @@ func TestQueryFor_EscapesBackslashInTarget(t *testing.T) {
 	}
 	if !strings.Contains(q, `df = df[df.namespace == 'ns\\back']`) {
 		t.Fatalf("expected escaped namespace; got:\n%s", q)
+	}
+	if !strings.Contains(q, `df = df[df.pod == 'ns\\back/p\\od']`) {
+		t.Fatalf("expected escaped namespaced pod key; got:\n%s", q)
 	}
 }
 

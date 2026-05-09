@@ -451,4 +451,3 @@ func TestParseActiveRows_RoundTripFromBytes(t *testing.T) {
 		t.Fatalf("round-trip mismatch: %+v", rows)
 	}
 }
-

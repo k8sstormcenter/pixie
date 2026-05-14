@@ -138,6 +138,7 @@ jobs:
         PX_API_KEY: ${{ secrets.PX_API_KEY }}
         GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.gcloud-creds.outputs.gcloud-creds }}
         KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        SOC_VIZIER_EXISTING: "1"
       run: |
         bazel run //src/e2e_test/perf_tool:perf_tool -- run \
           --api_key="${PX_API_KEY}" \

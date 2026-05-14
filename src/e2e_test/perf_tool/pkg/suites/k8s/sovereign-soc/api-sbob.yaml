@@ -1,0 +1,20 @@
+---
+# Empty user-defined ApplicationProfile for the api-backend container. See
+# redis-sbob.yaml for the rationale; same pattern, container name `api`
+# matches api-backend.yaml.
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ApplicationProfile
+metadata:
+  name: api-empty
+  namespace: redis
+spec:
+  architectures:
+  - amd64
+  containers:
+  - name: api
+    capabilities: null
+    endpoints:    null
+    execs:        null
+    opens:        null
+    syscalls:     null
+    rulePolicies: {}

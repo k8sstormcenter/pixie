@@ -171,17 +171,17 @@ func KubescapeVectorWorkload() *pb.WorkloadSpec {
 }
 
 // RedisVulnerableWorkload deploys the pre-populated Kubescape
-// ApplicationProfile, the intentionally vulnerable Redis 7.2.10, and a
-// tiny `redis-warmer` Deployment used by the sovereign-soc suite. All
-// three YAMLs land in the `redis` namespace.
+// ApplicationProfile and the intentionally vulnerable Redis 7.2.10 pod
+// that bobctl-attack targets. Both YAMLs land in the `redis` namespace.
 //
-// Tagged as `infra` so it deploys BEFORE START_METRIC_RECORDERS — without
-// this, the ClickHouseExportLoadMetric script fails at PxL compile time
-// with `Table 'redis_events' not found` because Pixie's PEM doesn't
-// register the redis_events table until at least one RESP-protocol
-// packet has been observed. redis-warmer.yaml provides that traffic by
-// PINGing the redis service in a loop, so the table is alive before any
-// metric script probes it.
+// Tagged as `infra` so it deploys BEFORE START_METRIC_RECORDERS. The
+// redis_events table only registers in Pixie after the PEM observes a
+// RESP packet; with MultiTierAppWorkload running in the same selector,
+// the api backend's redis cache traffic provides that first packet
+// before any metric script probes the table. (Previously a separate
+// redis-warmer Deployment served this role, but k6 → api → redis under
+// MultiTierAppWorkload drives orders of magnitude more traffic and
+// makes the warmer redundant.)
 //
 // Assumes the target cluster has Kubescape (honey/node-agent) preinstalled
 // — the k8ssandra suite has the same "external prerequisite" shape.
@@ -193,16 +193,112 @@ func RedisVulnerableWorkload() *pb.WorkloadSpec {
 			{
 				DeployType: &pb.DeployStep_Prerendered{
 					Prerendered: &pb.PrerenderedDeploy{
+						// sbob ApplicationProfiles MUST precede the
+						// Deployments — kubescape only honours the
+						// `kubescape.io/user-defined-profile` label if
+						// the named profile already exists when the pod
+						// is admitted; otherwise it silently falls back
+						// to auto-learning and the t0-alerting we're
+						// trying to enable doesn't happen. See
+						// feedback_kubescape_empty_profile.
 						YAMLPaths: []string{
 							fmt.Sprintf("%s/redis-sbob.yaml", sovereignSOCYAMLRoot),
+							fmt.Sprintf("%s/redis-client-sbob.yaml", sovereignSOCYAMLRoot),
 							fmt.Sprintf("%s/redis-vulnerable.yaml", sovereignSOCYAMLRoot),
-							fmt.Sprintf("%s/redis-warmer.yaml", sovereignSOCYAMLRoot),
 						},
 					},
 				},
 			},
 		},
 		Healthchecks: redisHealthChecks("redis"),
+	}
+}
+
+// MultiTierAppWorkload deploys a three-tier HTTP stack into the `redis`
+// namespace whose request mix exercises four Pixie protocol decoders
+// at the same time (http_events, redis_events, pgsql_events, dns_events):
+//
+//	loadgen (k6)
+//	  │
+//	  ▼ HTTP /api/item/{id}, /api/event        ─→ http_events
+//	api-backend (Flask + gunicorn × 2 replicas)
+//	  │                       │
+//	  ▼ Redis GET/SETEX/DEL   ▼ PostgreSQL SELECT/INSERT
+//	redis (existing)        postgres (new)
+//	redis_events            pgsql_events
+//
+// `qps` is k6's constant-arrival-rate target; `vus` the steady-state
+// worker pool; `maxVUs` the burst cap. The base loadgen-k6.yaml ships
+// configured for qps=500 / vus=50 / maxVUs=200 (the 1× profile); higher
+// multipliers are wired in via a strategic-merge env patch on the
+// loadgen Deployment, so the same three YAMLs serve all load levels.
+// Kustomize merges env entries by `name`, replacing the relevant values
+// in place without touching API_URL or anything else.
+//
+// Tagged `infra` so the redis + postgres + http traffic starts BEFORE
+// the metric recorders' PxL healthcheck queries Pixie's protocol
+// tables — without that ordering, the healthcheck loops on
+// `Table 'redis_events' not found`.
+func MultiTierAppWorkload(qps, vus, maxVUs int) *pb.WorkloadSpec {
+	envPatch := fmt.Sprintf(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: redis
+spec:
+  template:
+    spec:
+      containers:
+      - name: k6
+        env:
+        - {name: K6_QPS,     value: "%d"}
+        - {name: K6_VUS,     value: "%d"}
+        - {name: K6_MAX_VUS, value: "%d"}
+`, qps, vus, maxVUs)
+	return &pb.WorkloadSpec{
+		Name:           "multi-tier-app",
+		ActionSelector: SovereignSOCInfraSelector,
+		DeploySteps: []*pb.DeployStep{
+			{
+				DeployType: &pb.DeployStep_Prerendered{
+					Prerendered: &pb.PrerenderedDeploy{
+						// sbob ApplicationProfiles first — same reasoning
+						// as RedisVulnerableWorkload: the user-defined-
+						// profile label only takes effect if the named
+						// profile already exists at pod-admission time.
+						// loadgen is intentionally NOT profiled — it
+						// carries `kubescape.io/ignore: true` because it
+						// IS the adversary surface for k6 traffic.
+						YAMLPaths: []string{
+							fmt.Sprintf("%s/postgres-sbob.yaml", sovereignSOCYAMLRoot),
+							fmt.Sprintf("%s/api-sbob.yaml", sovereignSOCYAMLRoot),
+							fmt.Sprintf("%s/postgres.yaml", sovereignSOCYAMLRoot),
+							fmt.Sprintf("%s/api-backend.yaml", sovereignSOCYAMLRoot),
+							fmt.Sprintf("%s/loadgen-k6.yaml", sovereignSOCYAMLRoot),
+						},
+						Patches: []*pb.PatchSpec{
+							{
+								Target: &pb.PatchTarget{
+									Kind:      "Deployment",
+									Name:      "loadgen",
+									Namespace: "redis",
+								},
+								YAML: envPatch,
+							},
+						},
+					},
+				},
+			},
+		},
+		Healthchecks: []*pb.HealthCheck{
+			{
+				CheckType: &pb.HealthCheck_K8S{
+					K8S: &pb.K8SPodsReadyCheck{
+						Namespace: "redis",
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -302,11 +398,19 @@ func SovereignSOCRedisAttackExperiment(
 	alertCountWindow time.Duration,
 	predeployDur time.Duration,
 	dur time.Duration,
+	qpsMultiplier int,
 ) *pb.ExperimentSpec {
 	vizierSpec := VizierWorkload()
 	if os.Getenv("SOC_VIZIER_EXISTING") == "1" {
 		vizierSpec = existingVizierWorkload()
 	}
+	// Three-tier load profile. 1× = 500 k6 QPS / 50 preallocated VUs /
+	// 200 maxVUs (k6's own runtime cap). Each multiplier scales all
+	// three linearly — VUs > QPS would just sit idle, and maxVUs needs
+	// to stay above VUs to leave headroom for tail latency.
+	qps := 500 * qpsMultiplier
+	vus := 50 * qpsMultiplier
+	maxVUs := 200 * qpsMultiplier
 	e := &pb.ExperimentSpec{
 		VizierSpec: vizierSpec,
 		WorkloadSpecs: []*pb.WorkloadSpec{
@@ -316,6 +420,10 @@ func SovereignSOCRedisAttackExperiment(
 			// forensic_db.kubescape_logs on the external forensic CH.
 			KubescapeVectorWorkload(),
 			RedisVulnerableWorkload(),
+			// Three-tier loadgen → api → (redis + postgres) lights up
+			// http/redis/pgsql/dns events simultaneously at the chosen
+			// QPS multiplier.
+			MultiTierAppWorkload(qps, vus, maxVUs),
 			BobctlAttackWorkload(),
 		},
 		MetricSpecs: []*pb.MetricSpec{
@@ -368,6 +476,8 @@ func SovereignSOCRedisAttackExperiment(
 		"workload/redis-attack",
 		fmt.Sprintf("parameter/export_window/%s", exportWindow),
 		fmt.Sprintf("parameter/alert_count_window/%s", alertCountWindow),
+		fmt.Sprintf("parameter/load_multiplier/%dx", qpsMultiplier),
+		fmt.Sprintf("parameter/k6_qps/%d", qps),
 	)
 	return e
 }

@@ -20,6 +20,7 @@ package suites
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	pb "px.dev/pixie/src/e2e_test/perf_tool/experimentpb"
@@ -196,8 +197,19 @@ func sovereignSOCSuite() map[string]*pb.ExperimentSpec {
 	//   - alertsDSN:  /forensic_db   — where Vector lands Kubescape alerts.
 	// forensic_db must be pre-created via soc/tree/clickhouse-lab/schema.sql;
 	// this suite does not bootstrap CH schemas (CH is shared infra).
-	const clickhouseHost = "clickhouse.forensic.austrianopencloudcommunity.org:9000"
-	const clickhouseCreds = "pixie:pixie_password"
+	//
+	// SOC_CH_HOST / SOC_CH_CREDS override the defaults for local-cluster runs
+	// where the forensic CH is in the same k3s as the experiment workloads
+	// (perf_tool's local-ci.sh phase 9 sets these to a NodePort + the local
+	// `pixie` user it creates).
+	clickhouseHost := os.Getenv("SOC_CH_HOST")
+	if clickhouseHost == "" {
+		clickhouseHost = "clickhouse.forensic.austrianopencloudcommunity.org:9000"
+	}
+	clickhouseCreds := os.Getenv("SOC_CH_CREDS")
+	if clickhouseCreds == "" {
+		clickhouseCreds = "pixie:pixie_password"
+	}
 	exportDSN := fmt.Sprintf("%s@%s/default", clickhouseCreds, clickhouseHost)
 	alertsDSN := fmt.Sprintf("%s@%s/forensic_db", clickhouseCreds, clickhouseHost)
 	exportTable := "redis_events"
@@ -207,15 +219,33 @@ func sovereignSOCSuite() map[string]*pb.ExperimentSpec {
 	// some demo variants but is not populated by the stock Vector config.
 	alertsTable := "kubescape_logs"
 
-	exps := map[string]*pb.ExperimentSpec{
-		"redis-attack": SovereignSOCRedisAttackExperiment(
+	// Load sweep. The MultiTierAppWorkload's k6 loadgen scales linearly
+	// with the multiplier: 1× = 500 QPS, 32× = 16 000 QPS hitting the API
+	// (which fans out to redis + postgres at correlated rates). Run a
+	// single multiplier via `--experiment_name=redis-attack-<N>x`, or
+	// run them all sequentially to characterize Pixie + CH + adaptive
+	// operator headroom across the sweep.
+	//
+	// Range starts at 2× because the 1×–16× sweep on 2026-05-14 showed
+	// PEM peaking at only ~400 % CPU and CH at 1.5 GB / 16 GB — the
+	// 32-core / 64 GB VM was nowhere near the knee. 64× ≈ 32 k QPS
+	// stretches the loadgen → API → redis + postgres → Pixie path
+	// hard enough to either saturate something or expose the next
+	// bottleneck (currently suspect: redis-server's single-thread
+	// 1-CPU limit, gunicorn worker count, or k6 self-throttling).
+	loadMultipliers := []int{2, 4, 8, 16, 32, 64}
+	exps := map[string]*pb.ExperimentSpec{}
+	for _, m := range loadMultipliers {
+		name := fmt.Sprintf("redis-attack-%dx", m)
+		exps[name] = SovereignSOCRedisAttackExperiment(
 			defaultMetricPeriod,
 			exportPeriod, exportWindow,
 			exportDSN, exportTable,
 			alertsDSN, alertsTable,
 			alertCountWindow,
 			preDur, dur,
-		),
+			m,
+		)
 	}
 	for _, e := range exps {
 		addTags(e, "suite/sovereign-soc")

@@ -1,0 +1,20 @@
+---
+# Empty user-defined ApplicationProfile for the redis-client container.
+# See redis-sbob.yaml for the full rationale. Container name `client`
+# matches redis-vulnerable.yaml's second Deployment.
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ApplicationProfile
+metadata:
+  name: redis-client-empty
+  namespace: redis
+spec:
+  architectures:
+  - amd64
+  containers:
+  - name: client
+    capabilities: null
+    endpoints:    null
+    execs:        null
+    opens:        null
+    syscalls:     null
+    rulePolicies: {}

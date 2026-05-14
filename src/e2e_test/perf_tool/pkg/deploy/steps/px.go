@@ -20,9 +20,11 @@ package steps
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/gofrs/uuid"
+	log "github.com/sirupsen/logrus"
 
 	"px.dev/pixie/src/e2e_test/perf_tool/experimentpb"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/cluster"
@@ -84,16 +86,33 @@ func (px *pxDeployImpl) Deploy(clusterCtx *cluster.Context) ([]string, error) {
 		}
 	}
 	if px.spec.SetClusterID {
-		clusterIDBytes, err := px.pxCtx.RunPXCmd(clusterCtx, "get", "cluster", "--id")
-		if err != nil {
-			return nil, err
+		// Allow a direct UUID override via env. Useful when the px CLI
+		// in this runner has no cluster selected and `px get cluster --id`
+		// would otherwise return empty or a stale row.
+		if override := strings.TrimSpace(os.Getenv("SOC_VIZIER_CLUSTER_ID")); override != "" {
+			id, err := uuid.FromString(override)
+			if err != nil {
+				return nil, fmt.Errorf("SOC_VIZIER_CLUSTER_ID %q is not a valid UUID: %w", override, err)
+			}
+			log.WithField("source", "env").WithField("cluster_id", id.String()).Info("Binding existing Vizier cluster ID")
+			px.pxCtx.SetClusterID(id)
+		} else {
+			clusterIDBytes, err := px.pxCtx.RunPXCmd(clusterCtx, "get", "cluster", "--id")
+			if err != nil {
+				return nil, fmt.Errorf("px get cluster --id failed: %w", err)
+			}
+			clusterIDStr := strings.Trim(string(clusterIDBytes), " \n")
+			log.WithField("source", "px get cluster --id").WithField("raw", clusterIDStr).Info("Resolving existing Vizier cluster ID")
+			id, err := uuid.FromString(clusterIDStr)
+			if err != nil {
+				return nil, fmt.Errorf("px get cluster --id returned %q which is not a UUID: %w", clusterIDStr, err)
+			}
+			if (id == uuid.UUID{}) {
+				return nil, fmt.Errorf("px get cluster --id returned the zero UUID; the cluster is not registered (or the px CLI has no cluster selected). Set SOC_VIZIER_CLUSTER_ID to override")
+			}
+			log.WithField("cluster_id", id.String()).Info("Binding existing Vizier cluster ID")
+			px.pxCtx.SetClusterID(id)
 		}
-		clusterIDStr := strings.Trim(string(clusterIDBytes), " \n")
-		id, err := uuid.FromString(clusterIDStr)
-		if err != nil {
-			return nil, err
-		}
-		px.pxCtx.SetClusterID(id)
 	}
 	// We don't know what namespaces a given `px` command will create, so we rely on the user to set them in the spec.
 	return px.spec.Namespaces, nil

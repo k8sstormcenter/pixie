@@ -136,14 +136,19 @@ func (r *pxlScriptRecorderImpl) runPeriodicScript(ctx context.Context) error {
 	}
 	t := time.NewTicker(d)
 
+	// Tolerate transient errors per-iteration — the AOCC cloud passthrough
+	// proxy races the forwarder occasionally (see "Query <uuid> not registered
+	// in query forwarder" — ~0.66% of recorder iterations at exportPeriod=5s),
+	// and returning here aborts the entire 25-min experiment for what is
+	// otherwise harmless. A persistently broken recorder will still surface
+	// via zero output rows on the downstream metric tables.
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-t.C:
-			err := r.executeScript(ctx)
-			if err != nil {
-				return err
+			if err := r.executeScript(ctx); err != nil {
+				log.WithError(err).Warn("recorder iteration failed; continuing")
 			}
 		}
 	}

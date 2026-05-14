@@ -74,8 +74,14 @@ func (px *pxDeployImpl) Deploy(clusterCtx *cluster.Context) ([]string, error) {
 	if hasElem(args, "deploy") && !hasElem(args, "-y") {
 		args = append(args, "-y")
 	}
-	if _, err := px.pxCtx.RunPXCmd(clusterCtx, args...); err != nil {
-		return nil, err
+	// Empty Args is used by callers that only want SetClusterID against a
+	// pre-existing Pixie deployment (e.g. the SOC_VIZIER_EXISTING path in
+	// the sovereign-soc suite). Skip the bare `px` invocation in that case
+	// — it would otherwise just print help and clutter the trace log.
+	if len(args) > 0 {
+		if _, err := px.pxCtx.RunPXCmd(clusterCtx, args...); err != nil {
+			return nil, err
+		}
 	}
 	if px.spec.SetClusterID {
 		clusterIDBytes, err := px.pxCtx.RunPXCmd(clusterCtx, "get", "cluster", "--id")

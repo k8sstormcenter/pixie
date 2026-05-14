@@ -22,6 +22,7 @@ import (
 	// Embed import is required to use go:embed directive.
 	_ "embed"
 	"fmt"
+	"os"
 	"strings"
 	"text/template"
 	"time"
@@ -31,6 +32,33 @@ import (
 
 	pb "px.dev/pixie/src/e2e_test/perf_tool/experimentpb"
 )
+
+// existingVizierWorkload returns a VizierSpec that skips the deploy/skaffold
+// rebuild but still binds the existing cluster's UUID to the Pixie context.
+// Used when SOC_VIZIER_EXISTING=1 — e.g., the local-ci.sh phase 9 path where
+// Pixie is already running in `pl` and connected to AOCC over Tailscale.
+//
+// The single PxCLIDeploy step has empty Args (so it does NOT redeploy) but
+// SetClusterID=true, which makes pxDeployImpl.Deploy() call `px get cluster
+// --id` and feed the result into pxCtx.SetClusterID. Without that, every
+// subsequent NewVizierClient call errors with "must call SetClusterID
+// before calling NewVizierClient on Context" — observed as a silent
+// healthcheck loop until the 10-min backoff times out.
+func existingVizierWorkload() *pb.WorkloadSpec {
+	return &pb.WorkloadSpec{
+		Name: "vizier",
+		DeploySteps: []*pb.DeployStep{
+			{
+				DeployType: &pb.DeployStep_Px{
+					Px: &pb.PxCLIDeploy{
+						SetClusterID: true,
+					},
+				},
+			},
+		},
+		Healthchecks: VizierHealthChecks(),
+	}
+}
 
 // Paths are resolved relative to the pixie workspace root; run.go chdirs
 // there at startup via BUILD_WORKSPACE_DIRECTORY / `git rev-parse
@@ -143,13 +171,24 @@ func KubescapeVectorWorkload() *pb.WorkloadSpec {
 }
 
 // RedisVulnerableWorkload deploys the pre-populated Kubescape
-// ApplicationProfile and the intentionally vulnerable Redis 7.2.10 used by
-// the sovereign-soc suite. Both YAMLs land in the `redis` namespace.
+// ApplicationProfile, the intentionally vulnerable Redis 7.2.10, and a
+// tiny `redis-warmer` Deployment used by the sovereign-soc suite. All
+// three YAMLs land in the `redis` namespace.
+//
+// Tagged as `infra` so it deploys BEFORE START_METRIC_RECORDERS — without
+// this, the ClickHouseExportLoadMetric script fails at PxL compile time
+// with `Table 'redis_events' not found` because Pixie's PEM doesn't
+// register the redis_events table until at least one RESP-protocol
+// packet has been observed. redis-warmer.yaml provides that traffic by
+// PINGing the redis service in a loop, so the table is alive before any
+// metric script probes it.
+//
 // Assumes the target cluster has Kubescape (honey/node-agent) preinstalled
 // — the k8ssandra suite has the same "external prerequisite" shape.
 func RedisVulnerableWorkload() *pb.WorkloadSpec {
 	return &pb.WorkloadSpec{
-		Name: "redis-vulnerable",
+		Name:           "redis-vulnerable",
+		ActionSelector: SovereignSOCInfraSelector,
 		DeploySteps: []*pb.DeployStep{
 			{
 				DeployType: &pb.DeployStep_Prerendered{
@@ -157,6 +196,7 @@ func RedisVulnerableWorkload() *pb.WorkloadSpec {
 						YAMLPaths: []string{
 							fmt.Sprintf("%s/redis-sbob.yaml", sovereignSOCYAMLRoot),
 							fmt.Sprintf("%s/redis-vulnerable.yaml", sovereignSOCYAMLRoot),
+							fmt.Sprintf("%s/redis-warmer.yaml", sovereignSOCYAMLRoot),
 						},
 					},
 				},
@@ -263,8 +303,12 @@ func SovereignSOCRedisAttackExperiment(
 	predeployDur time.Duration,
 	dur time.Duration,
 ) *pb.ExperimentSpec {
+	vizierSpec := VizierWorkload()
+	if os.Getenv("SOC_VIZIER_EXISTING") == "1" {
+		vizierSpec = existingVizierWorkload()
+	}
 	e := &pb.ExperimentSpec{
-		VizierSpec: VizierWorkload(),
+		VizierSpec: vizierSpec,
 		WorkloadSpecs: []*pb.WorkloadSpec{
 			// Kubescape + Vector first so the node-agent is running and
 			// Vector's log pipeline is live before any attack traffic is

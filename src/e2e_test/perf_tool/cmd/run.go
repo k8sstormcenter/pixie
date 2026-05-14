@@ -75,13 +75,15 @@ func init() {
 	RunCmd.Flags().String("api_key", "", "The Pixie API key to use for deploying pixie")
 	RunCmd.Flags().String("cloud_addr", "withpixie.ai:443", "The Pixie Cloud address to use for deploying pixie")
 
-	RunCmd.Flags().String("export_backend", "bq", "Export backend: 'bq' or 'parquet-gcs'")
+	RunCmd.Flags().String("export_backend", "bq", "Export backend: 'bq', 'parquet-gcs', or 'parquet-local'")
 	RunCmd.Flags().String("bq_project", "pl-pixies", "The gcloud project to put bigquery results/specs in")
 	RunCmd.Flags().String("bq_dataset", "px_perf", "The name of the bigquery dataset to put results/specs in")
 	RunCmd.Flags().String("bq_dataset_loc", "us-west1", "The gcloud region for the bigquery dataset")
 	RunCmd.Flags().String("gcs_bucket", "", "GCS bucket for parquet export (required when export_backend=parquet-gcs)")
 	RunCmd.Flags().String("gcs_prefix", "", "Path prefix within the GCS bucket for parquet export")
-	RunCmd.Flags().Int("parquet_batch_size", 10000, "Number of rows per parquet file when using parquet-gcs backend")
+	RunCmd.Flags().String("parquet_dir", "", "Local directory for parquet export (required when export_backend=parquet-local)")
+	RunCmd.Flags().String("parquet_prefix", "", "Path prefix within --parquet_dir for parquet export")
+	RunCmd.Flags().Int("parquet_batch_size", 10000, "Number of rows per parquet file when using a parquet-* backend")
 
 	RunCmd.Flags().String("gke_project", "pl-pixies", "The gcloud project to use for GKE clusters")
 	RunCmd.Flags().String("gke_zone", "us-west1-a", "The gcloud zone to use for GKE clusters")
@@ -371,6 +373,14 @@ func createExporter(ctx context.Context) (exporter.Exporter, error) {
 		prefix := viper.GetString("gcs_prefix")
 		batchSize := viper.GetInt("parquet_batch_size")
 		return exporter.NewParquetGCSExporter(ctx, bucket, prefix, batchSize)
+	case "parquet-local":
+		dir := viper.GetString("parquet_dir")
+		if dir == "" {
+			return nil, errors.New("--parquet_dir is required when using parquet-local backend")
+		}
+		prefix := viper.GetString("parquet_prefix")
+		batchSize := viper.GetInt("parquet_batch_size")
+		return exporter.NewParquetLocalExporter(dir, prefix, batchSize)
 	default:
 		return nil, fmt.Errorf("unknown export backend: %s", viper.GetString("export_backend"))
 	}

@@ -23,6 +23,7 @@ go_library(
         "bq_exporter.go",
         "exporter.go",
         "parquet_exporter.go",
+        "parquet_local_exporter.go",
     ],
     importpath = "px.dev/pixie/src/e2e_test/perf_tool/pkg/exporter",
     visibility = ["//visibility:public"],

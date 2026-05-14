@@ -1,145 +1,38 @@
-# Kubescape ApplicationProfile for the vulnerable redis deployment used by the
-# sovereign-soc perf_tool suite. This profile is pre-populated (no learning
-# phase needed) so that attacks fired against redis trigger anomaly alerts
-# immediately. The profile shape is taken verbatim from the sovereignsocdemo
-# playground startup file:
-#   https://github.com/k8sstormcenter/sovereignsocdemo/blob/main/index.md
-# (section "playground.startupFiles[/home/laborant/redis-sbob.yaml]")
+---
+# Empty user-defined ApplicationProfile for the vulnerable redis container.
 #
-# Apache-2.0 licensed alongside the upstream demo.
+# Why "empty" instead of the learned profile copied from the iximiuz playground:
+# Kubescape's auto-learned profile starts in `status: learning` and only
+# transitions to `completed` after ~5-10 min of observed traffic. Until the
+# transition, R0001/R0002 don't fire — so the first ~half of a 20-min RUN
+# window is "silent" and all alerts cluster at the end (verified empirically
+# 2026-05-14: 75–82% of forensic_alert_count rows landed in the second half
+# of the 2x/4x experiments).
+#
+# A *user-defined* empty profile + the matching pod label
+#   kubescape.io/user-defined-profile: redis-empty
+# skips auto-learning and treats every syscall / exec / open / endpoint as
+# unprofiled → R0002 et al. fire from t=0. Required for perf-measurement
+# experiments where we want detection latency to be the variable of interest.
+#
+# The profile MUST exist before the pod starts (or the pod must restart
+# after the profile is applied) — otherwise Kubescape falls back to
+# auto-learning. PrerenderedDeploy applies all YAMLs in one shot in the
+# order they appear in YAMLPaths, so list this file BEFORE
+# redis-vulnerable.yaml in the WorkloadSpec.
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
 kind: ApplicationProfile
 metadata:
-  name: redis
+  name: redis-empty
   namespace: redis
 spec:
   architectures:
   - amd64
   containers:
-  - capabilities:
-    - CAP_CHOWN
-    - CAP_DAC_OVERRIDE
-    - CAP_DAC_READ_SEARCH
-    - CAP_SETGID
-    - CAP_SETPCAP
-    - CAP_SETUID
-    - CAP_SYS_ADMIN
-    endpoints: null
-    execs:
-    - args:
-      - /usr/local/bin/redis-cli
-      - ping
-      path: /usr/local/bin/redis-cli
-    identifiedCallStacks: null
-    imageID: ghcr.io/k8sstormcenter/redis-vulnerable@sha256:aec7a0c5713a190ed4e02b30a9f066cb1d7137531d8c3bca21c2781ca8a7d945
-    imageTag: ghcr.io/k8sstormcenter/redis-vulnerable:7.2.10
-    name: redis
-    opens:
-    - flags:
-      - O_CLOEXEC
-      - O_RDONLY
-      path: /etc/group
-    - flags:
-      - O_CLOEXEC
-      - O_RDONLY
-      path: /etc/ld.so.cache
-    - flags:
-      - O_CLOEXEC
-      - O_RDONLY
-      path: /etc/passwd
-    - flags:
-      - O_CLOEXEC
-      - O_RDONLY
-      path: /proc/⋯
-    - flags:
-      - O_CLOEXEC
-      - O_RDONLY
-      path: /proc/⋯/kernel/*
-    - flags:
-      - O_CLOEXEC
-      - O_RDONLY
-      path: /proc/⋯/setgroups
-    - flags:
-      - O_RDONLY
-      path: /proc/⋯/stat
-    - flags:
-      - O_CLOEXEC
-      - O_RDONLY
-      - O_WRONLY
-      path: /proc/⋯/task/*
-    - flags:
-      - O_CLOEXEC
-      - O_RDONLY
-      path: /⋯/kernel/*
-    - flags:
-      - O_CLOEXEC
-      - O_RDONLY
-      path: /⋯/setgroups
-    - flags:
-      - O_CLOEXEC
-      - O_RDONLY
-      path: /runc
-    - flags:
-      - O_RDONLY
-      path: /⋯/stat
-    - flags:
-      - O_CLOEXEC
-      - O_RDONLY
-      - O_WRONLY
-      path: /⋯/task/*
-    - flags:
-      - O_RDONLY
-      path: /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
-    - flags:
-      - O_CLOEXEC
-      - O_RDONLY
-      path: /sys/fs/cgroup/*
-    - flags:
-      - O_CLOEXEC
-      - O_RDONLY
-      path: /usr/lib/x86_64-linux-gnu/libc.so.6
-    - flags:
-      - O_CLOEXEC
-      - O_RDONLY
-      path: /usr/lib/x86_64-linux-gnu/libm.so.6
-    rulePolicies:
-      R0002:
-        processAllowed:
-          - runc
-          - "runc:[2:INIT]"
-    seccompProfile:
-      spec:
-        defaultAction: ""
-    syscalls:
-    - accept4
-    - access
-    - arch_prctl
-    - brk
-    - close
-    - connect
-    - epoll_ctl
-    - epoll_wait
-    - exit_group
-    - fcntl
-    - getpid
-    - getrandom
-    - ioctl
-    - mmap
-    - mprotect
-    - munmap
-    - newfstatat
-    - openat
-    - poll
-    - pread64
-    - prlimit64
-    - read
-    - recvfrom
-    - rseq
-    - sendto
-    - set_robust_list
-    - set_tid_address
-    - setsockopt
-    - socket
-    - uname
-    - write
-    - writev
+  - name: redis        # must match the container name in redis-vulnerable.yaml
+    capabilities: null
+    endpoints:    null
+    execs:        null
+    opens:        null
+    syscalls:     null
+    rulePolicies: {}

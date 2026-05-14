@@ -1,0 +1,133 @@
+# loadgen — tier 1 (HTTP client) hammering the API backend so all three
+# tiers carry sustained traffic for the duration of the experiment.
+# k6 chosen over fortio/hey because we want:
+#  - mixed verbs (~80% GET, ~20% POST) to keep both cache + DB paths hot
+#  - randomized GET ids to vary cache hit ratio
+#  - one container image, declarative script, no per-target script files
+#
+# Tunables (override via env on the Deployment):
+#   K6_VUS:   concurrent virtual users (default 50)
+#   K6_QPS:   target requests/sec (default 500). At 500 QPS sustained,
+#             expect ~550 redis ops/sec + ~50-100 pgsql ops/sec at steady
+#             state (depending on cache TTL turnover).
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loadgen-k6-script
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: loadgen
+    app.kubernetes.io/part-of: sovereign-soc
+data:
+  script.js: |
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+
+    const API = __ENV.API_URL || 'http://api:8080';
+
+    // constant-arrival-rate gives a stable QPS regardless of API latency.
+    // preAllocatedVUs is the steady-state worker pool; maxVUs caps the
+    // upper bound k6 will spawn under tail latency. K6_DURATION='8760h'
+    // is effectively infinite (1 year) — k6 doesn't have a true forever
+    // mode and the default executor rejects duration=0.
+    export const options = {
+      scenarios: {
+        steady: {
+          executor:        'constant-arrival-rate',
+          rate:            Number(__ENV.K6_QPS || 500),
+          timeUnit:        '1s',
+          duration:        __ENV.K6_DURATION || '8760h',
+          preAllocatedVUs: Number(__ENV.K6_VUS || 50),
+          maxVUs:          Number(__ENV.K6_MAX_VUS || 200),
+        },
+      },
+    };
+
+    export default function () {
+      const r = Math.random();
+      if (r < 0.80) {
+        // Hot path: random GET 1..100. Cache hit/miss mix depends on TTL.
+        const id = 1 + Math.floor(Math.random() * 100);
+        const res = http.get(`${API}/api/item/${id}`, { tags: { op: 'get_item' } });
+        check(res, { 'GET 200': (r) => r.status === 200 });
+      } else {
+        // Write path: append to events table, busts a few cache entries.
+        const body = JSON.stringify({ ts: Date.now(), val: Math.random() });
+        const res = http.post(`${API}/api/event`, body, {
+          headers: { 'Content-Type': 'application/json' },
+          tags:    { op: 'post_event' },
+        });
+        check(res, { 'POST 201': (r) => r.status === 201 });
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: loadgen
+    app.kubernetes.io/part-of: sovereign-soc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loadgen
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: loadgen
+        app.kubernetes.io/part-of: sovereign-soc
+        # Exclude k6 from kubescape detection — the loadgen is the
+        # adversary in the threat model, not a normal app pod.
+        kubescape.io/ignore: "true"
+    spec:
+      containers:
+      - name: k6
+        image: grafana/k6:0.51.0
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        # k6 needs the API to be reachable; the gunicorn pods need ~25 s
+        # to pip-install + start. Retry on connection refused.
+        args:
+        - |
+          set -e
+          until wget -q -O /dev/null --timeout=3 http://api:8080/healthz; do
+            echo "waiting for api..."
+            sleep 2
+          done
+          echo "api reachable, starting k6"
+          exec k6 run \
+            --no-summary \
+            --no-thresholds \
+            /etc/loadgen/script.js
+        # The three K6_* values define the 1× load profile and are
+        # the names MultiTierAppWorkload patches via strategic-merge
+        # for higher multipliers. Always keep all three in this list
+        # so the kustomize merge has a name-key to match on.
+        env:
+        - {name: K6_QPS,     value: "500"}
+        - {name: K6_VUS,     value: "50"}
+        - {name: K6_MAX_VUS, value: "200"}
+        - {name: API_URL,    value: "http://api:8080"}
+        # K6_DURATION intentionally unset — script defaults to '8760h'
+        # (effectively forever). k6 has no true infinite mode and JS
+        # `||` treats '0s' as truthy, so don't pass '0s' here.
+        volumeMounts:
+        - {name: script, mountPath: /etc/loadgen}
+        # At 64× = 32 000 QPS k6 needs both real CPU (request rate is
+        # CPU-bound once the API responds in sub-ms) and a wide memory
+        # budget. Sizing rationale:
+        #   - 3200 preallocated VUs × ~0.5 MB goroutine stack ≈ 1.6 GB
+        #   - 12 800 maxVUs burst × ~0.5 MB ≈ 6 GB worst case
+        #   - k6's own runtime + buffers + JS heap ≈ 1 GB
+        # Without these limits the high multipliers silently throttle
+        # (OOM or CFS) and deliver a fraction of the configured QPS.
+        resources:
+          requests: {cpu: "4",  memory: "1Gi"}
+          limits:   {cpu: "16", memory: "8Gi"}
+      volumes:
+      - name: script
+        configMap: {name: loadgen-k6-script}

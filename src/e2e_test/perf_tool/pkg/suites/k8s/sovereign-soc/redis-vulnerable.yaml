@@ -95,6 +95,11 @@ spec:
       labels:
         app.kubernetes.io/name: redis
         app.kubernetes.io/version: "7.2.10"
+        # Pairs with redis-sbob.yaml's `redis-empty` profile so kubescape
+        # treats every observed behaviour as anomalous from t=0 (skip the
+        # ~5-10 min auto-learning window that otherwise bunches alerts at
+        # the end of the RUN). See feedback_kubescape_empty_profile.
+        kubescape.io/user-defined-profile: redis-empty
     spec:
       serviceAccountName: redis
       containers:
@@ -192,6 +197,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: redis-client
+        kubescape.io/user-defined-profile: redis-client-empty
     spec:
       containers:
         - name: client

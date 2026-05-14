@@ -1,0 +1,190 @@
+# api — tier 2 (HTTP API) glueing the loadgen's HTTP traffic to redis
+# (cache) + postgres (truth). Flask + gunicorn for concurrency. Each
+# inbound request hits at least one Pixie-monitored protocol:
+#
+#   GET  /api/item/{id}    → redis_events (cache lookup)
+#                          → pgsql_events (only on cache miss)
+#                          → redis_events (cache populate on miss)
+#   POST /api/event        → pgsql_events (INSERT)
+#                          → redis_events (cache invalidate DEL)
+#   GET  /healthz          → http_events only (loadgen sanity)
+#
+# Plus the api↔redis and api↔postgres connection establishment goes
+# through cluster DNS, producing dns_events on the kube-dns pods.
+#
+# App code + requirements are mounted via ConfigMap so this is buildless —
+# python:3.12-slim pip-installs flask/redis/psycopg2 on startup (~25 s
+# one-shot cost; the gunicorn process then runs for the duration of the
+# experiment).
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-backend-src
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: sovereign-soc
+data:
+  requirements.txt: |
+    flask==3.0.3
+    gunicorn==22.0.0
+    redis==5.0.7
+    psycopg2-binary==2.9.9
+  app.py: |
+    import logging
+    import os
+    import random
+    import time
+    from flask import Flask, jsonify, request
+    import redis
+    import psycopg2
+    from psycopg2.pool import ThreadedConnectionPool
+
+    log = logging.getLogger("api")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+    REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
+    PG_DSN = os.environ.get(
+        "PG_DSN",
+        "host=postgres port=5432 dbname=appdb user=app password=app_password connect_timeout=5",
+    )
+    CACHE_TTL = int(os.environ.get("CACHE_TTL", "30"))
+
+    # Wait for backends with a tight retry loop — the loadgen pod may
+    # outrace postgres readiness.
+    def _wait(fn, label, attempts=60):
+        for i in range(attempts):
+            try:
+                fn()
+                log.info("%s ready", label)
+                return
+            except Exception as e:
+                log.info("waiting for %s (%d/%d): %s", label, i + 1, attempts, e)
+                time.sleep(2)
+        raise RuntimeError(f"{label} never became reachable")
+
+    r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, socket_connect_timeout=2)
+    _wait(lambda: r.ping(), f"redis@{REDIS_HOST}:{REDIS_PORT}")
+
+    pg_pool = None
+    def _open_pool():
+        global pg_pool
+        pg_pool = ThreadedConnectionPool(minconn=2, maxconn=16, dsn=PG_DSN)
+    _wait(_open_pool, "postgres pool")
+
+    app = Flask(__name__)
+
+    @app.get("/healthz")
+    def healthz():
+        return "ok", 200
+
+    @app.get("/api/item/<int:item_id>")
+    def get_item(item_id):
+        key = f"item:{item_id}"
+        cached = r.get(key)
+        if cached is not None:
+            return jsonify({"id": item_id, "data": cached.decode(), "cache": True})
+        conn = pg_pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT data FROM items WHERE id = %s", (item_id,))
+                row = cur.fetchone()
+        finally:
+            pg_pool.putconn(conn)
+        if row is None:
+            return jsonify({"error": "not found", "id": item_id}), 404
+        r.setex(key, CACHE_TTL, row[0])
+        return jsonify({"id": item_id, "data": row[0], "cache": False})
+
+    @app.post("/api/event")
+    def post_event():
+        payload = request.get_data(as_text=True) or "{}"
+        conn = pg_pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO events (payload) VALUES (%s) RETURNING id", (payload,))
+                eid = cur.fetchone()[0]
+            conn.commit()
+        finally:
+            pg_pool.putconn(conn)
+        # Bust a small set of cache keys to keep the cache layer churning.
+        for kid in random.sample(range(1, 101), 3):
+            r.delete(f"item:{kid}")
+        return jsonify({"id": eid}), 201
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: sovereign-soc
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api
+        app.kubernetes.io/part-of: sovereign-soc
+        # Pairs with api-sbob.yaml's `api-empty` profile so kubescape
+        # alerts from t=0. See feedback_kubescape_empty_profile.
+        kubescape.io/user-defined-profile: api-empty
+    spec:
+      containers:
+      - name: api
+        image: python:3.12-slim
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -e
+          cp /src/app.py /app/app.py
+          cp /src/requirements.txt /app/requirements.txt
+          pip install --no-cache-dir --root-user-action=ignore -r /app/requirements.txt
+          cd /app
+          exec gunicorn -w 4 -k gthread --threads 16 -b 0.0.0.0:8080 \
+            --access-logfile - --access-logformat '%(h)s %(r)s %(s)s %(b)s %(L)ss' \
+            app:app
+        env:
+        - {name: REDIS_HOST, value: redis}
+        - {name: REDIS_PORT, value: "6379"}
+        - {name: PG_DSN, value: "host=postgres port=5432 dbname=appdb user=app password=app_password connect_timeout=5"}
+        ports:
+        - {name: http, containerPort: 8080}
+        volumeMounts:
+        - {name: src, mountPath: /src}
+        - {name: workdir, mountPath: /app}
+        resources:
+          requests: {cpu: 200m, memory: 256Mi}
+          limits:   {cpu: "2",  memory: 1Gi}
+        readinessProbe:
+          httpGet: {path: /healthz, port: http}
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 24
+      volumes:
+      - name: src
+        configMap: {name: api-backend-src}
+      - name: workdir
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: sovereign-soc
+spec:
+  selector:
+    app.kubernetes.io/name: api
+  ports:
+  - {name: http, port: 8080, targetPort: http}

@@ -7,7 +7,7 @@ index baef9c2..942741d 100644
          "_pusher": attr.label(
              default = "//container/go/cmd/pusher",
 -            cfg = "target",
-+            cfg = "host",
++            cfg = "exec",
              executable = True,
              allow_files = True,
          ),
@@ -20,7 +20,7 @@ index c7e7f72..fd6518b 100644
          "_pusher": attr.label(
              default = Label("//container/go/cmd/pusher"),
 -            cfg = "target",
-+            cfg = "host",
++            cfg = "exec",
              executable = True,
              allow_files = True,
          ),

@@ -15,7 +15,7 @@ jobs:
       image-base-name: "dev_image_with_extras"
   build-release:
     name: Build Release
-    runs-on: oracle-vm-16cpu-64gb-x86-64
+    runs-on: oracle-16cpu-64gb-x86-64
     needs: get-dev-image
     permissions:
       contents: read
@@ -42,7 +42,11 @@ jobs:
       run: |
         echo "${BUILDBOT_GPG_KEY_B64}" | base64 --decode | gpg --no-tty --batch --import
     - name: Login to GHCR
-      run: echo "${{ github.token }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
     - name: Build & Push Artifacts
       env:
         REF: ${{ github.event.ref }}
@@ -52,6 +56,7 @@ jobs:
         COSIGN_PRIVATE_KEY: ${{secrets.COSIGN_PRIVATE_KEY}}
         BUILDBOT_GPG_KEY_ID: ${{ secrets.BUILDBOT_GPG_KEY_ID }}
         GH_REPO: ${{ github.repository }}
+        IMAGE_REPO: ${{ vars.IMAGE_REPO || 'ghcr.io/pixie-io' }}
       shell: bash
       run: |
         export TAG_NAME="${REF#*/tags/}"
@@ -120,8 +125,8 @@ jobs:
       env:
         GIT_SSH_COMMAND: "ssh -i /tmp/ssh.key"
       run: |
-        git config --global user.name 'k8sstormcenter-buildbot'
-        git config --global user.email 'info@fusioncore.ai'
+        git config --global user.name "${{ vars.BUILDBOT_NAME || 'pixie-io-buildbot' }}"
+        git config --global user.email "${{ vars.BUILDBOT_EMAIL || 'build@pixielabs.ai' }}"
     - name: Push Helm YAML to gh-pages
       shell: bash
       env:
@@ -135,7 +140,7 @@ jobs:
         git commit -s -m "Release Helm chart Vizier ${VERSION}"
         git push origin "gh-pages"
   update-gh-artifacts-manifest:
-    runs-on: oracle-vm-16cpu-64gb-x86-64
+    runs-on: oracle-8cpu-32gb-x86-64
     needs: [get-dev-image, create-github-release]
     container:
       image: ${{ needs.get-dev-image.outputs.image-with-tag }}
@@ -164,8 +169,8 @@ jobs:
       env:
         BUILDBOT_GPG_KEY_ID: ${{ secrets.BUILDBOT_GPG_KEY_ID }}
       run: |
-        git config --global user.name 'k8sstormcenter-buildbot'
-        git config --global user.email 'info@fusioncore.ai'
+        git config --global user.name "${{ vars.BUILDBOT_NAME || 'pixie-io-buildbot' }}"
+        git config --global user.email "${{ vars.BUILDBOT_EMAIL || 'build@pixielabs.ai' }}"
         git config --global user.signingkey "${BUILDBOT_GPG_KEY_ID}"
         git config --global commit.gpgsign true
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0

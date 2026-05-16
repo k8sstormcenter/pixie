@@ -39,18 +39,22 @@ import (
 	"px.dev/pixie/src/e2e_test/perf_tool/experimentpb"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/cluster"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/deploy"
+	"px.dev/pixie/src/e2e_test/perf_tool/pkg/exporter"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/metrics"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/pixie"
-	"px.dev/pixie/src/shared/bq"
 )
 
 // Runner is responsible for running experiments using the ClusterProvider to get a cluster for the experiment.
 type Runner struct {
 	c                     cluster.Provider
 	pxCtx                 *pixie.Context
-	resultTable           *bq.Table
-	specTable             *bq.Table
+	exporter              exporter.Exporter
 	containerRegistryRepo string
+	skaffoldStderrFile    string
+	// KeepOnFailure, when true, skips teardown (stop vizier/workloads/recorders
+	// and cluster cleanup) if the experiment errors, so the cluster state can
+	// be inspected after the fact. Successful runs still tear down normally.
+	keepOnFailure bool
 
 	clusterCtx          *cluster.Context
 	clusterCleanup      func()
@@ -66,14 +70,22 @@ type Runner struct {
 }
 
 // NewRunner creates a new Runner for the given contexts.
-func NewRunner(c cluster.Provider, pxCtx *pixie.Context, resultTable *bq.Table, specTable *bq.Table, containerRegistryRepo string) *Runner {
+// skaffoldStderrFile, when non-empty, is the path to which skaffold's stderr is appended
+// during deploy steps. Pass "" to keep skaffold's stderr going only to the perf_tool
+// process's stderr.
+func NewRunner(c cluster.Provider, pxCtx *pixie.Context, exp exporter.Exporter, containerRegistryRepo, skaffoldStderrFile string) *Runner {
 	return &Runner{
 		c:                     c,
 		pxCtx:                 pxCtx,
-		resultTable:           resultTable,
-		specTable:             specTable,
+		exporter:              exp,
 		containerRegistryRepo: containerRegistryRepo,
+		skaffoldStderrFile:    skaffoldStderrFile,
 	}
+}
+
+// SetKeepOnFailure toggles whether teardown is skipped on experiment failure.
+func (r *Runner) SetKeepOnFailure(v bool) {
+	r.keepOnFailure = v
 }
 
 // RunExperiment runs an experiment according to the given ExperimentSpec.
@@ -83,14 +95,12 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 		return err
 	}
 
-	eg := errgroup.Group{}
-	eg.Go(func() error { return r.getCluster(ctx, spec.ClusterSpec) })
-	eg.Go(func() error {
-		if err := r.prepareWorkloads(ctx, spec); err != nil {
-			return backoff.Permanent(err)
-		}
-		return nil
-	})
+	if err := r.getCluster(ctx, spec.ClusterSpec); err != nil {
+		return err
+	}
+	if err := r.prepareWorkloads(ctx, spec); err != nil {
+		return err
+	}
 
 	r.metricsBySelector = make(map[string][]metrics.Recorder)
 	r.metricsResultCh = make(chan *metrics.ResultRow)
@@ -98,19 +108,23 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 	defer metricsChCloseOnce.Do(func() { close(r.metricsResultCh) })
 
 	r.wg.Add(1)
-	go r.runBQInserter(expID)
+	go func() {
+		defer r.wg.Done()
+		if err := r.exporter.ExportResults(ctx, expID, r.metricsResultCh); err != nil {
+			log.WithError(err).Error("Failed to export results")
+		}
+	}()
 
-	if err := eg.Wait(); err != nil {
-		if r.clusterCleanup != nil {
-			r.clusterCleanup()
+	var runErr error
+	defer func() {
+		if r.keepOnFailure && runErr != nil {
+			log.WithError(runErr).Warn("Experiment failed; --keep_on_failure is set, leaving cluster state intact. " +
+				"Inspect with kubectl; you are responsible for manual cleanup (e.g. `px delete`, delete workload namespaces).")
+			return
 		}
-		if r.clusterCtx != nil {
-			r.clusterCtx.Close()
-		}
-		return err
-	}
-	defer r.clusterCleanup()
-	defer r.clusterCtx.Close()
+		r.clusterCleanup()
+		r.clusterCtx.Close()
+	}()
 
 	var egCtx context.Context
 	r.eg, egCtx = errgroup.WithContext(ctx)
@@ -123,26 +137,16 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 	})
 
 	if err := r.eg.Wait(); err != nil {
+		runErr = err
 		return err
 	}
 
-	// The experiment succeeded so we write the spec to bigquery.
+	// The experiment succeeded so we write the spec to the exporter.
 	encodedSpec, err := (&jsonpb.Marshaler{}).MarshalToString(spec)
 	if err != nil {
 		return err
 	}
-	specRow := &SpecRow{
-		ExperimentID:    expID.String(),
-		Spec:            encodedSpec,
-		CommitTopoOrder: commitTopoOrder,
-	}
-
-	inserter := r.specTable.Inserter()
-	inserter.SkipInvalidRows = false
-
-	putCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	if err := inserter.Put(putCtx, specRow); err != nil {
+	if err := r.exporter.ExportSpec(ctx, expID, encodedSpec, commitTopoOrder); err != nil {
 		return err
 	}
 
@@ -152,8 +156,21 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 	return nil
 }
 
-func (r *Runner) runActions(ctx context.Context, spec *experimentpb.ExperimentSpec) error {
+func (r *Runner) runActions(ctx context.Context, spec *experimentpb.ExperimentSpec) (retErr error) {
 	canceledErr := backoff.Permanent(context.Canceled)
+	// Collect start-action cleanups explicitly so we can skip them when
+	// --keep_on_failure is set and the experiment errors.
+	var cleanups []func()
+	defer func() {
+		failed := retErr != nil || ctx.Err() != nil
+		if r.keepOnFailure && failed {
+			log.Warn("Skipping per-action teardown due to --keep_on_failure")
+			return
+		}
+		for i := len(cleanups) - 1; i >= 0; i-- {
+			cleanups[i]()
+		}
+	}()
 	for _, a := range spec.RunSpec.Actions {
 		log.Tracef("started action %s", experimentpb.ActionType_name[int32(a.Type)])
 		if canceled := r.sendActionTimestamp(ctx, a, "begin"); canceled {
@@ -165,19 +182,19 @@ func (r *Runner) runActions(ctx context.Context, spec *experimentpb.ExperimentSp
 			if err != nil {
 				return err
 			}
-			defer cleanup()
+			cleanups = append(cleanups, cleanup)
 		case experimentpb.START_WORKLOADS:
 			cleanup, err := r.startWorkloads(ctx, spec, a.Name)
 			if err != nil {
 				return err
 			}
-			defer cleanup()
+			cleanups = append(cleanups, cleanup)
 		case experimentpb.START_METRIC_RECORDERS:
 			cleanup, err := r.startMetricRecorders(ctx, spec, a.Name)
 			if err != nil {
 				return err
 			}
-			defer cleanup()
+			cleanups = append(cleanups, cleanup)
 		case experimentpb.STOP_VIZIER:
 			if err := r.stopVizier(); err != nil {
 				return err
@@ -233,7 +250,11 @@ func (r *Runner) startMetricRecorders(ctx context.Context, spec *experimentpb.Ex
 			continue
 		}
 
-		recorder := metrics.NewMetricsRecorder(r.pxCtx, r.clusterCtx, ms, r.eg, r.metricsResultCh)
+		recorder, err := metrics.NewMetricsRecorder(r.pxCtx, r.clusterCtx, ms, r.eg, r.metricsResultCh)
+		if err != nil {
+			_ = r.stopMetricRecorders(selector)
+			return noCleanup, fmt.Errorf("failed to create metrics recorder: %w", err)
+		}
 		r.metricsBySelector[selector] = append(r.metricsBySelector[selector], recorder)
 		if err := recorder.Start(ctx); err != nil {
 			_ = r.stopMetricRecorders(selector)
@@ -344,7 +365,7 @@ func (r *Runner) getCluster(ctx context.Context, spec *experimentpb.ClusterSpec)
 }
 
 func (r *Runner) prepareWorkloads(ctx context.Context, spec *experimentpb.ExperimentSpec) error {
-	vizier, err := deploy.NewWorkload(r.pxCtx, r.containerRegistryRepo, spec.VizierSpec)
+	vizier, err := deploy.NewWorkload(r.pxCtx, r.containerRegistryRepo, r.skaffoldStderrFile, spec.VizierSpec)
 	if err != nil {
 		return err
 	}
@@ -355,7 +376,7 @@ func (r *Runner) prepareWorkloads(ctx context.Context, spec *experimentpb.Experi
 	}
 	r.workloadsBySelector = make(map[string][]deploy.Workload)
 	for _, s := range spec.WorkloadSpecs {
-		w, err := deploy.NewWorkload(r.pxCtx, r.containerRegistryRepo, s)
+		w, err := deploy.NewWorkload(r.pxCtx, r.containerRegistryRepo, r.skaffoldStderrFile, s)
 		if err != nil {
 			return err
 		}
@@ -366,29 +387,6 @@ func (r *Runner) prepareWorkloads(ctx context.Context, spec *experimentpb.Experi
 		r.workloadsBySelector[s.ActionSelector] = append(r.workloadsBySelector[s.ActionSelector], w)
 	}
 	return nil
-}
-
-func (r *Runner) runBQInserter(expID uuid.UUID) {
-	defer r.wg.Done()
-
-	bqCh := make(chan interface{})
-	defer close(bqCh)
-
-	inserter := &bq.BatchInserter{
-		Table:       r.resultTable,
-		BatchSize:   512,
-		PushTimeout: 2 * time.Minute,
-	}
-	go inserter.Run(bqCh)
-
-	for row := range r.metricsResultCh {
-		bqRow, err := MetricsRowToResultRow(expID, row)
-		if err != nil {
-			log.WithError(err).Error("Failed to convert result row")
-			continue
-		}
-		bqCh <- bqRow
-	}
 }
 
 func getTopoOrder() (int, error) {

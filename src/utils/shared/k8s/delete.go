@@ -29,7 +29,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/printers"
@@ -43,6 +45,12 @@ import (
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	cmdwait "k8s.io/kubectl/pkg/cmd/wait"
 )
+
+var apiServiceGVR = schema.GroupVersionResource{
+	Group:    "apiregistration.k8s.io",
+	Version:  "v1",
+	Resource: "apiservices",
+}
 
 // ObjectDeleter has methods to delete K8s objects and wait for them. This code is adopted from `kubectl delete`.
 type ObjectDeleter struct {
@@ -110,6 +118,32 @@ func (o *ObjectDeleter) DeleteNamespace() error {
 	return err
 }
 
+// getAggregatedGroupVersions returns the set of group/versions that are served
+// by an aggregated APIService (spec.service is non-nil). Resources in those
+// groups are skipped during cluster-wide deletion sweeps because aggregated
+// servers frequently advertise the delete verb on read-only virtual resources
+// and fail the call with "operation not supported".
+func (o *ObjectDeleter) getAggregatedGroupVersions() (sets.String, error) {
+	out := sets.NewString()
+	list, err := o.dynamicClient.Resource(apiServiceGVR).List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) || meta.IsNoMatchError(err) {
+			return out, nil
+		}
+		return nil, err
+	}
+	for _, item := range list.Items {
+		svc, found, err := unstructured.NestedMap(item.Object, "spec", "service")
+		if err != nil || !found || svc == nil {
+			continue
+		}
+		group, _, _ := unstructured.NestedString(item.Object, "spec", "group")
+		version, _, _ := unstructured.NestedString(item.Object, "spec", "version")
+		out.Insert(schema.GroupVersion{Group: group, Version: version}.String())
+	}
+	return out, nil
+}
+
 func (o *ObjectDeleter) getDeletableResourceTypes() ([]string, error) {
 	discoveryClient, err := o.rcg.ToDiscoveryClient()
 	if err != nil {
@@ -121,9 +155,17 @@ func (o *ObjectDeleter) getDeletableResourceTypes() ([]string, error) {
 		return nil, err
 	}
 
+	aggregated, err := o.getAggregatedGroupVersions()
+	if err != nil {
+		return nil, err
+	}
+
 	resources := []string{}
 	for _, list := range lists {
 		if len(list.APIResources) == 0 {
+			continue
+		}
+		if aggregated.Has(list.GroupVersion) {
 			continue
 		}
 
@@ -143,6 +185,9 @@ func (o *ObjectDeleter) getDeletableResourceTypes() ([]string, error) {
 // DeleteByLabel delete objects that match the labels and specified by resourceKinds. Waits for deletion.
 func (o *ObjectDeleter) DeleteByLabel(selector string, resourceKinds ...string) (int, error) {
 	if err := o.initRestClientGetter(); err != nil {
+		return 0, err
+	}
+	if err := o.initDynamicClient(); err != nil {
 		return 0, err
 	}
 	b := resource.NewBuilder(o.rcg)
@@ -167,9 +212,6 @@ func (o *ObjectDeleter) DeleteByLabel(selector string, resourceKinds ...string) 
 
 	err := r.Err()
 	if err != nil {
-		return 0, err
-	}
-	if err := o.initDynamicClient(); err != nil {
 		return 0, err
 	}
 

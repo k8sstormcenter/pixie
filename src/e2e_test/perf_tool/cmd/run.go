@@ -45,6 +45,7 @@ import (
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/cluster"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/cluster/gke"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/cluster/local"
+	"px.dev/pixie/src/e2e_test/perf_tool/pkg/exporter"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/pixie"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/run"
 	"px.dev/pixie/src/e2e_test/perf_tool/pkg/suites"
@@ -74,9 +75,13 @@ func init() {
 	RunCmd.Flags().String("api_key", "", "The Pixie API key to use for deploying pixie")
 	RunCmd.Flags().String("cloud_addr", "withpixie.ai:443", "The Pixie Cloud address to use for deploying pixie")
 
+	RunCmd.Flags().String("export_backend", "bq", "Export backend: 'bq' or 'parquet-gcs'")
 	RunCmd.Flags().String("bq_project", "pl-pixies", "The gcloud project to put bigquery results/specs in")
 	RunCmd.Flags().String("bq_dataset", "px_perf", "The name of the bigquery dataset to put results/specs in")
 	RunCmd.Flags().String("bq_dataset_loc", "us-west1", "The gcloud region for the bigquery dataset")
+	RunCmd.Flags().String("gcs_bucket", "", "GCS bucket for parquet export (required when export_backend=parquet-gcs)")
+	RunCmd.Flags().String("gcs_prefix", "", "Path prefix within the GCS bucket for parquet export")
+	RunCmd.Flags().Int("parquet_batch_size", 10000, "Number of rows per parquet file when using parquet-gcs backend")
 
 	RunCmd.Flags().String("gke_project", "pl-pixies", "The gcloud project to use for GKE clusters")
 	RunCmd.Flags().String("gke_zone", "us-west1-a", "The gcloud zone to use for GKE clusters")
@@ -94,6 +99,10 @@ func init() {
 	RunCmd.Flags().String("ds_report_id", "04fc228e-4f26-4e5a-bc2c-101ed86132df", "The unique ID of the datastudio report, used to print links to datastudio views")
 	RunCmd.Flags().String("ds_experiment_page_id", "p_g7fj6pf4yc", "The unique ID of the datastudio experiment page, used to print links to datastudio views")
 	RunCmd.Flags().Bool("pretty", false, "Pretty print output json")
+
+	RunCmd.Flags().StringSlice("prom_recorder_override", []string{}, "Override kubeconfig/kube_context for a named prometheus recorder. Format: name=kubeconfig_path:kube_context (either side may be empty). Repeatable.")
+	RunCmd.Flags().Bool("keep_on_failure", false, "If the experiment fails, skip teardown (stop vizier/workloads/recorders and cluster cleanup) so the cluster state can be inspected. Implies --max_retries=1.")
+	RunCmd.Flags().String("skaffold_stderr_file", "", "If set, skaffold's stderr (build/render output) is appended to this file in addition to perf_tool's stderr. Useful in CI to capture a clean log to cat after a failure.")
 
 	RootCmd.AddCommand(RunCmd)
 }
@@ -131,6 +140,15 @@ func runCmd(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
+	promOverrides, err := parsePromRecorderOverrides(viper.GetStringSlice("prom_recorder_override"))
+	if err != nil {
+		log.WithError(err).Error("failed to parse --prom_recorder_override flags")
+		return err
+	}
+	for _, spec := range specs {
+		applyPromRecorderOverrides(spec, promOverrides)
+	}
+
 	var c cluster.Provider
 	if viper.GetBool("use_local_cluster") {
 		c = &local.ClusterProvider{}
@@ -162,20 +180,24 @@ func runCmd(ctx context.Context, cmd *cobra.Command) error {
 		}
 	}
 
-	resultTable, err := createResultTable()
+	metricsExporter, err := createExporter(ctx)
 	if err != nil {
-		log.WithError(err).Error("failed to create results table")
+		log.WithError(err).Error("failed to create exporter")
 		return err
 	}
-	specTable, err := createSpecTable()
-	if err != nil {
-		log.WithError(err).Error("failed to create spec table")
-		return err
-	}
+	defer metricsExporter.Close()
 
 	containerRegistryRepo := viper.GetString("container_repo")
+	skaffoldStderrFile := viper.GetString("skaffold_stderr_file")
 	maxRetries := viper.GetInt("max_retries")
 	numRuns := viper.GetInt("num_runs")
+	keepOnFailure := viper.GetBool("keep_on_failure")
+	if keepOnFailure {
+		if maxRetries > 1 {
+			log.Warn("--keep_on_failure is set; forcing --max_retries=1 to avoid retries racing with preserved cluster state")
+		}
+		maxRetries = 1
+	}
 
 	eg := errgroup.Group{}
 	experiments := make(chan *exp, len(specs)*numRuns)
@@ -189,7 +211,7 @@ func runCmd(ctx context.Context, cmd *cobra.Command) error {
 			s := spec
 			n := name
 			eg.Go(func() error {
-				expID, err := runExperiment(ctx, s, c, pxAPIKey, pxCloudAddr, resultTable, specTable, containerRegistryRepo, maxRetries)
+				expID, err := runExperiment(ctx, s, c, pxAPIKey, pxCloudAddr, metricsExporter, containerRegistryRepo, skaffoldStderrFile, maxRetries, keepOnFailure)
 				if err != nil {
 					log.WithError(err).Error("failed to run experiment")
 					return err
@@ -257,10 +279,11 @@ func runExperiment(
 	c cluster.Provider,
 	pxAPIKey string,
 	pxCloudAddr string,
-	resultTable *bq.Table,
-	specTable *bq.Table,
+	metricsExporter exporter.Exporter,
 	containerRegistryRepo string,
+	skaffoldStderrFile string,
 	maxRetries int,
+	keepOnFailure bool,
 ) (uuid.UUID, error) {
 	var expID uuid.UUID
 	bo := &maxRetryBackoff{
@@ -268,7 +291,8 @@ func runExperiment(
 	}
 	op := func() error {
 		pxCtx := pixie.NewContext(pxAPIKey, pxCloudAddr)
-		r := run.NewRunner(c, pxCtx, resultTable, specTable, containerRegistryRepo)
+		r := run.NewRunner(c, pxCtx, metricsExporter, containerRegistryRepo, skaffoldStderrFile)
+		r.SetKeepOnFailure(keepOnFailure)
 		var err error
 		expID, err = uuid.NewV4()
 		if err != nil {
@@ -335,7 +359,24 @@ func getExperimentSpecs() (map[string]*experimentpb.ExperimentSpec, error) {
 	return nil, errors.New("must specify one of --experiment_proto or --suite")
 }
 
-func createResultTable() (*bq.Table, error) {
+func createExporter(ctx context.Context) (exporter.Exporter, error) {
+	switch viper.GetString("export_backend") {
+	case "bq":
+		return createBQExporter()
+	case "parquet-gcs":
+		bucket := viper.GetString("gcs_bucket")
+		if bucket == "" {
+			return nil, errors.New("--gcs_bucket is required when using parquet-gcs backend")
+		}
+		prefix := viper.GetString("gcs_prefix")
+		batchSize := viper.GetInt("parquet_batch_size")
+		return exporter.NewParquetGCSExporter(ctx, bucket, prefix, batchSize)
+	default:
+		return nil, fmt.Errorf("unknown export backend: %s", viper.GetString("export_backend"))
+	}
+}
+
+func createBQExporter() (*exporter.BQExporter, error) {
 	bqProject := viper.GetString("bq_project")
 	bqDataset := viper.GetString("bq_dataset")
 	bqDatasetLoc := viper.GetString("bq_dataset_loc")
@@ -343,15 +384,16 @@ func createResultTable() (*bq.Table, error) {
 		Type:  bigquery.DayPartitioningType,
 		Field: "timestamp",
 	}
-	return bq.NewTableForStruct(bqProject, bqDataset, bqDatasetLoc, "results", timePartitioning, run.ResultRow{})
-}
-
-func createSpecTable() (*bq.Table, error) {
-	bqProject := viper.GetString("bq_project")
-	bqDataset := viper.GetString("bq_dataset")
-	bqDatasetLoc := viper.GetString("bq_dataset_loc")
-	var timePartitioning *bigquery.TimePartitioning
-	return bq.NewTableForStruct(bqProject, bqDataset, bqDatasetLoc, "specs", timePartitioning, run.SpecRow{})
+	resultTable, err := bq.NewTableForStruct(bqProject, bqDataset, bqDatasetLoc, "results", timePartitioning, exporter.ResultRow{})
+	if err != nil {
+		return nil, err
+	}
+	var specTimePartitioning *bigquery.TimePartitioning
+	specTable, err := bq.NewTableForStruct(bqProject, bqDataset, bqDatasetLoc, "specs", specTimePartitioning, exporter.SpecRow{})
+	if err != nil {
+		return nil, err
+	}
+	return exporter.NewBQExporter(resultTable, specTable), nil
 }
 
 func getNumNodesInCluster(ctx context.Context, c cluster.Provider) (int, error) {
@@ -387,4 +429,51 @@ func datastudioLink(dsReportID string, dsExperimentPageID string, expID uuid.UUI
 	params := fmt.Sprintf(`{"experiment_ids":"%s"}`, expID.String())
 	encodedParams := url.QueryEscape(params)
 	return fmt.Sprintf("https://datastudio.google.com/reporting/%s/page/%s?params=%s", dsReportID, dsExperimentPageID, encodedParams)
+}
+
+type promRecorderOverride struct {
+	KubeconfigPath string
+	KubeContext    string
+}
+
+func parsePromRecorderOverrides(raw []string) (map[string]promRecorderOverride, error) {
+	out := make(map[string]promRecorderOverride, len(raw))
+	for _, s := range raw {
+		nameAndVal := strings.SplitN(s, "=", 2)
+		if len(nameAndVal) != 2 || nameAndVal[0] == "" {
+			return nil, fmt.Errorf("invalid --prom_recorder_override %q: expected name=kubeconfig:context", s)
+		}
+		parts := strings.SplitN(nameAndVal[1], ":", 2)
+		ov := promRecorderOverride{KubeconfigPath: parts[0]}
+		if len(parts) == 2 {
+			ov.KubeContext = parts[1]
+		}
+		if ov.KubeconfigPath == "" && ov.KubeContext == "" {
+			return nil, fmt.Errorf("invalid --prom_recorder_override %q: at least one of kubeconfig or context must be set", s)
+		}
+		out[nameAndVal[0]] = ov
+	}
+	return out, nil
+}
+
+func applyPromRecorderOverrides(spec *experimentpb.ExperimentSpec, overrides map[string]promRecorderOverride) {
+	if len(overrides) == 0 {
+		return
+	}
+	for _, m := range spec.MetricSpecs {
+		prom := m.GetProm()
+		if prom == nil || prom.Name == "" {
+			continue
+		}
+		ov, ok := overrides[prom.Name]
+		if !ok {
+			continue
+		}
+		if ov.KubeconfigPath != "" {
+			prom.KubeconfigPath = ov.KubeconfigPath
+		}
+		if ov.KubeContext != "" {
+			prom.KubeContext = ov.KubeContext
+		}
+	}
 }

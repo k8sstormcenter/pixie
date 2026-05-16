@@ -81,6 +81,7 @@ profiles:
     path: /build/artifacts/context=./bazel/args
     value:
     - --compilation_mode=opt
+    - --config=x86_64_sysroot
 - name: heap
   patches:
   - op: add

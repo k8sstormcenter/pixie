@@ -124,6 +124,11 @@ message PatchTarget {
 message PrerenderedDeploy {
   repeated string yaml_paths = 1 [ (gogoproto.customname) = "YAMLPaths" ];
   repeated PatchSpec patches = 2;
+  // If true, the step will not return the deployed namespace in its cleanup list,
+  // so workload.Close() will not delete that namespace on teardown. Use this for
+  // resources applied into namespaces the experiment does not own (e.g. a
+  // RoleBinding in kube-system that has to live there for API aggregation auth).
+  bool skip_namespace_delete = 3;
 }
 
 // SkaffoldDeploy specifies how to use skaffold to deploy a component. SkaffoldDeploy is currently
@@ -220,6 +225,15 @@ message PrometheusScrapeSpec {
   // How often to scrape the matched pods.
   google.protobuf.Duration scrape_period = 5;
   map<string, string> metric_names = 6;
+  // Optional path to a kubeconfig file for connecting to a different cluster.
+  // If empty, the experiment's default cluster context is used.
+  string kubeconfig_path = 7;
+  // Optional kubectl context name to use within the kubeconfig.
+  // If empty, the current-context from the kubeconfig is used.
+  string kube_context = 8;
+  // Identifier for this prometheus recorder, used by the CLI to target
+  // recorders with kubeconfig/kube_context overrides at runtime.
+  string name = 9;
 }
 
 // ClusterSpec specifies the type and size of cluster an experiment should run on.

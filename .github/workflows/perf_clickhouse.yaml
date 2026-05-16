@@ -116,6 +116,12 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
+    - name: Build and install px CLI
+      run: |
+        bazel build --config=x86_64_sysroot //src/pixie_cli:px
+        install -m 0755 bazel-bin/src/pixie_cli/px_/px /usr/local/bin/px
+        px version
+
     - name: Run clickhouse-export perf
       env:
         PX_API_KEY: ${{ secrets.PX_API_KEY }}
@@ -124,6 +130,7 @@ jobs:
       run: |
         bazel run //src/e2e_test/perf_tool:perf_tool -- run \
           --api_key="${PX_API_KEY}" \
+          --cloud_addr=pixie.austrianopencloudcommunity.org:443 \
           --commit_sha="${{ steps.get-commit-sha.outputs.commit-sha }}" \
           --experiment_name=clickhouse-export \
           --suite=clickhouse-exec \
@@ -133,6 +140,14 @@ jobs:
           --container_repo=ghcr.io/k8sstormcenter \
           --prom_recorder_override 'clickhouse-operator=:k8ss-forensic' \
           --tags "${{ inputs.tags }}"
+
+    - name: Upload skaffold stderr log
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: skaffold-stderr-${{ github.run_id }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/skaffold-stderr.log
+        if-no-files-found: ignore
 
     - name: Deactivate gcloud service account
       if: always()

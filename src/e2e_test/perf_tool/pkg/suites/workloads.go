@@ -30,6 +30,32 @@ import (
 	pb "px.dev/pixie/src/e2e_test/perf_tool/experimentpb"
 )
 
+// VizierReleaseWorkload returns the workload spec to deploy a released version of Vizier via `px deploy`.
+// This skips the skaffold build step, using pre-built images from the Pixie release.
+func VizierReleaseWorkload() *pb.WorkloadSpec {
+	return &pb.WorkloadSpec{
+		Name: "vizier",
+		DeploySteps: []*pb.DeployStep{
+			{
+				DeployType: &pb.DeployStep_Px{
+					Px: &pb.PxCLIDeploy{
+						Args: []string{
+							"deploy",
+						},
+						SetClusterID: true,
+						Namespaces: []string{
+							"pl",
+							"px-operator",
+							"olm",
+						},
+					},
+				},
+			},
+		},
+		Healthchecks: VizierHealthChecks(),
+	}
+}
+
 // VizierWorkload returns the workload spec to deploy Vizier.
 func VizierWorkload() *pb.WorkloadSpec {
 	return &pb.WorkloadSpec{
@@ -186,6 +212,36 @@ func OnlineBoutiqueWorkload() *pb.WorkloadSpec {
 			},
 		},
 		Healthchecks: HTTPHealthChecks("px-online-boutique", true),
+	}
+}
+
+// ClickHouseReadLoadWorkload deploys the (future) skaffold application that
+// generates sustained ClickHouse read traffic alongside the Pixie read
+// experiment. The skaffold path below is a placeholder; wire up the real
+// application once it exists in the tree.
+func ClickHouseReadLoadWorkload() *pb.WorkloadSpec {
+	return &pb.WorkloadSpec{
+		Name: "clickhouse-read-load",
+		DeploySteps: []*pb.DeployStep{
+			{
+				DeployType: &pb.DeployStep_Skaffold{
+					Skaffold: &pb.SkaffoldDeploy{
+						// TODO(ddelnano): replace with the real skaffold path once
+						// the ClickHouse read-load generator app lands.
+						SkaffoldPath: "src/e2e_test/clickhouse_read_load/skaffold.yaml",
+					},
+				},
+			},
+		},
+		Healthchecks: []*pb.HealthCheck{
+			{
+				CheckType: &pb.HealthCheck_K8S{
+					K8S: &pb.K8SPodsReadyCheck{
+						Namespace: "px-clickhouse-read-load",
+					},
+				},
+			},
+		},
 	}
 }
 

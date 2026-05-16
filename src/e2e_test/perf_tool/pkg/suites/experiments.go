@@ -36,7 +36,7 @@ func HTTPLoadTestExperiment(
 	dur time.Duration,
 ) *experimentpb.ExperimentSpec {
 	e := &experimentpb.ExperimentSpec{
-		VizierSpec: VizierWorkload(),
+		VizierSpec: VizierReleaseWorkload(),
 		WorkloadSpecs: []*experimentpb.WorkloadSpec{
 			HTTPLoadTestWorkload(numConnections, targetRPS, true),
 		},
@@ -343,6 +343,132 @@ func HTTPLoadApplicationOverheadExperiment(
 		"workload/http-loadtest",
 		fmt.Sprintf("parameter/num_conns/%d", numConnections),
 		fmt.Sprintf("parameter/target_rps/%d", targetRPS),
+	)
+	return e
+}
+
+// ClickHouseExportExperiment drives load against Pixie's ClickHouse export
+// path. An HTTP loadtest populates http_events on the PEMs, and the
+// clickhouse_export PxL script runs on a tight period to continuously export
+// a windowed slice of http_events to ClickHouse.
+func ClickHouseExportExperiment(
+	numConnections int,
+	targetRPS int,
+	metricPeriod time.Duration,
+	exportPeriod time.Duration,
+	exportWindow time.Duration,
+	clickhouseDSN string,
+	clickhouseTable string,
+	predeployDur time.Duration,
+	dur time.Duration,
+) *experimentpb.ExperimentSpec {
+	e := &experimentpb.ExperimentSpec{
+		VizierSpec: VizierWorkload(),
+		WorkloadSpecs: []*experimentpb.WorkloadSpec{
+			HTTPLoadTestWorkload(numConnections, targetRPS, true),
+		},
+		MetricSpecs: []*experimentpb.MetricSpec{
+			ProcessStatsMetrics(metricPeriod),
+			// Stagger the second query a little bit because of query stability issues.
+			HeapMetrics(metricPeriod + (2 * time.Second)),
+			ClickHouseExportLoadMetric(exportPeriod, clickhouseDSN, clickhouseTable, clickhouseTable, exportWindow),
+			ClickHouseOperatorMetrics(metricPeriod),
+		},
+		RunSpec: &experimentpb.RunSpec{
+			Actions: []*experimentpb.ActionSpec{
+				{
+					Type: experimentpb.START_VIZIER,
+				},
+				{
+					Type: experimentpb.START_METRIC_RECORDERS,
+				},
+				{
+					Type:     experimentpb.BURNIN,
+					Duration: types.DurationProto(predeployDur),
+				},
+				{
+					Type: experimentpb.START_WORKLOADS,
+				},
+				{
+					Type:     experimentpb.RUN,
+					Duration: types.DurationProto(dur),
+				},
+				{
+					Type: experimentpb.STOP_METRIC_RECORDERS,
+				},
+			},
+		},
+		ClusterSpec: DefaultCluster,
+	}
+	e = addTags(e,
+		"workload/clickhouse-export",
+		fmt.Sprintf("parameter/num_conns/%d", numConnections),
+		fmt.Sprintf("parameter/target_rps/%d", targetRPS),
+		fmt.Sprintf("parameter/export_window/%s", exportWindow),
+	)
+	return e
+}
+
+// ClickHouseReadExperiment drives load against Pixie's ClickHouse read path.
+// HTTP loadtest populates http_events; a (placeholder) read-load workload
+// drives sustained pressure against ClickHouse; the clickhouse_read PxL
+// script periodically queries the ClickHouse source from Pixie so we can
+// observe Pixie-side read performance as well.
+func ClickHouseReadExperiment(
+	numConnections int,
+	targetRPS int,
+	metricPeriod time.Duration,
+	readPeriod time.Duration,
+	readWindow time.Duration,
+	clickhouseDSN string,
+	clickhouseTable string,
+	predeployDur time.Duration,
+	dur time.Duration,
+) *experimentpb.ExperimentSpec {
+	e := &experimentpb.ExperimentSpec{
+		VizierSpec: VizierWorkload(),
+		WorkloadSpecs: []*experimentpb.WorkloadSpec{
+			HTTPLoadTestWorkload(numConnections, targetRPS, true),
+			ClickHouseReadLoadWorkload(),
+		},
+		MetricSpecs: []*experimentpb.MetricSpec{
+			ProcessStatsMetrics(metricPeriod),
+			// Stagger the second query a little bit because of query stability issues.
+			HeapMetrics(metricPeriod + (2 * time.Second)),
+			ClickHouseReadLoadMetric(readPeriod, clickhouseDSN, clickhouseTable, readWindow),
+			ClickHouseOperatorMetrics(metricPeriod),
+		},
+		RunSpec: &experimentpb.RunSpec{
+			Actions: []*experimentpb.ActionSpec{
+				{
+					Type: experimentpb.START_VIZIER,
+				},
+				{
+					Type: experimentpb.START_METRIC_RECORDERS,
+				},
+				{
+					Type:     experimentpb.BURNIN,
+					Duration: types.DurationProto(predeployDur),
+				},
+				{
+					Type: experimentpb.START_WORKLOADS,
+				},
+				{
+					Type:     experimentpb.RUN,
+					Duration: types.DurationProto(dur),
+				},
+				{
+					Type: experimentpb.STOP_METRIC_RECORDERS,
+				},
+			},
+		},
+		ClusterSpec: DefaultCluster,
+	}
+	e = addTags(e,
+		"workload/clickhouse-read",
+		fmt.Sprintf("parameter/num_conns/%d", numConnections),
+		fmt.Sprintf("parameter/target_rps/%d", targetRPS),
+		fmt.Sprintf("parameter/read_window/%s", readWindow),
 	)
 	return e
 }

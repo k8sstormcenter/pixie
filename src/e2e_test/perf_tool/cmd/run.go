@@ -102,7 +102,6 @@ func init() {
 
 	RunCmd.Flags().StringSlice("prom_recorder_override", []string{}, "Override kubeconfig/kube_context for a named prometheus recorder. Format: name=kubeconfig_path:kube_context (either side may be empty). Repeatable.")
 	RunCmd.Flags().Bool("keep_on_failure", false, "If the experiment fails, skip teardown (stop vizier/workloads/recorders and cluster cleanup) so the cluster state can be inspected. Implies --max_retries=1.")
-	RunCmd.Flags().String("skaffold_stderr_file", "", "If set, skaffold's stderr (build/render output) is appended to this file in addition to perf_tool's stderr. Useful in CI to capture a clean log to cat after a failure.")
 
 	RootCmd.AddCommand(RunCmd)
 }
@@ -188,7 +187,6 @@ func runCmd(ctx context.Context, cmd *cobra.Command) error {
 	defer metricsExporter.Close()
 
 	containerRegistryRepo := viper.GetString("container_repo")
-	skaffoldStderrFile := viper.GetString("skaffold_stderr_file")
 	maxRetries := viper.GetInt("max_retries")
 	numRuns := viper.GetInt("num_runs")
 	keepOnFailure := viper.GetBool("keep_on_failure")
@@ -211,7 +209,7 @@ func runCmd(ctx context.Context, cmd *cobra.Command) error {
 			s := spec
 			n := name
 			eg.Go(func() error {
-				expID, err := runExperiment(ctx, s, c, pxAPIKey, pxCloudAddr, metricsExporter, containerRegistryRepo, skaffoldStderrFile, maxRetries, keepOnFailure)
+				expID, err := runExperiment(ctx, s, c, pxAPIKey, pxCloudAddr, metricsExporter, containerRegistryRepo, maxRetries, keepOnFailure)
 				if err != nil {
 					log.WithError(err).Error("failed to run experiment")
 					return err
@@ -281,7 +279,6 @@ func runExperiment(
 	pxCloudAddr string,
 	metricsExporter exporter.Exporter,
 	containerRegistryRepo string,
-	skaffoldStderrFile string,
 	maxRetries int,
 	keepOnFailure bool,
 ) (uuid.UUID, error) {
@@ -291,7 +288,7 @@ func runExperiment(
 	}
 	op := func() error {
 		pxCtx := pixie.NewContext(pxAPIKey, pxCloudAddr)
-		r := run.NewRunner(c, pxCtx, metricsExporter, containerRegistryRepo, skaffoldStderrFile)
+		r := run.NewRunner(c, pxCtx, metricsExporter, containerRegistryRepo)
 		r.SetKeepOnFailure(keepOnFailure)
 		var err error
 		expID, err = uuid.NewV4()

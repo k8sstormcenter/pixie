@@ -215,36 +215,6 @@ func OnlineBoutiqueWorkload() *pb.WorkloadSpec {
 	}
 }
 
-// ClickHouseReadLoadWorkload deploys the (future) skaffold application that
-// generates sustained ClickHouse read traffic alongside the Pixie read
-// experiment. The skaffold path below is a placeholder; wire up the real
-// application once it exists in the tree.
-func ClickHouseReadLoadWorkload() *pb.WorkloadSpec {
-	return &pb.WorkloadSpec{
-		Name: "clickhouse-read-load",
-		DeploySteps: []*pb.DeployStep{
-			{
-				DeployType: &pb.DeployStep_Skaffold{
-					Skaffold: &pb.SkaffoldDeploy{
-						// TODO(ddelnano): replace with the real skaffold path once
-						// the ClickHouse read-load generator app lands.
-						SkaffoldPath: "src/e2e_test/clickhouse_read_load/skaffold.yaml",
-					},
-				},
-			},
-		},
-		Healthchecks: []*pb.HealthCheck{
-			{
-				CheckType: &pb.HealthCheck_K8S{
-					K8S: &pb.K8SPodsReadyCheck{
-						Namespace: "px-clickhouse-read-load",
-					},
-				},
-			},
-		},
-	}
-}
-
 // KafkaWorkload returns the WorkloadSpec to deploy the kafka demo.
 func KafkaWorkload() *pb.WorkloadSpec {
 	return &pb.WorkloadSpec{

@@ -13,10 +13,6 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
-
-# Exports a windowed slice of a Pixie events table to ClickHouse on every
-# invocation, producing sustained load on the export path. px._pem_hostname()
-# ensures the Map runs on the PEM so each row carries the correct hostname.
 #
 # source_table: the Pixie events table to read from (e.g. http_events,
 #   redis_events). dest_table: the ClickHouse destination table name. These
@@ -29,7 +25,7 @@
 import px
 
 df = px.DataFrame('{{.TemplateValues.source_table}}', start_time='-{{.TemplateValues.window}}')
-df.hostname = px._pem_hostname()
+df.hostname = px.upid_to_hostname(df.upid)
 px.export(df, px.otel.ClickHouseRows(
     table='{{.TemplateValues.dest_table}}',
     endpoint=px.otel.Endpoint(
@@ -39,9 +35,11 @@ px.export(df, px.otel.ClickHouseRows(
 
 # Emit one metric row per invocation so we can chart export cadence and row
 # counts. The metric recorder will pick up row_count as a single metric.
-metric_df = df.groupby([]).agg(row_count=('time_', px.count))
+metric_df = df.groupby([]).agg(
+    row_count=('time_', px.count),
+    node_name=('hostname', px.any),
+)
 metric_df.timestamp = px.now()
-metric_df.node_name = px._exec_hostname()
 metric_df.pod = 'clickhouse-export-driver'
 metric_df = metric_df[['timestamp', 'node_name', 'pod', 'row_count']]
 px.display(metric_df, 'export_stats')

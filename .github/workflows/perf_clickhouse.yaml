@@ -141,14 +141,6 @@ jobs:
           --prom_recorder_override 'clickhouse-operator=:k8ss-forensic' \
           --tags "${{ inputs.tags }}"
 
-    - name: Upload skaffold stderr log
-      if: always()
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-      with:
-        name: skaffold-stderr-${{ github.run_id }}-${{ github.run_attempt }}
-        path: ${{ runner.temp }}/skaffold-stderr.log
-        if-no-files-found: ignore
-
     - name: Deactivate gcloud service account
       if: always()
       run: gcloud auth revoke || true

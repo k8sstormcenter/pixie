@@ -40,21 +40,10 @@ var httpDataLossScript string
 //go:embed scripts/clickhouse_export.pxl
 var clickhouseExportScript string
 
-//go:embed scripts/clickhouse_read.pxl
-var clickhouseReadScript string
-
-//go:embed scripts/forensic_alerts.pxl
-var forensicAlertsScript string
-
 // ClickHouseOperatorPromRecorderName is the canonical name used by the CLI's
 // --prom_recorder_override flag to retarget the ClickHouse operator scraper at
 // a different cluster (kubeconfig/kube_context).
 const ClickHouseOperatorPromRecorderName = "clickhouse-operator"
-
-// KubescapeNodeAgentPromRecorderName is the canonical name used by the CLI's
-// --prom_recorder_override flag to retarget the kubescape node-agent scraper
-// at a different cluster.
-const KubescapeNodeAgentPromRecorderName = "kubescape-node-agent"
 
 // ProcessStatsMetrics adds a metric spec that collects process stats such as rss,vsize, and cpu_usage.
 func ProcessStatsMetrics(period time.Duration) *pb.MetricSpec {
@@ -184,33 +173,6 @@ func ClickHouseExportLoadMetric(period time.Duration, dsn string, sourceTable st
 	}
 }
 
-// ClickHouseReadLoadMetric runs the clickhouse read PxL script on a tight
-// period to drive load against the ClickHouse read path, and reports the
-// row count of each readback as a metric.
-func ClickHouseReadLoadMetric(period time.Duration, dsn string, table string, window time.Duration) *pb.MetricSpec {
-	return &pb.MetricSpec{
-		MetricType: &pb.MetricSpec_PxL{
-			PxL: &pb.PxLScriptSpec{
-				Script:           clickhouseReadScript,
-				Streaming:        false,
-				CollectionPeriod: types.DurationProto(period),
-				TemplateValues: map[string]string{
-					"dsn":    dsn,
-					"table":  table,
-					"window": window.String(),
-				},
-				TableOutputs: map[string]*pb.PxLScriptOutputList{
-					"*": {
-						Outputs: []*pb.PxLScriptOutputSpec{
-							singleMetricOutputWithPodNodeName("row_count", "clickhouse_read_rows"),
-						},
-					},
-				},
-			},
-		},
-	}
-}
-
 // ClickHouseOperatorMetrics scrapes the Altinity clickhouse-operator's
 // metrics-exporter sidecar (`ch-metrics` port 8888), which proxies per-shard
 // ClickHouse server metrics. Named so the --prom_recorder_override CLI flag
@@ -243,72 +205,6 @@ func ClickHouseOperatorMetrics(scrapePeriod time.Duration) *pb.MetricSpec {
 					// Per-table gauges: storage-side pressure.
 					"chi_clickhouse_table_parts_rows":  "clickhouse_table_parts_rows",
 					"chi_clickhouse_table_parts_bytes": "clickhouse_table_parts_bytes",
-				},
-			},
-		},
-	}
-}
-
-// KubescapeNodeAgentMetrics scrapes the Kubescape node-agent DaemonSet
-// (the component that runs eBPF hooks and emits runtime anomaly alerts).
-// Metrics are exposed on port 8080 of pods with label `app=node-agent` in
-// the `honey` namespace, matching the kubescape helm chart defaults.
-//
-// Named so the --prom_recorder_override CLI flag can point it at a
-// different cluster via kubeconfig/kube_context.
-func KubescapeNodeAgentMetrics(scrapePeriod time.Duration) *pb.MetricSpec {
-	return &pb.MetricSpec{
-		MetricType: &pb.MetricSpec_Prom{
-			Prom: &pb.PrometheusScrapeSpec{
-				Name:            KubescapeNodeAgentPromRecorderName,
-				Namespace:       "honey",
-				MatchLabelKey:   "app",
-				MatchLabelValue: "node-agent",
-				Port:            8080,
-				ScrapePeriod:    types.DurationProto(scrapePeriod),
-				// Whitelist is a superset: prometheus_recorder silently drops
-				// metrics that are not present in the source, so listing a
-				// candidate name that a particular kubescape version has not
-				// (yet) exposed is harmless.
-				MetricNames: map[string]string{
-					// Standard Go/process exporters — always present.
-					"process_cpu_seconds_total":     "kubescape_node_agent_cpu_seconds_total",
-					"process_resident_memory_bytes": "kubescape_node_agent_rss",
-					"process_virtual_memory_bytes":  "kubescape_node_agent_vsize",
-					"go_goroutines":                 "kubescape_node_agent_goroutines",
-					// Kubescape-specific (names may vary across versions).
-					"kubescape_ruleengine_firing_alerts_total": "kubescape_firing_alerts_total",
-					"kubescape_ruleengine_applied_rules_total": "kubescape_applied_rules_total",
-					"kubescape_node_agent_events_seen_total":   "kubescape_events_seen_total",
-					"kubescape_node_agent_events_dropped_total": "kubescape_events_dropped_total",
-				},
-			},
-		},
-	}
-}
-
-// ForensicAlertCountMetric runs a PxL script against the forensic
-// ClickHouse cluster (via clickhouse_dsn=…) to count Kubescape anomaly
-// alerts that Vector has landed in forensic_db.kubescape_logs. Emits one
-// row per invocation with the total count over the windowed time range.
-func ForensicAlertCountMetric(period time.Duration, dsn string, table string, window time.Duration) *pb.MetricSpec {
-	return &pb.MetricSpec{
-		MetricType: &pb.MetricSpec_PxL{
-			PxL: &pb.PxLScriptSpec{
-				Script:           forensicAlertsScript,
-				Streaming:        false,
-				CollectionPeriod: types.DurationProto(period),
-				TemplateValues: map[string]string{
-					"dsn":    dsn,
-					"table":  table,
-					"window": window.String(),
-				},
-				TableOutputs: map[string]*pb.PxLScriptOutputList{
-					"*": {
-						Outputs: []*pb.PxLScriptOutputSpec{
-							singleMetricOutputWithPodNodeName("alert_count", "forensic_alert_count"),
-						},
-					},
 				},
 			},
 		},

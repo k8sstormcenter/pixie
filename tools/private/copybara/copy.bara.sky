@@ -105,14 +105,12 @@ fork_only_files = [
     ".github/workflows/perf_clickhouse.yaml",
     ".github/workflows/perf_soc_attack.yaml",
     "PLATFORM.md",
-    "bazel/external/rules_docker_pusher_cfg.patch",
     "ci/private/**",
     "k8s/vizier/bootstrap/adaptive_export_*",
     "k8s/vizier/bootstrap/kustomization.yaml",
     "src/carnot/planner/ir/clickhouse_*",
     "src/vizier/services/adaptive_export/**",
     "src/vizier/services/metadata/local/**",
-    "tools/licenses/BUILD.bazel",
     "tools/private/**",
 ]
 

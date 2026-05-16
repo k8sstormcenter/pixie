@@ -96,7 +96,6 @@ ignored_dirs = [
     "src/api/go/pxapi/vizier.go", # mutation support
     "src/vizier/services/query_broker/**", # mutation and clickhouse changes to upstream
     "src/pixie_cli/BUILD.bazel", # fork customizations, see if this can be parameterized
-    "tools/**",
     "WORKSPACE", # upstream misspelling
 ]
 
@@ -107,13 +106,14 @@ fork_only_files = [
     ".github/workflows/perf_soc_attack.yaml",
     "PLATFORM.md",
     "bazel/external/rules_docker_pusher_cfg.patch",
-    "ci/run_copybara.sh",
+    "ci/private/**",
     "k8s/vizier/bootstrap/adaptive_export_*",
     "k8s/vizier/bootstrap/kustomization.yaml",
     "src/carnot/planner/ir/clickhouse_*",
     "src/vizier/services/adaptive_export/**",
     "src/vizier/services/metadata/local/**",
     "tools/licenses/BUILD.bazel",
+    "tools/private/**",
 ]
 
 core.workflow(

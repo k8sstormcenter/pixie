@@ -314,9 +314,27 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 		}
 
 		pass++
+		// Fan out the per-table PxL queries IN PARALLEL. The serial
+		// rev-1 loop spent 1.5-5s per refresh waiting for the 9 tables
+		// that return 0 rows for this pod (a redis-server pod only ever
+		// has data in redis_events; the other 9 queries are pure
+		// latency tax). Parallel cuts the per-pass wall time to roughly
+		// max(query_time) instead of sum(query_times). Each goroutine
+		// runs an independent Pixie RPC; the cloud's PassThroughProxy
+		// fans them across vizier-query-broker fine in our measurements
+		// (10 simultaneous in-flight queries → ~250-700ms wall vs
+		// ~3-5s serial).
+		type tableResult struct {
+			table    string
+			sliceEnd time.Time
+			rows     int
+			err      error
+		}
+		results := make(chan tableResult, len(c.cfg.PushPixieTables))
+		var wg sync.WaitGroup
 		for _, table := range c.cfg.PushPixieTables {
 			if ctx.Err() != nil {
-				return
+				break
 			}
 			sliceStart := lastUpper[table]
 			sliceEnd := now
@@ -328,26 +346,41 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 				log.WithError(err).WithField("table", table).Warn("controller: QueryFor")
 				continue
 			}
-			qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			rows, err := c.querier.Query(qctx, q)
-			cancel()
-			if err != nil {
-				log.WithError(err).WithField("table", table).Warn("controller: pixie query")
+			wg.Add(1)
+			go func(table, q string, sliceEnd time.Time) {
+				defer wg.Done()
+				qctx, cancel := context.WithTimeout(ctx, 180*time.Second)
+				rows, qerr := c.querier.Query(qctx, q)
+				cancel()
+				if qerr != nil {
+					results <- tableResult{table: table, err: qerr}
+					return
+				}
+				nrows := len(rows)
+				if nrows > 0 {
+					if werr := c.sink.WritePixieRows(ctx, table, rows); werr != nil {
+						results <- tableResult{table: table, err: werr}
+						return
+					}
+					log.WithFields(log.Fields{
+						"table": table,
+						"rows":  nrows,
+						"hash":  initial.AnomalyHash,
+						"pass":  pass,
+					}).Info("pushed pixie rows for active anomaly window")
+				}
+				results <- tableResult{table: table, sliceEnd: sliceEnd, rows: nrows}
+			}(table, q, sliceEnd)
+		}
+		wg.Wait()
+		close(results)
+		for r := range results {
+			if r.err != nil {
+				// Distinguish query vs sink errors for the operator log
+				log.WithError(r.err).WithField("table", r.table).Warn("controller: pixie query or sink")
 				continue // do NOT advance lastUpper — retry next pass
 			}
-			if len(rows) > 0 {
-				if err := c.sink.WritePixieRows(ctx, table, rows); err != nil {
-					log.WithError(err).WithField("table", table).Warn("controller: pixie row sink")
-					continue // do NOT advance lastUpper — retry next pass
-				}
-				log.WithFields(log.Fields{
-					"table": table,
-					"rows":  len(rows),
-					"hash":  initial.AnomalyHash,
-					"pass":  pass,
-				}).Info("pushed pixie rows for active anomaly window")
-			}
-			lastUpper[table] = sliceEnd
+			lastUpper[r.table] = r.sliceEnd
 		}
 
 		// Refresh interval treats negative as "single-shot" so callers
@@ -402,16 +435,28 @@ func eventTimeToTime(et uint64) time.Time {
 }
 
 // PruneExpired removes from the in-memory active set every entry whose
-// t_end is in the past. ClickHouse's ReplacingMergeTree handles
-// table-side cleanup; this just keeps the operator's RAM bounded.
+// t_end has been in the past longer than a grace period. ClickHouse's
+// ReplacingMergeTree handles table-side cleanup; this just keeps the
+// operator's RAM bounded.
+//
+// The grace period (2 * cfg.After by default) bridges the gap between
+// the prune timer and the next detection cycle: without it, a
+// same-hash alert arriving milliseconds after a prune ran would spawn
+// a fresh pushPixieRows goroutine, re-scanning the slice from
+// initial.TStart and wasting Pixie query budget on data we already
+// scanned. Empirically (2026-05-15) the un-graced prune accounted for
+// 100% of pushPixieRows goroutine exits, none reached the natural
+// "window expired" path — the prune kept racing reactivation.
+//
 // Caller invokes on a periodic timer.
 func (c *Controller) PruneExpired() int {
 	now := c.clock.Now()
+	grace := 2 * c.cfg.After
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	removed := 0
 	for h, row := range c.active {
-		if !row.TEnd.After(now) {
+		if !row.TEnd.Add(grace).After(now) {
 			delete(c.active, h)
 			removed++
 		}

@@ -92,13 +92,20 @@ func (r *prometheusRecorderImpl) run() error {
 	}
 	t := time.NewTicker(d)
 	defer t.Stop()
+	// Tolerate transient per-tick scrape failures the same way the pxl
+	// recorder does: if the target pod restarts (kubescape-node-agent has
+	// a tight liveness probe that fails under high alert load) or the
+	// port-forward briefly drops, returning here aborts the whole
+	// experiment for what is recoverable noise. Log and continue; a
+	// persistently broken scrape will still surface via zero rows for
+	// the affected metric_names.
 	for {
 		select {
 		case <-r.stopCh:
 			return nil
 		case <-t.C:
 			if err := r.scrape(); err != nil {
-				return err
+				log.WithError(err).Warn("prom recorder scrape failed; continuing")
 			}
 		}
 	}

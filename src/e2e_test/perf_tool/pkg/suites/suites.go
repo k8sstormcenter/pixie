@@ -181,8 +181,8 @@ func httpGridSuite() map[string]*pb.ExperimentSpec {
 //	--prom_recorder_override kubescape-node-agent=:<forensic-ctx>
 func sovereignSOCSuite() map[string]*pb.ExperimentSpec {
 	defaultMetricPeriod := 30 * time.Second
-	preDur := 2 * time.Minute
-	dur := 20 * time.Minute
+	preDur := 1 * time.Minute
+	dur := 3 * time.Minute
 
 	exportPeriod := 5 * time.Second
 	exportWindow := 30 * time.Second

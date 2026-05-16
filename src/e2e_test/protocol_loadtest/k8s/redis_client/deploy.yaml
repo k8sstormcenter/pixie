@@ -1,0 +1,85 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: px-protocol-loadtest
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-server
+  namespace: px-protocol-loadtest
+  labels:
+    name: redis-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: redis-server
+  template:
+    metadata:
+      labels:
+        name: redis-server
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        imagePullPolicy: IfNotPresent
+        args: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+        ports:
+        - {name: redis, containerPort: 6379}
+        resources:
+          requests: {cpu: "100m", memory: "64Mi"}
+          limits:   {cpu: "8",    memory: "1Gi"}
+        readinessProbe:
+          tcpSocket: {port: redis}
+          initialDelaySeconds: 2
+          periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-server
+  namespace: px-protocol-loadtest
+spec:
+  selector:
+    name: redis-server
+  ports:
+  - {name: redis, port: 6379, targetPort: redis}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-client
+  namespace: px-protocol-loadtest
+  labels:
+    name: redis-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: redis-client
+  template:
+    metadata:
+      labels:
+        name: redis-client
+    spec:
+      initContainers:
+      - name: wait-redis
+        image: redis:7-alpine
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c", "until redis-cli -h redis-server PING | grep -q PONG; do echo waiting redis; sleep 1; done"]
+      containers:
+      - name: client
+        image: docker.io/library/protocol_loadtest_redis_client:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - {name: REDIS_HOST,      value: "redis-server"}
+        - {name: REDIS_PORT,      value: "6379"}
+        - {name: NUM_CONNECTIONS, value: "10"}
+        - {name: TARGET_RPS,      value: "1000"}
+        - {name: VAL_SIZE,        value: "256"}
+        - {name: NUM_MESSAGES,    value: "5000"}
+        resources:
+          requests: {cpu: "200m", memory: "128Mi"}
+          limits:   {cpu: "4",    memory: "1Gi"}

@@ -47,7 +47,7 @@ data:
           timeout_secs: 2
         database: forensic_db
         date_time_best_effort: true
-        endpoint: http://clickhouse.forensic.austrianopencloudcommunity.org:8123
+        endpoint: http://clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:8123
         inputs:
         - kubescape_enrich
         skip_unknown_fields: true
@@ -71,7 +71,7 @@ data:
         source: |
           .CloudMetadata = "empty"
           .hostname = get_env_var!("NODE_NAME")
-          .event_time = to_unix_timestamp(now())
+          .event_time = to_unix_timestamp(now(), "nanoseconds")
           del(.time)
         type: remap
       kubescape_filter:

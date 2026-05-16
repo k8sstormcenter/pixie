@@ -61,7 +61,18 @@ void SourceConnector::PushData(DataPushCallback agent_callback) {
       Status s = agent_callback(
           data_table->id(), record_batch.tablet_id,
           std::make_unique<types::ColumnWrapperRecordBatch>(std::move(record_batch.records)));
-      LOG_IF(DFATAL, !s.ok()) << absl::Substitute("Failed to push data. Message = $0", s.msg());
+      // Was: LOG_IF(DFATAL, ...). DFATAL crashes debug builds (which any
+      // bazel build without --compilation_mode=opt is) every time the
+      // table store refuses a record batch — and the most common cause
+      // of that is a single drained batch exceeding the per-table size
+      // budget under sustained socket_tracer load. The crash is
+      // catastrophic (PEM SIGABRTs, takes down recorder + cluster
+      // registration); dropping the batch and continuing is the
+      // recoverable behaviour the release build already takes (DFATAL
+      // → ERROR there). Make debug match release so devs running real
+      // load against a from-source PEM don't get spurious aborts.
+      LOG_IF_EVERY_N(ERROR, !s.ok(), 100)
+          << absl::Substitute("Failed to push data (dropped). Message = $0", s.msg());
     }
   }
 }

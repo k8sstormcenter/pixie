@@ -1,0 +1,104 @@
+---
+# Empty user-defined ApplicationProfiles for the 3-protocol loadtest pods.
+# Each profile's `containers[].name` must match the actual container name in
+# the corresponding Deployment's pod spec (see deploy.yaml for each protocol).
+# The Deployment must also carry
+#   kubescape.io/user-defined-profile: <profile-name>
+# on spec.template.metadata.labels so kubescape skips auto-learning and uses
+# this empty profile from t=0. Without this triple (profile + label + matching
+# container name) the entire SOC pipeline silently no-ops on this pod.
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ApplicationProfile
+metadata:
+  name: http-server-empty
+  namespace: px-protocol-loadtest
+spec:
+  architectures: [amd64]
+  containers:
+  - name: app
+    capabilities: null
+    endpoints:    null
+    execs:        null
+    opens:        null
+    syscalls:     null
+    rulePolicies: {}
+---
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ApplicationProfile
+metadata:
+  name: http-client-empty
+  namespace: px-protocol-loadtest
+spec:
+  architectures: [amd64]
+  containers:
+  - name: client
+    capabilities: null
+    endpoints:    null
+    execs:        null
+    opens:        null
+    syscalls:     null
+    rulePolicies: {}
+---
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ApplicationProfile
+metadata:
+  name: redis-server-empty
+  namespace: px-protocol-loadtest
+spec:
+  architectures: [amd64]
+  containers:
+  - name: redis
+    capabilities: null
+    endpoints:    null
+    execs:        null
+    opens:        null
+    syscalls:     null
+    rulePolicies: {}
+---
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ApplicationProfile
+metadata:
+  name: redis-client-empty
+  namespace: px-protocol-loadtest
+spec:
+  architectures: [amd64]
+  containers:
+  - name: client
+    capabilities: null
+    endpoints:    null
+    execs:        null
+    opens:        null
+    syscalls:     null
+    rulePolicies: {}
+---
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ApplicationProfile
+metadata:
+  name: pgsql-server-empty
+  namespace: px-protocol-loadtest
+spec:
+  architectures: [amd64]
+  containers:
+  - name: postgres
+    capabilities: null
+    endpoints:    null
+    execs:        null
+    opens:        null
+    syscalls:     null
+    rulePolicies: {}
+---
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ApplicationProfile
+metadata:
+  name: pgsql-client-empty
+  namespace: px-protocol-loadtest
+spec:
+  architectures: [amd64]
+  containers:
+  - name: client
+    capabilities: null
+    endpoints:    null
+    execs:        null
+    opens:        null
+    syscalls:     null
+    rulePolicies: {}

@@ -116,6 +116,12 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
+    - name: Build and install px CLI
+      run: |
+        bazel build //src/pixie_cli:px
+        install -m 0755 bazel-bin/src/pixie_cli/px_/px /usr/local/bin/px
+        px version
+
     - name: Run clickhouse-export perf
       env:
         PX_API_KEY: ${{ secrets.PX_API_KEY }}
@@ -124,6 +130,7 @@ jobs:
       run: |
         bazel run //src/e2e_test/perf_tool:perf_tool -- run \
           --api_key="${PX_API_KEY}" \
+          --cloud_addr=${{ vars.PERF_CLOUD_ADDR }}
           --commit_sha="${{ steps.get-commit-sha.outputs.commit-sha }}" \
           --experiment_name=clickhouse-export \
           --suite=clickhouse-exec \

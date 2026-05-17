@@ -101,6 +101,7 @@ spec:
         # the end of the RUN). See feedback_kubescape_empty_profile.
         kubescape.io/user-defined-profile: redis-empty
     spec:
+      automountServiceAccountToken: false
       serviceAccountName: redis
       containers:
         - name: redis

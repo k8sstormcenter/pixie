@@ -84,17 +84,27 @@ spec:
         # adversary in the threat model, not a normal app pod.
         kubescape.io/ignore: "true"
     spec:
+      # k6 doesn't need an SA token; CR-flagged for unnecessary token
+      # exposure on the adversary-surface loadgen pod.
+      automountServiceAccountToken: false
       containers:
       - name: k6
         image: grafana/k6:0.51.0
         imagePullPolicy: IfNotPresent
         command: ["/bin/sh", "-c"]
         # k6 needs the API to be reachable; the gunicorn pods need ~25 s
-        # to pip-install + start. Retry on connection refused.
+        # to pip-install + start. Retry on connection refused, BUT bound
+        # the wait so a permanently-broken api deploy doesn't hang the
+        # experiment forever.
         args:
         - |
           set -e
+          deadline=$((SECONDS + 300))
           until wget -q -O /dev/null --timeout=3 http://api:8080/healthz; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "api did not become healthy within 300s"
+              exit 1
+            fi
             echo "waiting for api..."
             sleep 2
           done

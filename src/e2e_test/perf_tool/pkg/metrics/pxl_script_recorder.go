@@ -142,13 +142,27 @@ func (r *pxlScriptRecorderImpl) runPeriodicScript(ctx context.Context) error {
 	// and returning here aborts the entire 25-min experiment for what is
 	// otherwise harmless. A persistently broken recorder will still surface
 	// via zero output rows on the downstream metric tables.
+	// Tolerate up to maxConsecutiveFailures transient errors (cloud
+	// passthrough-proxy races on ~0.66% of ticks at exportPeriod=5s);
+	// abort if the recorder is broken-persistent (e.g. CH endpoint
+	// permanently unreachable, table schema drift). Without the bound,
+	// a wedged recorder would silently produce 0 rows for the entire
+	// experiment and only be noticed at result-render time.
+	const maxConsecutiveFailures = 5
+	consecutiveFailures := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-t.C:
 			if err := r.executeScript(ctx); err != nil {
-				log.WithError(err).Warn("recorder iteration failed; continuing")
+				consecutiveFailures++
+				log.WithError(err).Warnf("recorder iteration failed; continuing (%d/%d)", consecutiveFailures, maxConsecutiveFailures)
+				if consecutiveFailures >= maxConsecutiveFailures {
+					return fmt.Errorf("recorder failed %d consecutive iterations: %w", consecutiveFailures, err)
+				}
+			} else {
+				consecutiveFailures = 0
 			}
 		}
 	}

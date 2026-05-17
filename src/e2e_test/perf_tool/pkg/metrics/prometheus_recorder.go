@@ -99,13 +99,26 @@ func (r *prometheusRecorderImpl) run() error {
 	// experiment for what is recoverable noise. Log and continue; a
 	// persistently broken scrape will still surface via zero rows for
 	// the affected metric_names.
+	// Tolerate up to maxConsecutiveFailures transient scrapes; abort if
+	// the scrape is broken-persistent (e.g. the target pod was deleted
+	// not restarted, or the port-forward is wedged). Without the bound,
+	// a permanently broken scrape silently produced 0 rows for the
+	// entire experiment and was only noticed at result-render time.
+	const maxConsecutiveFailures = 5
+	consecutiveFailures := 0
 	for {
 		select {
 		case <-r.stopCh:
 			return nil
 		case <-t.C:
 			if err := r.scrape(); err != nil {
-				log.WithError(err).Warn("prom recorder scrape failed; continuing")
+				consecutiveFailures++
+				log.WithError(err).Warnf("prom recorder scrape failed; continuing (%d/%d)", consecutiveFailures, maxConsecutiveFailures)
+				if consecutiveFailures >= maxConsecutiveFailures {
+					return fmt.Errorf("prom recorder scrape failed %d times consecutively: %w", consecutiveFailures, err)
+				}
+			} else {
+				consecutiveFailures = 0
 			}
 		}
 	}

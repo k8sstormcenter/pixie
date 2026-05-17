@@ -100,7 +100,9 @@ func (c *PgsqlSeqClient) Run() error {
 	}()
 
 	timeStart := time.Now()
-	for i := c.startSeq; i <= c.startSeq+c.numMessages; i++ {
+	// Inclusive upper bound (`<=`) dispatched numMessages+1 queries,
+	// throwing off rps math and the per-conn budget tracking by 1.
+	for i := c.startSeq; i < c.startSeq+c.numMessages; i++ {
 		jobs <- i
 	}
 	close(jobs)

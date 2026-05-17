@@ -68,8 +68,13 @@ func NewApplier(endpoint, user, pass string) (*Applier, error) {
 	if endpoint == "" {
 		return nil, fmt.Errorf("clickhouse: empty endpoint")
 	}
-	if _, err := url.Parse(endpoint); err != nil {
-		return nil, fmt.Errorf("clickhouse: invalid endpoint %q: %w", endpoint, err)
+	// Reject anything that isn't an absolute http/https URL — net/http will
+	// otherwise interpret things like "localhost:8123" as a relative path
+	// and fail much later with a confusing "missing protocol scheme" deep
+	// inside the first request.
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Scheme == "" || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return nil, fmt.Errorf("clickhouse: invalid endpoint %q (must be absolute http/https URL)", endpoint)
 	}
 	return &Applier{
 		endpoint: strings.TrimRight(endpoint, "/"),

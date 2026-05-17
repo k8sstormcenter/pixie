@@ -1,5 +1,4 @@
 data "kustomization_build" "env_deps" {
-  # path = "../../../cosmic-worktree/private/cloud_deps/${var.cluster_env}"
   # TODO(ddelnano): This will need to be updated for the terraform Azure pipeline 
   path = "../../../k8s/cloud_deps/public"
 }

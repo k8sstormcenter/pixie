@@ -24,9 +24,9 @@ default['owner'] = node['current_user']
 default['group'] = 'wheel'
 
 default['docker-buildx']['download_path'] =
-  'https://github.com/docker/buildx/releases/download/v0.31.1/buildx-v0.31.1.darwin-amd64'
+  'https://github.com/docker/buildx/releases/download/v0.33.0/buildx-v0.33.0.darwin-amd64'
 default['docker-buildx']['sha256'] =
-  'add7f9b18c4208af34c29a1f90318f302356fdc017a92b20c1966c3e14ddb3c4'
+  'b1b5a38f78311cfed70a0e68096df0e9ed7dd1b1fcd09adbb117d74e3bad6f32'
 
 default['faq']['download_path'] =
   'https://github.com/jzelinskie/faq/releases/download/0.0.7/faq-darwin-amd64'
@@ -84,9 +84,9 @@ default['sops']['sha256'] =
   'dece9b0131af5ced0f8c278a53c0cf06a4f0d1d70a177c0979f6d111654397ce'
 
 default['trivy']['download_path'] =
-  'https://github.com/aquasecurity/trivy/releases/download/v0.64.1/trivy_0.64.1_macOS-64bit.tar.gz'
+  'https://github.com/aquasecurity/trivy/releases/download/v0.69.3/trivy_0.69.3_macOS-64bit.tar.gz'
 default['trivy']['sha256'] =
-  '107a874b41c1f0a48849f859b756f500d8be06f2d2b8956a046a97ae38088bf6'
+  'fec4a9f7569b624dd9d044fca019e5da69e032700edbb1d7318972c448ec2f4e'
 
 default['yq']['download_path'] =
   'https://github.com/mikefarah/yq/releases/download/v4.30.8/yq_darwin_amd64'

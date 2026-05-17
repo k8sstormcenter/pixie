@@ -135,6 +135,25 @@ type Config struct {
 	// pair is retried, so a pod that newly starts a protocol
 	// self-heals within at most TTL seconds.
 	EmptyResultSkipTTL time.Duration
+
+	// OnAttribution, when non-nil, is called for every event after
+	// the attribution row has been computed (whether the row is new
+	// or an extension). The rev-3 streaming path uses this to feed
+	// its ActiveSet without touching controller internals.
+	//
+	// Contract:
+	//   - Called from controller.handle's goroutine.
+	//   - Synchronous; do NOT block. Callbacks that need to do work
+	//     should hand off to a goroutine + buffered channel internally.
+	//   - tEnd is the post-event t_end (= now + After for new rows,
+	//     or the extended value for existing ones).
+	OnAttribution func(namespace, pod string, tEnd time.Time)
+
+	// OnPrune, when non-nil, is called for each hash evicted by
+	// PruneExpired with the (namespace, pod) of the evicted row.
+	// Used by the rev-3 streaming path to shrink its ActiveSet.
+	// Same contract as OnAttribution: synchronous, non-blocking.
+	OnPrune func(namespace, pod string)
 }
 
 func (c *Config) defaulted() Config {
@@ -304,6 +323,9 @@ func (c *Controller) handle(ctx context.Context, ev kubescape.Event) {
 
 	if err := c.sink.Write(ctx, []sink.AttributionRow{snapshot}); err != nil {
 		log.WithError(err).Warn("controller: sink write failed")
+	}
+	if c.cfg.OnAttribution != nil {
+		c.cfg.OnAttribution(snapshot.Namespace, snapshot.Pod, snapshot.TEnd)
 	}
 	// Rev-1 path: query pixie for the [t_start, t_end) slice of every
 	// PushPixieTables table for this (namespace, pod) and write rows
@@ -581,6 +603,13 @@ func (c *Controller) Active() int {
 	return len(c.active)
 }
 
+// SnapshotActive returns a fresh QueryActive against CH. Exposed so
+// callers (e.g. main.go) can seed the streaming ActiveSet at boot
+// without having to know about Sink internals.
+func (c *Controller) SnapshotActive(ctx context.Context) ([]sink.AttributionRow, error) {
+	return c.sink.QueryActive(ctx, c.cfg.Hostname)
+}
+
 // eventTimeToTime converts forensic_db.kubescape_logs.event_time (UInt64)
 // into a time.Time, auto-detecting the unit. Vector's kubescape sink in
 // the soc lab writes unix SECONDS (~1.7e9), but other deployments may
@@ -616,14 +645,22 @@ func eventTimeToTime(et uint64) time.Time {
 func (c *Controller) PruneExpired() int {
 	now := c.clock.Now()
 	grace := 2 * c.cfg.After
+	// Collect under the lock; fire callbacks AFTER releasing so we
+	// don't hold the controller mutex across user code.
+	type prunedKey struct{ namespace, pod string }
+	var fired []prunedKey
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	removed := 0
 	for h, row := range c.active {
 		if !row.TEnd.Add(grace).After(now) {
+			fired = append(fired, prunedKey{row.Namespace, row.Pod})
 			delete(c.active, h)
-			removed++
 		}
 	}
-	return removed
+	c.mu.Unlock()
+	if c.cfg.OnPrune != nil {
+		for _, k := range fired {
+			c.cfg.OnPrune(k.namespace, k.pod)
+		}
+	}
+	return len(fired)
 }

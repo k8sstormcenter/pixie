@@ -1,0 +1,99 @@
+%%{init: {'theme':'base','themeVariables':{'fontSize':'13px'}}}%%
+flowchart TB
+
+%% =========================================================
+%% EXTERNAL: same as rev-2
+%% =========================================================
+subgraph EXT["External (per node)"]
+  KS["Kubescape DaemonSet"]
+  VEC["Vector → CH"]
+  PEM["Pixie PEM (eBPF)"]
+end
+
+subgraph PIXIE["Pixie cluster (NODE-LOCAL gRPC only)"]
+  QB["vizier-query-broker<br/>:50300<br/><b>ONLY contacted in-cluster</b><br/>10 long-lived streams per node"]
+end
+
+subgraph CLOUD["Pixie cloud"]
+  PS["PluginService<br/>contacted ONCE at boot"]
+end
+
+subgraph CH["ClickHouse forensic_db"]
+  T_KL[("kubescape_logs<br/>(unchanged)")]
+  T_AA[("adaptive_attribution<br/>(unchanged)")]
+  T_WM[("trigger_watermark<br/>(unchanged)")]
+  T_PX[("12 pixie tables<br/>(written by TableStreams, batched)")]
+end
+
+%% =========================================================
+%% OPERATOR REV-3
+%% =========================================================
+subgraph OP["adaptive_export pod (rev-3)"]
+
+  subgraph TRG["Trigger goroutine (1) — UNCHANGED"]
+    TR["pollOnce + persistent watermark<br/>partial-read tolerance<br/>emits Event on chan"]
+  end
+
+  subgraph ATTR["AttributionMgr goroutine (1)"]
+    A_RUN["for ev := range trigger_chan:<br/>compute hash<br/>upsert active[hash]<br/>sink.Write(adaptive_attribution)<br/><b>ActiveSet.Upsert(pod, ns, t_end)</b>"]
+  end
+
+  subgraph AS["ActiveSet (in-mem + CH-backed)"]
+    AS_STATE[("pod|ns → t_end<br/>version counter<br/>mu.Lock guarded")]
+    AS_DELTA[/"delta chan<br/>{added, removed}<br/>fanout to subscribers"/]
+    AS_STATE -- "Upsert / Remove triggers" --> AS_DELTA
+  end
+
+  subgraph SS["StreamSupervisor goroutine (1)"]
+    SS_SUB["subscribe(AS.delta)<br/>on each delta:<br/>compute current whitelist<br/>broadcast filterUpdate to 10 streams"]
+  end
+
+  subgraph TS["TableStream goroutines (10, ONE per pixie table)"]
+    direction TB
+    TS_LOOP["per-table loop:<br/>1. assemble PxL with current whitelist<br/>2. submit ExecuteScript on long-lived gRPC<br/>3. for each emitted batch: forward to writer<br/>4. on filter change: cancel + re-submit<br/>5. on stream error: backoff + re-submit<br/>6. periodic re-submit (60s) for staleness bound"]
+    TS_WRITER["per-table CH writer<br/>buffer up to 10k rows OR 5s<br/>then HTTP POST INSERT<br/>bounded buffer drops oldest on CH outage"]
+    TS_LOOP --> TS_WRITER
+  end
+
+  subgraph PRN["Pruner (1)"]
+    PR_TICK["every 30s:<br/>evict active[h] where t_end+grace past<br/><b>triggers ActiveSet.Remove → delta</b>"]
+  end
+
+  subgraph HC["Healthcheck (1)"]
+    HC_TICK["per-table: did stream emit OR error<br/>in last 60s?<br/>no → trigger re-submit"]
+  end
+end
+
+%% =========================================================
+%% FLOWS
+%% =========================================================
+KS --> VEC --> T_KL
+PEM -- "in-memory tables (no CH yet)" --> QB
+
+TR -- "HTTP GET watermark + LIMIT scan" --> T_KL
+TR -- "INSERT watermark" --> T_WM
+TR -- "Event chan (size 64)" --> A_RUN
+
+A_RUN -- "INSERT" --> T_AA
+A_RUN -- "Upsert" --> AS_STATE
+PR_TICK -- "Remove" --> AS_STATE
+
+AS_DELTA -- "filter updates" --> SS_SUB
+SS_SUB -- "broadcast" --> TS_LOOP
+HC_TICK -.restart on liveness fail.-> TS_LOOP
+
+TS_LOOP -- "ONE long-lived stream<br/>per table, NODE-LOCAL" --> QB
+TS_WRITER -- "batched POST INSERT per-table" --> T_PX
+
+%% Cloud only at boot
+PS -.ONE-TIME at boot.- OP
+
+%% =========================================================
+%% STYLE: highlight what's NEW
+%% =========================================================
+classDef new fill:#d4ffd4,stroke:#080,stroke-width:2px;
+class AS,SS,TS,HC new
+class AS_STATE,AS_DELTA new
+class SS_SUB new
+class TS_LOOP,TS_WRITER new
+class HC_TICK new

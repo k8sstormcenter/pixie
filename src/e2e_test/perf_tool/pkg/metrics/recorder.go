@@ -37,6 +37,9 @@ type Recorder interface {
 
 // NewMetricsRecorder creates a new Recorder for the given MetricSpec.
 func NewMetricsRecorder(pxCtx *pixie.Context, clusterCtx *cluster.Context, spec *experimentpb.MetricSpec, eg *errgroup.Group, resultCh chan<- *ResultRow) (Recorder, error) {
+	if spec == nil || spec.MetricType == nil {
+		return nil, fmt.Errorf("metric spec is required (MetricType is nil)")
+	}
 	switch spec.MetricType.(type) {
 	case *experimentpb.MetricSpec_PxL:
 		return &pxlScriptRecorderImpl{
@@ -66,5 +69,5 @@ func NewMetricsRecorder(pxCtx *pixie.Context, clusterCtx *cluster.Context, spec 
 			resultCh:      resultCh,
 		}, nil
 	}
-	return nil, nil
+	return nil, fmt.Errorf("unsupported metric type %T", spec.MetricType)
 }

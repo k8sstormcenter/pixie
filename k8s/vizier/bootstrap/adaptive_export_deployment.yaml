@@ -67,6 +67,31 @@ spec:
         # ingest_writer user, forensic_db database).
         - name: KUBESCAPE_TABLE
           value: "kubescape_logs"
+        # ─── pushPixieRows fan-out throttle knobs ──────────────────────────
+        # All default to 0 (= legacy unbounded behavior) inside the binary.
+        # The values below are the "production-safe" defaults established by
+        # the 4× sweep evaluation (proto-sweep results 2026-05-17):
+        # baseline (no throttle) → 0 rows / 85 fan-outs / broker overloaded.
+        # this combo (per_hash=2 + global=10 + empty_skip) → 80k rows / same
+        # fan-out count, ≥10× throughput vs baseline.
+        #
+        # Tune-down rationale: counterintuitive but verified — TIGHTER caps
+        # produce HIGHER throughput because vizier-query-broker is the
+        # bottleneck, not the operator. Fewer concurrent PxL queries → each
+        # finishes faster → more queries total per unit time. Set higher
+        # values (or 0) only if the broker has been resized.
+        - name: ADAPTIVE_MAX_PARALLEL_QUERIES_PER_HASH
+          value: "2"
+        - name: ADAPTIVE_MAX_INFLIGHT_QUERIES_GLOBAL
+          value: "10"
+        # Negative cache: after N consecutive 0-row returns for (pod, table),
+        # skip that pair for TTL seconds. Eliminates the "ask http_events for
+        # a redis pod" waste. Self-heals when a pod newly starts a protocol
+        # (worst case = TTL seconds of missed data).
+        - name: ADAPTIVE_EMPTY_RESULT_SKIP_AFTER_N
+          value: "3"
+        - name: ADAPTIVE_EMPTY_RESULT_SKIP_TTL_SEC
+          value: "300"
         # - name: CLICKHOUSE_HOST
         #   value: "clickhouse-forensic-soc-db.clickhouse.svc.cluster.local"
         # - name: CLICKHOUSE_PORT

@@ -94,6 +94,31 @@ func TestPruneExpiredBatchesRemovals(t *testing.T) {
 	}
 }
 
+func TestUpsertExtendDoesNotAdvanceVersion(t *testing.T) {
+	// Per CR feedback (activeset.go:110): pure extension shouldn't
+	// bump version, because the version is the consumer's "did
+	// membership change?" signal. Spurious bumps make subscribers
+	// re-snapshot for nothing.
+	s := New()
+	k := Key{Pod: "p"}
+	s.Upsert(k, time.Now().Add(time.Minute))
+	_, v1 := s.Snapshot()
+	// Extend the SAME pod's t_end repeatedly.
+	for i := 0; i < 10; i++ {
+		s.Upsert(k, time.Now().Add(time.Duration(i+2)*time.Minute))
+	}
+	_, v2 := s.Snapshot()
+	if v2 != v1 {
+		t.Fatalf("version advanced on pure extension: v1=%d v2=%d", v1, v2)
+	}
+	// But a new pod DOES advance.
+	s.Upsert(Key{Pod: "q"}, time.Now().Add(time.Minute))
+	_, v3 := s.Snapshot()
+	if v3 == v2 {
+		t.Fatalf("version did NOT advance on new pod add: v=%d", v3)
+	}
+}
+
 func TestSnapshotReturnsCurrentMembers(t *testing.T) {
 	s := New()
 	s.Upsert(Key{Namespace: "n1", Pod: "p1"}, time.Now().Add(time.Minute))
@@ -128,6 +153,48 @@ func TestSubscriberOverflowDropsOldest(t *testing.T) {
 			}
 			return
 		}
+	}
+}
+
+// TestSubscribeAndSnapshot_RaceFreeBootstrap — per CR (activeset.go:183):
+// a consumer that wants both "initial state" + "all future deltas"
+// must be able to do so without missing changes between Snapshot()
+// and Subscribe(). Verify the combined helper.
+func TestSubscribeAndSnapshot_RaceFreeBootstrap(t *testing.T) {
+	s := New()
+	s.Upsert(Key{Pod: "preexisting"}, time.Now().Add(time.Minute))
+
+	// Simulate a hostile interleaving: between when we'd call Snapshot
+	// and when we'd call Subscribe, a concurrent Upsert lands.
+	// Without a combined helper, we'd miss it. The combined helper
+	// must report the new pod EITHER in the initial set OR in the
+	// first delta — never lost.
+	keys, ch, version := s.SubscribeAndSnapshot(4)
+	// Concurrent upsert AFTER subscription.
+	go func() {
+		s.Upsert(Key{Pod: "racy"}, time.Now().Add(time.Minute))
+	}()
+
+	if len(keys) != 1 || keys[0].Pod != "preexisting" {
+		t.Fatalf("initial snapshot wrong: %+v", keys)
+	}
+	// Drain delta.
+	select {
+	case d := <-ch:
+		if d.Version <= version {
+			t.Fatalf("delta version %d <= snapshot version %d", d.Version, version)
+		}
+		seen := false
+		for _, k := range d.Added {
+			if k.Pod == "racy" {
+				seen = true
+			}
+		}
+		if !seen {
+			t.Fatalf("racy pod not in delta added=%v", d.Added)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("no delta within 500ms")
 	}
 }
 

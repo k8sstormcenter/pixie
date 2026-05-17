@@ -89,6 +89,11 @@ func New() *ActiveSet {
 // Upsert sets or extends a pod's t_end. Idempotent — if the pod is
 // already present with a >= t_end, no delta is emitted (caller-side
 // dedup of trivial extensions; saves debouncer churn).
+//
+// `version` is advanced ONLY on membership changes (new pod added).
+// A pure t_end extension does NOT bump version — subscribers use
+// version skips as their "membership might have changed" signal, and
+// spurious bumps force unnecessary re-snapshots.
 func (s *ActiveSet) Upsert(k Key, tEnd time.Time) {
 	s.mu.Lock()
 	prev, existed := s.members[k]
@@ -97,16 +102,16 @@ func (s *ActiveSet) Upsert(k Key, tEnd time.Time) {
 		return // no-op extension; quietly skip
 	}
 	s.members[k] = tEnd
+	if existed {
+		// Pure t_end extension: store new value, no version bump,
+		// no delta. Subscribers see no membership change.
+		s.mu.Unlock()
+		return
+	}
 	s.version++
 	v := s.version
 	s.mu.Unlock()
-
-	if !existed {
-		s.broadcast(Delta{Added: []Key{k}, Version: v})
-	}
-	// extension (existed && tEnd > prev) doesn't change membership;
-	// no delta needed — subscribers don't care about t_end shifts of
-	// already-present pods.
+	s.broadcast(Delta{Added: []Key{k}, Version: v})
 }
 
 // Remove drops a pod. No-op if not present. Always emits a delta on
@@ -172,6 +177,10 @@ func (s *ActiveSet) Size() int {
 // overflow and subscribers MUST re-snapshot if they detect a version
 // gap. Channel is closed when ctx-equivalent shutdown is signalled
 // via Unsubscribe.
+//
+// Race hazard: a caller that does `Snapshot()` then `Subscribe()`
+// can miss any membership change that lands between the two calls.
+// Prefer `SubscribeAndSnapshot()` which is atomic.
 func (s *ActiveSet) Subscribe(buffer int) <-chan Delta {
 	if buffer < 1 {
 		buffer = 1
@@ -181,6 +190,40 @@ func (s *ActiveSet) Subscribe(buffer int) <-chan Delta {
 	s.subs = append(s.subs, ch)
 	s.subsMu.Unlock()
 	return ch
+}
+
+// SubscribeAndSnapshot atomically captures the current membership
+// AND registers the subscription, so the consumer is guaranteed to
+// see EVERY change that lands at or after the returned version
+// without losing changes in the race window between the two.
+//
+// Returned tuple:
+//
+//	keys      — current membership at snapshot time
+//	deltas    — channel that will receive every future delta
+//	version   — the version of `keys`; consumers can filter the
+//	            channel by `delta.Version > version`
+//
+// This is the recommended consumer API for bootstrapping.
+func (s *ActiveSet) SubscribeAndSnapshot(buffer int) ([]Key, <-chan Delta, uint64) {
+	if buffer < 1 {
+		buffer = 1
+	}
+	ch := make(chan Delta, buffer)
+	// Hold BOTH mutexes for the duration of {snapshot, register}.
+	// Order: s.mu first (membership), then s.subsMu (subscriber list).
+	// broadcast() takes only s.subsMu, so there's no ordering risk.
+	s.mu.Lock()
+	keys := make([]Key, 0, len(s.members))
+	for k := range s.members {
+		keys = append(keys, k)
+	}
+	version := s.version
+	s.subsMu.Lock()
+	s.subs = append(s.subs, ch)
+	s.subsMu.Unlock()
+	s.mu.Unlock()
+	return keys, ch, version
 }
 
 // Unsubscribe removes and closes a previously-returned channel.

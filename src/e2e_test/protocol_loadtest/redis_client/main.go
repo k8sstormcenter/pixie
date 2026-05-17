@@ -22,6 +22,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
@@ -42,7 +43,14 @@ func init() {
 
 func main() {
 	viper.AutomaticEnv()
-	viper.BindPFlags(pflag.CommandLine)
+	// pflag.Parse() MUST come before viper.BindPFlags — otherwise the
+	// pflag.CommandLine flags don't have their values populated yet, and
+	// viper.GetX() will return the registered defaults regardless of what
+	// was passed on the command line.
+	pflag.Parse()
+	if err := viper.BindPFlags(pflag.CommandLine); err != nil {
+		log.WithError(err).Fatal("viper.BindPFlags failed")
+	}
 
 	host := viper.GetString("redis_host")
 	port := viper.GetInt("redis_port")
@@ -52,6 +60,9 @@ func main() {
 	targetRPS := viper.GetInt("target_rps")
 	numMessagesPerConn := viper.GetInt("num_messages")
 	valSize := viper.GetInt("val_size")
+	if numConns <= 0 || numMessagesPerConn <= 0 {
+		log.Fatal("num_connections and num_messages must both be > 0")
+	}
 	numMessages := numMessagesPerConn * numConns
 
 	seqNum := 0
@@ -62,6 +73,7 @@ func main() {
 		c := redisclient.New(addr, seqNum, numMessages, numConns, valSize, targetRPS)
 		if err := c.Run(); err != nil {
 			log.WithError(err).Error("redis seq client run failed")
+			time.Sleep(5 * time.Second) // back off so an immediate fatal config error doesn't hot-loop
 		}
 		if err := c.PrintStats(); err != nil {
 			log.WithError(err).Error("redis seq client stats failed")

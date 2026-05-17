@@ -15,6 +15,7 @@ spec:
     metadata:
       labels:
         name: pgsql-server
+        kubescape.io/user-defined-profile: pgsql-server-empty
     spec:
       containers:
       - name: postgres
@@ -71,12 +72,22 @@ spec:
     metadata:
       labels:
         name: pgsql-client
+        kubescape.io/user-defined-profile: pgsql-client-empty
     spec:
       initContainers:
       - name: wait-pg
         image: postgres:16-alpine
         imagePullPolicy: IfNotPresent
-        command: ["/bin/sh", "-c", "until pg_isready -h pgsql-server -U postgres; do echo waiting pg; sleep 1; done"]
+        command:
+        - /bin/sh
+        - -c
+        - |
+          for i in $(seq 1 180); do
+            pg_isready -h pgsql-server -U postgres && exit 0
+            sleep 1
+          done
+          echo "pgsql-server did not become ready in time"
+          exit 1
       containers:
       - name: client
         image: docker.io/library/protocol_loadtest_pgsql_client:latest

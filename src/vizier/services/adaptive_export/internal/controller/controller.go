@@ -132,6 +132,15 @@ type Controller struct {
 
 	mu     sync.Mutex
 	active map[anomaly.AnomalyHash]*sink.AttributionRow
+	// inFlight tracks hashes whose pushPixieRows goroutine is currently
+	// running. handle() re-launches the goroutine when the previous one
+	// has exited (window expired between bursts), so a hash that already
+	// exists in `active` but is no longer being actively fanned-out
+	// gets refreshed protocol-table writes on the next alert. Without
+	// this, the goroutine only spawns on the very first event for a
+	// hash and subsequent bursts silently stop populating per-table
+	// rows even though attribution keeps updating in CH.
+	inFlight map[anomaly.AnomalyHash]bool
 }
 
 // New wires a Controller. nil clock falls through to RealClock.
@@ -143,11 +152,12 @@ func New(trig Trigger, snk Sink, cfg Config, clk Clock) *Controller {
 		clk = RealClock{}
 	}
 	return &Controller{
-		trig:   trig,
-		sink:   snk,
-		clock:  clk,
-		cfg:    cfg.defaulted(),
-		active: map[anomaly.AnomalyHash]*sink.AttributionRow{},
+		trig:     trig,
+		sink:     snk,
+		clock:    clk,
+		cfg:      cfg.defaulted(),
+		active:   map[anomaly.AnomalyHash]*sink.AttributionRow{},
+		inFlight: map[anomaly.AnomalyHash]bool{},
 	}
 }
 
@@ -235,18 +245,34 @@ func (c *Controller) handle(ctx context.Context, ev kubescape.Event) {
 		row.NAnomalies++
 	}
 	snapshot := *row
+	// Decide AND mark inFlight under the same mutex acquisition so two
+	// rapid events for the same hash can't both decide to spawn.
+	spawn := c.querier != nil && len(c.cfg.PushPixieTables) > 0 && !c.inFlight[hash]
+	if spawn {
+		c.inFlight[hash] = true
+	}
 	c.mu.Unlock()
 
 	if err := c.sink.Write(ctx, []sink.AttributionRow{snapshot}); err != nil {
 		log.WithError(err).Warn("controller: sink write failed")
 	}
-	// Rev-1 path: on a NEW window, query pixie for the [t_start, t_end)
-	// slice of every PushPixieTables table for this (namespace, pod)
-	// and write rows directly to CH. Done in a goroutine so the
-	// controller doesn't block on PxL execution (each query can take
-	// hundreds of ms; 12 tables sequentially would stall the trigger).
-	if !exists && c.querier != nil && len(c.cfg.PushPixieTables) > 0 {
-		go c.pushPixieRows(ctx, snapshot)
+	// Rev-1 path: query pixie for the [t_start, t_end) slice of every
+	// PushPixieTables table for this (namespace, pod) and write rows
+	// directly to CH. Done in a goroutine so the controller doesn't
+	// block on PxL execution (each query can take hundreds of ms;
+	// N tables sequentially would stall the trigger). Re-spawned on
+	// every event whose hash currently has no in-flight goroutine
+	// (covers both brand-new hashes and hashes whose previous
+	// pushPixieRows exited because the window had quieted down).
+	if spawn {
+		go func() {
+			defer func() {
+				c.mu.Lock()
+				delete(c.inFlight, hash)
+				c.mu.Unlock()
+			}()
+			c.pushPixieRows(ctx, snapshot)
+		}()
 	}
 }
 

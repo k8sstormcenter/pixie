@@ -56,6 +56,8 @@ var KnownTables = []string{
 	"tls_events",
 	// operator-owned attribution table
 	"adaptive_attribution",
+	// operator-owned persistent trigger cursor
+	"trigger_watermark",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

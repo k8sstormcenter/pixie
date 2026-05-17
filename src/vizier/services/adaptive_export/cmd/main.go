@@ -79,6 +79,20 @@ const (
 	envTriggerPollMS    = "ADAPTIVE_TRIGGER_POLL_MS"
 	envPruneIntervalSec = "ADAPTIVE_PRUNE_INTERVAL_SEC"
 
+	// envTriggerHTTPTimeoutSec — per-poll HTTP budget (default 30s).
+	// The pre-watermark 5s default timed out every catch-up SELECT.
+	envTriggerHTTPTimeoutSec = "ADAPTIVE_TRIGGER_HTTP_TIMEOUT_SEC"
+
+	// envTriggerPollLimit — max rows fetched per poll (default 10000).
+	// Bounds catch-up work after a restart so an N-hour backlog
+	// drains in ceil(N/PollLimit) polls instead of one giant scan.
+	envTriggerPollLimit = "ADAPTIVE_TRIGGER_POLL_LIMIT"
+
+	// envWatermarkSaveSec — minimum interval between persistent
+	// watermark INSERTs (default 5s). The in-memory watermark
+	// advances every successful poll; flush is throttled.
+	envWatermarkSaveSec = "ADAPTIVE_WATERMARK_SAVE_SEC"
+
 	// envSkipApply lets a deployment opt out of in-process DDL when
 	// the schema has been pre-applied by a separate Job (recommended
 	// production split: high-priv Job for CREATE TABLE / ALTER, then
@@ -179,14 +193,34 @@ func main() {
 
 	// 4. Build trigger + sink + controller.
 	pollInterval := durEnv(envTriggerPollMS, 250*time.Millisecond, time.Millisecond)
+	httpTimeout := durEnv(envTriggerHTTPTimeoutSec, 30*time.Second, time.Second)
+	saveInterval := durEnv(envWatermarkSaveSec, 5*time.Second, time.Second)
+	pollLimit := intEnv(envTriggerPollLimit, 10000)
+	// Persistent watermark store keeps the trigger's kubescape_logs
+	// cursor in forensic_db.trigger_watermark, so a restart on a busy
+	// node doesn't replay the full table from event_time=0 (which
+	// timed out every single HTTP read and pinned the watermark at 0
+	// forever — the failure mode that produced "AE silent for 10h
+	// after OOM-restart" in the field).
+	wmStore, err := trigger.NewClickHouseWatermarkStore(
+		chEndpoint, cfg.ClickHouse().Database(),
+		cfg.ClickHouse().User(), cfg.ClickHouse().Password(),
+		httpTimeout)
+	if err != nil {
+		log.WithError(err).Fatal("failed to create persistent watermark store")
+	}
 	trg, err := trigger.New(trigger.Config{
-		Endpoint:     chEndpoint,
-		Database:     cfg.ClickHouse().Database(),
-		Table:        cfg.ClickHouse().Table(),
-		Username:     cfg.ClickHouse().User(),
-		Password:     cfg.ClickHouse().Password(),
-		Hostname:     hostname,
-		PollInterval: pollInterval,
+		Endpoint:              chEndpoint,
+		Database:              cfg.ClickHouse().Database(),
+		Table:                 cfg.ClickHouse().Table(),
+		Username:              cfg.ClickHouse().User(),
+		Password:              cfg.ClickHouse().Password(),
+		Hostname:              hostname,
+		PollInterval:          pollInterval,
+		Watermark:             wmStore,
+		WatermarkSaveInterval: saveInterval,
+		PollLimit:             pollLimit,
+		HTTPTimeout:           httpTimeout,
 	})
 	if err != nil {
 		log.WithError(err).Fatal("failed to create trigger")
@@ -359,6 +393,28 @@ func durEnv(key string, dflt, unit time.Duration) time.Duration {
 		return dflt
 	}
 	return time.Duration(n) * unit
+}
+
+// intEnv reads a positive-integer-valued env var. Returns dflt on
+// missing / unparseable / non-positive. Same shape as durEnv but
+// without the unit multiplier — for counts (e.g. row limits).
+func intEnv(key string, dflt int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return dflt
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		log.WithError(err).WithFields(log.Fields{"key": key, "value": v}).
+			Warn("invalid int env; using default")
+		return dflt
+	}
+	if n <= 0 {
+		log.WithFields(log.Fields{"key": key, "value": v}).
+			Warn("non-positive int env; using default")
+		return dflt
+	}
+	return n
 }
 
 // pixieAdapter wraps pixieapi.Adapter so its return type matches the

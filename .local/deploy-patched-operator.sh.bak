@@ -8,7 +8,7 @@ export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-TAG=
+TAG=bugfix-prune-grace-180s
 
 echo "=== bazel build adaptive_export image ==="
 bazel build //src/vizier/services/adaptive_export:adaptive_export_image \

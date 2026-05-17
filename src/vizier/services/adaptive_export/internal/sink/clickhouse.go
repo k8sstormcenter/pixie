@@ -43,6 +43,8 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/anomaly"
 )
 
@@ -185,12 +187,30 @@ func (s *ClickHouseHTTP) WritePixieRows(ctx context.Context, table string, rows 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		// CH echoes failing rows back in the error body — would leak
-		// pixie traffic into operator logs. Drain (so the conn is
-		// reusable) but don't echo it.
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("sink: pixie HTTP %d (%s)", resp.StatusCode, table)
+		// Echo CH's error body so we can see WHY it rejected. Truncated
+		// to 1KiB to bound log spam from large reject lists.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("sink: pixie HTTP %d (%s): %s",
+			resp.StatusCode, table, strings.TrimSpace(string(body)))
 	}
+	// DEBUG: ALWAYS log what CH says it wrote — temporary while we
+	// chase the pgsql_events silent-drop mystery. Includes a snippet
+	// of the first row so we can compare what was sent vs what CH
+	// reported.
+	summary := resp.Header.Get("X-ClickHouse-Summary")
+	var firstRowKeys []string
+	if len(rows) > 0 {
+		for k := range rows[0] {
+			firstRowKeys = append(firstRowKeys, k)
+		}
+	}
+	log.WithFields(log.Fields{
+		"table":          table,
+		"rows_sent":      len(rows),
+		"body_bytes":     buf.Len(),
+		"ch_summary":     summary,
+		"first_row_keys": strings.Join(firstRowKeys, ","),
+	}).Info("sink: pixie write completed")
 	return nil
 }
 

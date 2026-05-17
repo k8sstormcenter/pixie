@@ -15,6 +15,7 @@ go_library(
     name = "streaming",
     srcs = [
         "filter.go",
+        "notifier.go",
         "scanner.go",
         "supervisor.go",
         "writer.go",
@@ -31,6 +32,8 @@ pl_go_test(
     name = "streaming_test",
     srcs = [
         "filter_test.go",
+        "integration_test.go",
+        "notifier_test.go",
         "scanner_test.go",
     ],
     embed = [":streaming"],

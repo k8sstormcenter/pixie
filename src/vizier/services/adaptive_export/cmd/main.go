@@ -264,6 +264,14 @@ func main() {
 
 	// Shared ActiveSet (used only by streaming mode; harmless in pull mode).
 	activeSet := activeset.New()
+	// AttributionNotifier — non-blocking shim so the controller's
+	// synchronous OnAttribution / OnPrune callbacks don't pin
+	// controller.handle on slow ActiveSet writes. Tests in
+	// streaming/notifier_test.go cover the buffer-overflow + drop
+	// semantics. The Run goroutine is started below in streaming mode.
+	attrNotifier := streaming.NewAttributionNotifier(activeSet, streaming.NotifierConfig{
+		BufferSize: intEnvOrZero("ADAPTIVE_STREAM_NOTIFIER_BUFFER"),
+	})
 
 	ctlCfg := controller.Config{
 		Hostname:                  hostname,
@@ -275,18 +283,11 @@ func main() {
 		EmptyResultSkipTTL:        durEnvOrZero(envEmptyResultSkipTTLSec, time.Second),
 	}
 	if streamingMode {
-		ctlCfg.OnAttribution = func(ns, pod string, tEnd time.Time) {
-			if pod == "" {
-				return // host-pid; cannot stream
-			}
-			activeSet.Upsert(activeset.Key{Namespace: ns, Pod: pod}, tEnd)
-		}
-		ctlCfg.OnPrune = func(ns, pod string) {
-			if pod == "" {
-				return
-			}
-			activeSet.Remove(activeset.Key{Namespace: ns, Pod: pod})
-		}
+		// Route through the non-blocking notifier — handle() returns
+		// in <1µs even if ActiveSet writers are slow. Host-pid pods
+		// (empty Pod) are filtered inside the notifier.
+		ctlCfg.OnAttribution = attrNotifier.SubmitFromController
+		ctlCfg.OnPrune = attrNotifier.RemoveFromController
 	}
 	if !streamingMode && pushPixieRequested {
 		// PxL's px.DataFrame(table=…) rejects dotted table names even
@@ -381,6 +382,14 @@ func main() {
 	// 7b. Streaming mode (rev-3): start the per-table scanners +
 	//     batched writers. Replaces the per-hash×per-table fan-out.
 	if streamingMode {
+		// Start the AttributionNotifier consumer so SubmitFromController
+		// calls actually get delivered to ActiveSet.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			attrNotifier.Run(ctx)
+		}()
+
 		// Seed the ActiveSet from the rehydrated controller so existing
 		// alive attribution rows resume streaming immediately on boot.
 		// Without this seeding, only fresh kubescape events would

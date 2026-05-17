@@ -114,3 +114,57 @@ vs rev-2 with manifest throttle defaults at the same 4× load:
 - Whitelist key (`namespace/pod` string) → **kept**. regex_match with the rendered key worked first try.
 - Re-submit cadence (30 s default + filter-change-driven) → **kept**. Filter coalescing reduced re-submissions to ~1 per ActiveSet change, regardless of the 12k anomalies/sec workload.
 - Whitelist size cap (500) → **untested at scale**; sweep had only 6 pods. Future work.
+
+### 2026-05-17 — slice 2 (AttributionNotifier + TDD discipline)
+
+**New rule adopted**: TDD from now on, with unit tests as primary feedback and the 4× sweep as the integration gate. Memory entry: [TDD discipline](feedback_tdd.md). Catalyst: the rev-3 slice-1 work cost 3 redeploys (~30 min) discovering three independent PxL syntax errors that integration testing would have caught once.
+
+**Slice 2 scope**: a non-blocking `AttributionNotifier` between controller callbacks and the ActiveSet. Without it, a slow ActiveSet writer could pin `controller.handle` and back-pressure the trigger.
+
+**TDD process (round 1 — Notifier)**:
+1. Wrote 7 unit tests first → red (undefined symbols).
+2. Wrote `notifier.go` (~140 LOC) → green except for one test asserting "0 drops on 50 events in 32-buffer" which was over-strict (producer outraced consumer on first burst).
+3. Relaxed the test to use buffer >> burst + inter-submit yield — passes.
+
+**Net cost vs slice-1's "deploy + observe" loop**: ~5 min for the whole cycle vs 30 min for slice-1 — and the tests stay as regression coverage.
+
+**TDD process (round 2 — controller callbacks)**:
+1. Added 4 new tests for `OnAttribution` + `OnPrune` behavior:
+   - `TestController_OnAttribution_FiresPerEvent`
+   - `TestController_OnAttribution_NilIsNoop`
+   - `TestController_OnPrune_FiresWithKeyDetails`
+   - `TestController_OnPrune_NilIsNoop`
+   - `TestController_OnPrune_DoesNotHoldMutex` ← caught a real concern: callback under lock would deadlock
+2. All 5 passed first run — the earlier refactor of `PruneExpired` to collect-under-lock-then-fire-after-release was already correct.
+
+**TDD process (round 3 — end-to-end integration)**:
+1. Added 3 integration tests against fake querier + fake sink:
+   - `TestIntegration_NotifierToScannerWhitelistFlow` — green first try.
+   - `TestIntegration_EmptyActiveSetSkipsAllQueries` — green first try.
+   - `TestIntegration_PrunePropagatesToScannerWhitelist` — RED first try because my assertion was wrong (looking at q.all()'s last entry, which stays stale when scanner correctly skips on empty whitelist). Fixed assertion: count post-Remove queries containing the pod (must be 0). Green.
+
+**Notable test discovery**: the "PrunePropagates" assertion bug taught me that the scanner's empty-whitelist short-circuit is *invisible* in q.all() — assertions on streams of side effects need to count NEW occurrences, not check the latest entry.
+
+### 2026-05-17 — slice 2 4× sweep result
+
+Same workload as slice 1. Comparable throughput:
+
+| Table | queries (5min) | rows from pixie | CH fresh rows |
+|---|---|---|---|
+| http_events | 7 | 70,000 | 80,000 |
+| redis_events | 7 | 70,000 | 90,000 |
+| pgsql_events | 7 | 50,000 | 50,000 |
+| dns_events | 7 | 1,490 | 1,490 |
+| 6 quiet tables | 6-7 each | 0 | 0 |
+| **Total** | **69** | **191,490** | **221,490** |
+
+**0 errors. 0 DeadlineExceeded. 23 batched CH writes (was N×10×per_hash×per_pass in rev-2).**
+
+No regression vs slice 1; the Notifier is essentially zero-overhead at this load.
+
+### TDD insights this session
+
+- Unit tests turned around in **seconds** vs the deploy-loop's **minutes**. The notifier was production-ready in ~5 min of test-first work; slice 1's PxL discovery cost 30 min of deploy-loop work.
+- The "OnPrune doesn't hold mutex" test required some thought to write but **prevents an entire class of future deadlocks** under load.
+- The "PrunePropagates" failure was an *assertion bug*, not a *code bug* — but it forced me to articulate the actual invariant precisely ("no NEW queries containing the pod after Remove"), which is sharper than "last query shouldn't have it".
+- I should write more tests like `TestController_OnPrune_DoesNotHoldMutex` — concurrency-discipline assertions that are nearly impossible to debug post-hoc.

@@ -98,22 +98,6 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 	if err := r.getCluster(ctx, spec.ClusterSpec); err != nil {
 		return err
 	}
-	if err := r.prepareWorkloads(ctx, spec); err != nil {
-		return err
-	}
-
-	r.metricsBySelector = make(map[string][]metrics.Recorder)
-	r.metricsResultCh = make(chan *metrics.ResultRow)
-	metricsChCloseOnce := sync.Once{}
-	defer metricsChCloseOnce.Do(func() { close(r.metricsResultCh) })
-
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
-		if err := r.exporter.ExportResults(ctx, expID, r.metricsResultCh); err != nil {
-			log.WithError(err).Error("Failed to export results")
-		}
-	}()
 
 	var runErr error
 	defer func() {
@@ -124,6 +108,29 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 		}
 		r.clusterCleanup()
 		r.clusterCtx.Close()
+	}()
+
+	if err := r.prepareWorkloads(ctx, spec); err != nil {
+		runErr = err
+		return err
+	}
+
+	r.metricsBySelector = make(map[string][]metrics.Recorder)
+	r.metricsResultCh = make(chan *metrics.ResultRow)
+	metricsChCloseOnce := sync.Once{}
+	// Ensure the exporter goroutine drains and BQ flushes even on early
+	// return / errgroup error — close the channel, then Wait on the WG.
+	defer func() {
+		metricsChCloseOnce.Do(func() { close(r.metricsResultCh) })
+		r.wg.Wait()
+	}()
+
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		if err := r.exporter.ExportResults(ctx, expID, r.metricsResultCh); err != nil {
+			log.WithError(err).Error("Failed to export results")
+		}
 	}()
 
 	var egCtx context.Context
@@ -144,15 +151,15 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 	// The experiment succeeded so we write the spec to the exporter.
 	encodedSpec, err := (&jsonpb.Marshaler{}).MarshalToString(spec)
 	if err != nil {
+		runErr = err
 		return err
 	}
 	if err := r.exporter.ExportSpec(ctx, expID, encodedSpec, commitTopoOrder); err != nil {
+		runErr = err
 		return err
 	}
 
-	metricsChCloseOnce.Do(func() { close(r.metricsResultCh) })
-	r.wg.Wait()
-
+	// Flush metrics: deferred close+wait above handles this path too.
 	return nil
 }
 

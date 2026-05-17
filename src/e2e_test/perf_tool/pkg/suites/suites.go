@@ -100,7 +100,13 @@ func clickhouseExecSuite() map[string]*pb.ExperimentSpec {
 	readPeriod := 5 * time.Second
 	readWindow := 5 * time.Minute
 
-	clickhouseDSN := "pixie:pixie_password@clickhouse.forensic.austrianopencloudcommunity.org:9000/default"
+	// DSN MUST be supplied out-of-band so we never commit clickhouse
+	// credentials to git. Format: user:password@host:port/database.
+	// The Pixie CH export client writes via this DSN.
+	clickhouseDSN := os.Getenv("CLICKHOUSE_DSN")
+	if clickhouseDSN == "" {
+		panic("clickhouseExecSuite: CLICKHOUSE_DSN env var required (user:pass@host:port/database)")
+	}
 	clickhouseTable := "http_events"
 
 	exps := map[string]*pb.ExperimentSpec{
@@ -206,9 +212,12 @@ func sovereignSOCSuite() map[string]*pb.ExperimentSpec {
 	if clickhouseHost == "" {
 		clickhouseHost = "clickhouse.forensic.austrianopencloudcommunity.org:9000"
 	}
+	// Forensic CH credentials never live in source. Required from env so a
+	// misconfigured CI job fails fast instead of attempting the production
+	// fallback DSN with hard-coded creds.
 	clickhouseCreds := os.Getenv("SOC_CH_CREDS")
 	if clickhouseCreds == "" {
-		clickhouseCreds = "pixie:pixie_password"
+		panic("sovereignSOCSuite: SOC_CH_CREDS env var required (user:password)")
 	}
 	exportDSN := fmt.Sprintf("%s@%s/default", clickhouseCreds, clickhouseHost)
 	alertsDSN := fmt.Sprintf("%s@%s/forensic_db", clickhouseCreds, clickhouseHost)

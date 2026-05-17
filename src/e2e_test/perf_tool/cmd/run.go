@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -148,7 +149,10 @@ func runCmd(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 	for _, spec := range specs {
-		applyPromRecorderOverrides(spec, promOverrides)
+		if err := applyPromRecorderOverrides(spec, promOverrides); err != nil {
+			log.WithError(err).Error("failed to apply --prom_recorder_override flags")
+			return err
+		}
 	}
 
 	var c cluster.Provider
@@ -466,10 +470,16 @@ func parsePromRecorderOverrides(raw []string) (map[string]promRecorderOverride, 
 	return out, nil
 }
 
-func applyPromRecorderOverrides(spec *experimentpb.ExperimentSpec, overrides map[string]promRecorderOverride) {
+// applyPromRecorderOverrides returns an error if any name passed via
+// --prom_recorder_override doesn't match a PromMetricSpec in the
+// composed ExperimentSpec. Silently ignoring would let a typo'd flag
+// produce a "completed" run with the wrong kubeconfig/context still
+// in effect — caught later only by puzzling at the metrics.
+func applyPromRecorderOverrides(spec *experimentpb.ExperimentSpec, overrides map[string]promRecorderOverride) error {
 	if len(overrides) == 0 {
-		return
+		return nil
 	}
+	matched := make(map[string]bool, len(overrides))
 	for _, m := range spec.MetricSpecs {
 		prom := m.GetProm()
 		if prom == nil || prom.Name == "" {
@@ -479,6 +489,7 @@ func applyPromRecorderOverrides(spec *experimentpb.ExperimentSpec, overrides map
 		if !ok {
 			continue
 		}
+		matched[prom.Name] = true
 		if ov.KubeconfigPath != "" {
 			prom.KubeconfigPath = ov.KubeconfigPath
 		}
@@ -486,4 +497,15 @@ func applyPromRecorderOverrides(spec *experimentpb.ExperimentSpec, overrides map
 			prom.KubeContext = ov.KubeContext
 		}
 	}
+	var unknown []string
+	for name := range overrides {
+		if !matched[name] {
+			unknown = append(unknown, name)
+		}
+	}
+	if len(unknown) > 0 {
+		sort.Strings(unknown)
+		return fmt.Errorf("--prom_recorder_override referenced unknown recorder name(s): %s", strings.Join(unknown, ", "))
+	}
+	return nil
 }

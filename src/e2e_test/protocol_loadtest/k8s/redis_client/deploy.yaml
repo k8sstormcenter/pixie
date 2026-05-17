@@ -30,7 +30,7 @@ spec:
         - {name: redis, containerPort: 6379}
         resources:
           requests: {cpu: "100m", memory: "64Mi"}
-          limits:   {cpu: "8",    memory: "1Gi"}
+          limits:   {cpu: "4",    memory: "1Gi"}
         readinessProbe:
           tcpSocket: {port: redis}
           initialDelaySeconds: 2

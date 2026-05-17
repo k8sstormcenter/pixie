@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"px.dev/pixie/src/api/go/pxapi"
@@ -96,6 +97,13 @@ func NewDirectFromEnv(clusterID string) (*Adapter, error) {
 	addr := os.Getenv("ADAPTIVE_VIZIER_DIRECT_ADDR")
 	if addr == "" {
 		return nil, errors.New("pixieapi: ADAPTIVE_VIZIER_DIRECT_ADDR not set")
+	}
+	// pxapi.WithDisableTLSVerification (used by NewDirect) log.Fatal's at
+	// NewClient time if the addr contains "cluster.local" but PX_DISABLE_TLS
+	// isn't "1". Catch that here with a clean error instead so callers (cmd
+	// startup, tests) don't crash mid-init.
+	if strings.Contains(addr, "cluster.local") && os.Getenv("PX_DISABLE_TLS") != "1" {
+		return nil, errors.New("pixieapi: PX_DISABLE_TLS=1 required for direct cluster.local connections (pxapi's TLS-skip is gated on that env)")
 	}
 	sk := os.Getenv("PL_JWT_SIGNING_KEY")
 	if sk == "" {

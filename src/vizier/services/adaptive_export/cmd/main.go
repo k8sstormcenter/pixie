@@ -106,6 +106,13 @@ const (
 	// users author scripts in the Pixie UI.
 	envInstallPresets = "INSTALL_PRESET_SCRIPTS"
 
+	// === Throughput-protection knobs for the pushPixieRows fan-out.
+	// All default to 0 (= legacy unbounded behavior preserved).
+	envMaxParallelQueriesPerHash = "ADAPTIVE_MAX_PARALLEL_QUERIES_PER_HASH"
+	envMaxInflightQueriesGlobal  = "ADAPTIVE_MAX_INFLIGHT_QUERIES_GLOBAL"
+	envEmptyResultSkipAfterN     = "ADAPTIVE_EMPTY_RESULT_SKIP_AFTER_N"
+	envEmptyResultSkipTTLSec     = "ADAPTIVE_EMPTY_RESULT_SKIP_TTL_SEC"
+
 	// envPushPixieTables — when true, the operator queries vizier
 	// directly via pxapi on each fresh anomaly and writes the resulting
 	// rows to forensic_db.<table> (rev-1 path). Required when the
@@ -237,9 +244,13 @@ func main() {
 	}
 
 	ctlCfg := controller.Config{
-		Hostname: hostname,
-		Before:   durEnv(envWindowBeforeSec, 5*time.Minute, time.Second),
-		After:    durEnv(envWindowAfterSec, 5*time.Minute, time.Second),
+		Hostname:                  hostname,
+		Before:                    durEnv(envWindowBeforeSec, 5*time.Minute, time.Second),
+		After:                     durEnv(envWindowAfterSec, 5*time.Minute, time.Second),
+		MaxParallelQueriesPerHash: intEnvOrZero(envMaxParallelQueriesPerHash),
+		MaxInflightQueriesGlobal:  intEnvOrZero(envMaxInflightQueriesGlobal),
+		EmptyResultSkipAfterN:     intEnvOrZero(envEmptyResultSkipAfterN),
+		EmptyResultSkipTTL:        durEnvOrZero(envEmptyResultSkipTTLSec, time.Second),
 	}
 	if strings.EqualFold(os.Getenv(envPushPixieTables), "true") {
 		// PxL's px.DataFrame(table=…) rejects dotted table names even
@@ -415,6 +426,34 @@ func intEnv(key string, dflt int) int {
 		return dflt
 	}
 	return n
+}
+
+// intEnvOrZero is like intEnv but treats unset / empty / non-positive
+// as 0 (= "feature disabled"). Used for opt-in throttle knobs where 0
+// preserves legacy behavior and a positive integer enables the throttle.
+func intEnvOrZero(key string) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		log.WithFields(log.Fields{"key": key, "value": v}).
+			Warn("invalid int env; treating as 0 (disabled)")
+		return 0
+	}
+	return n
+}
+
+// durEnvOrZero is the duration-typed counterpart. unit lets the caller
+// express the env value in seconds / milliseconds without per-knob
+// parsing logic. 0 → returned as 0 (= feature disabled).
+func durEnvOrZero(key string, unit time.Duration) time.Duration {
+	n := intEnvOrZero(key)
+	if n <= 0 {
+		return 0
+	}
+	return time.Duration(n) * unit
 }
 
 // pixieAdapter wraps pixieapi.Adapter so its return type matches the

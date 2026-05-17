@@ -177,7 +177,10 @@ func (c *Client) GetPresetScripts() ([]*script.ScriptDefinition, error) {
 
 // GetClusterScripts returns the retention scripts CURRENTLY installed on
 // clusterID. Caller diffs against GetPresetScripts to figure out what
-// to add / update / delete.
+// to add / update / delete. Filters the cloud-returned ALL-clusters
+// script list to those that actually target the caller's clusterID —
+// without that filter, the diff later treats other clusters' scripts
+// as "stale on this cluster" and tries to delete them.
 func (c *Client) GetClusterScripts(clusterID, clusterName string) ([]*script.Script, error) {
 	resp, err := c.pluginClient.GetRetentionScripts(c.ctx, &cloudpb.GetRetentionScriptsRequest{})
 	if err != nil {
@@ -186,21 +189,27 @@ func (c *Client) GetClusterScripts(clusterID, clusterName string) ([]*script.Scr
 	var l []*script.Script
 	for _, s := range resp.Scripts {
 		if s.PluginId == clickhousePluginID {
+			clusterIDs := make([]string, 0, len(s.ClusterIDs))
+			// Empty clusterID = no filter (legacy callers; rare).
+			match := clusterID == ""
+			for _, id := range s.ClusterIDs {
+				idStr := utils.ProtoToUUIDStr(id)
+				clusterIDs = append(clusterIDs, idStr)
+				if idStr == clusterID {
+					match = true
+				}
+			}
+			if !match {
+				continue
+			}
 			sd, err := c.getScriptDefinition(s)
 			if err != nil {
 				return nil, err
 			}
-			cIDs := ""
-			for i, id := range s.ClusterIDs {
-				if i > 0 {
-					cIDs += ","
-				}
-				cIDs += utils.ProtoToUUIDStr(id)
-			}
 			l = append(l, &script.Script{
 				ScriptDefinition: *sd,
 				ScriptId:         utils.ProtoToUUIDStr(s.ScriptID),
-				ClusterIds:       cIDs,
+				ClusterIds:       strings.Join(clusterIDs, ","),
 			})
 		}
 	}

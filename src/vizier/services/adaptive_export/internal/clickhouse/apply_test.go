@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"sync"
 	"testing"
 )
@@ -74,10 +75,14 @@ func TestApply_ExecutesEveryOperatorOwnedTable(t *testing.T) {
 // TestApply_FailsFastOnHTTPError — if any CREATE returns non-2xx,
 // Apply returns immediately without attempting later tables.
 func TestApply_FailsFastOnHTTPError(t *testing.T) {
-	var calls int
+	// atomic.Int32 because httptest's handler runs on its own goroutine
+	// while the test goroutine reads `calls` after Apply returns —
+	// without atomic the -race detector flags a data race even though
+	// the goroutines are happens-before-ordered by Apply's HTTP response.
+	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		if calls == 1 {
+		n := calls.Add(1)
+		if n == 1 {
 			w.WriteHeader(500)
 			_, _ = w.Write([]byte("ddl exploded"))
 			return
@@ -90,8 +95,8 @@ func TestApply_FailsFastOnHTTPError(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error from Apply on HTTP 500")
 	}
-	if calls != 1 {
-		t.Fatalf("Apply continued past first failure; calls = %d", calls)
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("Apply continued past first failure; calls = %d", got)
 	}
 }
 

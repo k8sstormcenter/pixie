@@ -358,7 +358,16 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 				}
 				nrows := len(rows)
 				if nrows > 0 {
-					if werr := c.sink.WritePixieRows(ctx, table, rows); werr != nil {
+					// Bound the sink write with its own timeout. Without
+					// this, a stalled CH HTTP write would hold the table
+					// goroutine forever, wg.Wait() would block the entire
+					// pass, and refreshes for the active window would stop
+					// — symptoms documented in our session as "fan-out
+					// started, no error, no push" rows in the operator log.
+					wctx, wcancel := context.WithTimeout(ctx, 60*time.Second)
+					werr := c.sink.WritePixieRows(wctx, table, rows)
+					wcancel()
+					if werr != nil {
 						results <- tableResult{table: table, err: werr}
 						return
 					}

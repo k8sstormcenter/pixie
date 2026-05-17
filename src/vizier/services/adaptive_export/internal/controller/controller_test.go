@@ -302,7 +302,12 @@ func TestController_PruneExpired(t *testing.T) {
 	trig.push(canonicalEvent())
 	waitFor(t, "active=1", 200*time.Millisecond, func() bool { return c.Active() == 1 })
 
-	clk.advance(2 * time.Minute) // past t_end (now+1min)
+	// PruneExpired() now waits for TEnd + 2*After (the grace period that
+	// prevents racing same-hash alerts arriving right after a prune from
+	// spawning fresh pushPixieRows goroutines that re-scan the slice).
+	// With Before=After=1m the row's TEnd is now+1m, so we need to advance
+	// past now+1m+2*1m = now+3m.
+	clk.advance(3*time.Minute + time.Second) // past t_end + 2*After grace
 	if r := c.PruneExpired(); r != 1 {
 		t.Fatalf("PruneExpired removed %d, want 1", r)
 	}

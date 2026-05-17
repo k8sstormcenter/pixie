@@ -19,11 +19,9 @@ replicas:
   count: 1
 resources:
 - ../../k8s/cloud/base
-- cloud_ingress.yaml
-- servers_transport.yaml
-- proxy_service.yaml
-- vzconn_service.yaml
 - plugin_db_updater_job.yaml
+components:
+- ../../k8s/cloud/overlays/exposed_services_traefik
 labels:
 - includeSelectors: true
   pairs:
@@ -34,14 +32,13 @@ patches:
 - path: domain_config.yaml
 - path: script_bundles_config.yaml
 - path: proxy_envoy.yaml
-- target:
-    kind: Service
-    name: api-service
-  patch: |-
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: api-service
-      annotations:
-        traefik.ingress.kubernetes.io/service.serverstransport: plc-cloud-backend-transport@kubernetescrd
-        traefik.ingress.kubernetes.io/service.serversscheme: https
+- path: cloud_ingress.yaml
+  target:
+    kind: Ingress
+    name: cloud-ingress
+- path: servers_transport.yaml
+  target:
+    group: traefik.io
+    version: v1alpha1
+    kind: ServersTransport
+    name: cloud-backend-transport

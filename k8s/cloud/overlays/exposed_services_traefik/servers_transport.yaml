@@ -3,6 +3,6 @@ apiVersion: traefik.io/v1alpha1
 kind: ServersTransport
 metadata:
   name: cloud-backend-transport
-  namespace: plc
 spec:
-  serverName: pixie.austrianopencloudcommunity.org
+  serverName: pixie.example.com
+  insecureSkipVerify: true

@@ -98,7 +98,7 @@ func (s *skaffoldDeployImpl) stderrSink() (io.Writer, func(), error) {
 	if s.stderrFile == "" {
 		return os.Stderr, func() {}, nil
 	}
-	f, err := os.OpenFile(s.stderrFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(s.stderrFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open skaffold stderr file %q: %w", s.stderrFile, err)
 	}

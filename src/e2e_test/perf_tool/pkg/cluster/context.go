@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -73,7 +74,17 @@ func NewContextFromOptions(kubeconfigPath string, kubeContext string) (*Context,
 		return nil, err
 	}
 	if kubeconfigPath == "" {
-		kubeconfigPath = clientcmd.RecommendedHomeFile
+		// Match what clientcmd.NewDefaultClientConfigLoadingRules() resolved:
+		// $KUBECONFIG (first entry of the os-path-separator-split list) if set,
+		// else the default ~/.kube/config. Storing the empty string here led
+		// to downstream callers (e.g. PxCLIDeploy passing --kubeconfig=) using
+		// the empty path, which silently picked /root/.kube/config inside the
+		// container even when $KUBECONFIG pointed at the runner-mounted file.
+		if envKC := os.Getenv("KUBECONFIG"); envKC != "" {
+			kubeconfigPath = strings.Split(envKC, string(os.PathListSeparator))[0]
+		} else {
+			kubeconfigPath = clientcmd.RecommendedHomeFile
+		}
 	}
 	clientset := k8s.GetClientset(restConfig)
 	return &Context{

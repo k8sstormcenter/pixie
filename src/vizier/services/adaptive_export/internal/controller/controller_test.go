@@ -469,6 +469,125 @@ func TestController_OnPrune_NilIsNoop(t *testing.T) {
 	// No panic = pass.
 }
 
+// TestController_OnPrune_OnlyFiresWhenLastHashOnPodGone — multiple
+// anomaly hashes can share a single (namespace, pod) when distinct
+// PID×comm combinations on the same pod each get their own
+// kubescape rule firing. Real-world example (sweep observation):
+// pgsql-server has hashes for processes `postgres`, `pg_isready`,
+// and `runc:[2:INIT]` — three hashes, one pod.
+//
+// The streaming layer is pod-keyed, so OnPrune(ns, pod) must only
+// fire when the LAST hash for that pod is evicted. Premature firing
+// would stop the per-pod stream while other hashes are still active.
+// CR feedback (controller.go:156) caught this; see comment thread.
+func TestController_OnPrune_OnlyFiresWhenLastHashOnPodGone(t *testing.T) {
+	trig := newFakeTrigger()
+	snk := &fakeSink{}
+	clk := &fakeClock{t: canonicalEventTime}
+
+	var mu sync.Mutex
+	var prunedPods []string
+	cfg := Config{
+		Hostname: "node-1", Before: time.Minute, After: time.Minute,
+		OnPrune: func(ns, pod string) {
+			mu.Lock()
+			defer mu.Unlock()
+			prunedPods = append(prunedPods, ns+"/"+pod)
+		},
+	}
+	c := New(trig, snk, cfg, clk)
+	stop := runController(t, c, trig)
+	defer stop()
+
+	// Two events on the SAME pod but with different (PID, Comm) so
+	// anomaly.Hash returns two distinct hashes.
+	mkEvent := func(pid uint64, comm string) kubescape.Event {
+		return kubescape.Event{
+			Target: anomaly.Target{
+				PID: pid, Comm: comm, Pod: "pgsql-server-x", Namespace: "px",
+			},
+			EventTime: uint64(canonicalEventTime.UnixNano()),
+			RuleID:    "R1", Hostname: "node-1",
+		}
+	}
+	trig.push(mkEvent(100, "postgres"))
+	trig.push(mkEvent(200, "pg_isready"))
+	waitFor(t, "two distinct hashes active", 300*time.Millisecond, func() bool {
+		return c.Active() == 2
+	})
+
+	// Advance past TEnd + 2*After so BOTH hashes are evictable.
+	clk.advance(3*time.Minute + time.Second)
+	if r := c.PruneExpired(); r != 2 {
+		t.Fatalf("PruneExpired removed %d, want 2 hashes", r)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(prunedPods) != 1 {
+		t.Fatalf("OnPrune fired %d times for one pod with 2 hashes; want 1. Calls: %v",
+			len(prunedPods), prunedPods)
+	}
+	if prunedPods[0] != "px/pgsql-server-x" {
+		t.Fatalf("wrong pod pruned: %q", prunedPods[0])
+	}
+}
+
+// TestController_OnPrune_DoesNotFireWhileOtherHashesActive — inverse
+// case: only ONE hash on a pod expires; OnPrune must NOT fire for
+// that pod because other hashes for the same pod remain active.
+func TestController_OnPrune_DoesNotFireWhileOtherHashesActive(t *testing.T) {
+	trig := newFakeTrigger()
+	snk := &fakeSink{}
+	clk := &fakeClock{t: canonicalEventTime}
+
+	var mu sync.Mutex
+	var prunedPods []string
+	cfg := Config{
+		Hostname: "node-1", Before: time.Minute, After: time.Minute,
+		OnPrune: func(ns, pod string) {
+			mu.Lock()
+			defer mu.Unlock()
+			prunedPods = append(prunedPods, ns+"/"+pod)
+		},
+	}
+	c := New(trig, snk, cfg, clk)
+	stop := runController(t, c, trig)
+	defer stop()
+
+	mkEvent := func(pid uint64) kubescape.Event {
+		return kubescape.Event{
+			Target: anomaly.Target{
+				PID: pid, Comm: "c", Pod: "samepod", Namespace: "ns",
+			},
+			EventTime: uint64(canonicalEventTime.UnixNano()),
+			RuleID:    "R1", Hostname: "node-1",
+		}
+	}
+	trig.push(mkEvent(100))
+	waitFor(t, "1 hash", 300*time.Millisecond, func() bool { return c.Active() == 1 })
+
+	// Advance time so first hash's TEnd is in the past but not yet
+	// past the 2*After grace. Then push second hash on the same pod.
+	clk.advance(2 * time.Minute)
+	trig.push(mkEvent(200))
+	waitFor(t, "2 hashes", 300*time.Millisecond, func() bool { return c.Active() == 2 })
+
+	// Advance to where the FIRST hash is past grace (3m after its
+	// creation) but the SECOND is still alive (its TEnd is at
+	// canonical+3m; grace would be +5m). Total clock progression
+	// from canonical: 2m + 1m + 1s = 3m1s.
+	clk.advance(time.Minute + time.Second)
+	removed := c.PruneExpired()
+	if removed != 1 {
+		t.Fatalf("PruneExpired removed %d, want 1 (only the old hash)", removed)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(prunedPods) != 0 {
+		t.Fatalf("OnPrune fired for a pod that still has 1 active hash; calls: %v", prunedPods)
+	}
+}
+
 // TestController_OnAttribution_NotHeldUnderMutex — a slow callback
 // must NOT block PruneExpired's progress (the controller must not
 // be holding its own mutex while invoking user code).

@@ -206,30 +206,49 @@ func TestIntegration_PrunePropagatesToScannerWhitelist(t *testing.T) {
 	go func() { defer wg.Done(); writer.Run(ctx) }()
 	go func() { defer wg.Done(); scanner.Run(ctx) }()
 
+	// Add a SECOND pod so the scanner keeps issuing queries after
+	// we Remove "soon-pruned" (else it'd just sit in empty-whitelist
+	// mode and we'd have no way to deterministically witness the
+	// filter change).
 	notif.Submit(activeset.Key{Pod: "soon-pruned"}, time.Now().Add(time.Minute))
-	// Wait for first query.
+	notif.Submit(activeset.Key{Pod: "stays"}, time.Now().Add(time.Minute))
 	waitForQueryContaining(t, q, "soon-pruned", time.Second)
-	// Snapshot query count BEFORE Remove so we can measure post-Remove queries.
+
 	preCount := len(q.all())
 	notif.SubmitRemove(activeset.Key{Pod: "soon-pruned"})
-	// Give the prune propagation a generous window (debounce 20ms +
-	// scanner refresh interval 30ms + a few cycles).
-	time.Sleep(300 * time.Millisecond)
-	// Count queries issued AFTER the Remove that still contain the
-	// pruned pod — must be zero. (Empty-whitelist branch in the
-	// scanner skips queries entirely, so the legitimate post-prune
-	// state shows up as "no new queries added at all", or as new
-	// queries containing OTHER pods.)
-	postQueries := q.all()[preCount:]
-	for _, pxl := range postQueries {
-		if strings.Contains(pxl, "soon-pruned") {
-			cancel()
-			wg.Wait()
-			t.Fatalf("scanner issued a post-prune query containing the removed pod:\n%s", pxl)
+
+	// Event-driven wait: poll until a query AFTER preCount appears
+	// that does NOT contain the pruned pod. That's the witness that
+	// the filter update has propagated through notifier → activeset →
+	// updater (debounce) → scanner. Cap at 2 s.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		all := q.all()
+		for i := preCount; i < len(all); i++ {
+			if !strings.Contains(all[i], "soon-pruned") {
+				// Found the post-prune query without the pod.
+				// Now also assert that NO query in this post-prune
+				// window contains the pod (defense against a stale
+				// in-flight submission landing AFTER the new one).
+				for j := preCount; j < len(all); j++ {
+					if strings.Contains(all[j], "soon-pruned") && j > i {
+						cancel()
+						wg.Wait()
+						t.Fatalf("post-prune query at idx %d contains pruned pod after a clean query at idx %d:\n%s",
+							j, i, all[j])
+					}
+				}
+				cancel()
+				wg.Wait()
+				return
+			}
 		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	cancel()
 	wg.Wait()
+	t.Fatalf("scanner kept issuing queries containing 'soon-pruned' for 2s after Remove; captured %d queries",
+		len(q.all())-preCount)
 }
 
 // waitForQueryContaining polls the recorder until a query containing

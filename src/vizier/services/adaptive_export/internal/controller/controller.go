@@ -647,20 +647,44 @@ func (c *Controller) PruneExpired() int {
 	grace := 2 * c.cfg.After
 	// Collect under the lock; fire callbacks AFTER releasing so we
 	// don't hold the controller mutex across user code.
-	type prunedKey struct{ namespace, pod string }
-	var fired []prunedKey
+	//
+	// IMPORTANT (rev-3 streaming correctness): c.active is keyed by
+	// anomaly hash, but the streaming layer (ActiveSet) is keyed by
+	// (namespace, pod). One pod can host multiple distinct hashes
+	// (e.g. pgsql-server has hashes for postgres, pg_isready, runc:
+	// [2:INIT] processes). Firing OnPrune for every evicted hash
+	// would prematurely stop streaming for a pod that still has
+	// other active hashes. So: compute the set of pods that have
+	// NO remaining active hashes after this prune, and only fire
+	// OnPrune for those.
+	type podKey struct{ namespace, pod string }
+	prunedHashes := 0
+	var pruned []podKey
 	c.mu.Lock()
+	// Pass 1: delete expired hashes and remember which pods THEY
+	// belonged to.
+	candidatePods := map[podKey]struct{}{}
 	for h, row := range c.active {
 		if !row.TEnd.Add(grace).After(now) {
-			fired = append(fired, prunedKey{row.Namespace, row.Pod})
+			candidatePods[podKey{row.Namespace, row.Pod}] = struct{}{}
 			delete(c.active, h)
+			prunedHashes++
 		}
+	}
+	// Pass 2: from candidatePods, remove any pod that STILL has at
+	// least one surviving hash in c.active. What's left is the set
+	// of pods that lost their LAST hash — these get OnPrune.
+	for _, row := range c.active {
+		delete(candidatePods, podKey{row.Namespace, row.Pod})
+	}
+	for pk := range candidatePods {
+		pruned = append(pruned, pk)
 	}
 	c.mu.Unlock()
 	if c.cfg.OnPrune != nil {
-		for _, k := range fired {
+		for _, k := range pruned {
 			c.cfg.OnPrune(k.namespace, k.pod)
 		}
 	}
-	return len(fired)
+	return prunedHashes
 }

@@ -88,6 +88,132 @@ func TestFilterUpdater_FallsBackToUnfilteredOnSizeCap(t *testing.T) {
 	}
 }
 
+// TestFilterUpdater_CapBoundary_AtLimit — exactly MaxWhitelistSize
+// pods MUST stay in whitelist mode (not flip to unfiltered).
+func TestFilterUpdater_CapBoundary_AtLimit(t *testing.T) {
+	set := activeset.New()
+	u := NewUpdater(set, UpdaterConfig{
+		Debounce:         10 * time.Millisecond,
+		MaxWhitelistSize: 3,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go u.Run(ctx)
+	ch := u.Subscribe()
+	<-ch
+	for i := 0; i < 3; i++ {
+		set.Upsert(activeset.Key{Pod: string(rune('a' + i))}, time.Now().Add(time.Minute))
+	}
+	f := waitForFilter(t, ch, 300*time.Millisecond)
+	if f.Mode != FilterModeWhitelist {
+		t.Fatalf("at exactly cap=3, expected whitelist, got %v", f.Mode)
+	}
+	if len(f.Pods) != 3 {
+		t.Fatalf("expected 3 pods in whitelist, got %d", len(f.Pods))
+	}
+}
+
+// TestFilterUpdater_CapBoundary_OneOverLimit — cap+1 pods MUST flip
+// to unfiltered. This is the exact boundary just above the cap.
+func TestFilterUpdater_CapBoundary_OneOverLimit(t *testing.T) {
+	set := activeset.New()
+	u := NewUpdater(set, UpdaterConfig{
+		Debounce:         10 * time.Millisecond,
+		MaxWhitelistSize: 3,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go u.Run(ctx)
+	ch := u.Subscribe()
+	<-ch
+	for i := 0; i < 4; i++ {
+		set.Upsert(activeset.Key{Pod: string(rune('a' + i))}, time.Now().Add(time.Minute))
+	}
+	f := waitForFilter(t, ch, 300*time.Millisecond)
+	if f.Mode != FilterModeUnfiltered {
+		t.Fatalf("at cap+1=4, expected unfiltered, got %v with %d pods", f.Mode, len(f.Pods))
+	}
+}
+
+// TestFilterUpdater_CapBoundary_RecoversAfterShrink — going from
+// unfiltered (set was huge) back to a small set MUST switch back to
+// whitelist mode. Without this, a transient burst that hit the cap
+// would force unfiltered mode forever.
+func TestFilterUpdater_CapBoundary_RecoversAfterShrink(t *testing.T) {
+	set := activeset.New()
+	u := NewUpdater(set, UpdaterConfig{
+		Debounce:         10 * time.Millisecond,
+		MaxWhitelistSize: 3,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go u.Run(ctx)
+	ch := u.Subscribe()
+	<-ch
+
+	// Burst above cap.
+	for i := 0; i < 10; i++ {
+		set.Upsert(activeset.Key{Pod: string(rune('a' + i))}, time.Now().Add(time.Minute))
+	}
+	f := waitForFilter(t, ch, 300*time.Millisecond)
+	if f.Mode != FilterModeUnfiltered {
+		t.Fatalf("expected unfiltered after burst, got %v", f.Mode)
+	}
+	// Shrink back below cap.
+	for i := 3; i < 10; i++ {
+		set.Remove(activeset.Key{Pod: string(rune('a' + i))})
+	}
+	// Drain any intermediate filters; verify the LATEST emission is
+	// back to whitelist mode.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	var last Filter = f
+	for time.Now().Before(deadline) {
+		select {
+		case last = <-ch:
+		case <-time.After(100 * time.Millisecond):
+		}
+		if last.Mode == FilterModeWhitelist {
+			return // recovered
+		}
+	}
+	t.Fatalf("did not recover to whitelist mode after shrink; last mode=%v pods=%d",
+		last.Mode, len(last.Pods))
+}
+
+// TestFilterUpdater_CapDisabled_AllowsAnySize — when MaxWhitelistSize <= 0
+// the cap is disabled and even very large sets stay in whitelist mode.
+func TestFilterUpdater_CapDisabled_AllowsAnySize(t *testing.T) {
+	set := activeset.New()
+	u := NewUpdater(set, UpdaterConfig{
+		Debounce:         10 * time.Millisecond,
+		MaxWhitelistSize: -1, // explicit disable
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go u.Run(ctx)
+	ch := u.Subscribe()
+	<-ch
+	for i := 0; i < 100; i++ {
+		set.Upsert(activeset.Key{Pod: string(rune('a' + i%26)) + string(rune('a' + i/26))}, time.Now().Add(time.Minute))
+	}
+	f := waitForFilter(t, ch, 300*time.Millisecond)
+	if f.Mode != FilterModeWhitelist {
+		t.Fatalf("with cap disabled (=-1), expected whitelist; got %v", f.Mode)
+	}
+}
+
+// waitForFilter polls ch until a filter shows up, returning it.
+func waitForFilter(t *testing.T, ch <-chan Filter, timeout time.Duration) Filter {
+	t.Helper()
+	select {
+	case f := <-ch:
+		return f
+	case <-time.After(timeout):
+		t.Fatalf("no filter within %v", timeout)
+		return Filter{}
+	}
+}
+
 func TestFilterUpdater_InitialSnapshotIsSeeded(t *testing.T) {
 	set := activeset.New()
 	set.Upsert(activeset.Key{Namespace: "n", Pod: "p1"}, time.Now().Add(time.Minute))

@@ -350,3 +350,184 @@ func TestController_RestartMidStream_Aborts(t *testing.T) {
 		t.Fatalf("controller did not abort within 300ms of cancel")
 	}
 }
+
+// ────────────────────────────────────────────────────────────────
+// Callbacks (rev-3 streaming hook): OnAttribution + OnPrune
+// ────────────────────────────────────────────────────────────────
+
+type attrCall struct {
+	ns, pod string
+	tEnd    time.Time
+}
+
+// TestController_OnAttribution_FiresPerEvent — every kubescape
+// event (new or extension) triggers exactly one OnAttribution.
+func TestController_OnAttribution_FiresPerEvent(t *testing.T) {
+	trig := newFakeTrigger()
+	snk := &fakeSink{}
+	clk := &fakeClock{t: canonicalEventTime}
+
+	var mu sync.Mutex
+	var calls []attrCall
+	cfg := defaultCfg()
+	cfg.OnAttribution = func(ns, pod string, tEnd time.Time) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls = append(calls, attrCall{ns, pod, tEnd})
+	}
+	c := New(trig, snk, cfg, clk)
+	stop := runController(t, c, trig)
+	defer stop()
+
+	trig.push(canonicalEvent())
+	trig.push(canonicalEvent()) // extension on same hash
+	trig.push(canonicalEvent())
+	waitFor(t, "3 attribution callbacks", 300*time.Millisecond, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(calls) == 3
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	for _, c := range calls {
+		if c.pod == "" {
+			t.Fatalf("callback received empty pod: %+v", c)
+		}
+		if c.tEnd.IsZero() {
+			t.Fatalf("callback received zero tEnd: %+v", c)
+		}
+	}
+}
+
+// TestController_OnAttribution_NilIsNoop — nil callback must not crash.
+func TestController_OnAttribution_NilIsNoop(t *testing.T) {
+	trig := newFakeTrigger()
+	snk := &fakeSink{}
+	clk := &fakeClock{t: canonicalEventTime}
+	cfg := defaultCfg()
+	cfg.OnAttribution = nil // explicit
+	c := New(trig, snk, cfg, clk)
+	stop := runController(t, c, trig)
+	defer stop()
+	trig.push(canonicalEvent())
+	waitFor(t, "event landed", 200*time.Millisecond, func() bool { return c.Active() == 1 })
+	// No assertion needed beyond not panicking.
+}
+
+// TestController_OnPrune_FiresWithKeyDetails — PruneExpired must
+// emit one OnPrune callback per evicted hash, with ns + pod set.
+func TestController_OnPrune_FiresWithKeyDetails(t *testing.T) {
+	trig := newFakeTrigger()
+	snk := &fakeSink{}
+	clk := &fakeClock{t: canonicalEventTime}
+	var mu sync.Mutex
+	var pruned []attrCall
+	cfg := Config{
+		Hostname: "node-1", Before: time.Minute, After: time.Minute,
+		OnPrune: func(ns, pod string) {
+			mu.Lock()
+			defer mu.Unlock()
+			pruned = append(pruned, attrCall{ns: ns, pod: pod})
+		},
+	}
+	c := New(trig, snk, cfg, clk)
+	stop := runController(t, c, trig)
+	defer stop()
+
+	trig.push(canonicalEvent())
+	waitFor(t, "active=1", 200*time.Millisecond, func() bool { return c.Active() == 1 })
+	clk.advance(3*time.Minute + time.Second) // past t_end + 2*After grace
+	if r := c.PruneExpired(); r != 1 {
+		t.Fatalf("PruneExpired removed %d, want 1", r)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(pruned) != 1 {
+		t.Fatalf("OnPrune fired %d times, want 1", len(pruned))
+	}
+	if pruned[0].pod == "" {
+		t.Fatalf("OnPrune called with empty pod: %+v", pruned[0])
+	}
+}
+
+// TestController_OnPrune_NilIsNoop — nil callback must not crash
+// the prune loop.
+func TestController_OnPrune_NilIsNoop(t *testing.T) {
+	trig := newFakeTrigger()
+	snk := &fakeSink{}
+	clk := &fakeClock{t: canonicalEventTime}
+	cfg := Config{Hostname: "node-1", Before: time.Minute, After: time.Minute}
+	cfg.OnPrune = nil // explicit
+	c := New(trig, snk, cfg, clk)
+	stop := runController(t, c, trig)
+	defer stop()
+
+	trig.push(canonicalEvent())
+	waitFor(t, "active=1", 200*time.Millisecond, func() bool { return c.Active() == 1 })
+	clk.advance(3*time.Minute + time.Second)
+	_ = c.PruneExpired()
+	// No panic = pass.
+}
+
+// TestController_OnAttribution_NotHeldUnderMutex — a slow callback
+// must NOT block PruneExpired's progress (the controller must not
+// be holding its own mutex while invoking user code).
+//
+// We arrange a synchronous OnPrune that blocks until we signal,
+// then call PruneExpired in a goroutine and confirm that we can
+// independently call Active() (which acquires the same mutex)
+// without deadlocking.
+func TestController_OnPrune_DoesNotHoldMutex(t *testing.T) {
+	trig := newFakeTrigger()
+	snk := &fakeSink{}
+	clk := &fakeClock{t: canonicalEventTime}
+
+	pruneInCallback := make(chan struct{})
+	release := make(chan struct{})
+
+	cfg := Config{
+		Hostname: "node-1", Before: time.Minute, After: time.Minute,
+		OnPrune: func(ns, pod string) {
+			close(pruneInCallback)
+			<-release
+		},
+	}
+	c := New(trig, snk, cfg, clk)
+	stop := runController(t, c, trig)
+	defer stop()
+
+	trig.push(canonicalEvent())
+	waitFor(t, "active=1", 200*time.Millisecond, func() bool { return c.Active() == 1 })
+
+	clk.advance(3*time.Minute + time.Second)
+
+	pruneDone := make(chan struct{})
+	go func() {
+		_ = c.PruneExpired()
+		close(pruneDone)
+	}()
+
+	// Wait until the prune is inside the callback.
+	select {
+	case <-pruneInCallback:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("OnPrune did not fire within 500ms")
+	}
+
+	// Active() acquires the same mutex; if PruneExpired holds it
+	// across the callback, this blocks forever.
+	activeDone := make(chan int, 1)
+	go func() { activeDone <- c.Active() }()
+
+	select {
+	case n := <-activeDone:
+		if n != 0 {
+			t.Fatalf("expected Active=0 (eviction happened before callback), got %d", n)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("Active() blocked — PruneExpired is holding the mutex across user callback")
+	}
+
+	close(release)
+	<-pruneDone
+}

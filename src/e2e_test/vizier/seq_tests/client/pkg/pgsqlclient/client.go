@@ -50,13 +50,30 @@ type PgsqlSeqClient struct {
 	numConns    int
 	padSize     int
 	targetRPS   int
+	connMaxLife time.Duration
 
 	rps        float64
 	rpsLimiter *rate.Limiter
 }
 
 // New creates a new pgsql seq client.
-func New(dsn string, startSeq, numMessages, numConns, padSize, targetRPS int) *PgsqlSeqClient {
+//
+// connMaxLife bounds how long any single TCP connection lives before
+// lib/pq closes + reopens it. The motivation is NOT lib/pq itself —
+// it's Pixie's eBPF protocol classifier: PEM can only classify a TCP
+// flow as pgsql if it observes the connection's StartupMessage (byte
+// 0 of the first egress write). If PEM attaches after the flow is
+// established (operator restart, OOM, late deploy), the classifier
+// only ever sees Parse/Bind/Execute messages and locks the conn as
+// kProtocolUnknown — and the entire flow's traffic never lands in
+// `pgsql_events`. Recycling connections every few minutes gives PEM
+// a steady supply of fresh StartupMessages to classify against, so
+// any PEM restart self-heals within connMaxLife.
+//
+// connMaxLife == 0 preserves the legacy "infinite lifetime" behavior
+// for callers that want it; we recommend ≥ 1 minute and ≤ PEM's
+// expected MTBF (a 5-minute default is a safe pick).
+func New(dsn string, startSeq, numMessages, numConns, padSize, targetRPS int, connMaxLife time.Duration) *PgsqlSeqClient {
 	burst := targetRPS
 	if burst < 1 {
 		burst = 1
@@ -68,6 +85,7 @@ func New(dsn string, startSeq, numMessages, numConns, padSize, targetRPS int) *P
 		numConns:    numConns,
 		padSize:     padSize,
 		targetRPS:   targetRPS,
+		connMaxLife: connMaxLife,
 		rpsLimiter:  rate.NewLimiter(rate.Limit(targetRPS), burst),
 	}
 }
@@ -134,7 +152,15 @@ func (c *PgsqlSeqClient) worker(wg *sync.WaitGroup, jobs <-chan int, results cha
 	// 1 conn per worker (mirrors httpclient).
 	db.SetMaxIdleConns(1)
 	db.SetMaxOpenConns(1)
-	db.SetConnMaxLifetime(0)
+	// Bounded lifetime → lib/pq closes + reopens each conn every
+	// connMaxLife, producing a fresh PostgreSQL StartupMessage that
+	// Pixie's PEM eBPF classifier can latch onto. Without this, a
+	// PEM that started after the workload (operator restart / OOM /
+	// late deploy) joins every flow mid-stream, sees only Parse/Bind/
+	// Execute messages, and silently classifies them as Unknown ⇒
+	// 0 rows ever land in pgsql_events. See client.go:New for the
+	// full rationale.
+	db.SetConnMaxLifetime(c.connMaxLife)
 	pad := string(util.RandPrintable(c.padSize))
 
 	const q = "SELECT $1::int AS seq_id, $2::text AS pad"

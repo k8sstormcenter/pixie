@@ -103,6 +103,38 @@ type Config struct {
 	// the kubescape event) set this to a NEGATIVE duration — pick -1
 	// to be unambiguous.
 	PushRefreshInterval time.Duration
+
+	// === Throughput-protection knobs ===
+	//
+	// At high anomaly rates (many concurrent active hashes), the default
+	// pushPixieRows behavior — N parallel PxL queries per hash, no
+	// global cap — can DoS the vizier-query-broker (observed: 90% of
+	// queries DeadlineExceeded at 180s under 4× sweep load). The three
+	// knobs below are independent throttles; all default to 0 (= legacy
+	// unbounded behavior preserved).
+	//
+	// MaxParallelQueriesPerHash caps concurrent goroutines INSIDE one
+	// pushPixieRows pass. 0 = no cap (current). Recommended 3-5 for
+	// load-protective deployments.
+	MaxParallelQueriesPerHash int
+
+	// MaxInflightQueriesGlobal caps concurrent PxL queries across all
+	// pushPixieRows goroutines (every hash). 0 = no cap (current).
+	// Recommended 20-50 — sized to broker capacity.
+	MaxInflightQueriesGlobal int
+
+	// EmptyResultSkipAfterN: after this many consecutive 0-row returns
+	// for the same (pod, table) pair, skip that pair on subsequent
+	// passes for EmptyResultSkipTTL. 0 = disabled (current). A pgsql
+	// pod that never speaks HTTP returns 0 on every http_events
+	// query; skipping eliminates that waste.
+	EmptyResultSkipAfterN int
+
+	// EmptyResultSkipTTL controls how long a (pod, table) stays in the
+	// negative cache. 0 = disabled (current). When the TTL expires the
+	// pair is retried, so a pod that newly starts a protocol
+	// self-heals within at most TTL seconds.
+	EmptyResultSkipTTL time.Duration
 }
 
 func (c *Config) defaulted() Config {
@@ -141,6 +173,16 @@ type Controller struct {
 	// hash and subsequent bursts silently stop populating per-table
 	// rows even though attribution keeps updating in CH.
 	inFlight map[anomaly.AnomalyHash]bool
+
+	// globalSem is the buffered channel that implements the
+	// MaxInflightQueriesGlobal throttle. nil → no global cap.
+	globalSem chan struct{}
+
+	// emptyCacheMu guards emptyStreak and emptySkipUntil. Both are keyed
+	// by "pod|table" to avoid an extra struct alloc per pair.
+	emptyCacheMu    sync.Mutex
+	emptyStreak     map[string]int       // consecutive 0-row returns
+	emptySkipUntil  map[string]time.Time // skip this (pod,table) until this time
 }
 
 // New wires a Controller. nil clock falls through to RealClock.
@@ -151,14 +193,21 @@ func New(trig Trigger, snk Sink, cfg Config, clk Clock) *Controller {
 	if clk == nil {
 		clk = RealClock{}
 	}
-	return &Controller{
-		trig:     trig,
-		sink:     snk,
-		clock:    clk,
-		cfg:      cfg.defaulted(),
-		active:   map[anomaly.AnomalyHash]*sink.AttributionRow{},
-		inFlight: map[anomaly.AnomalyHash]bool{},
+	defaulted := cfg.defaulted()
+	c := &Controller{
+		trig:           trig,
+		sink:           snk,
+		clock:          clk,
+		cfg:            defaulted,
+		active:         map[anomaly.AnomalyHash]*sink.AttributionRow{},
+		inFlight:       map[anomaly.AnomalyHash]bool{},
+		emptyStreak:    map[string]int{},
+		emptySkipUntil: map[string]time.Time{},
 	}
+	if defaulted.MaxInflightQueriesGlobal > 0 {
+		c.globalSem = make(chan struct{}, defaulted.MaxInflightQueriesGlobal)
+	}
+	return c
 }
 
 // WithPixieQuerier wires the rev-1 path. Returns the receiver for
@@ -358,9 +407,21 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 		}
 		results := make(chan tableResult, len(c.cfg.PushPixieTables))
 		var wg sync.WaitGroup
+		// Per-hash concurrency limiter (knob #1: MaxParallelQueriesPerHash).
+		// nil → unbounded (legacy behavior preserved).
+		var perHashSem chan struct{}
+		if c.cfg.MaxParallelQueriesPerHash > 0 {
+			perHashSem = make(chan struct{}, c.cfg.MaxParallelQueriesPerHash)
+		}
 		for _, table := range c.cfg.PushPixieTables {
 			if ctx.Err() != nil {
 				break
+			}
+			// Knob #3: negative-cache skip. Pods that have returned 0
+			// rows for this table N times in a row are skipped for TTL.
+			// Self-heals when TTL expires.
+			if c.shouldSkipEmpty(initial.Pod, table) {
+				continue
 			}
 			sliceStart := lastUpper[table]
 			sliceEnd := now
@@ -375,6 +436,29 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 			wg.Add(1)
 			go func(table, q string, sliceEnd time.Time) {
 				defer wg.Done()
+				// Acquire per-hash slot, then optional global slot.
+				// Order matters: per-hash is cheap and local; global
+				// gates network. Releasing in reverse order avoids the
+				// pathological case where a stuck global slot pins a
+				// per-hash slot for an unrelated table.
+				if perHashSem != nil {
+					select {
+					case perHashSem <- struct{}{}:
+					case <-ctx.Done():
+						results <- tableResult{table: table, err: ctx.Err()}
+						return
+					}
+					defer func() { <-perHashSem }()
+				}
+				if c.globalSem != nil {
+					select {
+					case c.globalSem <- struct{}{}:
+					case <-ctx.Done():
+						results <- tableResult{table: table, err: ctx.Err()}
+						return
+					}
+					defer func() { <-c.globalSem }()
+				}
 				qctx, cancel := context.WithTimeout(ctx, 180*time.Second)
 				rows, qerr := c.querier.Query(qctx, q)
 				cancel()
@@ -382,32 +466,9 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 					results <- tableResult{table: table, err: qerr}
 					return
 				}
+				// Update negative cache: 0 rows bumps streak, ≥1 row resets.
+				c.noteQueryResult(initial.Pod, table, len(rows))
 				nrows := len(rows)
-				// DEBUG: extract time_ min/max from what pixie returned, so
-				// we can see whether pixie returned fresh data or only stale
-				// data inside the requested [sliceStart, sliceEnd) window.
-				var tMin, tMax time.Time
-				for _, r := range rows {
-					if v, ok := r["time_"]; ok {
-						if tt, ok := v.(time.Time); ok {
-							if tMin.IsZero() || tt.Before(tMin) {
-								tMin = tt
-							}
-							if tt.After(tMax) {
-								tMax = tt
-							}
-						}
-					}
-				}
-				log.WithFields(log.Fields{
-					"table":           table,
-					"rows":            nrows,
-					"slice_start":     sliceStart.Format("15:04:05.000"),
-					"slice_end":       sliceEnd.Format("15:04:05.000"),
-					"time_min":        tMin.Format("2006-01-02 15:04:05"),
-					"time_max":        tMax.Format("2006-01-02 15:04:05"),
-					"pod":             initial.Pod,
-				}).Info("DEBUG: pixie returned rows for table")
 				if nrows > 0 {
 					// Bound the sink write with its own timeout. Without
 					// this, a stalled CH HTTP write would hold the table
@@ -455,6 +516,49 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 		if !sleepOrCancel(ctx, c.cfg.PushRefreshInterval) {
 			return
 		}
+	}
+}
+
+// shouldSkipEmpty reports whether (pod, table) is currently in the
+// negative cache. Returns false when knob #3 is disabled.
+func (c *Controller) shouldSkipEmpty(pod, table string) bool {
+	if c.cfg.EmptyResultSkipAfterN <= 0 || c.cfg.EmptyResultSkipTTL <= 0 {
+		return false
+	}
+	c.emptyCacheMu.Lock()
+	defer c.emptyCacheMu.Unlock()
+	until, ok := c.emptySkipUntil[pod+"|"+table]
+	if !ok {
+		return false
+	}
+	if c.clock.Now().Before(until) {
+		return true
+	}
+	// TTL expired — clear it so the next call retries the query and
+	// can re-arm the cache from observed results.
+	delete(c.emptySkipUntil, pod+"|"+table)
+	delete(c.emptyStreak, pod+"|"+table)
+	return false
+}
+
+// noteQueryResult updates the negative cache after a successful pixie
+// query. 0 rows bumps the streak; ≥1 row resets it. Once the streak
+// reaches the configured N, the (pod, table) pair is skipped for TTL.
+func (c *Controller) noteQueryResult(pod, table string, nrows int) {
+	if c.cfg.EmptyResultSkipAfterN <= 0 || c.cfg.EmptyResultSkipTTL <= 0 {
+		return
+	}
+	c.emptyCacheMu.Lock()
+	defer c.emptyCacheMu.Unlock()
+	key := pod + "|" + table
+	if nrows > 0 {
+		delete(c.emptyStreak, key)
+		delete(c.emptySkipUntil, key)
+		return
+	}
+	c.emptyStreak[key]++
+	if c.emptyStreak[key] >= c.cfg.EmptyResultSkipAfterN {
+		c.emptySkipUntil[key] = c.clock.Now().Add(c.cfg.EmptyResultSkipTTL)
 	}
 }
 

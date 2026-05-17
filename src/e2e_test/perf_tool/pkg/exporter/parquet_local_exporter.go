@@ -57,6 +57,9 @@ func NewParquetLocalExporter(dir, prefix string, batchSize int) (*ParquetLocalEx
 	if dir == "" {
 		return nil, errors.New("parquet-local: --parquet_dir is required when using parquet-local backend")
 	}
+	if batchSize <= 0 {
+		return nil, errors.New("parquet-local: batchSize must be > 0")
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("parquet-local: mkdir %q: %w", dir, err)
 	}

@@ -50,6 +50,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/clickhouse"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/config"
 	"px.dev/pixie/src/api/go/pxapi"
@@ -59,6 +60,7 @@ import (
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/script"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/sink"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/streaming"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/trigger"
 )
 
@@ -119,6 +121,12 @@ const (
 	// cloud's retention plugin can't reach the in-cluster CH (e.g.
 	// AOCC pixie cloud + CH ClusterIP service).
 	envPushPixieTables = "ADAPTIVE_PUSH_PIXIE_ROWS"
+
+	// envAdaptiveWriteMode selects the protocol-table write path:
+	//   "pull"      → rev-2: per-hash×per-table fan-out (default)
+	//   "streaming" → rev-3: N TableScanners with shared whitelist
+	//                 (see .local/adaptive-write-rev3-plan.md)
+	envAdaptiveWriteMode = "ADAPTIVE_WRITE_MODE"
 )
 
 func main() {
@@ -243,6 +251,20 @@ func main() {
 		log.WithError(err).Fatal("failed to create sink")
 	}
 
+	// Mode selection:
+	//   "streaming" → rev-3: leave PushPixieTables EMPTY (so the
+	//                 controller skips fan-out) and stand up the
+	//                 streaming.Supervisor instead.
+	//   else        → rev-2: per-hash×per-table fan-out (legacy).
+	streamingMode := strings.EqualFold(os.Getenv(envAdaptiveWriteMode), "streaming")
+	pushPixieRequested := strings.EqualFold(os.Getenv(envPushPixieTables), "true")
+	if streamingMode && pushPixieRequested {
+		log.Info("ADAPTIVE_WRITE_MODE=streaming overrides ADAPTIVE_PUSH_PIXIE_ROWS — fan-out disabled, streaming.Supervisor will own protocol-table writes")
+	}
+
+	// Shared ActiveSet (used only by streaming mode; harmless in pull mode).
+	activeSet := activeset.New()
+
 	ctlCfg := controller.Config{
 		Hostname:                  hostname,
 		Before:                    durEnv(envWindowBeforeSec, 5*time.Minute, time.Second),
@@ -252,7 +274,21 @@ func main() {
 		EmptyResultSkipAfterN:     intEnvOrZero(envEmptyResultSkipAfterN),
 		EmptyResultSkipTTL:        durEnvOrZero(envEmptyResultSkipTTLSec, time.Second),
 	}
-	if strings.EqualFold(os.Getenv(envPushPixieTables), "true") {
+	if streamingMode {
+		ctlCfg.OnAttribution = func(ns, pod string, tEnd time.Time) {
+			if pod == "" {
+				return // host-pid; cannot stream
+			}
+			activeSet.Upsert(activeset.Key{Namespace: ns, Pod: pod}, tEnd)
+		}
+		ctlCfg.OnPrune = func(ns, pod string) {
+			if pod == "" {
+				return
+			}
+			activeSet.Remove(activeset.Key{Namespace: ns, Pod: pod})
+		}
+	}
+	if !streamingMode && pushPixieRequested {
 		// PxL's px.DataFrame(table=…) rejects dotted table names even
 		// though px.GetSchemas() lists them. Drop them from the push
 		// list; the cloud-side retention plugin would have to handle
@@ -270,7 +306,11 @@ func main() {
 			Info("ADAPTIVE_PUSH_PIXIE_ROWS=true — operator will query pixie + write rows directly on each anomaly")
 	}
 	ctl := controller.New(trg, snk, ctlCfg, nil)
-	if len(ctlCfg.PushPixieTables) > 0 {
+
+	// Build the pixie adapter ONCE — shared by both rev-2's
+	// pushPixieRows path and the rev-3 streaming.Supervisor.
+	var pixieAdapterInst *pixieapi.Adapter
+	if len(ctlCfg.PushPixieTables) > 0 || streamingMode {
 		var adapter *pixieapi.Adapter
 		if direct := os.Getenv("ADAPTIVE_VIZIER_DIRECT_ADDR"); direct != "" {
 			// Direct mode — bypass the cloud's passthrough proxy and
@@ -289,11 +329,14 @@ func main() {
 				pxapi.WithAPIKey(cfg.Pixie().APIKey()),
 				pxapi.WithCloudAddr(cfg.Pixie().Host()))
 			if err != nil {
-				log.WithError(err).Fatal("ADAPTIVE_PUSH_PIXIE_ROWS=true but failed to create pxapi client")
+				log.WithError(err).Fatal("failed to create pxapi client")
 			}
 			adapter = pixieapi.New(pxClient, cfg.Pixie().ClusterID())
 		}
-		ctl = ctl.WithPixieQuerier(&pixieAdapter{a: adapter})
+		pixieAdapterInst = adapter
+		if len(ctlCfg.PushPixieTables) > 0 {
+			ctl = ctl.WithPixieQuerier(&pixieAdapter{a: adapter})
+		}
 	}
 
 	// 5. Rehydrate active state across crashes.
@@ -334,6 +377,48 @@ func main() {
 			log.WithError(err).Error("controller exited with error")
 		}
 	}()
+
+	// 7b. Streaming mode (rev-3): start the per-table scanners +
+	//     batched writers. Replaces the per-hash×per-table fan-out.
+	if streamingMode {
+		// Seed the ActiveSet from the rehydrated controller so existing
+		// alive attribution rows resume streaming immediately on boot.
+		// Without this seeding, only fresh kubescape events would
+		// repopulate the set — losing N minutes of coverage per restart.
+		seedActiveSetFromRehydrate(ctl, activeSet)
+
+		streamTables := make([]string, 0, len(pxl.BuiltinTables))
+		for _, t := range pxl.Names(pxl.BuiltinTables) {
+			if strings.Contains(t, ".") {
+				continue // PxL DataFrame rejects dotted names
+			}
+			streamTables = append(streamTables, t)
+		}
+		updater := streaming.NewUpdater(activeSet, streaming.UpdaterConfig{
+			Debounce:         durEnvOrZero("ADAPTIVE_STREAM_DEBOUNCE_SEC", time.Second),
+			MaxWhitelistSize: intEnvOrZero("ADAPTIVE_STREAM_MAX_WHITELIST"),
+		})
+		supervisor := streaming.NewSupervisor(
+			updater,
+			&pixieAdapter{a: pixieAdapterInst},
+			snk,
+			streamTables,
+			streaming.ScannerConfig{
+				QueryWindow:     durEnvOrZero("ADAPTIVE_STREAM_WINDOW_SEC", time.Second),
+				RefreshInterval: durEnvOrZero("ADAPTIVE_STREAM_REFRESH_SEC", time.Second),
+			},
+			streaming.WriterConfig{
+				BatchRows:  intEnvOrZero("ADAPTIVE_STREAM_BATCH_ROWS"),
+				BatchEvery: durEnvOrZero("ADAPTIVE_STREAM_BATCH_EVERY_SEC", time.Second),
+			},
+		)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			supervisor.Run(ctx)
+		}()
+		log.WithField("tables", streamTables).Info("rev-3 streaming supervisor started")
+	}
 
 	log.WithFields(log.Fields{
 		"hostname":       hostname,
@@ -454,6 +539,32 @@ func durEnvOrZero(key string, unit time.Duration) time.Duration {
 		return 0
 	}
 	return time.Duration(n) * unit
+}
+
+// seedActiveSetFromRehydrate reads the operator's rehydrated
+// attribution rows back from CH and Upserts them into the streaming
+// ActiveSet. Without this, a restart in streaming mode leaves the
+// scanners with an empty whitelist until the next kubescape event
+// arrives — N minutes of coverage gap per restart.
+func seedActiveSetFromRehydrate(ctl *controller.Controller, set *activeset.ActiveSet) {
+	// The controller's Rehydrate already populated its in-memory
+	// active map from CH. We re-issue QueryActive here to mirror
+	// those rows into the ActiveSet — keeping the streaming layer
+	// fully decoupled from controller internals.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	rows, err := ctl.SnapshotActive(ctx)
+	if err != nil {
+		log.WithError(err).Warn("seed: SnapshotActive failed; streaming starts cold")
+		return
+	}
+	for _, r := range rows {
+		if r.Pod == "" {
+			continue
+		}
+		set.Upsert(activeset.Key{Namespace: r.Namespace, Pod: r.Pod}, r.TEnd)
+	}
+	log.WithField("seeded", set.Size()).Info("streaming.ActiveSet seeded from rehydrated rows")
 }
 
 // pixieAdapter wraps pixieapi.Adapter so its return type matches the

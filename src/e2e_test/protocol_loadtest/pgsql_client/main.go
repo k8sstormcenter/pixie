@@ -43,6 +43,13 @@ func init() {
 	pflag.Int("target_rps", 0, "Target queries/sec across all connections")
 	pflag.Int("pad_size", 1024, "Size of the SELECT pad-text in bytes")
 	pflag.Int("num_messages", 1000, "Num messages per loop per conn")
+	// Bounded conn lifetime so lib/pq re-establishes flows periodically,
+	// giving Pixie's eBPF protocol classifier a fresh StartupMessage to
+	// latch onto. Without this, any PEM restart after the loadtest
+	// started leaves flows permanently classified as kProtocolUnknown
+	// and pgsql_events silent. 5min default is generous vs typical
+	// PEM MTBF; 0 = legacy infinite (NOT recommended).
+	pflag.Duration("conn_max_lifetime", 5*time.Minute, "Max TCP connection lifetime before recycle (0 = infinite). Recycling lets Pixie's PEM classify connections it joined mid-stream.")
 }
 
 func main() {
@@ -69,6 +76,7 @@ func main() {
 	targetRPS := viper.GetInt("target_rps")
 	numMessagesPerConn := viper.GetInt("num_messages")
 	padSize := viper.GetInt("pad_size")
+	connMaxLife := viper.GetDuration("conn_max_lifetime")
 	if numConns <= 0 || numMessagesPerConn <= 0 {
 		log.Fatal("num_connections and num_messages must both be > 0")
 	}
@@ -77,9 +85,10 @@ func main() {
 	seqNum := 0
 	for {
 		log.WithFields(log.Fields{
-			"conns": numConns, "messages": numMessages, "pad_size": padSize, "target_rps": targetRPS,
+			"conns": numConns, "messages": numMessages, "pad_size": padSize,
+			"target_rps": targetRPS, "conn_max_lifetime": connMaxLife,
 		}).Info("Started pgsql loadtest")
-		c := pgsqlclient.New(dsn, seqNum, numMessages, numConns, padSize, targetRPS)
+		c := pgsqlclient.New(dsn, seqNum, numMessages, numConns, padSize, targetRPS, connMaxLife)
 		if err := c.Run(); err != nil {
 			log.WithError(err).Error("pgsql seq client run failed")
 			time.Sleep(5 * time.Second) // back off so an immediate fatal config error doesn't hot-loop

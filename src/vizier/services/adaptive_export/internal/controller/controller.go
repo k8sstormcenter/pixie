@@ -383,6 +383,31 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 					return
 				}
 				nrows := len(rows)
+				// DEBUG: extract time_ min/max from what pixie returned, so
+				// we can see whether pixie returned fresh data or only stale
+				// data inside the requested [sliceStart, sliceEnd) window.
+				var tMin, tMax time.Time
+				for _, r := range rows {
+					if v, ok := r["time_"]; ok {
+						if tt, ok := v.(time.Time); ok {
+							if tMin.IsZero() || tt.Before(tMin) {
+								tMin = tt
+							}
+							if tt.After(tMax) {
+								tMax = tt
+							}
+						}
+					}
+				}
+				log.WithFields(log.Fields{
+					"table":           table,
+					"rows":            nrows,
+					"slice_start":     sliceStart.Format("15:04:05.000"),
+					"slice_end":       sliceEnd.Format("15:04:05.000"),
+					"time_min":        tMin.Format("2006-01-02 15:04:05"),
+					"time_max":        tMax.Format("2006-01-02 15:04:05"),
+					"pod":             initial.Pod,
+				}).Info("DEBUG: pixie returned rows for table")
 				if nrows > 0 {
 					// Bound the sink write with its own timeout. Without
 					// this, a stalled CH HTTP write would hold the table

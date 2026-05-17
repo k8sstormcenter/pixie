@@ -83,21 +83,6 @@ resource "kubernetes_secret_v1" "db_secrets" {
   wait_for_service_account_token = false
 }
 
-# TODO(ddelnano): Ressurect if this is needed for the cert validation method we settle on
-# resource "kubernetes_secret_v1" "cert_manager_sa" {
-#   metadata {
-#     name      = "cert-manager-dns01-solver-svc-acct"
-#     namespace = kubernetes_namespace_v1.cloud_ns.metadata.0.name
-#   }
-
-#   data = {
-#     "key.json" = base64decode(data.terraform_remote_state.k8s.outputs.cert_manager_sa_credentials_file)
-#   }
-
-#   type                           = "Opaque"
-#   wait_for_service_account_token = false
-# }
-
 data "sops_file" "auth0" {
   source_file = "${path.module}/../../credentials/cockpit/auth0_config.yaml"
 }

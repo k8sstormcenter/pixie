@@ -16,7 +16,7 @@ variable "namespace" {
 }
 
 variable "cloud_domain" {
-  default = "getcosmic.ai"
+  default = "pixie.austrianopencloudcommunity.org"
 }
 
 variable "cert_details" {
@@ -25,9 +25,17 @@ variable "cert_details" {
     organizations  = list(string)
   }))
   default = {
-    "getcosmic.ai" = {
+    "pixie.austrianopencloudcommunity.org" = {
       ca_common_name = "Cosmic Observe, Inc."
       organizations  = ["Cosmic"]
     }
   }
+}
+
+variable "cluster_internal_issuer" {
+  default = "pixie-cloud-ca-issuer"
+}
+
+variable "public_issuer" {
+  default = "letsencrypt-prod"
 }

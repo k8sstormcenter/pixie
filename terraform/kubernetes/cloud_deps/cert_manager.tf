@@ -58,7 +58,7 @@ resource "kubernetes_manifest" "issuer_ca_issuer" {
     "apiVersion" = "cert-manager.io/v1"
     "kind"       = "Issuer"
     "metadata" = {
-      "name"      = "pixie-cloud-ca-issuer"
+      "name"      = var.cluster_internal_issuer
       "namespace" = kubernetes_namespace_v1.cloud_ns.metadata.0.name
     }
     "spec" = {
@@ -69,8 +69,6 @@ resource "kubernetes_manifest" "issuer_ca_issuer" {
   }
 }
 
-# TODO(ddelnano): This needs to have an issuer for the production cert.
-# This will likely be a DNS01 challenge / AzureDNS
 resource "kubernetes_manifest" "cloud_proxy_tls_certs" {
   manifest = {
     "apiVersion" = "cert-manager.io/v1"
@@ -82,25 +80,12 @@ resource "kubernetes_manifest" "cloud_proxy_tls_certs" {
     "spec" = {
       "dnsNames" = [
         local.cert_subdomain,
-        "*.${local.cert_subdomain}",
+        "work.${local.cert_subdomain}",
       ]
-      "duration" = "43800h"
       "issuerRef" = {
-        "name" = "pixie-cloud-ca-issuer"
+        "name" = var.public_issuer
       }
       "secretName" = "cloud-proxy-tls-certs"
-      "subject" = {
-        "countries" = [
-          "US",
-        ]
-        "localities" = [
-          "San Francisco",
-        ]
-        "organizations" = local.cert_config.organizations
-        "provinces" = [
-          "California",
-        ]
-      }
     }
   }
 }
@@ -128,7 +113,7 @@ resource "kubernetes_manifest" "service_tls_server_certs" {
       ]
       "duration" = "43800h"
       "issuerRef" = {
-        "name" = "pixie-cloud-ca-issuer"
+        "name" = var.cluster_internal_issuer
       }
       "privateKey" = {
         "algorithm" = "RSA"
@@ -165,7 +150,7 @@ resource "kubernetes_manifest" "service_tls_client_certs" {
       ]
       "duration" = "43800h"
       "issuerRef" = {
-        "name" = "pixie-cloud-ca-issuer"
+        "name" = var.cluster_internal_issuer
       }
       "privateKey" = {
         "algorithm" = "RSA"

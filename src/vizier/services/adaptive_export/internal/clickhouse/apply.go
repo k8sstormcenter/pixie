@@ -50,8 +50,9 @@ var OperatorOwnedTables = []string{
 	"amqp_events",
 	"mux_events",
 	"tls_events",
-	// operator's only write target.
+	// operator's write targets.
 	"adaptive_attribution",
+	"trigger_watermark",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the

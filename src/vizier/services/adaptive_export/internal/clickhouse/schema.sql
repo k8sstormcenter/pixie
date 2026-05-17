@@ -397,3 +397,29 @@ CREATE TABLE IF NOT EXISTS forensic_db.adaptive_attribution (
 ) ENGINE = ReplacingMergeTree(t_end)
   PARTITION BY toYYYYMM(t_start)
   ORDER BY (hostname, anomaly_hash);
+
+-- ============================================================================
+-- trigger_watermark — persistent cursor for the kubescape_logs trigger.
+--
+-- Per node, per source-table. The operator advances the row's `watermark`
+-- (UInt64 event_time, ns) every time it successfully drains a batch of
+-- kubescape rows. On restart it reads the row back and resumes from there
+-- instead of replaying the full table from event_time=0 (which, on a busy
+-- cluster, produces multi-GiB single-shot SELECTs that the HTTP client
+-- times out on, never advancing → infinite stuck loop).
+--
+-- ReplacingMergeTree(updated_at) collapses re-inserts to the newest, so
+-- the operator can INSERT cheaply without bothering with UPDATE
+-- semantics. Reads use FINAL — cheap because cardinality is one row per
+-- (hostname, table_name).
+--
+-- This is the operator's second write target alongside adaptive_attribution.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS forensic_db.trigger_watermark (
+    hostname    String,
+    table_name  String,
+    watermark   UInt64,
+    updated_at  DateTime64(9, 'UTC')
+) ENGINE = ReplacingMergeTree(updated_at)
+  PARTITION BY hostname
+  ORDER BY (hostname, table_name);

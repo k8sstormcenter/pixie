@@ -57,12 +57,13 @@ func TestApply_ExecutesEveryOperatorOwnedTable(t *testing.T) {
 		t.Fatalf("first DDL must create the database; got: %s", bodies[0])
 	}
 	// Spot-check that the SECOND call is for the first OperatorOwnedTables entry,
-	// and that the LAST call is for adaptive_attribution.
+	// and that the LAST call is for trigger_watermark (the newest
+	// operator-owned table, registered after adaptive_attribution).
 	if !strings.Contains(bodies[1], "forensic_db."+OperatorOwnedTables[0]) {
 		t.Fatalf("second DDL not for %s; got: %s", OperatorOwnedTables[0], bodies[1])
 	}
-	if !strings.Contains(bodies[len(bodies)-1], "forensic_db.adaptive_attribution") {
-		t.Fatalf("last DDL not for adaptive_attribution; got: %s", bodies[len(bodies)-1])
+	if !strings.Contains(bodies[len(bodies)-1], "forensic_db.trigger_watermark") {
+		t.Fatalf("last DDL not for trigger_watermark; got: %s", bodies[len(bodies)-1])
 	}
 	// And ensure no kubescape DDL leaked through.
 	for _, b := range bodies {
@@ -180,10 +181,16 @@ func TestOperatorOwnedTables_DoesNotIncludeKubescape(t *testing.T) {
 	}
 }
 
-// TestOperatorOwnedTables_LastIsAdaptiveAttribution — ordering guard.
-func TestOperatorOwnedTables_LastIsAdaptiveAttribution(t *testing.T) {
-	last := OperatorOwnedTables[len(OperatorOwnedTables)-1]
-	if last != "adaptive_attribution" {
-		t.Fatalf("last entry = %q, want adaptive_attribution", last)
+// TestOperatorOwnedTables_TrailingOperatorTables — ordering guard.
+// pixie observation tables come first (so they exist before the retention
+// plugin can auto-DDL them with the wrong schema), then the operator's
+// own write targets in declared order.
+func TestOperatorOwnedTables_TrailingOperatorTables(t *testing.T) {
+	want := []string{"adaptive_attribution", "trigger_watermark"}
+	got := OperatorOwnedTables[len(OperatorOwnedTables)-len(want):]
+	for i, w := range want {
+		if got[i] != w {
+			t.Fatalf("OperatorOwnedTables tail = %v, want %v", got, want)
+		}
 	}
 }

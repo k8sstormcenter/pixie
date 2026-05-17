@@ -19,7 +19,10 @@ load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
     name = "trigger",
-    srcs = ["clickhouse.go"],
+    srcs = [
+        "clickhouse.go",
+        "watermark.go",
+    ],
     importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/trigger",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
     deps = [
@@ -30,6 +33,9 @@ go_library(
 
 pl_go_test(
     name = "trigger_test",
-    srcs = ["clickhouse_test.go"],
+    srcs = [
+        "clickhouse_test.go",
+        "watermark_test.go",
+    ],
     embed = [":trigger"],
 )

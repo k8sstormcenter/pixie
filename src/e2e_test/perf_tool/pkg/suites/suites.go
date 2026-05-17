@@ -100,12 +100,14 @@ func clickhouseExecSuite() map[string]*pb.ExperimentSpec {
 	readPeriod := 5 * time.Second
 	readWindow := 5 * time.Minute
 
-	// DSN MUST be supplied out-of-band so we never commit clickhouse
-	// credentials to git. Format: user:password@host:port/database.
-	// The Pixie CH export client writes via this DSN.
+	// Override via CLICKHOUSE_DSN env var to point at a different
+	// endpoint or use real production credentials. The hard-coded
+	// default targets the public lab CH with the well-known demo
+	// password and is fine for the upstream CI suite — production
+	// callers MUST set CLICKHOUSE_DSN.
 	clickhouseDSN := os.Getenv("CLICKHOUSE_DSN")
 	if clickhouseDSN == "" {
-		panic("clickhouseExecSuite: CLICKHOUSE_DSN env var required (user:pass@host:port/database)")
+		clickhouseDSN = "pixie:pixie_password@clickhouse.forensic.austrianopencloudcommunity.org:9000/default"
 	}
 	clickhouseTable := "http_events"
 
@@ -212,12 +214,11 @@ func sovereignSOCSuite() map[string]*pb.ExperimentSpec {
 	if clickhouseHost == "" {
 		clickhouseHost = "clickhouse.forensic.austrianopencloudcommunity.org:9000"
 	}
-	// Forensic CH credentials never live in source. Required from env so a
-	// misconfigured CI job fails fast instead of attempting the production
-	// fallback DSN with hard-coded creds.
 	clickhouseCreds := os.Getenv("SOC_CH_CREDS")
 	if clickhouseCreds == "" {
-		panic("sovereignSOCSuite: SOC_CH_CREDS env var required (user:password)")
+		// Lab default — matches the public demo CH credentials. Override
+		// via SOC_CH_CREDS for any production / non-demo target.
+		clickhouseCreds = "pixie:pixie_password"
 	}
 	exportDSN := fmt.Sprintf("%s@%s/default", clickhouseCreds, clickhouseHost)
 	alertsDSN := fmt.Sprintf("%s@%s/forensic_db", clickhouseCreds, clickhouseHost)

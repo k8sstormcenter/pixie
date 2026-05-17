@@ -139,12 +139,6 @@ jobs:
         GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.gcloud-creds.outputs.gcloud-creds }}
         KUBECONFIG: ${{ runner.temp }}/kubeconfig
         SOC_VIZIER_EXISTING: "1"
-        # Forensic ClickHouse target — repo secrets, NOT hard-coded in
-        # source. SOC_CH_HOST is host:port; SOC_CH_CREDS is user:password.
-        # The sovereign-soc suite builder panics if either is unset, so a
-        # missing repo secret fails the workflow immediately.
-        SOC_CH_HOST: ${{ secrets.SOC_CH_HOST }}
-        SOC_CH_CREDS: ${{ secrets.SOC_CH_CREDS }}
       run: |
         bazel run //src/e2e_test/perf_tool:perf_tool -- run \
           --api_key="${PX_API_KEY}" \

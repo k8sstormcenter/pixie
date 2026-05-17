@@ -84,26 +84,46 @@ func NewBQExporter(resultTable, specTable *bq.Table) *BQExporter {
 }
 
 // ExportResults consumes metrics from resultCh and inserts them into BigQuery in batches.
+// Returns when resultCh closes; waits for the inserter goroutine to drain
+// the final batch before returning, so callers can rely on "ExportResults
+// returned without error" meaning every row was actually pushed to BQ.
 func (e *BQExporter) ExportResults(ctx context.Context, expID uuid.UUID, resultCh <-chan *metrics.ResultRow) error {
 	bqCh := make(chan interface{})
-	defer close(bqCh)
 
 	inserter := &bq.BatchInserter{
 		Table:       e.resultTable,
 		BatchSize:   512,
 		PushTimeout: 2 * time.Minute,
 	}
-	go inserter.Run(bqCh)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		inserter.Run(bqCh)
+	}()
 
-	for row := range resultCh {
-		bqRow, err := MetricsRowToResultRow(expID, row)
-		if err != nil {
-			log.WithError(err).Error("Failed to convert result row")
-			continue
+	for {
+		select {
+		case <-ctx.Done():
+			close(bqCh)
+			<-done
+			return ctx.Err()
+		case row, ok := <-resultCh:
+			if !ok {
+				// resultCh closed → close bqCh so the inserter drains its
+				// last batch, then wait for inserter goroutine exit before
+				// returning so the caller doesn't observe an in-flight push.
+				close(bqCh)
+				<-done
+				return nil
+			}
+			bqRow, err := MetricsRowToResultRow(expID, row)
+			if err != nil {
+				log.WithError(err).Error("Failed to convert result row")
+				continue
+			}
+			bqCh <- bqRow
 		}
-		bqCh <- bqRow
 	}
-	return nil
 }
 
 // ExportSpec writes the experiment spec to BigQuery on experiment success.

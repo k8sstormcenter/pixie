@@ -20,6 +20,7 @@ spec:
     metadata:
       labels:
         name: redis-server
+        kubescape.io/user-defined-profile: redis-server-empty
     spec:
       containers:
       - name: redis
@@ -63,12 +64,22 @@ spec:
     metadata:
       labels:
         name: redis-client
+        kubescape.io/user-defined-profile: redis-client-empty
     spec:
       initContainers:
       - name: wait-redis
         image: redis:7-alpine
         imagePullPolicy: IfNotPresent
-        command: ["/bin/sh", "-c", "until redis-cli -h redis-server PING | grep -q PONG; do echo waiting redis; sleep 1; done"]
+        command:
+        - /bin/sh
+        - -c
+        - |
+          for i in $(seq 1 180); do
+            redis-cli -h redis-server PING | grep -q PONG && exit 0
+            sleep 1
+          done
+          echo "redis-server did not become ready in time"
+          exit 1
       containers:
       - name: client
         image: docker.io/library/protocol_loadtest_redis_client:latest

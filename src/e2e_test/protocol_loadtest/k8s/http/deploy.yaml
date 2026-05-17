@@ -15,6 +15,7 @@ spec:
     metadata:
       labels:
         name: http-server
+        kubescape.io/user-defined-profile: http-server-empty
     spec:
       containers:
       - name: app
@@ -66,11 +67,22 @@ spec:
     metadata:
       labels:
         name: http-client
+        kubescape.io/user-defined-profile: http-client-empty
     spec:
       initContainers:
       - name: wait-server
         image: ghcr.io/pixie-io/pixie-oss-pixie-dev-public-curl:8.15.0@sha256:4026b29997dc7c823b51c164b71e2b51e0fd95cce4601f78202c513d97da2922
-        command: ['sh', '-c', 'until curl -m 0.5 -s -o /dev/null -X POST -H "Content-Type: application/json" --data "{}" http://http-server:8080/; do echo waiting; sleep 1; done']
+        command:
+        - sh
+        - -c
+        - |
+          for i in $(seq 1 180); do
+            curl -m 0.5 -s -o /dev/null -X POST -H "Content-Type: application/json" --data "{}" http://http-server:8080/ && exit 0
+            echo waiting
+            sleep 1
+          done
+          echo "http-server did not become ready in time"
+          exit 1
       containers:
       - name: client
         image: docker.io/library/protocol_loadtest_client:latest

@@ -5,9 +5,10 @@ set -uo pipefail
 
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PY=/home/constanze/.venvs/render/bin/python
 BASE=/tmp/matrix-base
-SRC="$SCRIPT_DIR/src/e2e_test/perf_tool/pkg/suites/k8s/sovereign-soc"
+SRC="$REPO_ROOT/src/e2e_test/perf_tool/pkg/suites/k8s/sovereign-soc"
 OUT=/tmp/matrix4-$(date -u +%Y%m%d-%H%M%S)
 mkdir -p "$OUT"
 echo "matrix4 dir: $OUT" | tee "$OUT/matrix.log"

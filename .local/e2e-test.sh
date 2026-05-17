@@ -20,7 +20,7 @@
 # Usage:  ./verify-protocol-coverage.sh           # 5-min window, all pods
 #         ./verify-protocol-coverage.sh 600       # 10-min window
 #         ./verify-protocol-coverage.sh 300 redis # 5-min, only "redis*" pods
-set -uo pipefail
+set -euo pipefail
 
 WINDOW_S="${1:-300}"
 POD_FILTER="${2:-}"

@@ -9,7 +9,8 @@ set -uo pipefail
 
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC="$SCRIPT_DIR/src/e2e_test/protocol_loadtest"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SRC="$REPO_ROOT/src/e2e_test/protocol_loadtest"
 NS=px-protocol-loadtest
 
 echo "=== ensure namespace ==="

@@ -211,7 +211,7 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 	// down a back-pressured channel — during which time the for/
 	// select isn't running and a saveTicker.C tick would never be
 	// observed. Throttling is done with a time.Time comparison.
-	var lastSaved uint64 = watermark
+	lastSaved := watermark
 	var lastSaveTime time.Time
 	dirty := false
 	flushWatermark := func() {

@@ -22,18 +22,18 @@ spec:
         image: docker.io/library/protocol_loadtest_server:latest
         imagePullPolicy: IfNotPresent
         env:
-        - {name: HTTP_PORT,     value: "8080"}
+        - {name: HTTP_PORT, value: "8080"}
         - {name: HTTP_SSL_PORT, value: "8081"}
-        - {name: GRPC_PORT,     value: "9080"}
+        - {name: GRPC_PORT, value: "9080"}
         - {name: GRPC_SSL_PORT, value: "9081"}
         ports:
-        - {name: http,  containerPort: 8080}
+        - {name: http, containerPort: 8080}
         - {name: https, containerPort: 8081}
-        - {name: grpc,  containerPort: 9080}
+        - {name: grpc, containerPort: 9080}
         - {name: grpcs, containerPort: 9081}
         resources:
           requests: {cpu: "200m", memory: "128Mi"}
-          limits:   {cpu: "4",    memory: "2Gi"}
+          limits: {cpu: "4", memory: "2Gi"}
         readinessProbe:
           tcpSocket: {port: http}
           initialDelaySeconds: 2
@@ -48,7 +48,7 @@ spec:
   selector:
     name: http-server
   ports:
-  - {name: http,  port: 8080, targetPort: http}
+  - {name: http, port: 8080, targetPort: http}
   - {name: https, port: 8081, targetPort: https}
 ---
 apiVersion: apps/v1
@@ -71,13 +71,17 @@ spec:
     spec:
       initContainers:
       - name: wait-server
+        # yamllint disable-line rule:line-length
         image: ghcr.io/pixie-io/pixie-oss-pixie-dev-public-curl:8.15.0@sha256:4026b29997dc7c823b51c164b71e2b51e0fd95cce4601f78202c513d97da2922
         command:
         - sh
         - -c
         - |
+          URL=http://http-server:8080/
           for i in $(seq 1 180); do
-            curl -m 0.5 -s -o /dev/null -X POST -H "Content-Type: application/json" --data "{}" http://http-server:8080/ && exit 0
+            curl -m 0.5 -s -o /dev/null \
+              -X POST -H "Content-Type: application/json" \
+              --data "{}" "$URL" && exit 0
             echo waiting
             sleep 1
           done
@@ -88,14 +92,14 @@ spec:
         image: docker.io/library/protocol_loadtest_client:latest
         imagePullPolicy: IfNotPresent
         env:
-        - {name: HTTP_HOST,       value: "http-server"}
-        - {name: HTTP_PORT,       value: "8080"}
-        - {name: HTTP_PATH,       value: "/"}
+        - {name: HTTP_HOST, value: "http-server"}
+        - {name: HTTP_PORT, value: "8080"}
+        - {name: HTTP_PATH, value: "/"}
         - {name: NUM_CONNECTIONS, value: "10"}
-        - {name: TARGET_RPS,      value: "1000"}
-        - {name: NUM_MESSAGES,    value: "5000"}
-        - {name: REQ_SIZE,        value: "256"}
-        - {name: RESP_SIZE,       value: "256"}
+        - {name: TARGET_RPS, value: "1000"}
+        - {name: NUM_MESSAGES, value: "5000"}
+        - {name: REQ_SIZE, value: "256"}
+        - {name: RESP_SIZE, value: "256"}
         resources:
           requests: {cpu: "200m", memory: "128Mi"}
-          limits:   {cpu: "4",    memory: "1Gi"}
+          limits: {cpu: "4", memory: "1Gi"}

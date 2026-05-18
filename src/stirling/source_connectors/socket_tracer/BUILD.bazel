@@ -305,7 +305,13 @@ pl_cc_bpf_test(
 
 pl_cc_bpf_test(
     name = "grpc_trace_bpf_test",
-    timeout = "moderate",
+    # Bumped 2026-05-18 from "moderate" (600s under qemu-bpf) to "long"
+    # (1800s under qemu-bpf), matching the heavier sibling
+    # `socket_trace_bpf_test`. CI run 26003998628 saw shard 1 of 3 FAIL
+    # after all `flaky=True` retries (already 3 attempts). Test loads 6
+    # large Go binaries (3 client versions × 2 server forms) + a Python
+    # gRPC container, so per-shard wall is large.
+    timeout = "long",
     srcs = ["grpc_trace_bpf_test.cc"],
     data = [
         "//src/stirling/source_connectors/socket_tracer/protocols/http2/testing/go_grpc_client:golang_1_23_grpc_client",

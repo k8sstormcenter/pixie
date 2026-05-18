@@ -166,7 +166,7 @@ func TestFilterUpdater_CapBoundary_RecoversAfterShrink(t *testing.T) {
 	// Drain any intermediate filters; verify the LATEST emission is
 	// back to whitelist mode.
 	deadline := time.Now().Add(500 * time.Millisecond)
-	var last Filter = f
+	last := f
 	for time.Now().Before(deadline) {
 		select {
 		case last = <-ch:
@@ -194,7 +194,7 @@ func TestFilterUpdater_CapDisabled_AllowsAnySize(t *testing.T) {
 	ch := u.Subscribe()
 	<-ch
 	for i := 0; i < 100; i++ {
-		set.Upsert(activeset.Key{Pod: string(rune('a' + i%26)) + string(rune('a' + i/26))}, time.Now().Add(time.Minute))
+		set.Upsert(activeset.Key{Pod: string(rune('a'+i%26)) + string(rune('a'+i/26))}, time.Now().Add(time.Minute))
 	}
 	f := waitForFilter(t, ch, 300*time.Millisecond)
 	if f.Mode != FilterModeWhitelist {

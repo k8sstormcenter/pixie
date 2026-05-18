@@ -162,6 +162,71 @@ Same workload as slice 1. Comparable throughput:
 
 No regression vs slice 1; the Notifier is essentially zero-overhead at this load.
 
+### 2026-05-17 — slice 3 (CR fixes + TDD across remaining slices)
+
+Reviewed 26 new CR comments since the last snapshot. Three were bug-relevant for rev-3 code I'd just written:
+
+1. **`controller.go:156`** — OnPrune fires per-hash, but ActiveSet is per-pod. When multiple anomaly hashes share one pod (e.g. pgsql-server has hashes for `postgres`, `pg_isready`, `runc:[2:INIT]`), pruning ONE hash would prematurely evict the pod from streaming. **Real bug.**
+2. **`activeset.go:110`** — version-bump on pure t_end extension forces subscribers to re-snapshot for no reason.
+3. **`activeset.go:183`** — Snapshot+Subscribe race; needs an atomic combined helper.
+
+**TDD round 4 — controller OnPrune per-pod:**
+- 2 new tests RED first: `TestController_OnPrune_OnlyFiresWhenLastHashOnPodGone`, `TestController_OnPrune_DoesNotFireWhileOtherHashesActive`
+- Implemented two-pass prune (delete expired, then for each pruned hash's pod check whether any surviving hash still references it; fire only for "no survivors")
+- Green first run.
+
+**TDD round 5 — activeset version + atomic subscribe:**
+- 2 new tests RED first: `TestUpsertExtendDoesNotAdvanceVersion`, `TestSubscribeAndSnapshot_RaceFreeBootstrap`
+- Implemented: extension early-return before version bump; added `SubscribeAndSnapshot()` that captures keys + registers subscriber under one mutex
+- Green first run.
+
+**TDD round 6 — scanner backoff:**
+- 2 new tests RED first: `TestScanner_BackoffOnRepeatedErrors`, `TestScanner_BackoffResetsOnSuccess`
+- Discovered existing backoff implementation worked correctly; second test needed assertion-tightening (flipFlopQuerier cycles, so error count isn't deterministic — relaxed to range checks).
+
+**TDD round 7 — whitelist cap boundaries:**
+- 4 new tests, all green first run: `_CapBoundary_AtLimit`, `_CapBoundary_OneOverLimit`, `_CapBoundary_RecoversAfterShrink`, `_CapDisabled_AllowsAnySize`
+- No code changes needed — existing `computeFilter` already correctly handled all four cases.
+
+**Flake found + fixed**: `TestIntegration_PrunePropagatesToScannerWhitelist` was flaky under load (3/5 pass). The original assertion checked "the last query doesn't contain the pruned pod" which is invalid when the scanner's empty-whitelist branch correctly SKIPS issuing queries (last entry stays stale). Rewrote to event-driven: keep a second pod in the set so queries continue; assert "first post-Remove query without pruned pod arrives within 2s". 5/5 green after fix.
+
+### Final test count
+
+```
+internal/activeset/   — 9 tests (3 added in slice 3)
+internal/controller/  — 13 tests (5 added across slice 2+3)
+internal/streaming/   — 21 tests (15 added in slices 1-3)
+```
+
+All green with `-race -count=1 -timeout 60s`, 5 consecutive flake-check runs.
+
+### Slice 3 full sweep (4× / 8× / 16×)
+
+11-minute sweep with streaming mode active:
+
+| Mult | loadgen tot | pgsql ins/s | redis ins/s | http ins/s |
+|---|---|---|---|---|
+| 4× | 11,937 | 103 | 233 | 233 |
+| 8× | 14,533 | 267 | 267 | 293 |
+| 16× | 45,390 | 226 | 309 | 294 |
+
+**Rows landed in CH across the sweep:**
+- http_events: 212,974
+- redis_events: 220,000
+- pgsql_events: **155,990** ← rev-2 max under same load was ~20
+- dns_events: 2,459
+
+PNGs at `/tmp/proto-sweep-20260517-215859/`:
+- `scaling.png` — overview log-log
+- `loadgen.png` — achieved RPS per protocol per mult
+- `pixie.png` — PEM/kelvin/QB/NA CPU/mem
+- `kubescape.png` — alert rates
+- `clickhouse.png` — CH insert rates per table per mult
+- `server.png` — server-pod CPU
+- `host.png` — host-level CPU/mem
+
+Functionally as designed: all three protocol tables fill consistently, no DeadlineExceeded errors, no fan-out concurrency.
+
 ### TDD insights this session
 
 - Unit tests turned around in **seconds** vs the deploy-loop's **minutes**. The notifier was production-ready in ~5 min of test-first work; slice 1's PxL discovery cost 30 min of deploy-loop work.

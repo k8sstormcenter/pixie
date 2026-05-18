@@ -17,10 +17,10 @@ spec:
   containers:
   - name: app
     capabilities: null
-    endpoints:    null
-    execs:        null
-    opens:        null
-    syscalls:     null
+    endpoints: null
+    execs: null
+    opens: null
+    syscalls: null
     rulePolicies: {}
 ---
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
@@ -33,10 +33,10 @@ spec:
   containers:
   - name: client
     capabilities: null
-    endpoints:    null
-    execs:        null
-    opens:        null
-    syscalls:     null
+    endpoints: null
+    execs: null
+    opens: null
+    syscalls: null
     rulePolicies: {}
 ---
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
@@ -49,10 +49,10 @@ spec:
   containers:
   - name: redis
     capabilities: null
-    endpoints:    null
-    execs:        null
-    opens:        null
-    syscalls:     null
+    endpoints: null
+    execs: null
+    opens: null
+    syscalls: null
     rulePolicies: {}
 ---
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
@@ -65,10 +65,10 @@ spec:
   containers:
   - name: client
     capabilities: null
-    endpoints:    null
-    execs:        null
-    opens:        null
-    syscalls:     null
+    endpoints: null
+    execs: null
+    opens: null
+    syscalls: null
     rulePolicies: {}
 ---
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
@@ -81,10 +81,10 @@ spec:
   containers:
   - name: postgres
     capabilities: null
-    endpoints:    null
-    execs:        null
-    opens:        null
-    syscalls:     null
+    endpoints: null
+    execs: null
+    opens: null
+    syscalls: null
     rulePolicies: {}
 ---
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
@@ -97,8 +97,8 @@ spec:
   containers:
   - name: client
     capabilities: null
-    endpoints:    null
-    execs:        null
-    opens:        null
-    syscalls:     null
+    endpoints: null
+    execs: null
+    opens: null
+    syscalls: null
     rulePolicies: {}

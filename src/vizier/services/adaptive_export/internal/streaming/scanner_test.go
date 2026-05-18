@@ -30,10 +30,9 @@ import (
 
 // fakeQuerier captures PxL strings and returns a canned row set.
 type fakeQuerier struct {
-	mu       sync.Mutex
-	queries  []string
-	rows     []map[string]any
-	failures int32
+	mu      sync.Mutex
+	queries []string
+	rows    []map[string]any
 }
 
 func (f *fakeQuerier) Query(ctx context.Context, pxl string) ([]map[string]any, error) {

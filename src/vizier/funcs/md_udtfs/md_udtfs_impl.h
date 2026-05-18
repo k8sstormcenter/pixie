@@ -1286,8 +1286,7 @@ class CreateClickHouseSchemas final : public carnot::udf::UDTF<CreateClickHouseS
    */
   std::string GenerateCreateTableSQL(const std::string& table_name,
                                      const px::table_store::schemapb::Relation& schema,
-                                     bool use_if_not_exists,
-                                     const std::string& cluster_name) {
+                                     bool use_if_not_exists, const std::string& cluster_name) {
     std::vector<std::string> column_defs;
 
     // Add columns from schema
@@ -1318,15 +1317,15 @@ class CreateClickHouseSchemas final : public carnot::udf::UDTF<CreateClickHouseS
     // replicated across nodes. ClickHouse auto-generates the ZooKeeper paths
     // when no explicit arguments are provided (requires ClickHouse >= 22.x).
     std::string engine = cluster_name.empty() ? "MergeTree()" : "ReplicatedMergeTree()";
-    std::string create_sql = absl::Substitute(R"(
+    std::string create_sql =
+        absl::Substitute(R"(
       CREATE TABLE $0$1$2 (
         $3
       ) ENGINE = $4
       PARTITION BY toYYYYMM(event_time)
       ORDER BY (hostname, event_time)
     )",
-                                              if_not_exists_clause, table_name, on_cluster_clause,
-                                              columns_str, engine);
+                         if_not_exists_clause, table_name, on_cluster_clause, columns_str, engine);
 
     return create_sql;
   }

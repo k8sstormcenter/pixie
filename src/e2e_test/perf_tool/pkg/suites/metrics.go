@@ -277,9 +277,9 @@ func KubescapeNodeAgentMetrics(scrapePeriod time.Duration) *pb.MetricSpec {
 					"process_virtual_memory_bytes":  "kubescape_node_agent_vsize",
 					"go_goroutines":                 "kubescape_node_agent_goroutines",
 					// Kubescape-specific (names may vary across versions).
-					"kubescape_ruleengine_firing_alerts_total": "kubescape_firing_alerts_total",
-					"kubescape_ruleengine_applied_rules_total": "kubescape_applied_rules_total",
-					"kubescape_node_agent_events_seen_total":   "kubescape_events_seen_total",
+					"kubescape_ruleengine_firing_alerts_total":  "kubescape_firing_alerts_total",
+					"kubescape_ruleengine_applied_rules_total":  "kubescape_applied_rules_total",
+					"kubescape_node_agent_events_seen_total":    "kubescape_events_seen_total",
 					"kubescape_node_agent_events_dropped_total": "kubescape_events_dropped_total",
 				},
 			},

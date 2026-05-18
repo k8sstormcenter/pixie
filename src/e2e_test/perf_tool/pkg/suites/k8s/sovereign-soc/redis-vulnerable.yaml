@@ -35,9 +35,9 @@ metadata:
   name: redis
   namespace: redis
 rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -49,9 +49,9 @@ roleRef:
   kind: Role
   name: redis
 subjects:
-  - kind: ServiceAccount
-    name: redis
-    namespace: redis
+- kind: ServiceAccount
+  name: redis
+  namespace: redis
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -104,38 +104,38 @@ spec:
       automountServiceAccountToken: false
       serviceAccountName: redis
       containers:
-        - name: redis
-          image: ghcr.io/k8sstormcenter/redis-vulnerable:7.2.10
-          command: ["redis-server", "/etc/redis/redis.conf"]
-          ports:
-            - containerPort: 6379
-              name: redis
-              protocol: TCP
-          volumeMounts:
-            - name: config
-              mountPath: /etc/redis
-              readOnly: true
-          resources:
-            requests:
-              cpu: 250m
-              memory: 256Mi
-            limits:
-              cpu: "1"
-              memory: 512Mi
-          livenessProbe:
-            exec:
-              command: ["redis-cli", "ping"]
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          readinessProbe:
-            exec:
-              command: ["redis-cli", "ping"]
-            initialDelaySeconds: 3
-            periodSeconds: 5
-      volumes:
+      - name: redis
+        image: ghcr.io/k8sstormcenter/redis-vulnerable:7.2.10
+        command: ["redis-server", "/etc/redis/redis.conf"]
+        ports:
+        - containerPort: 6379
+          name: redis
+          protocol: TCP
+        volumeMounts:
         - name: config
-          configMap:
-            name: redis-config
+          mountPath: /etc/redis
+          readOnly: true
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 512Mi
+        livenessProbe:
+          exec:
+            command: ["redis-cli", "ping"]
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command: ["redis-cli", "ping"]
+          initialDelaySeconds: 3
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: redis-config
 ---
 apiVersion: v1
 kind: Service
@@ -149,10 +149,10 @@ spec:
   selector:
     app.kubernetes.io/name: redis
   ports:
-    - port: 6379
-      targetPort: 6379
-      protocol: TCP
-      name: redis
+  - port: 6379
+    targetPort: 6379
+    protocol: TCP
+    name: redis
 ---
 # A second Service exposing Redis on a non-standard port (16379 → 6379).
 # Used by the endpoint test: if the ApplicationProfile records port=0 (wildcard),
@@ -171,10 +171,10 @@ spec:
   selector:
     app.kubernetes.io/name: redis
   ports:
-    - port: 16379
-      targetPort: 6379
-      protocol: TCP
-      name: redis-alt
+  - port: 16379
+    targetPort: 6379
+    protocol: TCP
+    name: redis-alt
 ---
 # Redis client pod — a separate workload that connects to Redis over the network.
 # Attacks from this pod simulate a compromised application in the cluster:
@@ -201,13 +201,13 @@ spec:
         kubescape.io/user-defined-profile: redis-client-empty
     spec:
       containers:
-        - name: client
-          image: redis:7.2-alpine
-          command: ["sleep", "infinity"]
-          resources:
-            requests:
-              cpu: 50m
-              memory: 32Mi
-            limits:
-              cpu: 200m
-              memory: 64Mi
+      - name: client
+        image: redis:7.2-alpine
+        command: ["sleep", "infinity"]
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi

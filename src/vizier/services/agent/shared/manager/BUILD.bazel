@@ -86,7 +86,10 @@ pl_cc_test(
 
 pl_cc_test(
     name = "heartbeat_test",
-    timeout = "moderate",
+    # Bumped 2026-05-18 from "moderate" (300s, 600s under ASAN) to "long"
+    # (900s, 1800s under ASAN). TIMEOUT in CI run 26003998628 under
+    # --config=asan — 600s wasn't enough.
+    timeout = "long",
     srcs = ["heartbeat_test.cc"],
     deps = [
         ":cc_library",
@@ -119,7 +122,10 @@ pl_cc_test(
 
 pl_cc_test(
     name = "registration_test",
-    timeout = "moderate",
+    # Bumped 2026-05-18 from "moderate" (300s, 600s under ASAN) to "long"
+    # (900s, 1800s under ASAN). TIMEOUT in CI run 26003998628 under
+    # --config=asan.
+    timeout = "long",
     srcs = ["registration_test.cc"],
     deps = [
         ":cc_library",

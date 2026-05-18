@@ -62,11 +62,11 @@ func NewMetricsRecorder(pxCtx *pixie.Context, clusterCtx *cluster.Context, spec 
 			ownsCtx = true
 		}
 		return &prometheusRecorderImpl{
-			clusterCtx:    recorderCtx,
+			clusterCtx:     recorderCtx,
 			ownsClusterCtx: ownsCtx,
-			spec:          promSpec,
-			eg:            eg,
-			resultCh:      resultCh,
+			spec:           promSpec,
+			eg:             eg,
+			resultCh:       resultCh,
 		}, nil
 	}
 	return nil, fmt.Errorf("unsupported metric type %T", spec.MetricType)

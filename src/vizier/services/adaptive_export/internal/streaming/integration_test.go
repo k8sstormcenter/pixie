@@ -58,9 +58,9 @@ func (r *recordingQuerier) all() []string {
 // per-table — proxies an integration-grade check without standing
 // up a real CH.
 type countingWriter struct {
-	mu      sync.Mutex
+	mu       sync.Mutex
 	perTable map[string]int64
-	calls   atomic.Int64
+	calls    atomic.Int64
 }
 
 func newCountingWriter() *countingWriter {
@@ -84,12 +84,12 @@ func (w *countingWriter) count(table string) int64 {
 // TestIntegration_NotifierToScannerWhitelistFlow — exercises the
 // whole rev-3 pipeline minus pixie:
 //
-//   AttributionNotifier.Submit
-//     → ActiveSet.Upsert
-//       → FilterUpdater (debounce)
-//         → TableScanner.buildPxL (whitelist embedded)
-//           → recordingQuerier (verify PxL contains pod names)
-//             → BatchWriter (verify rows reach sink)
+//	AttributionNotifier.Submit
+//	  → ActiveSet.Upsert
+//	    → FilterUpdater (debounce)
+//	      → TableScanner.buildPxL (whitelist embedded)
+//	        → recordingQuerier (verify PxL contains pod names)
+//	          → BatchWriter (verify rows reach sink)
 //
 // The whole chain runs against fake pixie + fake sink so we can
 // assert on PxL strings + row counts deterministically.

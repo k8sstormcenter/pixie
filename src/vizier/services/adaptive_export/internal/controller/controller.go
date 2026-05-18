@@ -199,9 +199,9 @@ type Controller struct {
 
 	// emptyCacheMu guards emptyStreak and emptySkipUntil. Both are keyed
 	// by "pod|table" to avoid an extra struct alloc per pair.
-	emptyCacheMu    sync.Mutex
-	emptyStreak     map[string]int       // consecutive 0-row returns
-	emptySkipUntil  map[string]time.Time // skip this (pod,table) until this time
+	emptyCacheMu   sync.Mutex
+	emptyStreak    map[string]int       // consecutive 0-row returns
+	emptySkipUntil map[string]time.Time // skip this (pod,table) until this time
 }
 
 // New wires a Controller. nil clock falls through to RealClock.
@@ -362,13 +362,13 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 		Namespace: initial.Namespace,
 	}
 	log.WithFields(log.Fields{
-		"hash":     initial.AnomalyHash,
-		"pod":      initial.Pod,
-		"comm":     initial.Comm,
-		"tables":   len(c.cfg.PushPixieTables),
-		"refresh":  c.cfg.PushRefreshInterval,
-		"t_start":  initial.TStart,
-		"t_end":    initial.TEnd,
+		"hash":    initial.AnomalyHash,
+		"pod":     initial.Pod,
+		"comm":    initial.Comm,
+		"tables":  len(c.cfg.PushPixieTables),
+		"refresh": c.cfg.PushRefreshInterval,
+		"t_start": initial.TStart,
+		"t_end":   initial.TEnd,
 	}).Info("pushPixieRows: starting fan-out")
 
 	// Per-table watermark of pixie data we've already pulled for THIS

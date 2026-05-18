@@ -25,7 +25,7 @@ data:
       namespace: redis
       port: 6379
       protocol: redis
-    
+
     attacks:
       # ─── Attack 1: Fileless Execution via memfd_create (R1005) ───────────────
       - name: fileless-memfd-exec
@@ -56,7 +56,7 @@ data:
             ruleID: R1005
             ruleName: "Fileless execution detected"
             containerName: redis
-    
+
       # ─── Attack 2: SA Token Exfiltration (R0006) ────────────────────────────
       - name: sa-token-exfil
         type: fileless
@@ -85,7 +85,7 @@ data:
             ruleName: "Unexpected service account token access"
             containerName: redis
             command: cat
-    
+
       # ─── Attack 3: Sensitive File Access /etc/shadow (R0010) ─────────────────
       - name: read-etc-shadow
         type: fileless
@@ -114,7 +114,7 @@ data:
             ruleName: "Unexpected Sensitive File Access"
             containerName: redis
             command: cat
-    
+
       # ─── Attack 4: Unexpected Process - whoami (R0001) ───────────────────────
       - name: unexpected-process-whoami
         type: fileless
@@ -143,7 +143,7 @@ data:
             ruleName: "Unexpected process launched"
             containerName: redis
             command: whoami
-    
+
       # ─── Attack 5: DNS Anomaly - resolve evil domain (R0005) ─────────────────
       - name: dns-anomaly-evil-domain
         type: fileless
@@ -171,7 +171,7 @@ data:
             ruleID: R0005
             ruleName: "DNS Anomalies in container"
             containerName: redis
-    
+
       # ─── Attack 6: Drifted Binary Execution (R1001) ─────────────────────────
       - name: drifted-binary-exec
         type: fileless
@@ -200,7 +200,7 @@ data:
             ruleName: "Drifted process executed"
             containerName: redis
             command: drifted_redis
-    
+
       # ─── Attack 7: Execution from /dev/shm (R1000) ──────────────────────────
       - name: exec-from-devshm
         type: fileless
@@ -228,7 +228,7 @@ data:
             ruleID: R1000
             ruleName: "Process executed from malicious source"
             containerName: redis
-    
+
       # ─── Attack 8: Read /proc/*/environ (R0008) ─────────────────────────────
       - name: read-proc-environ
         type: fileless
@@ -257,7 +257,7 @@ data:
             ruleName: "Read Environment Variables from procfs"
             containerName: redis
             command: cat
-    
+
       # ─── Attack 9: Symlink over /etc/shadow (R1010) ─────────────────────────
       - name: symlink-etc-shadow
         type: fileless
@@ -285,7 +285,7 @@ data:
             ruleID: R1010
             ruleName: "Soft link created over sensitive file"
             containerName: redis
-    
+
       # ─── Attack 10: Crypto Mining Domain DNS (R1008) ────────────────────────
       - name: crypto-mining-dns
         type: fileless
@@ -313,7 +313,7 @@ data:
             ruleID: R1008
             ruleName: "Crypto Mining Domain Communication"
             containerName: redis
-    
+
       # ─── Attack 11: Reverse Shell Attempt via Perl HTTP (R0001 + R0005) ─────
       - name: reverse-shell-perl-http
         type: fileless
@@ -346,7 +346,7 @@ data:
             ruleID: R0005
             ruleName: "DNS Anomalies in container"
             containerName: redis
-    
+
       # ─── Attack 12: Credential Harvesting via /etc/passwd + id (R0001) ──────
       - name: credential-harvest-passwd
         type: fileless

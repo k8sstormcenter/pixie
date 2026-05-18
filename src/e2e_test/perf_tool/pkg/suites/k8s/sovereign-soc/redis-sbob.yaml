@@ -31,8 +31,8 @@ spec:
   containers:
   - name: redis        # must match the container name in redis-vulnerable.yaml
     capabilities: null
-    endpoints:    null
-    execs:        null
-    opens:        null
-    syscalls:     null
+    endpoints: null
+    execs: null
+    opens: null
+    syscalls: null
     rulePolicies: {}

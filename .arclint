@@ -128,6 +128,9 @@
         "(\\.py$)",
         "(\\.pxl$)"
       ],
+      "exclude": [
+        "(^\\.local/)"
+      ],
       "script-and-regex.script": "mypy --config-file=mypy.ini",
       "script-and-regex.regex": "/^(?P<file>.*):(?P<line>\\d+): (?P<severity>error|warning): (?P<message>.*)$/m"
     },

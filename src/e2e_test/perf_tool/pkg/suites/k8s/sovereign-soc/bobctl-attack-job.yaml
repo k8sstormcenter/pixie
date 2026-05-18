@@ -31,12 +31,12 @@ metadata:
     app.kubernetes.io/name: bobctl-attack
     app.kubernetes.io/part-of: sovereign-soc
 rules:
-  - apiGroups: [""]
-    resources: ["services", "pods"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["pods/portforward"]
-    verbs: ["create", "get"]
+- apiGroups: [""]
+  resources: ["services", "pods"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods/portforward"]
+  verbs: ["create", "get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -51,9 +51,9 @@ roleRef:
   kind: Role
   name: bobctl-port-forward
 subjects:
-  - kind: ServiceAccount
-    name: bobctl
-    namespace: redis
+- kind: ServiceAccount
+  name: bobctl
+  namespace: redis
 ---
 apiVersion: batch/v1
 kind: Job
@@ -75,79 +75,79 @@ spec:
       restartPolicy: OnFailure
       serviceAccountName: bobctl
       initContainers:
-        - name: fetch-bobctl
-          image: curlimages/curl:8.15.0
-          command:
-            - sh
-            - -c
-            - |
-              set -euo pipefail
-              curl -fsSL -o /bob/bobctl \
-                https://github.com/k8sstormcenter/bob/releases/latest/download/bobctl-linux-amd64
-              chmod +x /bob/bobctl
-          volumeMounts:
-            - name: bob-bin
-              mountPath: /bob
-      containers:
-        - name: bobctl
-          image: alpine:3.19
-          command:
-            - sh
-            - -c
-            - |
-              set -u
-              # bobctl's CLI bootstrap unconditionally tries to read
-              # ~/.kube/config (it uses kubectl-style proxy routing for
-              # service targets), so synthesize a minimal in-cluster
-              # kubeconfig from the pod's service-account mount before
-              # invoking it. tokenFile is preferred over inline token so
-              # SA-token rotation works.
-              mkdir -p /root/.kube
-              cat > /root/.kube/config <<'EOF'
-              apiVersion: v1
-              kind: Config
-              clusters:
-              - name: in-cluster
-                cluster:
-                  certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-                  server: https://kubernetes.default.svc
-              contexts:
-              - name: in-cluster
-                context:
-                  cluster: in-cluster
-                  user: in-cluster
-                  namespace: redis
-              current-context: in-cluster
-              users:
-              - name: in-cluster
-                user:
-                  tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
-              EOF
-              # Small gap lets the service DNS entry propagate in very fresh namespaces.
-              sleep 5
-              while true; do
-                /bob/bobctl attack \
-                  --attack-suite /suite/redis-attacks.yaml \
-                  -n redis --format json || true
-                sleep 5
-              done
-          volumeMounts:
-            - name: bob-bin
-              mountPath: /bob
-              readOnly: true
-            - name: bob-suite
-              mountPath: /suite
-              readOnly: true
-          resources:
-            requests:
-              cpu: 100m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-      volumes:
+      - name: fetch-bobctl
+        image: curlimages/curl:8.15.0
+        command:
+        - sh
+        - -c
+        - |
+            set -euo pipefail
+            curl -fsSL -o /bob/bobctl \
+              https://github.com/k8sstormcenter/bob/releases/latest/download/bobctl-linux-amd64
+            chmod +x /bob/bobctl
+        volumeMounts:
         - name: bob-bin
-          emptyDir: {}
+          mountPath: /bob
+      containers:
+      - name: bobctl
+        image: alpine:3.19
+        command:
+        - sh
+        - -c
+        - |
+            set -u
+            # bobctl's CLI bootstrap unconditionally tries to read
+            # ~/.kube/config (it uses kubectl-style proxy routing for
+            # service targets), so synthesize a minimal in-cluster
+            # kubeconfig from the pod's service-account mount before
+            # invoking it. tokenFile is preferred over inline token so
+            # SA-token rotation works.
+            mkdir -p /root/.kube
+            cat > /root/.kube/config <<'EOF'
+            apiVersion: v1
+            kind: Config
+            clusters:
+            - name: in-cluster
+              cluster:
+                certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                server: https://kubernetes.default.svc
+            contexts:
+            - name: in-cluster
+              context:
+                cluster: in-cluster
+                user: in-cluster
+                namespace: redis
+            current-context: in-cluster
+            users:
+            - name: in-cluster
+              user:
+                tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+            EOF
+            # Small gap lets the service DNS entry propagate in very fresh namespaces.
+            sleep 5
+            while true; do
+              /bob/bobctl attack \
+                --attack-suite /suite/redis-attacks.yaml \
+                -n redis --format json || true
+              sleep 5
+            done
+        volumeMounts:
+        - name: bob-bin
+          mountPath: /bob
+          readOnly: true
         - name: bob-suite
-          configMap:
-            name: bob-suite-attack
+          mountPath: /suite
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+      volumes:
+      - name: bob-bin
+        emptyDir: {}
+      - name: bob-suite
+        configMap:
+          name: bob-suite-attack

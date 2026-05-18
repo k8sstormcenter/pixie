@@ -42,6 +42,11 @@ Spotting bugs:
   * forensic_alert_count stays 0             → kubescape→Vector pipeline broken
 """
 
+import math
+import pyarrow.parquet as pq
+import pandas as pd
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
 import argparse
 import json
 import os
@@ -52,10 +57,6 @@ from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")  # no display on the VM
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import pandas as pd
-import pyarrow.parquet as pq
 
 # ------------------------------------------------------------------ helpers
 
@@ -176,7 +177,7 @@ def _delta_rate(df: pd.DataFrame, per_seconds: float = 60.0) -> pd.DataFrame:
 
 POD_COLORS = {
     "vizier-pem": "#1f77b4",
-    "kelvin":     "#ff7f0e",
+    "kelvin": "#ff7f0e",
     "vizier-query-broker": "#2ca02c",
     "vizier-metadata": "#9467bd",
     "vizier-cloud-connector": "#8c564b",
@@ -287,7 +288,7 @@ def render_run(run: RunData, out_path: Path) -> None:
         ax.plot(ins["timestamp"], ins["rate"] / 1e3,
                 color="#9467bd", linewidth=1.2)
         ax.set_title(f"CH inserted rows/min (peak: "
-                     f"{int(ins['rate'].max()/1e3)}K/min)")
+                     f"{int(ins['rate'].max() / 1e3)}K/min)")
         ax.set_ylabel("K rows/min")
         ax.grid(alpha=0.3)
         _phase_markers(ax, run)
@@ -436,28 +437,28 @@ def render_scorecard(runs: list[RunData], out_path: Path) -> None:
         rows.append({
             "multiplier": r.multiplier,
             "name": r.name,
-            "recorder_mean_per_tick":  ex["value"].mean() if not ex.empty else 0,
-            "recorder_peak_per_tick":  ex["value"].max()  if not ex.empty else 0,
-            "pem_cpu_mean_pct":        (cpu_pem["value"].mean()*100) if not cpu_pem.empty else 0,
-            "pem_cpu_peak_pct":        (cpu_pem["value"].max()*100)  if not cpu_pem.empty else 0,
-            "ch_mem_peak_gb":          (mem["value"].max()/1e9) if not mem.empty else 0,
-            "ch_ins_peak_kpm":         (ins["rate"].max()/1e3)  if not ins.empty else 0,
-            "ks_cpu_mean_pct":         ks_cpu["rate"].mean() if not ks_cpu.empty else 0,
-            "ks_cpu_peak_pct":         ks_cpu["rate"].max()  if not ks_cpu.empty else 0,
-            "ks_rss_peak_mb":          (ks_rss["value"].max()/(1024*1024)) if not ks_rss.empty else 0,
-            "ks_goroutines_peak":      ks_g["value"].max() if not ks_g.empty else 0,
+            "recorder_mean_per_tick": ex["value"].mean() if not ex.empty else 0,
+            "recorder_peak_per_tick": ex["value"].max() if not ex.empty else 0,
+            "pem_cpu_mean_pct": (cpu_pem["value"].mean() * 100) if not cpu_pem.empty else 0,
+            "pem_cpu_peak_pct": (cpu_pem["value"].max() * 100) if not cpu_pem.empty else 0,
+            "ch_mem_peak_gb": (mem["value"].max() / 1e9) if not mem.empty else 0,
+            "ch_ins_peak_kpm": (ins["rate"].max() / 1e3) if not ins.empty else 0,
+            "ks_cpu_mean_pct": ks_cpu["rate"].mean() if not ks_cpu.empty else 0,
+            "ks_cpu_peak_pct": ks_cpu["rate"].max() if not ks_cpu.empty else 0,
+            "ks_rss_peak_mb": (ks_rss["value"].max() / (1024 * 1024)) if not ks_rss.empty else 0,
+            "ks_goroutines_peak": ks_g["value"].max() if not ks_g.empty else 0,
         })
     df = pd.DataFrame(rows).sort_values("multiplier").reset_index(drop=True)
     metrics = [
-        ("recorder_mean_per_tick",  "Recorder mean rows/tick"),
-        ("recorder_peak_per_tick",  "Recorder peak rows/tick"),
-        ("pem_cpu_mean_pct",        "PEM CPU mean %"),
-        ("pem_cpu_peak_pct",        "PEM CPU peak %"),
-        ("ch_mem_peak_gb",          "CH memory peak GB"),
-        ("ch_ins_peak_kpm",         "CH inserts peak K/min"),
-        ("ks_cpu_mean_pct",         "Kubescape node-agent CPU mean %"),
-        ("ks_cpu_peak_pct",         "Kubescape node-agent CPU peak %"),
-        ("ks_rss_peak_mb",          "Kubescape node-agent RSS peak MB"),
+        ("recorder_mean_per_tick", "Recorder mean rows/tick"),
+        ("recorder_peak_per_tick", "Recorder peak rows/tick"),
+        ("pem_cpu_mean_pct", "PEM CPU mean %"),
+        ("pem_cpu_peak_pct", "PEM CPU peak %"),
+        ("ch_mem_peak_gb", "CH memory peak GB"),
+        ("ch_ins_peak_kpm", "CH inserts peak K/min"),
+        ("ks_cpu_mean_pct", "Kubescape node-agent CPU mean %"),
+        ("ks_cpu_peak_pct", "Kubescape node-agent CPU peak %"),
+        ("ks_rss_peak_mb", "Kubescape node-agent RSS peak MB"),
     ]
     fig, axes = plt.subplots(3, 3, figsize=(15, 10), constrained_layout=True)
     fig.suptitle(
@@ -591,7 +592,6 @@ def render_alert_distribution(runs: list[RunData], out_path: Path) -> None:
 
 # KPI extractors — each returns (mean_during_run, max_during_run) for a single
 # RunData. Returning NaN means "missing"; the plot will skip that point.
-import math
 
 
 def _kpi_recorder(r: RunData) -> tuple[float, float]:
@@ -677,15 +677,15 @@ def _kpi_ks_goroutines(r: RunData) -> tuple[float, float]:
 
 # (extractor, panel title, y-axis unit)
 SCALING_KPIS = [
-    (_kpi_recorder,       "Recorder rows/tick",           "rows/tick"),
-    (_kpi_pem_cpu,        "PEM CPU",                      "% (of one core)"),
-    (_kpi_kelvin_cpu,     "Kelvin CPU",                   "% (of one core)"),
-    (_kpi_ch_memory_gb,   "CH memory_tracking",           "GB"),
-    (_kpi_ch_inserts_kpm, "CH inserted rows/min",         "K rows/min"),
-    (_kpi_alerts,         "forensic_alert_count",         "alerts / 1-min window"),
-    (_kpi_ks_cpu,         "Kubescape node-agent CPU",     "%"),
-    (_kpi_ks_rss_mb,      "Kubescape node-agent RSS",     "MB"),
-    (_kpi_ks_goroutines,  "Kubescape goroutines",         "count"),
+    (_kpi_recorder, "Recorder rows/tick", "rows/tick"),
+    (_kpi_pem_cpu, "PEM CPU", "% (of one core)"),
+    (_kpi_kelvin_cpu, "Kelvin CPU", "% (of one core)"),
+    (_kpi_ch_memory_gb, "CH memory_tracking", "GB"),
+    (_kpi_ch_inserts_kpm, "CH inserted rows/min", "K rows/min"),
+    (_kpi_alerts, "forensic_alert_count", "alerts / 1-min window"),
+    (_kpi_ks_cpu, "Kubescape node-agent CPU", "%"),
+    (_kpi_ks_rss_mb, "Kubescape node-agent RSS", "MB"),
+    (_kpi_ks_goroutines, "Kubescape goroutines", "count"),
 ]
 
 

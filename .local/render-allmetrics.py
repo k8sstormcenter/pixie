@@ -29,17 +29,26 @@ to recover kubescape_logs rate and forensic_db.{http,redis,pgsql}_events rates.
 Output:
   $DIR/scaling.png   — 4×5 panel grid covering every measured metric
 """
-import sys, os, re, csv, glob, math, subprocess, datetime as dt, urllib.parse
+import matplotlib.pyplot as plt
+import sys
+import os
+import re
+import csv
+import glob
+import math
+import subprocess
+import datetime as dt
+import urllib.parse
 from typing import Any
 import matplotlib
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 
 DIR = sys.argv[1] if len(sys.argv) > 1 else sorted(glob.glob('/tmp/proto-sweep-2*'))[-1]
 print(f"rendering: {DIR}")
 
 CH_URL = 'http://localhost:30123'
 CH_AUTH = ('pixie', 'pixie_password')
+
 
 def ch_query(q):
     try:
@@ -55,12 +64,13 @@ def ch_query(q):
         print(f"ch query failed: {e}")
         return None
 
+
 # ------------------------------------------------------------------ parse sweep.log
 sweep_start = None
 sweep_end = None
 res_re = re.compile(r'^\s*(\d+)x\s+achieved\s+http=(-?\d+)\s+redis=(-?\d+)\s+pgsql=(-?\d+)\s+TOTAL=(-?\d+)\s+\|\s+srv-cpu\s+http=(\d+)m\s+redis=(\d+)m\s+pgsql=(\d+)m\s+\|\s+pem=(\d+)m\s+\|\s+ct\s+(\d+)→(\d+)')
 start_re = re.compile(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) start$')
-end_re   = re.compile(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) end$')
+end_re = re.compile(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) end$')
 
 # `Any` value type so we can store ints, datetimes, and floats in one row
 # dict without separating into per-field structs. Without the annotation,
@@ -70,16 +80,19 @@ rows: list[dict[str, Any]] = []
 with open(os.path.join(DIR, 'sweep.log')) as f:
     for line in f:
         m = start_re.match(line)
-        if m: sweep_start = dt.datetime.fromisoformat(m.group(1).replace('Z','+00:00'))
+        if m:
+            sweep_start = dt.datetime.fromisoformat(m.group(1).replace('Z', '+00:00'))
         m = end_re.match(line)
-        if m: sweep_end = dt.datetime.fromisoformat(m.group(1).replace('Z','+00:00'))
+        if m:
+            sweep_end = dt.datetime.fromisoformat(m.group(1).replace('Z', '+00:00'))
         m = res_re.match(line)
-        if not m: continue
+        if not m:
+            continue
         rows.append({
             'mult': int(m.group(1)),
-            'http_target': 1000*int(m.group(1)),
-            'redis_target': 1000*int(m.group(1)),
-            'pgsql_target': 1000*int(m.group(1)),
+            'http_target': 1000 * int(m.group(1)),
+            'redis_target': 1000 * int(m.group(1)),
+            'pgsql_target': 1000 * int(m.group(1)),
             'http_achieved': max(0, int(m.group(2))),
             'redis_achieved': max(0, int(m.group(3))),
             'pgsql_achieved': max(0, int(m.group(4))),
@@ -106,7 +119,7 @@ print(f"sweep {sweep_start} → {sweep_end}  ({total_s:.0f}s, ~{per_mult:.0f}s p
 
 # Compute per-mult wall-clock windows.
 for i, r in enumerate(rows):
-    t0 = sweep_start + dt.timedelta(seconds=i*per_mult + warmup)
+    t0 = sweep_start + dt.timedelta(seconds=i * per_mult + warmup)
     t1 = t0 + dt.timedelta(seconds=window_s)
     r['t0'] = t0
     r['t1'] = t1
@@ -118,31 +131,37 @@ for r in rows:
     t1_iso = r['t1'].strftime('%Y-%m-%d %H:%M:%S')
     win = (r['t1'] - r['t0']).total_seconds()
     # http_events / redis_events / pgsql_events use `time_` column (DateTime64(9))
-    for tbl, key in [('http_events','ch_http_rate'),
-                     ('redis_events','ch_redis_rate'),
-                     ('pgsql_events','ch_pgsql_rate'),
-                     ('adaptive_attribution','ch_attribution_rate')]:
+    for tbl, key in [('http_events', 'ch_http_rate'),
+                     ('redis_events', 'ch_redis_rate'),
+                     ('pgsql_events', 'ch_pgsql_rate'),
+                     ('adaptive_attribution', 'ch_attribution_rate')]:
         if tbl == 'adaptive_attribution':
             qcol = 't_start'  # adaptive_attribution uses t_start (or similar)
             cnt = ch_query(f"SELECT count() FROM forensic_db.{tbl} WHERE {qcol} >= '{t0_iso}' AND {qcol} < '{t1_iso}'")
             if cnt is None:
                 # try generic timestamp column
-                cnt = ch_query(f"SELECT count() FROM forensic_db.{tbl} WHERE last_seen >= '{t0_iso}' AND last_seen < '{t1_iso}'")
+                cnt = ch_query(
+                    f"SELECT count() FROM forensic_db.{tbl} WHERE last_seen >= '{t0_iso}' AND last_seen < '{t1_iso}'")
         else:
             cnt = ch_query(f"SELECT count() FROM forensic_db.{tbl} WHERE time_ >= '{t0_iso}' AND time_ < '{t1_iso}'")
         r[key] = int((cnt or 0) / win) if cnt else 0
     # kubescape_logs uses event_time (UInt64 nanos)
     t0_ns = int(r['t0'].timestamp() * 1e9)
     t1_ns = int(r['t1'].timestamp() * 1e9)
-    cnt = ch_query(f"SELECT count() FROM forensic_db.kubescape_logs WHERE event_time >= {t0_ns} AND event_time < {t1_ns}")
+    cnt = ch_query(
+        f"SELECT count() FROM forensic_db.kubescape_logs WHERE event_time >= {t0_ns} AND event_time < {t1_ns}")
     r['ch_kubescape_rate'] = int((cnt or 0) / win) if cnt else 0
 
 print("retro queries done")
 
 # ------------------------------------------------------------------ render
+
+
 def i_(r, k): return r.get(k, 0) or 0
 
+
 mults = [r['mult'] for r in rows]
+
 
 def kpi(col, scale=1.0):
     def _f(r):
@@ -150,47 +169,50 @@ def kpi(col, scale=1.0):
         return v, v
     return _f
 
+
 PANELS = [
     # === LOADGEN ===
-    (kpi('http_target'),         "loadgen: http target ops/s",        "ops/sec"),
-    (kpi('http_achieved'),       "loadgen: http achieved ops/s",      "ops/sec"),
-    (kpi('redis_achieved'),      "loadgen: redis achieved ops/s",     "ops/sec"),
-    (kpi('pgsql_achieved'),      "loadgen: pgsql achieved ops/s",     "ops/sec"),
-    (kpi('loadgen_total'),       "loadgen: TOTAL achieved ops/s",     "ops/sec"),
+    (kpi('http_target'), "loadgen: http target ops/s", "ops/sec"),
+    (kpi('http_achieved'), "loadgen: http achieved ops/s", "ops/sec"),
+    (kpi('redis_achieved'), "loadgen: redis achieved ops/s", "ops/sec"),
+    (kpi('pgsql_achieved'), "loadgen: pgsql achieved ops/s", "ops/sec"),
+    (kpi('loadgen_total'), "loadgen: TOTAL achieved ops/s", "ops/sec"),
 
     # === PIXIE ===
-    (kpi('pem_cpu_m', 0.1),      "pixie: PEM CPU",                    "% of one core"),
+    (kpi('pem_cpu_m', 0.1), "pixie: PEM CPU", "% of one core"),
 
     # === SERVER CPUs ===
-    (kpi('http_srv_cpu_m', 0.1), "server: http-server CPU",           "% of one core"),
-    (kpi('redis_srv_cpu_m', 0.1),"server: redis-server CPU",          "% of one core"),
-    (kpi('pgsql_srv_cpu_m', 0.1),"server: pgsql-server CPU",          "% of one core"),
+    (kpi('http_srv_cpu_m', 0.1), "server: http-server CPU", "% of one core"),
+    (kpi('redis_srv_cpu_m', 0.1), "server: redis-server CPU", "% of one core"),
+    (kpi('pgsql_srv_cpu_m', 0.1), "server: pgsql-server CPU", "% of one core"),
 
     # === KUBESCAPE ===
-    (kpi('ch_kubescape_rate'),   "kubescape: alerts (kubescape_logs) /s", "rows/sec"),
+    (kpi('ch_kubescape_rate'), "kubescape: alerts (kubescape_logs) /s", "rows/sec"),
 
     # === CLICKHOUSE ===
-    (kpi('ch_http_rate'),        "CH: http_events  /s",               "rows/sec"),
-    (kpi('ch_redis_rate'),       "CH: redis_events /s",               "rows/sec"),
-    (kpi('ch_pgsql_rate'),       "CH: pgsql_events /s",               "rows/sec"),
-    (kpi('ch_attribution_rate'), "CH: adaptive_attribution /s",       "rows/sec"),
+    (kpi('ch_http_rate'), "CH: http_events  /s", "rows/sec"),
+    (kpi('ch_redis_rate'), "CH: redis_events /s", "rows/sec"),
+    (kpi('ch_pgsql_rate'), "CH: pgsql_events /s", "rows/sec"),
+    (kpi('ch_attribution_rate'), "CH: adaptive_attribution /s", "rows/sec"),
 
     # === HOST ===
-    (lambda r: (i_(r,'ct_start'), i_(r,'ct_end')),
-                                 "host: nf_conntrack (start/end)",    "count"),
+    (lambda r: (i_(r, 'ct_start'), i_(r, 'ct_end')),
+     "host: nf_conntrack (start/end)", "count"),
 ]
 
 n_kpis = len(PANELS)
 cols = 5
 nrows = (n_kpis + cols - 1) // cols
-fig, axes = plt.subplots(nrows, cols, figsize=(5*cols, 4*nrows), constrained_layout=True)
+fig, axes = plt.subplots(nrows, cols, figsize=(5 * cols, 4 * nrows), constrained_layout=True)
 fig.suptitle(f"ALL metrics — log-log scaling  ·  {os.path.basename(DIR)}", fontsize=14, y=1.01)
 axes = axes.flatten()
 
 for ax, (extractor, atitle, unit) in zip(axes, PANELS):
     means, maxes = [], []
     for r in rows:
-        m, mx = extractor(r); means.append(m); maxes.append(mx)
+        m, mx = extractor(r)
+        means.append(m)
+        maxes.append(mx)
     ax.plot(mults, means, marker="o", linewidth=1.4, color="#1f77b4", label="mean")
     ax.plot(mults, maxes, marker="s", linewidth=1.0, color="#d62728",
             linestyle="--", label="max")
@@ -227,6 +249,6 @@ print(f"wrote {out}")
 print()
 print(f"{'mult':<5}{'loadgen tot':>12}{'pem%':>7}{'CH http/s':>10}{'CH redis/s':>11}{'CH pgsql/s':>11}{'CH ks/s':>9}{'CH attr/s':>10}")
 for r in rows:
-    print(f"{r['mult']}x  {i_(r,'loadgen_total'):>10}  {i_(r,'pem_cpu_m')/10:>5.1f}  "
-          f"{i_(r,'ch_http_rate'):>8}  {i_(r,'ch_redis_rate'):>9}  {i_(r,'ch_pgsql_rate'):>9}  "
-          f"{i_(r,'ch_kubescape_rate'):>7}  {i_(r,'ch_attribution_rate'):>8}")
+    print(f"{r['mult']}x  {i_(r, 'loadgen_total'):>10}  {i_(r, 'pem_cpu_m') / 10:>5.1f}  "
+          f"{i_(r, 'ch_http_rate'):>8}  {i_(r, 'ch_redis_rate'):>9}  {i_(r, 'ch_pgsql_rate'):>9}  "
+          f"{i_(r, 'ch_kubescape_rate'):>7}  {i_(r, 'ch_attribution_rate'):>8}")

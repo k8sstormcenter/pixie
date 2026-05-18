@@ -4,3 +4,9 @@ max-line-length = 120
 # N802: Function names have to be lower case. This is for GRPC service.
 # E999: Mistaken error see https://github.com/PyCQA/pycodestyle/issues/584
 ignore = N802,E999,W503
+
+# .local/ holds working artifacts (sweep render scripts, runbook tooling)
+# that evolve quickly and don't justify production-grade style
+# enforcement. The scripts already pass mypy; flake8's aesthetic rules
+# would just generate churn in every PR that touches them.
+exclude = .local/

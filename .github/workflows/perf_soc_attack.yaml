@@ -74,7 +74,9 @@ jobs:
       run: |
         tailscale status
         tailscale netcheck
-        api_host="$(kubectl --kubeconfig="$KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}' | sed -E 's|https?://||; s|/.*||')"
+        api_host="$(kubectl --kubeconfig="$KUBECONFIG" config view --minify \
+          -o jsonpath='{.clusters[0].cluster.server}' \
+          | sed -E 's|https?://||; s|/.*||')"
         api_ip="${api_host%%:*}"
         api_port="${api_host##*:}"
         echo "--- tailscale ping ${api_ip} ---"

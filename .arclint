@@ -108,6 +108,9 @@
       ],
       "include": [
         "(\\.py$)"
+      ],
+      "exclude": [
+        "(^\\.local/)"
       ]
     },
     "flake8-pxl": {

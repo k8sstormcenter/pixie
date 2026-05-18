@@ -3,6 +3,11 @@
 # the bobctl-attack Job can mount it at /suite/redis-attacks.yaml. The bobctl
 # CLI consumes this file via its --attack-suite flag (it is NOT a Kubernetes
 # CRD, it is a bobctl-internal manifest).
+#
+# yamllint disable rule:line-length
+# Attack payloads embed inline Lua/perl one-liners that intentionally fit on
+# one source line so the strings the eBPF detector sees match the upstream
+# expectedDetections fixture verbatim; breaking them changes the payload.
 ---
 apiVersion: v1
 kind: ConfigMap

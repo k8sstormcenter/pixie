@@ -16,7 +16,7 @@
 
 // Package clickhouse owns the canonical ClickHouse DDL for the
 // forensic_db tables that adaptive_export reads (kubescape_logs) and
-// the 13 socket_tracer tables Pixie's retention plugin writes (which
+// the 12 socket_tracer tables Pixie's retention plugin writes (which
 // the operator joins against via forensic_db.adaptive_attribution).
 //
 // schema.sql is the single source of truth. The operator never invents
@@ -41,7 +41,7 @@ var KnownTables = []string{
 	// non-pixie
 	"alerts",
 	"kubescape_logs",
-	// 13 socket_tracer pixie observation tables
+	// 12 socket_tracer pixie observation tables
 	"http_events",
 	"http2_messages.beta",
 	"dns_events",

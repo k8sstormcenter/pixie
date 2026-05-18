@@ -30,8 +30,8 @@ package anomaly
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
-	"strconv"
 )
 
 // AnomalyHash is the 32-hex-character (16-byte) join key derived from
@@ -55,15 +55,32 @@ type Target struct {
 }
 
 // Hash returns the deterministic 32-hex-character AnomalyHash for the
-// given Target. SHA-256 of the canonical form
-// "<PID>:<Comm>:<Pod>:<Namespace>", truncated to the leading 16 bytes
+// given Target. SHA-256 over a length-prefixed canonical encoding of
+// the four identity fields, truncated to the leading 16 bytes
 // (32 hex chars). 128 collision bits suffice for the workload
 // cardinality envelope.
+//
+// The encoding is: PID as big-endian uint64, followed by each string
+// as uint32-LE length || bytes. Length prefixing is collision-safe
+// across delimiter-bearing or empty inputs (a plain ":"-join is not —
+// e.g. {Pod:"a:b", NS:""} would collide with {Pod:"a", NS:"b:"}).
 func Hash(t Target) AnomalyHash {
-	canonical := strconv.FormatUint(t.PID, 10) + ":" +
-		t.Comm + ":" +
-		t.Pod + ":" +
-		t.Namespace
-	sum := sha256.Sum256([]byte(canonical))
+	h := sha256.New()
+	var pidBuf [8]byte
+	binary.BigEndian.PutUint64(pidBuf[:], t.PID)
+	h.Write(pidBuf[:])
+	writeLenPrefixed(h, t.Comm)
+	writeLenPrefixed(h, t.Pod)
+	writeLenPrefixed(h, t.Namespace)
+	sum := h.Sum(nil)
 	return AnomalyHash(hex.EncodeToString(sum[:16]))
+}
+
+// writeLenPrefixed writes uint32-LE length followed by the raw bytes.
+// 4 GiB per field is well above any realistic Pod/Namespace/Comm size.
+func writeLenPrefixed(h interface{ Write([]byte) (int, error) }, s string) {
+	var lenBuf [4]byte
+	binary.LittleEndian.PutUint32(lenBuf[:], uint32(len(s)))
+	_, _ = h.Write(lenBuf[:])
+	_, _ = h.Write([]byte(s))
 }

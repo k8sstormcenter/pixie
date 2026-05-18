@@ -198,10 +198,11 @@ type Controller struct {
 	globalSem chan struct{}
 
 	// emptyCacheMu guards emptyStreak and emptySkipUntil. Both are keyed
-	// by "pod|table" to avoid an extra struct alloc per pair.
+	// by "ns|pod|table" — namespace must be part of the key, otherwise
+	// same-named pods in different namespaces share suppression state.
 	emptyCacheMu   sync.Mutex
 	emptyStreak    map[string]int       // consecutive 0-row returns
-	emptySkipUntil map[string]time.Time // skip this (pod,table) until this time
+	emptySkipUntil map[string]time.Time // skip this (ns,pod,table) until this time
 }
 
 // New wires a Controller. nil clock falls through to RealClock.
@@ -442,7 +443,7 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 			// Knob #3: negative-cache skip. Pods that have returned 0
 			// rows for this table N times in a row are skipped for TTL.
 			// Self-heals when TTL expires.
-			if c.shouldSkipEmpty(initial.Pod, table) {
+			if c.shouldSkipEmpty(initial.Namespace, initial.Pod, table) {
 				continue
 			}
 			sliceStart := lastUpper[table]
@@ -489,7 +490,7 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 					return
 				}
 				// Update negative cache: 0 rows bumps streak, ≥1 row resets.
-				c.noteQueryResult(initial.Pod, table, len(rows))
+				c.noteQueryResult(initial.Namespace, initial.Pod, table, len(rows))
 				nrows := len(rows)
 				if nrows > 0 {
 					// Bound the sink write with its own timeout. Without
@@ -541,15 +542,16 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 	}
 }
 
-// shouldSkipEmpty reports whether (pod, table) is currently in the
-// negative cache. Returns false when knob #3 is disabled.
-func (c *Controller) shouldSkipEmpty(pod, table string) bool {
+// shouldSkipEmpty reports whether (namespace, pod, table) is currently
+// in the negative cache. Returns false when knob #3 is disabled.
+func (c *Controller) shouldSkipEmpty(namespace, pod, table string) bool {
 	if c.cfg.EmptyResultSkipAfterN <= 0 || c.cfg.EmptyResultSkipTTL <= 0 {
 		return false
 	}
+	key := namespace + "|" + pod + "|" + table
 	c.emptyCacheMu.Lock()
 	defer c.emptyCacheMu.Unlock()
-	until, ok := c.emptySkipUntil[pod+"|"+table]
+	until, ok := c.emptySkipUntil[key]
 	if !ok {
 		return false
 	}
@@ -558,21 +560,22 @@ func (c *Controller) shouldSkipEmpty(pod, table string) bool {
 	}
 	// TTL expired — clear it so the next call retries the query and
 	// can re-arm the cache from observed results.
-	delete(c.emptySkipUntil, pod+"|"+table)
-	delete(c.emptyStreak, pod+"|"+table)
+	delete(c.emptySkipUntil, key)
+	delete(c.emptyStreak, key)
 	return false
 }
 
 // noteQueryResult updates the negative cache after a successful pixie
 // query. 0 rows bumps the streak; ≥1 row resets it. Once the streak
-// reaches the configured N, the (pod, table) pair is skipped for TTL.
-func (c *Controller) noteQueryResult(pod, table string, nrows int) {
+// reaches the configured N, the (namespace, pod, table) triple is
+// skipped for TTL.
+func (c *Controller) noteQueryResult(namespace, pod, table string, nrows int) {
 	if c.cfg.EmptyResultSkipAfterN <= 0 || c.cfg.EmptyResultSkipTTL <= 0 {
 		return
 	}
 	c.emptyCacheMu.Lock()
 	defer c.emptyCacheMu.Unlock()
-	key := pod + "|" + table
+	key := namespace + "|" + pod + "|" + table
 	if nrows > 0 {
 		delete(c.emptyStreak, key)
 		delete(c.emptySkipUntil, key)

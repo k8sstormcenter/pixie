@@ -650,3 +650,32 @@ func TestController_OnPrune_DoesNotHoldMutex(t *testing.T) {
 	close(release)
 	<-pruneDone
 }
+
+// TestEmptyResultSkip_NamespaceIsolation — the negative cache must
+// not let one namespace's empty-streak suppress queries for a same-
+// named pod in a different namespace. Two pods named "api" in "ns-a"
+// vs "ns-b" sharing a single PEM node previously collided because
+// the cache key was just "pod|table".
+func TestEmptyResultSkip_NamespaceIsolation(t *testing.T) {
+	clk := &fakeClock{t: canonicalEventTime}
+	c := New(newFakeTrigger(), &fakeSink{}, Config{
+		Hostname:              "node-1",
+		Before:                time.Minute,
+		After:                 time.Minute,
+		EmptyResultSkipAfterN: 2,
+		EmptyResultSkipTTL:    5 * time.Minute,
+	}, clk)
+
+	const table = "stirling_http_events"
+	// Drive ns-a/api to N empty results — should arm the skip cache for ns-a/api only.
+	for i := 0; i < 2; i++ {
+		c.noteQueryResult("ns-a", "api", table, 0)
+	}
+	if !c.shouldSkipEmpty("ns-a", "api", table) {
+		t.Fatalf("ns-a/api should be skip-armed after 2 empties")
+	}
+	if c.shouldSkipEmpty("ns-b", "api", table) {
+		t.Fatalf("ns-b/api was wrongly suppressed by ns-a/api's empty streak " +
+			"(skip cache key conflates namespaces)")
+	}
+}

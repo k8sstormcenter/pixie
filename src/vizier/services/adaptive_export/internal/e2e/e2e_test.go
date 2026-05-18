@@ -128,9 +128,16 @@ func TestE2E_PushFlow_AttributionRowArrives(t *testing.T) {
 	ctl := controller.New(trg, snk, cfg, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	done := make(chan struct{})
 	go func() { _ = ctl.Run(ctx); close(done) }()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("controller did not stop within 2s of cancel")
+		}
+	}()
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) && len(stub.bodies()) == 0 {

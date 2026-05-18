@@ -19,6 +19,7 @@ package pxl
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -63,11 +64,15 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 		b.WriteString("df = df[df.namespace == '" + escapePxL(t.Namespace) + "']\n")
 	}
 	if t.Pod != "" {
-		podKey := t.Pod
 		if t.Namespace != "" {
-			podKey = t.Namespace + "/" + t.Pod
+			// Both fields present — use exact equality on the namespaced key.
+			b.WriteString("df = df[df.pod == '" + escapePxL(t.Namespace+"/"+t.Pod) + "']\n")
+		} else {
+			// Pod-only fallback: df.pod is "<ns>/<pod>", so a bare-pod
+			// equality always misses. Regex-anchor "<any-ns>/<pod>" via
+			// px.regex_match so the defensive path stays functional.
+			b.WriteString("df = df[px.regex_match('^[^/]+/" + escapePxL(regexp.QuoteMeta(t.Pod)) + "$', df.pod)]\n")
 		}
-		b.WriteString("df = df[df.pod == '" + escapePxL(podKey) + "']\n")
 	}
 	b.WriteString("px.display(df, '" + table + "')\n")
 	return b.String(), nil

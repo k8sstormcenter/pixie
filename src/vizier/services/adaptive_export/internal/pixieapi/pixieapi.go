@@ -75,11 +75,19 @@ func New(client *pxapi.Client, clusterID string) *Adapter {
 // NewDirect constructs an Adapter that bypasses the pixie cloud and
 // connects directly to the in-cluster vizier-query-broker. Each Query
 // call rebuilds the gRPC client with a fresh service JWT.
-func NewDirect(clusterID string, opts DirectOptions) *Adapter {
+//
+// Returns an error if VizierAddr targets cluster.local but PX_DISABLE_TLS
+// is unset — pxapi.WithDisableTLSVerification log.Fatal's on that
+// combination at Query time, which would crash the operator mid-request
+// long after construction. Catch it here instead.
+func NewDirect(clusterID string, opts DirectOptions) (*Adapter, error) {
 	if opts.ServiceID == "" {
 		opts.ServiceID = "adaptive_export"
 	}
-	return &Adapter{clusterID: clusterID, directOpts: &opts}
+	if strings.Contains(opts.VizierAddr, "cluster.local") && os.Getenv("PX_DISABLE_TLS") != "1" {
+		return nil, errors.New("pixieapi: PX_DISABLE_TLS=1 required for direct cluster.local connections (pxapi's TLS-skip is gated on that env)")
+	}
+	return &Adapter{clusterID: clusterID, directOpts: &opts}, nil
 }
 
 // NewDirectFromEnv builds a direct-mode Adapter from the runtime env.
@@ -98,18 +106,14 @@ func NewDirectFromEnv(clusterID string) (*Adapter, error) {
 	if addr == "" {
 		return nil, errors.New("pixieapi: ADAPTIVE_VIZIER_DIRECT_ADDR not set")
 	}
-	// pxapi.WithDisableTLSVerification (used by NewDirect) log.Fatal's at
-	// NewClient time if the addr contains "cluster.local" but PX_DISABLE_TLS
-	// isn't "1". Catch that here with a clean error instead so callers (cmd
-	// startup, tests) don't crash mid-init.
-	if strings.Contains(addr, "cluster.local") && os.Getenv("PX_DISABLE_TLS") != "1" {
-		return nil, errors.New("pixieapi: PX_DISABLE_TLS=1 required for direct cluster.local connections (pxapi's TLS-skip is gated on that env)")
-	}
 	sk := os.Getenv("PL_JWT_SIGNING_KEY")
 	if sk == "" {
 		return nil, errors.New("pixieapi: PL_JWT_SIGNING_KEY not set (mount pl-cluster-secrets/jwt-signing-key)")
 	}
-	return NewDirect(clusterID, DirectOptions{VizierAddr: addr, SigningKey: sk}), nil
+	// NewDirect re-checks the PX_DISABLE_TLS + cluster.local precondition
+	// so both entry points get the same compile-time guard against pxapi's
+	// log.Fatal at first Query.
+	return NewDirect(clusterID, DirectOptions{VizierAddr: addr, SigningKey: sk})
 }
 
 // Query executes pxl on the configured cluster and aggregates every

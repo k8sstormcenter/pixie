@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.kubescape_logs (
   SETTINGS index_granularity = 8192;
 
 -- ============================================================================
--- 13 Pixie socket_tracer tables — strongly predefined, namespace + pod added.
+-- 12 Pixie socket_tracer tables — strongly predefined, namespace + pod added.
 -- The retention scripts (PxL, user-defined or shipped defaults) MUST populate
 -- namespace + pod via px.upid_to_namespace / px.upid_to_pod_name.
 -- ============================================================================

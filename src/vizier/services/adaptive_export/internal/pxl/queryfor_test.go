@@ -82,16 +82,23 @@ func TestQueryFor_NamespaceOnly(t *testing.T) {
 }
 
 // TestQueryFor_PodOnly — when Namespace is empty but Pod is set, fall
-// back to a bare-pod filter (won't match in pixie since upid_to_pod_name
-// always returns namespaced; documented as caller-shouldn't-do-this).
+// back to a regex match on `*/<pod>` since px.upid_to_pod_name always
+// returns "<namespace>/<pod>" — a bare-pod equality filter would always
+// miss. The defensive path stays usable instead of being silently broken.
 func TestQueryFor_PodOnly(t *testing.T) {
 	tNoNS := anomaly.Target{Pod: "redis-foo"}
 	q, err := QueryFor("redis_events", tNoNS, fixedStart, fixedEnd, fixedNow)
 	if err != nil {
 		t.Fatalf("QueryFor: %v", err)
 	}
-	if !strings.Contains(q, `df = df[df.pod == 'redis-foo']`) {
-		t.Fatalf("expected bare pod filter; got:\n%s", q)
+	// Must NOT emit the bare-pod equality (CR: that's a known-miss filter).
+	if strings.Contains(q, `df = df[df.pod == 'redis-foo']`) {
+		t.Fatalf("regression: emitted bare-pod equality that always misses:\n%s", q)
+	}
+	// Must emit a working filter that matches "<any-ns>/redis-foo".
+	want := `df = df[px.regex_match('^[^/]+/redis-foo$', df.pod)]`
+	if !strings.Contains(q, want) {
+		t.Fatalf("expected regex-anchored pod filter\nwant: %s\ngot:\n%s", want, q)
 	}
 	if strings.Contains(q, "df = df[df.namespace ==") {
 		t.Fatalf("did not expect namespace filter; got:\n%s", q)
@@ -190,7 +197,7 @@ func TestQueryFor_EscapesBackslashInTarget(t *testing.T) {
 // TestQueryFor_EveryBuiltinTableEmits — smoke-test all known tables
 // produce a syntactically-shaped PxL output (compile-not-tested).
 func TestQueryFor_EveryBuiltinTableEmits(t *testing.T) {
-	for _, table := range Names(BuiltinTables) {
+	for _, table := range Names(builtinTables) {
 		q, err := QueryFor(table, target, fixedStart, fixedEnd, fixedNow)
 		if err != nil {
 			t.Fatalf("table %s: %v", table, err)

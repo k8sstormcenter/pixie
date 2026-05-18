@@ -175,34 +175,41 @@ func main() {
 	}
 	log.Info("pixie table schemas verified — namespace + pod columns present on all 12 tables")
 
-	// 3. Ensure the Pixie ClickHouse retention plugin is enabled. The
-	//    retention scripts themselves are defined by the user via the
-	//    Pixie UI — we don't manage them.
+	// 3. Best-effort: ensure the Pixie ClickHouse retention plugin is
+	//    enabled. The retention scripts themselves are defined by the
+	//    user via the Pixie UI — we don't manage them. The cloud client
+	//    is OPTIONAL — direct-mode query (set up in step 5) does not
+	//    need it, so a cloud-side outage must not block the operator
+	//    from starting. Downgrade the failure to a warning and skip the
+	//    plugin/preset steps that depend on this client.
 	pluginClient, err := pixie.NewClient(ctx, cfg.Pixie().APIKey(), cfg.Pixie().Host())
 	if err != nil {
-		log.WithError(err).Fatal("failed to create pixie plugin client")
+		log.WithError(err).Warn("could not create pixie cloud plugin client — skipping plugin enablement and preset install; pixie tables will stay empty until the user enables the plugin in the Pixie UI")
+		pluginClient = nil
 	}
-	chDSN := cfg.ClickHouse().DSN()
-	exportURL, err := pluginClient.EnsureClickHousePluginEnabled(chDSN)
-	if err != nil {
-		// non-fatal — the operator's own write path doesn't depend on
-		// the plugin; analyst joins against pixie-table rows do, but a
-		// missing plugin is a deployment misconfiguration the user
-		// surfaces via UI.
-		log.WithError(err).Warn("could not ensure ClickHouse plugin is enabled — pixie tables will not be populated until you turn it on in the Pixie UI")
-	} else {
-		log.WithField("export_url", exportURL).Info("clickhouse retention plugin is enabled")
-	}
-
-	// 3b. (optional) install Pixie's preset retention scripts so the
-	//     pixie observation tables actually receive rows. Without this,
-	//     the plugin is enabled but does nothing.
-	if strings.EqualFold(os.Getenv(envInstallPresets), "true") {
-		installed, err := installPresetScripts(pluginClient, cfg.Pixie().ClusterID(), cfg.Worker().ClusterName())
+	if pluginClient != nil {
+		chDSN := cfg.ClickHouse().DSN()
+		exportURL, err := pluginClient.EnsureClickHousePluginEnabled(chDSN)
 		if err != nil {
-			log.WithError(err).Warn("INSTALL_PRESET_SCRIPTS=true but install failed — pixie tables will stay empty")
+			// non-fatal — the operator's own write path doesn't depend on
+			// the plugin; analyst joins against pixie-table rows do, but a
+			// missing plugin is a deployment misconfiguration the user
+			// surfaces via UI.
+			log.WithError(err).Warn("could not ensure ClickHouse plugin is enabled — pixie tables will not be populated until you turn it on in the Pixie UI")
 		} else {
-			log.WithField("installed", installed).Info("preset retention scripts installed on cluster")
+			log.WithField("export_url", exportURL).Info("clickhouse retention plugin is enabled")
+		}
+
+		// 3b. (optional) install Pixie's preset retention scripts so the
+		//     pixie observation tables actually receive rows. Without this,
+		//     the plugin is enabled but does nothing.
+		if strings.EqualFold(os.Getenv(envInstallPresets), "true") {
+			installed, err := installPresetScripts(pluginClient, cfg.Pixie().ClusterID(), cfg.Worker().ClusterName())
+			if err != nil {
+				log.WithError(err).Warn("INSTALL_PRESET_SCRIPTS=true but install failed — pixie tables will stay empty")
+			} else {
+				log.WithField("installed", installed).Info("preset retention scripts installed on cluster")
+			}
 		}
 	}
 
@@ -295,7 +302,7 @@ func main() {
 		// list; the cloud-side retention plugin would have to handle
 		// those if the user wants them.
 		var tables []string
-		for _, t := range pxl.Names(pxl.BuiltinTables) {
+		for _, t := range pxl.Names(pxl.Builtins()) {
 			if strings.Contains(t, ".") {
 				log.WithField("table", t).Info("skipping dotted-name table from push list — PxL DataFrame rejects it")
 				continue
@@ -396,8 +403,9 @@ func main() {
 		// repopulate the set — losing N minutes of coverage per restart.
 		seedActiveSetFromRehydrate(ctl, activeSet)
 
-		streamTables := make([]string, 0, len(pxl.BuiltinTables))
-		for _, t := range pxl.Names(pxl.BuiltinTables) {
+		builtins := pxl.Builtins()
+		streamTables := make([]string, 0, len(builtins))
+		for _, t := range pxl.Names(builtins) {
 			if strings.Contains(t, ".") {
 				continue // PxL DataFrame rejects dotted names
 			}

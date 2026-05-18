@@ -43,12 +43,14 @@ type TableSpec struct {
 	Protocol string
 }
 
-// BuiltinTables enumerates the 13 pixie socket_tracer tables the
+// builtinTables enumerates the 12 pixie socket_tracer tables the
 // adaptive-write feature is shipped with. The order is stable and
 // matches the project's published documentation. Do NOT loop over
 // dynamic discovery to populate this — strong static definition is
-// the requirement.
-var BuiltinTables = []TableSpec{
+// the requirement. Unexported so the slice cannot be mutated by
+// external callers; use [Builtins] or [DefaultRegistry] for read
+// access (both return defensive copies).
+var builtinTables = []TableSpec{
 	{Name: "http_events", Protocol: "HTTP/1.x"},
 	{Name: "http2_messages.beta", Protocol: "HTTP/2 + gRPC"},
 	{Name: "dns_events", Protocol: "DNS"},
@@ -70,7 +72,7 @@ var BuiltinTables = []TableSpec{
 //	ctlCfg.Registry = pxl.Compose(pxl.DefaultRegistry(), userRegistry)
 //
 // where Compose merges built-ins with user additions, and the
-// controller iterates Registry.Tables() instead of BuiltinTables.
+// controller iterates Registry.Tables() instead of builtinTables.
 //
 // Today the controller and main.go consume BuiltinTables directly.
 // The future PR will plumb a Registry through controller.Config and
@@ -79,13 +81,24 @@ type Registry interface {
 	Tables() []TableSpec
 }
 
-// DefaultRegistry returns a Registry over BuiltinTables. Future-PR
-// callers compose this with user-supplied registries.
+// DefaultRegistry returns a Registry over the built-in tables.
+// Future-PR callers compose this with user-supplied registries.
 func DefaultRegistry() Registry { return defaultRegistry{} }
 
 type defaultRegistry struct{}
 
-func (defaultRegistry) Tables() []TableSpec { return BuiltinTables }
+// Tables returns a defensive copy so callers cannot mutate the
+// package-level table list at runtime.
+func (defaultRegistry) Tables() []TableSpec {
+	return append([]TableSpec(nil), builtinTables...)
+}
+
+// Builtins returns a defensive copy of the built-in table list.
+// Prefer this over a (now removed) exported slice so the global
+// registry cannot be aliased and mutated by callers.
+func Builtins() []TableSpec {
+	return append([]TableSpec(nil), builtinTables...)
+}
 
 // Names projects a []TableSpec to a []string for legacy callers that
 // take bare names. Useful at API boundaries that haven't been
@@ -101,7 +114,7 @@ func Names(specs []TableSpec) []string {
 // IsBuiltin reports whether the given name is one of the built-in
 // tables. Bare-string callers can use this as a defensive guard.
 func IsBuiltin(name string) bool {
-	for _, t := range BuiltinTables {
+	for _, t := range builtinTables {
 		if t.Name == name {
 			return true
 		}

@@ -91,9 +91,11 @@ func TestApply_FailsFastOnHTTPError(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	a, _ := NewApplier(srv.URL, "", "")
-	err := a.Apply(context.Background())
-	if err == nil {
+	a, err := NewApplier(srv.URL, "", "")
+	if err != nil {
+		t.Fatalf("NewApplier: %v", err)
+	}
+	if err := a.Apply(context.Background()); err == nil {
 		t.Fatalf("expected error from Apply on HTTP 500")
 	}
 	if got := calls.Load(); got != 1 {
@@ -125,8 +127,11 @@ func TestVerifyPixieSchema_DetectsMissingColumns(t *testing.T) {
 		_, _ = w.Write([]byte(`{"name":"hostname"}` + "\n"))
 	}))
 	defer srv.Close()
-	a, _ := NewApplier(srv.URL, "", "")
-	err := a.VerifyPixieSchema(context.Background())
+	a, err := NewApplier(srv.URL, "", "")
+	if err != nil {
+		t.Fatalf("NewApplier: %v", err)
+	}
+	err = a.VerifyPixieSchema(context.Background())
 	if err == nil {
 		t.Fatalf("expected SchemaDriftError; got nil")
 	}
@@ -155,7 +160,10 @@ func TestVerifyPixieSchema_AllPresent(t *testing.T) {
 		_, _ = w.Write([]byte(`{"name":"hostname"}` + "\n"))
 	}))
 	defer srv.Close()
-	a, _ := NewApplier(srv.URL, "", "")
+	a, err := NewApplier(srv.URL, "", "")
+	if err != nil {
+		t.Fatalf("NewApplier: %v", err)
+	}
 	if err := a.VerifyPixieSchema(context.Background()); err != nil {
 		t.Fatalf("VerifyPixieSchema: %v", err)
 	}

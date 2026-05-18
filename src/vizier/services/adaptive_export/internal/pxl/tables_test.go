@@ -28,17 +28,17 @@ import (
 // this guard if the spec adds / removes a table.
 func TestBuiltinTables_Count(t *testing.T) {
 	const want = 12
-	if got := len(BuiltinTables); got != want {
-		t.Fatalf("BuiltinTables = %d entries, want %d", got, want)
+	if got := len(builtinTables); got != want {
+		t.Fatalf("builtinTables = %d entries, want %d", got, want)
 	}
 }
 
 // TestBuiltinTables_AllNamesUnique — no duplicates.
 func TestBuiltinTables_AllNamesUnique(t *testing.T) {
 	seen := map[string]bool{}
-	for _, sp := range BuiltinTables {
+	for _, sp := range builtinTables {
 		if seen[sp.Name] {
-			t.Fatalf("duplicate table %q in BuiltinTables", sp.Name)
+			t.Fatalf("duplicate table %q in builtinTables", sp.Name)
 		}
 		seen[sp.Name] = true
 	}
@@ -47,7 +47,7 @@ func TestBuiltinTables_AllNamesUnique(t *testing.T) {
 // TestBuiltinTables_AllHaveProtocol — each entry is annotated, so audit
 // queries like "which tables observe HTTP?" work without parsing the name.
 func TestBuiltinTables_AllHaveProtocol(t *testing.T) {
-	for _, sp := range BuiltinTables {
+	for _, sp := range builtinTables {
 		if sp.Protocol == "" {
 			t.Fatalf("BuiltinTable %q missing Protocol annotation", sp.Name)
 		}
@@ -70,14 +70,14 @@ func TestIsBuiltin(t *testing.T) {
 	}
 }
 
-// TestDefaultRegistry — stub returns BuiltinTables.
+// TestDefaultRegistry — stub returns builtinTables.
 func TestDefaultRegistry(t *testing.T) {
 	r := DefaultRegistry()
 	got := r.Tables()
-	if len(got) != len(BuiltinTables) {
-		t.Fatalf("DefaultRegistry().Tables() len %d, want %d", len(got), len(BuiltinTables))
+	if len(got) != len(builtinTables) {
+		t.Fatalf("DefaultRegistry().Tables() len %d, want %d", len(got), len(builtinTables))
 	}
-	for i, sp := range BuiltinTables {
+	for i, sp := range builtinTables {
 		if got[i] != sp {
 			t.Fatalf("DefaultRegistry().Tables()[%d] = %+v, want %+v", i, got[i], sp)
 		}
@@ -86,11 +86,43 @@ func TestDefaultRegistry(t *testing.T) {
 
 // TestNames — projection to []string preserves order.
 func TestNames(t *testing.T) {
-	names := Names(BuiltinTables)
-	if len(names) != len(BuiltinTables) {
+	names := Names(builtinTables)
+	if len(names) != len(builtinTables) {
 		t.Fatalf("Names len mismatch")
 	}
 	if names[0] != "http_events" {
 		t.Fatalf("first name = %q, want http_events", names[0])
+	}
+}
+
+// TestDefaultRegistry_Tables_IsCopy — defensive: callers cannot mutate
+// the package-level table list by aliasing the slice returned from
+// DefaultRegistry().Tables(). Append-to-zero-cap is the easy gotcha:
+// if Tables() handed out the backing slice directly, an append-without-
+// reallocation would clobber the next builtin.
+func TestDefaultRegistry_Tables_IsCopy(t *testing.T) {
+	got := DefaultRegistry().Tables()
+	if len(got) == 0 {
+		t.Fatalf("DefaultRegistry().Tables() is empty")
+	}
+	want0 := builtinTables[0].Name
+	got[0].Name = "MUTATED"
+	if builtinTables[0].Name != want0 {
+		t.Fatalf("mutation through DefaultRegistry().Tables() leaked: builtinTables[0].Name=%q, want %q",
+			builtinTables[0].Name, want0)
+	}
+}
+
+// TestBuiltins_IsCopy — same guarantee for the Builtins() accessor.
+func TestBuiltins_IsCopy(t *testing.T) {
+	got := Builtins()
+	if len(got) == 0 {
+		t.Fatalf("Builtins() is empty")
+	}
+	want0 := builtinTables[0].Name
+	got[0].Name = "MUTATED"
+	if builtinTables[0].Name != want0 {
+		t.Fatalf("mutation through Builtins() leaked: builtinTables[0].Name=%q, want %q",
+			builtinTables[0].Name, want0)
 	}
 }

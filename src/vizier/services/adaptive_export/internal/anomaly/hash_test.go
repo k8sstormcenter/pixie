@@ -16,7 +16,10 @@
 
 package anomaly
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 // canonical fixture: redis CVE-2025-49844 R1005 alert (workload identity only).
 var canonicalTarget = Target{
@@ -100,11 +103,38 @@ func TestHash_AllowsEmptyPod(t *testing.T) {
 // all part of the canonical form. If you add a field, you must decide
 // whether it belongs in the hash and update this test.
 func TestHash_NoTimestampInfluence(t *testing.T) {
-	// Verify the Target type has exactly 4 fields. If this fails, decide:
-	// new field belongs in the hash → add to canonical form;
-	// new field does NOT belong → leave Target unchanged, add a sibling type.
+	// Pin the shape so adding a new field (even at zero value) makes
+	// this test fail loudly. CR feedback: an equality-of-two-equal-
+	// constructions check would pass even when a new field is added,
+	// so we also assert the type's field count.
+	const wantFields = 4
+	if got := reflect.TypeOf(Target{}).NumField(); got != wantFields {
+		t.Fatalf("Target field count = %d, want %d; decide whether the new "+
+			"field belongs in the canonical hash form (update Hash + this guard)",
+			got, wantFields)
+	}
 	a := Target{PID: 1, Comm: "x", Pod: "p", Namespace: "n"}
 	if Hash(a) != Hash(Target{PID: 1, Comm: "x", Pod: "p", Namespace: "n"}) {
 		t.Fatalf("Target hash leaks an unrecognised field")
+	}
+}
+
+// TestHash_NoDelimiterCollision — naive ":"-joined canonical forms
+// collide when input values can contain ":" or be empty. The fix is a
+// length-prefixed (or otherwise delimiter-safe) encoding before hashing.
+// Without that fix, the two Targets below produce the same canonical
+// string and therefore the same hash.
+func TestHash_NoDelimiterCollision(t *testing.T) {
+	a := Target{PID: 0, Comm: "", Pod: "a:b", Namespace: ""}
+	b := Target{PID: 0, Comm: "", Pod: "a", Namespace: "b:"}
+	if Hash(a) == Hash(b) {
+		t.Fatalf("delimiter collision: %+v and %+v hash to the same value (%s)",
+			a, b, Hash(a))
+	}
+	c := Target{PID: 0, Comm: "x:y", Pod: "", Namespace: ""}
+	d := Target{PID: 0, Comm: "x", Pod: "y:", Namespace: ""}
+	if Hash(c) == Hash(d) {
+		t.Fatalf("delimiter collision: %+v and %+v hash to the same value (%s)",
+			c, d, Hash(c))
 	}
 }

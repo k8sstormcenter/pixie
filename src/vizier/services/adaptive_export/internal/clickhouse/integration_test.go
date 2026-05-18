@@ -116,12 +116,17 @@ func TestApply_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	if err := a.Apply(ctx); err != nil {
+	// Separate contexts per Apply — sharing one 60s budget across both
+	// calls makes Apply #2 occasionally fail with context.DeadlineExceeded
+	// when the live cluster is slow, masking the idempotency property.
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel1()
+	if err := a.Apply(ctx1); err != nil {
 		t.Fatalf("Apply #1: %v", err)
 	}
-	if err := a.Apply(ctx); err != nil {
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel2()
+	if err := a.Apply(ctx2); err != nil {
 		t.Fatalf("Apply #2 (should be idempotent): %v", err)
 	}
 }

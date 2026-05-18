@@ -175,6 +175,12 @@ pl_cc_test(
 
 pl_cc_test(
     name = "memory_source_node_test",
+    # Bumped 2026-05-18 from implicit "short" (60s, 180s under ASAN) to
+    # "moderate" (300s, 600s under ASAN) because the test exceeded 180s
+    # under --config=asan (TIMEOUT in CI run 26003998628). ASAN
+    # instrumentation roughly doubles wall time; the previous default
+    # didn't account for that.
+    timeout = "moderate",
     srcs = ["memory_source_node_test.cc"] + glob(["*_mock.h"]),
     deps = [
         ":cc_library",

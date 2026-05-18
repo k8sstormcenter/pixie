@@ -13,8 +13,8 @@ spec:
   containers:
   - name: api
     capabilities: null
-    endpoints:    null
-    execs:        null
-    opens:        null
-    syscalls:     null
+    endpoints: null
+    execs: null
+    opens: null
+    syscalls: null
     rulePolicies: {}

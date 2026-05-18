@@ -50,10 +50,10 @@ type BatchWriter struct {
 	bufferCap  int
 
 	// Counters exposed via Stats — read-only after Run starts.
-	written  atomic.Int64
-	dropped  atomic.Int64
-	flushes  atomic.Int64
-	errors   atomic.Int64
+	written atomic.Int64
+	dropped atomic.Int64
+	flushes atomic.Int64
+	errors  atomic.Int64
 }
 
 // WriterConfig tunes a BatchWriter. Zero → defaults.

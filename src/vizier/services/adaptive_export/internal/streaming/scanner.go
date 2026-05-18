@@ -118,7 +118,7 @@ func NewScanner(cfg ScannerConfig, querier Querier, writer *BatchWriter, filters
 //  1. Wait for filter (initial) — block until first one arrives.
 //  2. Loop:
 //     - If filter has no pods AND mode == Whitelist: skip query
-//       entirely (the whole purpose: empty whitelist = no work).
+//     entirely (the whole purpose: empty whitelist = no work).
 //     - Else: build PxL, query, push rows to writer.
 //     - Sleep RefreshInterval OR until filter changes.
 //  3. Backoff on Querier errors.

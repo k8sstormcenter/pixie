@@ -62,15 +62,6 @@ func (f *fakeStore) savedCount() int {
 	return len(f.saves)
 }
 
-func (f *fakeStore) lastSaved() uint64 {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.saves) == 0 {
-		return 0
-	}
-	return f.saves[len(f.saves)-1]
-}
-
 // TestTrigger_LoadsPersistentWatermarkOnBoot — the very first SELECT
 // the trigger issues must filter event_time by the persisted watermark,
 // not by InitialWatermark or 0.

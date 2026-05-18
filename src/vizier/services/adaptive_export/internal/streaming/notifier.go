@@ -21,8 +21,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset"
 )
 
@@ -163,12 +161,6 @@ func (n *AttributionNotifier) RemoveFromController(namespace, pod string) {
 	n.SubmitRemove(activeset.Key{Namespace: namespace, Pod: pod})
 }
 
-// logBackpressure can be wired into a periodic stats logger to warn
-// when DroppedCount climbs. Left as a helper for callers; not used
-// internally to avoid coupling the notifier to a particular log
-// cadence.
-func logBackpressure(n *AttributionNotifier) {
-	if d := n.DroppedCount(); d > 0 {
-		log.WithField("dropped", d).Warn("AttributionNotifier: backpressure detected")
-	}
-}
+// (Backpressure logging was deliberately not wired internally to
+// avoid coupling the notifier to a particular log cadence. Callers
+// observe via DroppedCount() and log on their own schedule.)

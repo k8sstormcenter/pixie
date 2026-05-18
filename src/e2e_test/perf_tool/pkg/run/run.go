@@ -163,6 +163,11 @@ func (r *Runner) RunExperiment(ctx context.Context, expID uuid.UUID, spec *exper
 	return nil
 }
 
+// Named return `retErr` is intentional: the deferred function below
+// inspects it to decide whether to skip teardown when
+// --keep_on_failure is set. nolint comment kept narrow to this func.
+//
+//nolint:nonamedreturns
 func (r *Runner) runActions(ctx context.Context, spec *experimentpb.ExperimentSpec) (retErr error) {
 	canceledErr := backoff.Permanent(context.Canceled)
 	// Collect start-action cleanups explicitly so we can skip them when

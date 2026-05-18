@@ -43,11 +43,11 @@ import (
 )
 
 type prometheusRecorderImpl struct {
-	clusterCtx    *cluster.Context
+	clusterCtx     *cluster.Context
 	ownsClusterCtx bool
-	spec          *experimentpb.PrometheusScrapeSpec
-	eg            *errgroup.Group
-	resultCh      chan<- *ResultRow
+	spec           *experimentpb.PrometheusScrapeSpec
+	eg             *errgroup.Group
+	resultCh       chan<- *ResultRow
 
 	wg     sync.WaitGroup
 	stopCh chan struct{}

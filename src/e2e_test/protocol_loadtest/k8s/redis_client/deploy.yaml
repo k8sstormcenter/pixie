@@ -26,12 +26,21 @@ spec:
       - name: redis
         image: redis:7-alpine
         imagePullPolicy: IfNotPresent
-        args: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+        args:
+        - "redis-server"
+        - "--save"
+        - ""
+        - "--appendonly"
+        - "no"
+        - "--maxmemory"
+        - "512mb"
+        - "--maxmemory-policy"
+        - "allkeys-lru"
         ports:
         - {name: redis, containerPort: 6379}
         resources:
           requests: {cpu: "100m", memory: "64Mi"}
-          limits:   {cpu: "4",    memory: "1Gi"}
+          limits: {cpu: "4", memory: "1Gi"}
         readinessProbe:
           tcpSocket: {port: redis}
           initialDelaySeconds: 2
@@ -85,12 +94,12 @@ spec:
         image: docker.io/library/protocol_loadtest_redis_client:latest
         imagePullPolicy: IfNotPresent
         env:
-        - {name: REDIS_HOST,      value: "redis-server"}
-        - {name: REDIS_PORT,      value: "6379"}
+        - {name: REDIS_HOST, value: "redis-server"}
+        - {name: REDIS_PORT, value: "6379"}
         - {name: NUM_CONNECTIONS, value: "10"}
-        - {name: TARGET_RPS,      value: "1000"}
-        - {name: VAL_SIZE,        value: "256"}
-        - {name: NUM_MESSAGES,    value: "5000"}
+        - {name: TARGET_RPS, value: "1000"}
+        - {name: VAL_SIZE, value: "256"}
+        - {name: NUM_MESSAGES, value: "5000"}
         resources:
           requests: {cpu: "200m", memory: "128Mi"}
-          limits:   {cpu: "4",    memory: "1Gi"}
+          limits: {cpu: "4", memory: "1Gi"}

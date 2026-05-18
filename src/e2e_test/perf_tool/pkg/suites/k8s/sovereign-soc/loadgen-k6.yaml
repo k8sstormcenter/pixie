@@ -6,8 +6,8 @@
 #  - one container image, declarative script, no per-target script files
 #
 # Tunables (override via env on the Deployment):
-#   K6_VUS:   concurrent virtual users (default 50)
-#   K6_QPS:   target requests/sec (default 500). At 500 QPS sustained,
+#   K6_VUS: concurrent virtual users (default 50)
+#   K6_QPS: target requests/sec (default 500). At 500 QPS sustained,
 #             expect ~550 redis ops/sec + ~50-100 pgsql ops/sec at steady
 #             state (depending on cache TTL turnover).
 ---
@@ -34,12 +34,12 @@ data:
     export const options = {
       scenarios: {
         steady: {
-          executor:        'constant-arrival-rate',
-          rate:            Number(__ENV.K6_QPS || 500),
-          timeUnit:        '1s',
-          duration:        __ENV.K6_DURATION || '8760h',
+          executor: 'constant-arrival-rate',
+          rate: Number(__ENV.K6_QPS || 500),
+          timeUnit: '1s',
+          duration: __ENV.K6_DURATION || '8760h',
           preAllocatedVUs: Number(__ENV.K6_VUS || 50),
-          maxVUs:          Number(__ENV.K6_MAX_VUS || 200),
+          maxVUs: Number(__ENV.K6_MAX_VUS || 200),
         },
       },
     };
@@ -56,7 +56,7 @@ data:
         const body = JSON.stringify({ ts: Date.now(), val: Math.random() });
         const res = http.post(`${API}/api/event`, body, {
           headers: { 'Content-Type': 'application/json' },
-          tags:    { op: 'post_event' },
+          tags: { op: 'post_event' },
         });
         check(res, { 'POST 201': (r) => r.status === 201 });
       }
@@ -118,10 +118,10 @@ spec:
         # for higher multipliers. Always keep all three in this list
         # so the kustomize merge has a name-key to match on.
         env:
-        - {name: K6_QPS,     value: "500"}
-        - {name: K6_VUS,     value: "50"}
+        - {name: K6_QPS, value: "500"}
+        - {name: K6_VUS, value: "50"}
         - {name: K6_MAX_VUS, value: "200"}
-        - {name: API_URL,    value: "http://api:8080"}
+        - {name: API_URL, value: "http://api:8080"}
         # K6_DURATION intentionally unset — script defaults to '8760h'
         # (effectively forever). k6 has no true infinite mode and JS
         # `||` treats '0s' as truthy, so don't pass '0s' here.
@@ -136,8 +136,8 @@ spec:
         # Without these limits the high multipliers silently throttle
         # (OOM or CFS) and deliver a fraction of the configured QPS.
         resources:
-          requests: {cpu: "4",  memory: "1Gi"}
-          limits:   {cpu: "16", memory: "8Gi"}
+          requests: {cpu: "4", memory: "1Gi"}
+          limits: {cpu: "16", memory: "8Gi"}
       volumes:
       - name: script
         configMap: {name: loadgen-k6-script}

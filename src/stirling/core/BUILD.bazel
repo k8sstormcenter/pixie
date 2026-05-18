@@ -84,7 +84,12 @@ pl_cc_test(
 pl_cc_test(
     name = "record_builder_test",
     size = "enormous",
-    timeout = "moderate",
+    # Bumped 2026-05-18 from "moderate" (300s, 600s under ASAN) to
+    # "long" (900s, 1800s under ASAN). Test exceeded 600s under
+    # --config=asan (TIMEOUT in CI run 26003998628). `size = enormous`
+    # documents resource footprint but does NOT extend Bazel's timeout
+    # — only `timeout` does that.
+    timeout = "long",
     srcs = ["record_builder_test.cc"],
     tags = ["cpu:4"],
     deps = [

@@ -50,10 +50,10 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"px.dev/pixie/src/api/go/pxapi"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/clickhouse"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/config"
-	"px.dev/pixie/src/api/go/pxapi"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/controller"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pixie"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pixieapi"

@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """render-combined.py — overlay multiple proto-sweep results into one
 collapse-curve chart. Pass sweep dirs as args; results merged by mult.
 """
@@ -13,16 +30,17 @@ print(f"out -> {outdir}")
 
 res_re = re.compile(r'^\s*(\d+)x\s+achieved\s+http=(-?\d+)\s+redis=(-?\d+)\s+pgsql=(-?\d+)\s+TOTAL=(-?\d+)\s+\|\s+srv-cpu\s+http=(\d+)m\s+redis=(\d+)m\s+pgsql=(\d+)m\s+\|\s+pem=(\d+)m')
 
-rows = {}
+rows: dict[int, dict[str, int]] = {}
 for d in dirs:
     p = os.path.join(d, 'sweep.log')
     if not os.path.exists(p):
         continue
     with open(p) as f:
         for line in f:
-            m = res_re.match(line)
-            if not m:
+            mm = res_re.match(line)
+            if mm is None:
                 continue
+            m = mm
             mult = int(m.group(1))
             target = 1000 * mult
             # Clamp negative (k6 restart artifacts) to NaN-ish 0 for the chart
@@ -99,9 +117,11 @@ plt.close(fig)
 print(f"wrote {out}")
 
 # text summary
+# Loop variable is shadowing the regex Match from the parse phase above,
+# so we use a fresh name to keep mypy happy AND stop the variable reuse.
 print()
 print(f"{'mult':<6}{'http':>10}{'redis':>10}{'pgsql':>10}{'TOTAL':>10}{'%tgt':>7}{'pem':>9}")
-for m in mults:
-    r = rows[m]
+for mult_key in mults:
+    r = rows[mult_key]
     pct = r['total']/r['target']*100 if r['target'] else 0
-    print(f"{m}x   {r['http']:>8}  {r['redis']:>8}  {r['pgsql']:>8}  {r['total']:>8}  {pct:>5.1f}%  {r['pem']:>5}m")
+    print(f"{mult_key}x   {r['http']:>8}  {r['redis']:>8}  {r['pgsql']:>8}  {r['total']:>8}  {pct:>5.1f}%  {r['pem']:>5}m")

@@ -22,8 +22,8 @@
 #include <string>
 #include <vector>
 
-#include <absl/strings/substitute.h>
 #include <absl/numeric/int128.h>
+#include <absl/strings/substitute.h>
 #include <sole.hpp>
 #include "glog/logging.h"
 #include "src/carnot/planpb/plan.pb.h"
@@ -90,7 +90,7 @@ Status ClickHouseExportSinkNode::CloseImpl(ExecState* exec_state) {
 }
 
 Status ClickHouseExportSinkNode::ConsumeNextImpl(ExecState* /*exec_state*/, const RowBatch& rb,
-                                                   size_t /*parent_index*/) {
+                                                 size_t /*parent_index*/) {
   // Skip insertion if the batch is empty
   if (rb.num_rows() == 0) {
     if (rb.eos()) {

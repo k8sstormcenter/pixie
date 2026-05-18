@@ -106,6 +106,7 @@ var redisDataInNamespaceScript string
 //  4. vector.rendered.yaml — Vector DaemonSet + RBAC that tails Kubescape
 //     node-agent logs into forensic_db.kubescape_logs. Endpoint is the
 //     external forensic CH URL so any experiment cluster can write to it.
+//
 // SovereignSOCInfraSelector is the action_selector tagged onto the
 // kubescape-vector workload so it runs in a dedicated START_WORKLOADS
 // phase before START_METRIC_RECORDERS — see the docstring on

@@ -1,99 +1,115 @@
 %%{init: {'theme':'base','themeVariables':{'fontSize':'13px'}}}%%
 flowchart TB
 
-%% =========================================================
-%% EXTERNAL: same as rev-2
-%% =========================================================
+%% ============================================================
+%% adaptive_export rev-3 as actually built and deployed
+%% (image: adaptive_export:rev3-cr-fixes-2, commit 0c6caec69)
+%% Validated by /tmp/matrix3-20260518-130559 sweep (6 configs).
+%% ============================================================
+
 subgraph EXT["External (per node)"]
-  KS["Kubescape DaemonSet"]
-  VEC["Vector → CH"]
-  PEM["Pixie PEM (eBPF)"]
+  KS["Kubescape DaemonSet<br/>node-agent<br/>emits anomaly logs"]
+  VEC["Vector DaemonSet<br/>kubescape→CH forwarder"]
+  PEM["Pixie PEM (eBPF)<br/>socket_tracer +<br/>protocol classifier"]
 end
 
-subgraph PIXIE["Pixie cluster (NODE-LOCAL gRPC only)"]
-  QB["vizier-query-broker<br/>:50300<br/><b>ONLY contacted in-cluster</b><br/>10 long-lived streams per node"]
+subgraph PIXIE["Pixie (node-local gRPC)"]
+  QB["vizier-query-broker :50300<br/>direct-mode (cluster.local)<br/>PX_DISABLE_TLS=1<br/>fresh client per poll"]
 end
 
-subgraph CLOUD["Pixie cloud"]
-  PS["PluginService<br/>contacted ONCE at boot"]
+subgraph CLOUD["Pixie cloud (best-effort, optional)"]
+  PS["PluginService<br/>EnsureClickHousePluginEnabled<br/>InstallPresetScripts<br/><b>boot-only, Warn on failure</b>"]
 end
 
 subgraph CH["ClickHouse forensic_db"]
-  T_KL[("kubescape_logs<br/>(unchanged)")]
-  T_AA[("adaptive_attribution<br/>(unchanged)")]
-  T_WM[("trigger_watermark<br/>(unchanged)")]
-  T_PX[("12 pixie tables<br/>(written by TableStreams, batched)")]
+  T_KL[("kubescape_logs<br/>owner: soc/Vector")]
+  T_AA[("adaptive_attribution<br/>operator-owned<br/><b>608 rows / sweep window</b>")]
+  T_WM[("trigger_watermark<br/>operator-owned")]
+  T_PX[("12 pixie tables<br/>http_events redis_events…<br/><b>39M pgsql · 39M redis · 14M http</b>")]
 end
 
-%% =========================================================
-%% OPERATOR REV-3
-%% =========================================================
+%% ============================================================
+%% OPERATOR PROCESS
+%% ============================================================
 subgraph OP["adaptive_export pod (rev-3)"]
 
-  subgraph TRG["Trigger goroutine (1) — UNCHANGED"]
-    TR["pollOnce + persistent watermark<br/>partial-read tolerance<br/>emits Event on chan"]
+  subgraph TRG["Trigger goroutine"]
+    TR["pollOnce(ctx)<br/>HTTP-GET kubescape_logs WHERE event_time > wm<br/>persistent watermark in trigger_watermark<br/>emits kubescape.Event on chan"]
   end
 
-  subgraph ATTR["AttributionMgr goroutine (1)"]
-    A_RUN["for ev := range trigger_chan:<br/>compute hash<br/>upsert active[hash]<br/>sink.Write(adaptive_attribution)<br/><b>ActiveSet.Upsert(pod, ns, t_end)</b>"]
+  subgraph CTL["Controller goroutine"]
+    CTL_RUN["for ev := range trigger:<br/>hash := anomaly.Hash(target) — <i>length-prefixed binary canon</i><br/>upsert active[hash]<br/>sink.Write(adaptive_attribution row)<br/>notifier.SubmitFromController(ns,pod,t_end)"]
+    CTL_PRN["PruneExpired (30s):<br/>evict active[h] past t_end+2·After grace<br/>fire OnPrune only when LAST hash for (ns,pod) gone<br/>→ notifier.RemoveFromController(ns,pod)"]
   end
 
-  subgraph AS["ActiveSet (in-mem + CH-backed)"]
-    AS_STATE[("pod|ns → t_end<br/>version counter<br/>mu.Lock guarded")]
-    AS_DELTA[/"delta chan<br/>{added, removed}<br/>fanout to subscribers"/]
-    AS_STATE -- "Upsert / Remove triggers" --> AS_DELTA
+  subgraph NTF["AttributionNotifier"]
+    NTF_RUN["non-blocking buffered chan<br/>drops on overflow (counted)<br/>forwards to ActiveSet"]
   end
 
-  subgraph SS["StreamSupervisor goroutine (1)"]
-    SS_SUB["subscribe(AS.delta)<br/>on each delta:<br/>compute current whitelist<br/>broadcast filterUpdate to 10 streams"]
+  subgraph AS["ActiveSet"]
+    AS_STATE[("(ns,pod) → t_end<br/>version counter<br/>guarded by RWMutex")]
+    AS_API["SubscribeAndSnapshot(buf)<br/>atomic — returns<br/>keys + delta-chan + ver"]
+    AS_STATE -- "Upsert / Remove" --> AS_API
   end
 
-  subgraph TS["TableStream goroutines (10, ONE per pixie table)"]
+  subgraph FU["FilterUpdater"]
+    FU_DEB["debounce ≥1s<br/>cap whitelist size<br/>fallback to Unfiltered mode if over cap"]
+    FU_BC["broadcast Filter{Mode,Pods,Version}<br/>to per-table scanner chans"]
+    FU_DEB --> FU_BC
+  end
+
+  subgraph SUP["Supervisor"]
+    SUP_RUN["wires: ActiveSet → FilterUpdater →<br/>N TableScanners → N BatchWriters<br/>tables = pxl.Builtins() minus dotted names"]
+  end
+
+  subgraph TS["TableScanner ×10 (one per pixie table)"]
     direction TB
-    TS_LOOP["per-table loop:<br/>1. assemble PxL with current whitelist<br/>2. submit ExecuteScript on long-lived gRPC<br/>3. for each emitted batch: forward to writer<br/>4. on filter change: cancel + re-submit<br/>5. on stream error: backoff + re-submit<br/>6. periodic re-submit (60s) for staleness bound"]
-    TS_WRITER["per-table CH writer<br/>buffer up to 10k rows OR 5s<br/>then HTTP POST INSERT<br/>bounded buffer drops oldest on CH outage"]
-    TS_LOOP --> TS_WRITER
+    TS_LOOP["loop:<br/>1. if filter is whitelist + empty → block on filter chan<br/>2. build PxL: regex_match('^(p1|p2|…)$', df.pod)<br/>3. querier.Query(ctx, pxl) [180s timeout]<br/>4. submit rows to BatchWriter<br/>5. wait min(RefreshInterval, filter-change, ctx-done)<br/>6. on err: exponential backoff (filter-change wins)"]
   end
 
-  subgraph PRN["Pruner (1)"]
-    PR_TICK["every 30s:<br/>evict active[h] where t_end+grace past<br/><b>triggers ActiveSet.Remove → delta</b>"]
-  end
-
-  subgraph HC["Healthcheck (1)"]
-    HC_TICK["per-table: did stream emit OR error<br/>in last 60s?<br/>no → trigger re-submit"]
+  subgraph BW["BatchWriter ×10"]
+    BW_BUF["per-table buffer<br/>flush by size OR time<br/>HTTP POST INSERT to CH"]
   end
 end
 
-%% =========================================================
+%% ============================================================
 %% FLOWS
-%% =========================================================
+%% ============================================================
 KS --> VEC --> T_KL
-PEM -- "in-memory tables (no CH yet)" --> QB
+PEM -. "kept in-memory<br/>(operator polls via QB)" .-> QB
 
-TR -- "HTTP GET watermark + LIMIT scan" --> T_KL
-TR -- "INSERT watermark" --> T_WM
-TR -- "Event chan (size 64)" --> A_RUN
+TR -- "GET" --> T_KL
+TR -- "INSERT/SELECT" --> T_WM
+TR -- "Event chan(64)" --> CTL_RUN
 
-A_RUN -- "INSERT" --> T_AA
-A_RUN -- "Upsert" --> AS_STATE
-PR_TICK -- "Remove" --> AS_STATE
+CTL_RUN -- "INSERT" --> T_AA
+CTL_RUN -- "Submit(ns,pod,t_end)" --> NTF_RUN
+CTL_PRN -- "Remove(ns,pod)" --> NTF_RUN
+NTF_RUN -- "Upsert/Remove" --> AS_STATE
 
-AS_DELTA -- "filter updates" --> SS_SUB
-SS_SUB -- "broadcast" --> TS_LOOP
-HC_TICK -.restart on liveness fail.-> TS_LOOP
+AS_API -- "Delta events" --> FU_DEB
+FU_BC -- "Filter per scanner" --> TS_LOOP
+SUP_RUN -. starts .-> TS_LOOP
+SUP_RUN -. starts .-> BW_BUF
+SUP_RUN -. starts .-> FU_DEB
+SUP_RUN -. starts .-> NTF_RUN
 
-TS_LOOP -- "ONE long-lived stream<br/>per table, NODE-LOCAL" --> QB
-TS_WRITER -- "batched POST INSERT per-table" --> T_PX
+TS_LOOP -- "PxL ExecuteScript<br/>fresh JWT, fresh client" --> QB
+QB -- "rows" --> TS_LOOP
+TS_LOOP -- "rows" --> BW_BUF
+BW_BUF -- "POST INSERT per table" --> T_PX
 
-%% Cloud only at boot
-PS -.ONE-TIME at boot.- OP
+PS -.boot only.- OP
 
-%% =========================================================
-%% STYLE: highlight what's NEW
-%% =========================================================
-classDef new fill:#d4ffd4,stroke:#080,stroke-width:2px;
-class AS,SS,TS,HC new
-class AS_STATE,AS_DELTA new
-class SS_SUB new
-class TS_LOOP,TS_WRITER new
-class HC_TICK new
+%% ============================================================
+%% CR-fixes highlighted (this commit, 0c6caec69)
+%% ============================================================
+classDef crfix fill:#d4ffd4,stroke:#080,stroke-width:2px;
+class CTL_PRN,AS_API,NTF_RUN crfix
+class FU_DEB crfix
+
+%% Properties verified by the sweep:
+%%  - rev-3 streaming flow active: "Supervisor: starting rev-3 push flow"
+%%  - 608 attribution rows in 36 min window, evenly per-pod (~77 each)
+%%  - pgsql_events 20 → 39M (rev-2 push fan-out fix)
+%%  - PEM CPU 85-99m on split topologies (was 2.2 CPUs in rev-2)

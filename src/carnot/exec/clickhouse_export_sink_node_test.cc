@@ -124,9 +124,15 @@ class ClickHouseExportSinkNodeTest : public ::testing::Test {
     try {
       client_->Execute(absl::Substitute("DROP TABLE IF EXISTS $0", table_name));
 
+      // clickhouse_export_sink_node auto-derives an event_time column
+      // (DateTime64(3), ms) from time_ when the column mapping doesn't
+      // already include it (see clickhouse_export_sink_node.cc:170-196),
+      // so the destination table MUST have an event_time column or the
+      // INSERT fails with "No such column event_time in table".
       client_->Execute(absl::Substitute(R"(
         CREATE TABLE $0 (
           time_ DateTime64(9),
+          event_time DateTime64(3),
           hostname String,
           count Int64,
           latency Float64
@@ -354,9 +360,12 @@ TEST_F(ClickHouseExportSinkNodeTest, UINT128Export) {
   try {
     client_->Execute(absl::Substitute("DROP TABLE IF EXISTS $0", table_name));
 
+    // clickhouse_export_sink_node auto-derives event_time from time_
+    // (see clickhouse_export_sink_node.cc:170-196); table MUST declare it.
     client_->Execute(absl::Substitute(R"(
       CREATE TABLE $0 (
         time_ DateTime64(9),
+        event_time DateTime64(3),
         upid String,
         hostname String,
         value Int64
@@ -444,21 +453,27 @@ TEST_F(ClickHouseExportSinkNodeTest, UINT128Export) {
   tester.ConsumeNext(rb2, 0, 0);
   tester.Close();
 
-  // Verify data was inserted and UINT128 values were converted to UUID strings
+  // Verify data was inserted. The sink encodes UINT128 as "<high64>:<low64>"
+  // (see clickhouse_export_sink_node.cc:153-163) to match what the source-node
+  // parser consumes — NOT a UUID dash-form string. Build the expected key the
+  // same way the sink does so the test reflects the contract, not a stale
+  // pre-roundtrip-format expectation.
   auto results = QueryTable(absl::Substitute("SELECT upid, hostname, value FROM $0 ORDER BY time_", table_name));
 
   ASSERT_EQ(results.size(), 3);
 
-  // Check that UINT128 values were converted to valid UUID strings
-  EXPECT_EQ(results[0][0], uuid1.str());
+  auto highLow = [](const sole::uuid& u) {
+    return absl::Substitute("$0:$1", u.ab, u.cd);
+  };
+  EXPECT_EQ(results[0][0], highLow(uuid1));
   EXPECT_EQ(results[0][1], "host1");
   EXPECT_EQ(results[0][2], "100");
 
-  EXPECT_EQ(results[1][0], uuid2.str());
+  EXPECT_EQ(results[1][0], highLow(uuid2));
   EXPECT_EQ(results[1][1], "host2");
   EXPECT_EQ(results[1][2], "200");
 
-  EXPECT_EQ(results[2][0], uuid3.str());
+  EXPECT_EQ(results[2][0], highLow(uuid3));
   EXPECT_EQ(results[2][1], "host3");
   EXPECT_EQ(results[2][2], "300");
 }

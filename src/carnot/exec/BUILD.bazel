@@ -314,7 +314,7 @@ pl_cc_test(
     timeout = "long",
     srcs = ["clickhouse_source_node_test.cc"],
     data = [
-        "//src/stirling/source_connectors/socket_tracer/testing/container_images/clickhouse",
+        "//src/stirling/source_connectors/socket_tracer/testing/container_images/clickhouse:clickhouse.tar",
     ],
     flaky = True,
     tags = [
@@ -336,7 +336,7 @@ pl_cc_test(
     timeout = "long",
     srcs = ["clickhouse_export_sink_node_test.cc"],
     data = [
-        "//src/stirling/source_connectors/socket_tracer/testing/container_images/clickhouse",
+        "//src/stirling/source_connectors/socket_tracer/testing/container_images/clickhouse:clickhouse.tar",
     ],
     flaky = True,
     tags = [

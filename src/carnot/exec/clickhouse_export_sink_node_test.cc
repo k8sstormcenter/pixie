@@ -54,7 +54,8 @@ using ::testing::_;
 class ClickHouseExportSinkNodeTest : public ::testing::Test {
  protected:
   static constexpr char kClickHouseImage[] =
-      "src/stirling/source_connectors/socket_tracer/testing/container_images/clickhouse/clickhouse.tar";
+      "src/stirling/source_connectors/socket_tracer/testing/container_images/clickhouse/"
+      "clickhouse.tar";
   static constexpr char kClickHouseReadyMessage[] = "Ready for connections";
   static constexpr int kClickHousePort = 9000;
 
@@ -138,7 +139,8 @@ class ClickHouseExportSinkNodeTest : public ::testing::Test {
           latency Float64
         ) ENGINE = MergeTree()
         ORDER BY time_
-      )", table_name));
+      )",
+                                        table_name));
 
       LOG(INFO) << "Export table created successfully: " << table_name;
     } catch (const std::exception& e) {
@@ -248,18 +250,18 @@ TEST_F(ClickHouseExportSinkNodeTest, BasicExport) {
 
   // Create test data
   auto rb1 = RowBatchBuilder(input_rd, 2, /*eow*/ false, /*eos*/ false)
-      .AddColumn<types::Time64NSValue>({1000000000000000000LL, 2000000000000000000LL})
-      .AddColumn<types::StringValue>({"host1", "host2"})
-      .AddColumn<types::Int64Value>({100, 200})
-      .AddColumn<types::Float64Value>({1.5, 2.5})
-      .get();
+                 .AddColumn<types::Time64NSValue>({1000000000000000000LL, 2000000000000000000LL})
+                 .AddColumn<types::StringValue>({"host1", "host2"})
+                 .AddColumn<types::Int64Value>({100, 200})
+                 .AddColumn<types::Float64Value>({1.5, 2.5})
+                 .get();
 
   auto rb2 = RowBatchBuilder(input_rd, 1, /*eow*/ true, /*eos*/ true)
-      .AddColumn<types::Time64NSValue>({3000000000000000000LL})
-      .AddColumn<types::StringValue>({"host3"})
-      .AddColumn<types::Int64Value>({300})
-      .AddColumn<types::Float64Value>({3.5})
-      .get();
+                 .AddColumn<types::Time64NSValue>({3000000000000000000LL})
+                 .AddColumn<types::StringValue>({"host3"})
+                 .AddColumn<types::Int64Value>({300})
+                 .AddColumn<types::Float64Value>({3.5})
+                 .get();
 
   // Send data to sink
   tester.ConsumeNext(rb1, 0, 0);
@@ -267,7 +269,8 @@ TEST_F(ClickHouseExportSinkNodeTest, BasicExport) {
   tester.Close();
 
   // Verify data was inserted
-  auto results = QueryTable(absl::Substitute("SELECT hostname, count, latency FROM $0 ORDER BY time_", table_name));
+  auto results = QueryTable(
+      absl::Substitute("SELECT hostname, count, latency FROM $0 ORDER BY time_", table_name));
 
   ASSERT_EQ(results.size(), 3);
   EXPECT_EQ(results[0][0], "host1");
@@ -296,11 +299,11 @@ TEST_F(ClickHouseExportSinkNodeTest, EmptyBatch) {
 
   // Send only EOS batch
   auto rb = RowBatchBuilder(input_rd, 0, /*eow*/ true, /*eos*/ true)
-      .AddColumn<types::Time64NSValue>({})
-      .AddColumn<types::StringValue>({})
-      .AddColumn<types::Int64Value>({})
-      .AddColumn<types::Float64Value>({})
-      .get();
+                .AddColumn<types::Time64NSValue>({})
+                .AddColumn<types::StringValue>({})
+                .AddColumn<types::Int64Value>({})
+                .AddColumn<types::Float64Value>({})
+                .get();
 
   tester.ConsumeNext(rb, 0, 0);
   tester.Close();
@@ -327,11 +330,11 @@ TEST_F(ClickHouseExportSinkNodeTest, MultipleBatches) {
   for (int i = 0; i < 5; ++i) {
     bool is_last = (i == 4);
     auto rb = RowBatchBuilder(input_rd, 1, /*eow*/ is_last, /*eos*/ is_last)
-        .AddColumn<types::Time64NSValue>({(i + 1) * 1000000000000000000LL})
-        .AddColumn<types::StringValue>({absl::Substitute("host$0", i)})
-        .AddColumn<types::Int64Value>({i * 100})
-        .AddColumn<types::Float64Value>({i * 1.5})
-        .get();
+                  .AddColumn<types::Time64NSValue>({(i + 1) * 1000000000000000000LL})
+                  .AddColumn<types::StringValue>({absl::Substitute("host$0", i)})
+                  .AddColumn<types::Int64Value>({i * 100})
+                  .AddColumn<types::Float64Value>({i * 1.5})
+                  .get();
 
     tester.ConsumeNext(rb, 0, 0);
   }
@@ -345,7 +348,8 @@ TEST_F(ClickHouseExportSinkNodeTest, MultipleBatches) {
   EXPECT_EQ(results[0][0], "5");
 
   // Verify data order
-  auto ordered_results = QueryTable(absl::Substitute("SELECT hostname FROM $0 ORDER BY time_", table_name));
+  auto ordered_results =
+      QueryTable(absl::Substitute("SELECT hostname FROM $0 ORDER BY time_", table_name));
 
   ASSERT_EQ(ordered_results.size(), 5);
   for (int i = 0; i < 5; ++i) {
@@ -371,7 +375,8 @@ TEST_F(ClickHouseExportSinkNodeTest, UINT128Export) {
         value Int64
       ) ENGINE = MergeTree()
       ORDER BY time_
-    )", table_name));
+    )",
+                                      table_name));
 
     LOG(INFO) << "UINT128 export table created successfully: " << table_name;
   } catch (const std::exception& e) {
@@ -435,18 +440,18 @@ TEST_F(ClickHouseExportSinkNodeTest, UINT128Export) {
 
   // Create test data with UINT128 values
   auto rb1 = RowBatchBuilder(input_rd, 2, /*eow*/ false, /*eos*/ false)
-      .AddColumn<types::Time64NSValue>({1000000000000000000LL, 2000000000000000000LL})
-      .AddColumn<types::UInt128Value>({upid1, upid2})
-      .AddColumn<types::StringValue>({"host1", "host2"})
-      .AddColumn<types::Int64Value>({100, 200})
-      .get();
+                 .AddColumn<types::Time64NSValue>({1000000000000000000LL, 2000000000000000000LL})
+                 .AddColumn<types::UInt128Value>({upid1, upid2})
+                 .AddColumn<types::StringValue>({"host1", "host2"})
+                 .AddColumn<types::Int64Value>({100, 200})
+                 .get();
 
   auto rb2 = RowBatchBuilder(input_rd, 1, /*eow*/ true, /*eos*/ true)
-      .AddColumn<types::Time64NSValue>({3000000000000000000LL})
-      .AddColumn<types::UInt128Value>({upid3})
-      .AddColumn<types::StringValue>({"host3"})
-      .AddColumn<types::Int64Value>({300})
-      .get();
+                 .AddColumn<types::Time64NSValue>({3000000000000000000LL})
+                 .AddColumn<types::UInt128Value>({upid3})
+                 .AddColumn<types::StringValue>({"host3"})
+                 .AddColumn<types::Int64Value>({300})
+                 .get();
 
   // Send data to sink
   tester.ConsumeNext(rb1, 0, 0);
@@ -458,13 +463,12 @@ TEST_F(ClickHouseExportSinkNodeTest, UINT128Export) {
   // parser consumes — NOT a UUID dash-form string. Build the expected key the
   // same way the sink does so the test reflects the contract, not a stale
   // pre-roundtrip-format expectation.
-  auto results = QueryTable(absl::Substitute("SELECT upid, hostname, value FROM $0 ORDER BY time_", table_name));
+  auto results = QueryTable(
+      absl::Substitute("SELECT upid, hostname, value FROM $0 ORDER BY time_", table_name));
 
   ASSERT_EQ(results.size(), 3);
 
-  auto highLow = [](const sole::uuid& u) {
-    return absl::Substitute("$0:$1", u.ab, u.cd);
-  };
+  auto highLow = [](const sole::uuid& u) { return absl::Substitute("$0:$1", u.ab, u.cd); };
   EXPECT_EQ(results[0][0], highLow(uuid1));
   EXPECT_EQ(results[0][1], "host1");
   EXPECT_EQ(results[0][2], "100");

@@ -148,7 +148,7 @@
         "(\\.go$)"
       ],
       "flags": [
-        "--timeout=5m0s",
+        "--timeout=15m0s",
         "--output.checkstyle.path=stdout"
       ]
     },

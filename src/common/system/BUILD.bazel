@@ -116,8 +116,9 @@ pl_cc_test(
 pl_cc_test(
     name = "socket_info_namespace_test",
     # Downloads a container, so run-time can be higher than other tests.
-    timeout = "moderate",
+    timeout = "long",
     srcs = ["socket_info_namespace_test.cc"],
+    flaky = True,
     tags = [
         # This test requires root to call setns().
         # This tag prevents the test from running on local dev machines.

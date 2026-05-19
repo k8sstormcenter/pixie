@@ -36,8 +36,8 @@ build:
     bazel:
       target: //src/vizier/services/cloud_connector:cloud_connector_server_image.tar
       args:
-        - --config=x86_64_sysroot
-        - --compilation_mode=opt
+      - --config=x86_64_sysroot
+      - --compilation_mode=opt
   - image: vizier-cert_provisioner_image
     context: .
     bazel:

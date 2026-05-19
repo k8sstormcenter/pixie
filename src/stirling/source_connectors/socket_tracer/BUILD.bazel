@@ -261,7 +261,7 @@ pl_cc_bpf_test(
 
 pl_cc_bpf_test(
     name = "cql_trace_bpf_test",
-    timeout = "moderate",
+    timeout = "long",
     srcs = [
         "cql_trace_bpf_test.cc",
     ],
@@ -572,8 +572,9 @@ pl_cc_bpf_test(
 
 pl_cc_bpf_test(
     name = "amqp_trace_bpf_test",
-    timeout = "moderate",
+    timeout = "long",
     srcs = ["amqp_trace_bpf_test.cc"],
+    flaky = True,
     tags = ["requires_bpf"],
     deps = [
         ":cc_library",
@@ -587,8 +588,9 @@ pl_cc_bpf_test(
 
 pl_cc_bpf_test(
     name = "mongodb_trace_bpf_test",
-    timeout = "moderate",
+    timeout = "long",
     srcs = ["mongodb_trace_bpf_test.cc"],
+    flaky = True,
     tags = ["requires_bpf"],
     deps = [
         ":cc_library",

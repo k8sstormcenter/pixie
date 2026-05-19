@@ -1,11 +1,14 @@
 ---
 # Build and push the adaptive_export operator image to
-# ghcr.io/k8sstormcenter/vizier-adaptive_export_image. This is a
-# fork-specific publish workflow — the upstream pixie release flow
-# bundles every vizier image together (k8s/vizier/BUILD.bazel
-# VIZIER_IMAGE_TO_LABEL), but the SBOB PoC only iterates on this one
-# component and we don't want to rebuild kelvin / pem / metadata on
-# every adaptive_export change.
+# ghcr.io/k8sstormcenter/vizier-adaptive_export_image. Modelled on
+# vizier_release.yaml + ci/image_utils.sh::push_images_for_arch — the
+# Pixie-idiomatic flow that does `bazel run :<container_push>` with
+# --//k8s:image_repository / --//k8s:image_version overrides. The
+# scope here is intentionally just the adaptive_export image (a
+# dedicated :adaptive_export_image_push bundle in
+# src/vizier/services/adaptive_export/BUILD.bazel) so the SBOB PoC
+# can rebuild this one component without rebuilding kelvin / pem /
+# metadata.
 #
 # Triggers:
 #   - workflow_dispatch (manual rebuild for any commit)
@@ -13,8 +16,8 @@
 #
 # Tag scheme matches the existing manually-pushed tags on
 # ghcr.io/k8sstormcenter/vizier-adaptive_export_image:
-#   - <YYYY-MM-DD_HH-MM-SS_UTC>  (timestamp, primary tag)
-#   - <short-sha>                (commit pin, secondary tag)
+#   - <YYYY-MM-DD_HH-MM-SS.mmm_UTC>  (timestamp, primary tag)
+#   - <short-sha>                    (commit pin, secondary tag)
 # `latest` is intentionally NOT updated so we don't shift what an
 # `:latest` puller resolves to without an explicit ack.
 name: adaptive-export-image
@@ -69,52 +72,29 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-    - name: Build image tar
-      shell: bash
-      run: |
-        # Explicitly target the .tar output: `bazel build :foo_image`
-        # only materializes the layer tar (the rule's primary output);
-        # the full-image .tar is an implicit secondary output and is
-        # NOT placed into bazel-bin unless requested by name.
-        bazel build --config=x86_64_sysroot \
-          //src/vizier/services/adaptive_export:adaptive_export_image.tar
-    - name: Load to docker
-      id: load
-      shell: bash
-      run: |
-        # `docker load -i …` prints "Loaded image ID: sha256:<digest>"
-        # (or "Loaded image: <repo>:<tag>" for an image-with-tag tar).
-        # bazel's pl_go_image / container_image emits an untagged image
-        # so we get the digest line; parse it directly without the
-        # rules_docker .executable wrapper script (which doesn't always
-        # land in bazel-bin and is what tripped the prior workflow run).
-        TAR="bazel-bin/src/vizier/services/adaptive_export/adaptive_export_image.tar"
-        ls -lh "${TAR}"
-        OUT="$(docker load -i "${TAR}")"
-        echo "${OUT}"
-        IMG_ID="$(echo "${OUT}" | grep -oE 'sha256:[a-f0-9]+' | head -1 | cut -d: -f2)"
-        if [ -z "${IMG_ID}" ]; then
-          # Fallback: tar was loaded with a repo:tag; capture it instead.
-          REPO_TAG="$(echo "${OUT}" | sed -n 's/^Loaded image: //p' | head -1)"
-          if [ -z "${REPO_TAG}" ]; then
-            echo "FAIL: could not parse image identity from docker load output above"
-            exit 1
-          fi
-          IMG_ID="${REPO_TAG}"
-        fi
-        echo "img_id=${IMG_ID}" >> "$GITHUB_OUTPUT"
-    - name: Tag and push
+    - name: Build and push image
       shell: bash
       env:
-        IMG_ID: ${{ steps.load.outputs.img_id }}
+        IMAGE_REPO: ghcr.io/k8sstormcenter
         TS: ${{ steps.tags.outputs.ts }}
         SHA: ${{ steps.tags.outputs.sha }}
       run: |
-        IMAGE="ghcr.io/k8sstormcenter/vizier-adaptive_export_image"
-        docker tag "${IMG_ID}" "${IMAGE}:${TS}"
-        docker tag "${IMG_ID}" "${IMAGE}:${SHA}"
-        docker push "${IMAGE}:${TS}"
-        docker push "${IMAGE}:${SHA}"
+        # Same shape as ci/image_utils.sh::push_images_for_arch — bazel
+        # run on the container_push target with the standard
+        # --//k8s:image_repository / --//k8s:image_version flags. Run
+        # twice with two image_versions so we publish both <ts> and
+        # <sha> tags; analysis is cached after the first run so only
+        # the push action actually re-executes.
+        for TAG in "${TS}" "${SHA}"; do
+          echo "::group::push ${IMAGE_REPO}/vizier-adaptive_export_image:${TAG}"
+          bazel run -c opt \
+            --config=stamp \
+            --config=x86_64_sysroot \
+            --//k8s:image_repository="${IMAGE_REPO}" \
+            --//k8s:image_version="${TAG}" \
+            //src/vizier/services/adaptive_export:adaptive_export_image_push
+          echo "::endgroup::"
+        done
         echo "Pushed:"
-        echo "  ${IMAGE}:${TS}"
-        echo "  ${IMAGE}:${SHA}"
+        echo "  ${IMAGE_REPO}/vizier-adaptive_export_image:${TS}"
+        echo "  ${IMAGE_REPO}/vizier-adaptive_export_image:${SHA}"

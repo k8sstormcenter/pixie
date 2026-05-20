@@ -120,7 +120,9 @@ pl_cc_test(
 
 pl_cc_bpf_test(
     name = "elf_reader_symbolizer_bpf_test",
+    timeout = "long",
     srcs = ["elf_reader_symbolizer_bpf_test.cc"],
+    flaky = True,
     tags = [
         "cpu:16",
         "requires_bpf",

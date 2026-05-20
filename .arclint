@@ -207,6 +207,9 @@
       "type": "shellcheck",
       "include": [
         "(.*\\.sh$)"
+      ],
+      "exclude": [
+        "(^\\.local/)"
       ]
     },
     "spelling": {

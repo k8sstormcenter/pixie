@@ -211,7 +211,50 @@ func (s *ClickHouseHTTP) WritePixieRows(ctx context.Context, table string, rows 
 		"ch_summary":     summary,
 		"first_row_keys": strings.Join(firstRowKeys, ","),
 	}).Info("sink: pixie write completed")
+	// Detect the silent-drop class: CH returns 2xx but
+	// X-ClickHouse-Summary.written_rows < len(rows). Observed live on
+	// 2026-05-23T20:58Z (redis_events: rows_sent=1658, written_rows=0)
+	// — the operator reported success and the analyst saw the gap days
+	// later. Header absence is tolerated (older CH versions / proxies
+	// strip it); only an EXPLICIT zero-of-non-zero counts.
+	if writeMismatch := summaryWroteFewerThan(summary, len(rows)); writeMismatch != nil {
+		return fmt.Errorf("sink: pixie write to %s reported %d rows_sent but CH summary written_rows=%d (silent drop): %s",
+			table, len(rows), writeMismatch.writtenRows, summary)
+	}
 	return nil
+}
+
+// summaryDelta carries the parsed write counters from CH's
+// X-ClickHouse-Summary response header.
+type summaryDelta struct {
+	writtenRows int64
+}
+
+// summaryWroteFewerThan returns non-nil when the X-ClickHouse-Summary
+// header is present, parseable, and reports written_rows < rowsSent.
+// Returns nil when the header is missing, unparseable, or the count
+// matches/exceeds rowsSent — those are not data-loss signals.
+func summaryWroteFewerThan(summary string, rowsSent int) *summaryDelta {
+	if summary == "" {
+		return nil
+	}
+	var parsed struct {
+		WrittenRows json.Number `json:"written_rows"`
+	}
+	if err := json.Unmarshal([]byte(summary), &parsed); err != nil {
+		return nil
+	}
+	if parsed.WrittenRows == "" {
+		return nil
+	}
+	wrote, err := parsed.WrittenRows.Int64()
+	if err != nil {
+		return nil
+	}
+	if wrote >= int64(rowsSent) {
+		return nil
+	}
+	return &summaryDelta{writtenRows: wrote}
 }
 
 // normalisePixieValue coerces pxapi-emitted Go values into JSON-friendly

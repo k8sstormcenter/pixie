@@ -451,3 +451,138 @@ func TestParseActiveRows_RoundTripFromBytes(t *testing.T) {
 		t.Fatalf("round-trip mismatch: %+v", rows)
 	}
 }
+
+// pixieRow returns a minimal-but-valid map shaped like a pxapi row.
+func pixieRow() map[string]any {
+	return map[string]any{
+		"time_":       time.Unix(0, 1700000000000000000).UTC(),
+		"upid":        "1234:5678:9",
+		"namespace":   "redis",
+		"pod":         "redis/redis-1",
+		"req_cmd":     "GET",
+		"resp":        "OK",
+		"latency":     int64(123456),
+		"remote_addr": "10.0.0.1",
+		"remote_port": int64(6379),
+		"local_addr":  "10.0.0.2",
+		"local_port":  int64(34567),
+		"trace_role":  int64(2),
+		"encrypted":   false,
+		"px_info_":    "",
+		"req_args":    "",
+	}
+}
+
+// TestWritePixieRows_HappyPath — happy path: CH returns 200 with a
+// non-zero `written_rows` in X-ClickHouse-Summary; WritePixieRows
+// returns nil. Pins the contract the regression test below inverts.
+func TestWritePixieRows_HappyPath(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-ClickHouse-Summary",
+			`{"read_rows":"1","read_bytes":"100","written_rows":"1","written_bytes":"100",`+
+				`"total_rows_to_read":"0","result_rows":"1","result_bytes":"100","elapsed_ns":"1000000"}`)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	s, err := New(Config{Endpoint: srv.URL})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := s.WritePixieRows(context.Background(), "redis_events", []map[string]any{pixieRow()}); err != nil {
+		t.Fatalf("WritePixieRows: %v", err)
+	}
+}
+
+// TestWritePixieRows_DetectsSilentZeroWriteDrop — regression for the
+// silent-data-loss bug observed on the live operator:
+//
+//	sink: pixie write completed
+//	    rows_sent=1658
+//	    body_bytes=2098817
+//	    ch_summary="{...,"written_rows":"0",...}"
+//	    table=redis_events
+//
+// CH returned 2xx but `X-ClickHouse-Summary.written_rows` was zero
+// for a 1658-row payload — i.e. CH silently dropped every row. The
+// operator must NOT report success in that case; otherwise the
+// caller treats the batch as durably persisted and we lose data.
+func TestWritePixieRows_DetectsSilentZeroWriteDrop(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Real CH summary header from the operator-pod log on
+		// 2026-05-23T20:58:39Z, table=redis_events.
+		w.Header().Set("X-ClickHouse-Summary",
+			`{"read_rows":"0","read_bytes":"0","written_rows":"0","written_bytes":"0",`+
+				`"total_rows_to_read":"0","result_rows":"0","result_bytes":"0","elapsed_ns":"23034181"}`)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	s, err := New(Config{Endpoint: srv.URL})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// Send a real (non-zero) batch — a zero-input batch short-circuits
+	// before the HTTP call so the assertion would never fire.
+	batch := make([]map[string]any, 1658)
+	for i := range batch {
+		batch[i] = pixieRow()
+	}
+	err = s.WritePixieRows(context.Background(), "redis_events", batch)
+	if err == nil {
+		t.Fatalf("expected error from silent-drop (rows_sent=%d, written_rows=0), got nil", len(batch))
+	}
+	if !strings.Contains(err.Error(), "0") || !strings.Contains(err.Error(), "1658") {
+		t.Fatalf("error should mention both written_rows=0 and rows_sent=1658 for diagnosis; got: %v", err)
+	}
+}
+
+// TestWritePixieRows_DetectsPartialWriteDrop — CH wrote SOME rows
+// but not all. Same data-loss class as the zero-write case; reject.
+func TestWritePixieRows_DetectsPartialWriteDrop(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-ClickHouse-Summary",
+			`{"read_rows":"100","read_bytes":"10000","written_rows":"100","written_bytes":"10000",`+
+				`"total_rows_to_read":"0","result_rows":"100","result_bytes":"10000","elapsed_ns":"1000000"}`)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	s, _ := New(Config{Endpoint: srv.URL})
+	batch := make([]map[string]any, 200) // sent 200, CH says wrote 100
+	for i := range batch {
+		batch[i] = pixieRow()
+	}
+	err := s.WritePixieRows(context.Background(), "redis_events", batch)
+	if err == nil {
+		t.Fatalf("expected error on partial write (sent=200, written=100); got nil")
+	}
+}
+
+// TestWritePixieRows_NoSummaryHeaderIsTolerated — older CH versions
+// (or proxies) may strip the X-ClickHouse-Summary header. Absence is
+// NOT a failure signal — only an explicit zero-of-non-zero is.
+func TestWritePixieRows_NoSummaryHeaderIsTolerated(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200) // no summary header at all
+	}))
+	defer srv.Close()
+	s, _ := New(Config{Endpoint: srv.URL})
+	if err := s.WritePixieRows(context.Background(), "redis_events", []map[string]any{pixieRow()}); err != nil {
+		t.Fatalf("missing summary header must not error; got: %v", err)
+	}
+}
+
+// TestWritePixieRows_EmptyBatchShortCircuits — zero-row input never
+// hits HTTP and never produces a "silent drop" false positive.
+func TestWritePixieRows_EmptyBatchShortCircuits(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer srv.Close()
+	s, _ := New(Config{Endpoint: srv.URL})
+	if err := s.WritePixieRows(context.Background(), "redis_events", nil); err != nil {
+		t.Fatalf("empty WritePixieRows: %v", err)
+	}
+	if called {
+		t.Fatalf("empty batch made an HTTP call")
+	}
+}

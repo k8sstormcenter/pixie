@@ -83,8 +83,15 @@ resource "kubernetes_secret_v1" "db_secrets" {
   wait_for_service_account_token = false
 }
 
-data "sops_file" "auth0" {
-  source_file = "${path.module}/../../credentials/cockpit/auth0_config.yaml"
+data "terraform_remote_state" "auth0" {
+  backend = "azurerm"
+  config = {
+    resource_group_name  = var.auth0_state_resource_group
+    storage_account_name = var.auth0_state_storage_account
+    container_name       = var.auth0_state_container
+    key                  = var.auth0_state_key
+    use_azuread_auth     = true
+  }
 }
 
 resource "kubernetes_secret_v1" "cloud_auth0" {
@@ -94,8 +101,8 @@ resource "kubernetes_secret_v1" "cloud_auth0" {
   }
 
   data = {
-    "auth0-client-id"     = data.sops_file.auth0.data["stringData.auth0-client-id"]
-    "auth0-client-secret" = data.sops_file.auth0.data["stringData.auth0-client-secret"]
+    "auth0-client-id"     = data.terraform_remote_state.auth0.outputs.pixie_client_id
+    "auth0-client-secret" = data.terraform_remote_state.auth0.outputs.pixie_client_secret
   }
 
   type                           = "Opaque"

@@ -39,3 +39,21 @@ variable "cluster_internal_issuer" {
 variable "public_issuer" {
   default = "letsencrypt-prod"
 }
+
+# Auth0 remote state lookup — reads pixie_client_id / pixie_client_secret
+# outputs from the auth0 terraform state. All four must be supplied by the
+# caller (pipeline passes them as -var).
+variable "auth0_state_resource_group" {
+  type = string
+}
+variable "auth0_state_storage_account" {
+  type = string
+}
+variable "auth0_state_container" {
+  type    = string
+  default = "tfoscaas-0001"
+}
+variable "auth0_state_key" {
+  type    = string
+  default = "auth0-ckp2.tfstate"
+}

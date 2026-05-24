@@ -16,11 +16,11 @@ terraform {
 }
 
 provider "kubernetes" {
-  config_path    = "~/.kube/cockpick-config"
+  config_path    = "~/.kube/cockpit-config"
   config_context = "default"
 }
 
 provider "kustomization" {
   context = "default"
-  kubeconfig_path = "~/.kube/cockpick-config"
+  kubeconfig_path = "~/.kube/cockpit-config"
 }

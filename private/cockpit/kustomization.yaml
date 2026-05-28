@@ -20,6 +20,7 @@ replicas:
 resources:
 - ../../k8s/cloud/base
 - plugin_db_updater_job.yaml
+- oauth_config.yaml
 components:
 - ../../k8s/cloud/overlays/exposed_services_traefik
 labels:
@@ -27,7 +28,6 @@ labels:
   pairs:
     app: pl-cloud
 patches:
-- path: oauth_config.yaml
 - path: artifact_config.yaml
 - path: auth_deployment.yaml
 - path: domain_config.yaml

@@ -5,16 +5,16 @@ metadata:
   name: cloud-ingress
   namespace: plc
   annotations:
-    external-dns.alpha.kubernetes.io/hostname: pixie.austrianopencloudcommunity.org,work.pixie.austrianopencloudcommunity.org
+    external-dns.alpha.kubernetes.io/hostname: test.austrianopencloudcommunity.org,work.test.austrianopencloudcommunity.org
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
   tls:
   - hosts:
-    - pixie.austrianopencloudcommunity.org
-    - work.pixie.austrianopencloudcommunity.org
+    - test.austrianopencloudcommunity.org
+    - work.test.austrianopencloudcommunity.org
     secretName: cloud-proxy-tls-certs
   rules:
-  - host: pixie.austrianopencloudcommunity.org
+  - host: test.austrianopencloudcommunity.org
     http:
       paths:
       - path: /px.services
@@ -45,7 +45,7 @@ spec:
             name: cloud-proxy-service
             port:
               number: 443
-  - host: work.pixie.austrianopencloudcommunity.org
+  - host: work.test.austrianopencloudcommunity.org
     http:
       paths:
       - path: /px.services

@@ -42,7 +42,7 @@ data:
                       cluster: api_service
                   cors:
                     allow_origin_string_match:
-                    - suffix: "pixie.austrianopencloudcommunity.org"
+                    - suffix: "test.austrianopencloudcommunity.org"
                     allow_methods: GET, PUT, DELETE, POST, OPTIONS
                     allow_headers: content-type,x-grpc-web,x-user-agent
                     max_age: "1728000"

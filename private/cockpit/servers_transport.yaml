@@ -5,4 +5,4 @@ metadata:
   name: cloud-backend-transport
   namespace: plc
 spec:
-  serverName: pixie.austrianopencloudcommunity.org
+  serverName: test.austrianopencloudcommunity.org

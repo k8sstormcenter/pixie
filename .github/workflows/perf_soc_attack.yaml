@@ -11,10 +11,75 @@ on:
         description: 'Tags (comma separated)'
         required: false
         type: string
+      cloud_addr:
+        description: 'Pixie cloud address (host:port)'
+        required: false
+        default: 'pixie.austrianopencloudcommunity.org:443'
+        type: string
+      ado_action:
+        description: >
+          Pre-test action against the SovereignSOC edge-cluster pipeline.
+          'skip' = no ADO call (default; perf runs against the existing
+          KUBECONFIG_B64 cluster). 'plan' = dry-run the ADO pipeline
+          (validates GH→ADO trigger without changing infra).
+          'reset'/'create' = mutating; only use once the kubeconfig
+          export from edge-cluster.yml lands (see SovereignSOC
+          docs/triggering-pipelines-from-github.md §C).
+        required: false
+        default: 'skip'
+        type: choice
+        options:
+          - skip
+          - plan
+          - reset
+          - create
+      ado_cluster:
+        description: 'Edge cluster slot (only used when ado_action != skip)'
+        required: false
+        default: 'edge4'
+        type: choice
+        options:
+          - edge4
+          - k3s-1
+          - k3s-2
+          - rocky-1
 permissions:
   contents: read
   packages: write
 jobs:
+  # ── GH→ADO trigger smoke step ─────────────────────────────────────────
+  # Fires the SovereignSOC edge-cluster pipeline before the perf test runs.
+  # Skipped by default (ado_action=skip) so the existing prod-targeted
+  # path keeps working. Set ado_action=plan to smoke-test the trigger
+  # path without infra mutation.
+  ado-trigger:
+    if: ${{ inputs.ado_action != 'skip' }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: ado
+        uses: k8sstormcenter/actions/trigger-ado-pipeline@main
+        with:
+          org:         ${{ vars.ADO_ORG }}
+          project:     ${{ vars.ADO_PROJECT }}
+          pipeline_id: ${{ vars.ADO_PIPELINE_EDGE }}
+          pat:         ${{ secrets.ADO_PAT }}
+          cluster:     ${{ inputs.ado_cluster }}
+          action:      ${{ inputs.ado_action }}
+          os:          'ubuntu'
+          wait:        'true'
+          timeout:     '1800'
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ADO trigger"
+            echo "- pipeline: \`edge-cluster\`"
+            echo "- cluster:  \`${{ inputs.ado_cluster }}\`"
+            echo "- action:   \`${{ inputs.ado_action }}\`"
+            echo "- run url:  ${{ steps.ado.outputs.run_url }}"
+            echo "- result:   ${{ steps.ado.outputs.result }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   get-dev-image-with-extras:
     uses: ./.github/workflows/get_image.yaml
     with:
@@ -23,7 +88,12 @@ jobs:
 
   soc-attack-perf:
     name: Sovereign SOC redis-attack perf eval
-    needs: get-dev-image-with-extras
+    # When ado_action != skip, wait for the ADO trigger to finish first.
+    # `always()` ensures the job still runs when ado-trigger is skipped.
+    needs:
+      - get-dev-image-with-extras
+      - ado-trigger
+    if: ${{ always() && needs.get-dev-image-with-extras.result == 'success' && (needs.ado-trigger.result == 'success' || needs.ado-trigger.result == 'skipped') }}
     runs-on: oracle-vm-16cpu-64gb-x86-64
     container:
       image: ${{ needs.get-dev-image-with-extras.outputs.image-with-tag }}
@@ -144,7 +214,7 @@ jobs:
       run: |
         bazel run //src/e2e_test/perf_tool:perf_tool -- run \
           --api_key="${PX_API_KEY}" \
-          --cloud_addr=pixie.austrianopencloudcommunity.org:443 \
+          --cloud_addr="${{ inputs.cloud_addr }}" \
           --commit_sha="${{ steps.get-commit-sha.outputs.commit-sha }}" \
           --experiment_name=redis-attack-4x \
           --suite=sovereign-soc \

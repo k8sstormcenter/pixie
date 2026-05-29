@@ -43,6 +43,15 @@ on:
           - k3s-1
           - k3s-2
           - rocky-1
+      ado_branch:
+        description: >
+          SovereignSOC ref the ADO pipeline definition should resolve from.
+          Use the branch the pipeline YAML lives on, NOT a perf branch.
+          Defaults to refs/heads/refactor/edge-slots (the active working
+          branch until it lands on main).
+        required: false
+        default: 'refs/heads/refactor/edge-slots'
+        type: string
 permissions:
   contents: read
   packages: write
@@ -66,6 +75,7 @@ jobs:
           cluster:     ${{ inputs.ado_cluster }}
           action:      ${{ inputs.ado_action }}
           os:          'ubuntu'
+          branch:      ${{ inputs.ado_branch }}
           wait:        'true'
           timeout:     '1800'
       - name: Summary

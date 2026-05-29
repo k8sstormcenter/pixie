@@ -83,6 +83,10 @@ resource "kubernetes_manifest" "cloud_proxy_tls_certs" {
         "work.${local.cert_subdomain}",
       ]
       "issuerRef" = {
+        # ClusterIssuer kind must be explicit — defaulting to Issuer makes
+        # cert-manager look for a namespaced Issuer with this name in the
+        # plc namespace, which doesn't exist for letsencrypt-prod.
+        "kind" = "ClusterIssuer"
         "name" = var.public_issuer
       }
       "secretName" = "cloud-proxy-tls-certs"

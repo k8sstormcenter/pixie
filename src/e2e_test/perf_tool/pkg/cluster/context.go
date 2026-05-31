@@ -53,6 +53,36 @@ func NewContextFromPath(kubeconfigPath string) (*Context, error) {
 	}, nil
 }
 
+// NewContextFromOptions creates a new Context using the specified kubeconfig path and/or context name.
+// If kubeconfigPath is empty, the default kubeconfig path is used.
+// If kubeContext is empty, the current-context from the kubeconfig is used.
+func NewContextFromOptions(kubeconfigPath string, kubeContext string) (*Context, error) {
+	loadingRules := &clientcmd.ClientConfigLoadingRules{}
+	if kubeconfigPath != "" {
+		loadingRules.ExplicitPath = kubeconfigPath
+	} else {
+		loadingRules = clientcmd.NewDefaultClientConfigLoadingRules()
+	}
+	overrides := &clientcmd.ConfigOverrides{}
+	if kubeContext != "" {
+		overrides.CurrentContext = kubeContext
+	}
+	config := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
+	restConfig, err := config.ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+	if kubeconfigPath == "" {
+		kubeconfigPath = clientcmd.RecommendedHomeFile
+	}
+	clientset := k8s.GetClientset(restConfig)
+	return &Context{
+		configPath: kubeconfigPath,
+		restConfig: restConfig,
+		clientset:  clientset,
+	}, nil
+}
+
 // NewContextFromConfig writes the given kubeconfig to a file, and the returns NewContextFromPath for that file.
 func NewContextFromConfig(kubeconfig []byte) (*Context, error) {
 	tmpFile, err := os.CreateTemp("", "*")

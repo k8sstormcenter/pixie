@@ -20,6 +20,7 @@ package metrics
 
 import (
 	"context"
+	"fmt"
 
 	"golang.org/x/sync/errgroup"
 
@@ -35,7 +36,7 @@ type Recorder interface {
 }
 
 // NewMetricsRecorder creates a new Recorder for the given MetricSpec.
-func NewMetricsRecorder(pxCtx *pixie.Context, clusterCtx *cluster.Context, spec *experimentpb.MetricSpec, eg *errgroup.Group, resultCh chan<- *ResultRow) Recorder {
+func NewMetricsRecorder(pxCtx *pixie.Context, clusterCtx *cluster.Context, spec *experimentpb.MetricSpec, eg *errgroup.Group, resultCh chan<- *ResultRow) (Recorder, error) {
 	switch spec.MetricType.(type) {
 	case *experimentpb.MetricSpec_PxL:
 		return &pxlScriptRecorderImpl{
@@ -44,14 +45,26 @@ func NewMetricsRecorder(pxCtx *pixie.Context, clusterCtx *cluster.Context, spec 
 
 			eg:       eg,
 			resultCh: resultCh,
-		}
+		}, nil
 	case *experimentpb.MetricSpec_Prom:
-		return &prometheusRecorderImpl{
-			clusterCtx: clusterCtx,
-			spec:       spec.GetProm(),
-			eg:         eg,
-			resultCh:   resultCh,
+		promSpec := spec.GetProm()
+		recorderCtx := clusterCtx
+		ownsCtx := false
+		if promSpec.KubeconfigPath != "" || promSpec.KubeContext != "" {
+			var err error
+			recorderCtx, err = cluster.NewContextFromOptions(promSpec.KubeconfigPath, promSpec.KubeContext)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create cluster context for prometheus recorder: %w", err)
+			}
+			ownsCtx = true
 		}
+		return &prometheusRecorderImpl{
+			clusterCtx:    recorderCtx,
+			ownsClusterCtx: ownsCtx,
+			spec:          promSpec,
+			eg:            eg,
+			resultCh:      resultCh,
+		}, nil
 	}
-	return nil
+	return nil, nil
 }

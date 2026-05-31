@@ -97,6 +97,19 @@ ignored_dirs = [
     "src/vizier/services/query_broker/**", # mutation and clickhouse changes to upstream
     "src/pixie_cli/BUILD.bazel", # fork customizations, see if this can be parameterized
     "WORKSPACE", # upstream misspelling
+    # Many of these changes will be upstreamed, but it will be easier to keep this
+    # whole tree is frozen in the meantime.
+    "src/e2e_test/perf_tool/**",
+    "src/e2e_test/protocol_loadtest/skaffold_client.yaml",   # --config=x86_64_sysroot
+    "src/e2e_test/protocol_loadtest/skaffold_loadtest.yaml", # --config=x86_64_sysroot
+    "src/utils/shared/k8s/apply.go",  # perf_tool prerendered-deploy support
+    "src/utils/shared/k8s/delete.go", # perf_tool prerendered-deploy support
+    # Go module manifests carry fork-only deps (parquet-go) and version bumps
+    # required by perf_tool's parquet exporter. Upstream Go dep updates will
+    # need to be reconciled by hand.
+    "go.mod",
+    "go.sum",
+    "go_deps.bzl",
 ]
 
 # Files/dirs that exist only in the fork and must not be deleted by copybara.

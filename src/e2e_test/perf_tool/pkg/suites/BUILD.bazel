@@ -26,6 +26,7 @@ go_library(
         "workloads.go",
     ],
     embedsrcs = [
+        "scripts/clickhouse_export.pxl",
         "scripts/healthcheck/http_data_in_namespace.pxl",
         "scripts/healthcheck/vizier.pxl",
         "scripts/heap_size.pxl",

@@ -130,7 +130,7 @@ jobs:
       run: |
         bazel run //src/e2e_test/perf_tool:perf_tool -- run \
           --api_key="${PX_API_KEY}" \
-          --cloud_addr=${{ vars.PERF_CLOUD_ADDR }}
+          --cloud_addr=${{ vars.PERF_CLOUD_ADDR }} \
           --commit_sha="${{ steps.get-commit-sha.outputs.commit-sha }}" \
           --experiment_name=clickhouse-export \
           --suite=clickhouse-exec \

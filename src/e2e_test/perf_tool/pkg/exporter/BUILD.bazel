@@ -15,24 +15,36 @@
 # SPDX-License-Identifier: Apache-2.0
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
-    name = "run",
-    srcs = ["run.go"],
-    importpath = "px.dev/pixie/src/e2e_test/perf_tool/pkg/run",
+    name = "exporter",
+    srcs = [
+        "bq_exporter.go",
+        "exporter.go",
+        "parquet_exporter.go",
+    ],
+    importpath = "px.dev/pixie/src/e2e_test/perf_tool/pkg/exporter",
     visibility = ["//visibility:public"],
     deps = [
-        "//src/e2e_test/perf_tool/experimentpb:experiment_pl_go_proto",
-        "//src/e2e_test/perf_tool/pkg/cluster",
-        "//src/e2e_test/perf_tool/pkg/deploy",
-        "//src/e2e_test/perf_tool/pkg/exporter",
         "//src/e2e_test/perf_tool/pkg/metrics",
-        "//src/e2e_test/perf_tool/pkg/pixie",
-        "@com_github_cenkalti_backoff_v4//:backoff",
+        "//src/shared/bq",
         "@com_github_gofrs_uuid//:uuid",
-        "@com_github_gogo_protobuf//jsonpb",
-        "@com_github_gogo_protobuf//types",
+        "@com_github_parquet_go_parquet_go//:parquet-go",
         "@com_github_sirupsen_logrus//:logrus",
-        "@org_golang_x_sync//errgroup",
+        "@com_google_cloud_go_storage//:storage",
+    ],
+)
+
+pl_go_test(
+    name = "exporter_test",
+    srcs = ["parquet_exporter_test.go"],
+    embed = [":exporter"],
+    deps = [
+        "//src/e2e_test/perf_tool/pkg/metrics",
+        "@com_github_gofrs_uuid//:uuid",
+        "@com_github_parquet_go_parquet_go//:parquet-go",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
     ],
 )

@@ -224,7 +224,9 @@ jobs:
         # the stock demo values which the live forensic CH does not accept.
         # SOC_CH_HOST is fine at default (matches DSN format expected by
         # ClickHouseSource / ClickHouseExportSink). SOC_CH_CREDS supplies the
-        # real password from `sso-vault-edge/clickhouse_pixie_password`.
+        # real password — sourced from the SovereignSOC `forensic` ADO
+        # variable group (`clickhouse_pixie_password`) and mirrored as the
+        # GH repo secret CLICKHOUSE_PIXIE_PASSWORD.
         SOC_CH_CREDS: pixie:${{ secrets.CLICKHOUSE_PIXIE_PASSWORD }}
       run: |
         bazel run //src/e2e_test/perf_tool:perf_tool -- run \

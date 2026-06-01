@@ -220,6 +220,12 @@ jobs:
         PX_API_KEY: ${{ secrets.PX_API_KEY }}
         GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.gcloud-creds.outputs.gcloud-creds }}
         KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        # suites.go:212-220 defaults `clickhouseHost` and `clickhouseCreds` to
+        # the stock demo values which the live forensic CH does not accept.
+        # SOC_CH_HOST is fine at default (matches DSN format expected by
+        # ClickHouseSource / ClickHouseExportSink). SOC_CH_CREDS supplies the
+        # real password from `sso-vault-edge/clickhouse_pixie_password`.
+        SOC_CH_CREDS: pixie:${{ secrets.CLICKHOUSE_PIXIE_PASSWORD }}
       run: |
         bazel run //src/e2e_test/perf_tool:perf_tool -- run \
           --api_key="${PX_API_KEY}" \

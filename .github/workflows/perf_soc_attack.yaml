@@ -223,6 +223,8 @@ jobs:
         PX_DEPLOY_KEY:   ${{ secrets.PX_DEPLOY_KEY }}
         PX_CLOUD_ADDR:   ${{ inputs.cloud_addr }}
         KUBECONFIG:      ${{ runner.temp }}/kubeconfig
+      # Container default shell is /bin/sh (dash) — no `set -o pipefail`.
+      shell: bash
       run: |
         set -euo pipefail
 

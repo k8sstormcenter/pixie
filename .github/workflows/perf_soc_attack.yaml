@@ -204,100 +204,6 @@ jobs:
         install -m 0755 bazel-bin/src/pixie_cli/px_/px /usr/local/bin/px
         px version
 
-    # Deploy Vizier via manifest-apply (NOT `px deploy` directly).
-    #
-    # `px deploy` has a bug where the Subscription apply step prints ✔ but
-    # the object never lands in k8s, so the operator never reconciles the
-    # Vizier CR and the deploy times out at "cluster ID assignment".
-    # Diagnosed in biz/iximiuz/MAKEFILE 2026-05-25; same pattern applied
-    # here so SOC_VIZIER_EXISTING=1 (used below) finds a healthy vizier
-    # on every cluster including fresh edge4 resets via the ADO trigger
-    # path.
-    #
-    # Use px ONLY to generate the yamls (--extract_yaml) and kubectl-apply
-    # them in numeric order, waiting at each phase. Idempotent — short-
-    # circuits when vizier-cloud-connector is already Available.
-    - name: Deploy Vizier (manifest-apply, idempotent)
-      env:
-        PX_API_KEY:      ${{ secrets.PX_API_KEY }}
-        PX_DEPLOY_KEY:   ${{ secrets.PX_DEPLOY_KEY }}
-        PX_CLOUD_ADDR:   ${{ inputs.cloud_addr }}
-        KUBECONFIG:      ${{ runner.temp }}/kubeconfig
-      # Container default shell is /bin/sh (dash) — no `set -o pipefail`.
-      shell: bash
-      run: |
-        set -euo pipefail
-
-        if kubectl get ns pl >/dev/null 2>&1 \
-           && kubectl -n pl get deploy vizier-cloud-connector >/dev/null 2>&1 \
-           && kubectl -n pl rollout status deploy/vizier-cloud-connector --timeout=1s >/dev/null 2>&1; then
-          echo "__VIZIER_ALREADY_HEALTHY__"
-          exit 0
-        fi
-
-        echo "STEP_1_AUTH"
-        px auth login --use_api_key --api_key "$PX_API_KEY" -y >/dev/null
-
-        echo "STEP_2_EXTRACT_YAMLS"
-        rm -rf /tmp/px-yaml && mkdir -p /tmp/px-yaml
-        px deploy --deploy_key "$PX_DEPLOY_KEY" --extract_yaml /tmp/px-yaml >/dev/null
-        tar -xf /tmp/px-yaml/yamls.tar -C /tmp/px-yaml/
-        YAML_DIR=/tmp/px-yaml/pixie_yamls
-        [[ -d "$YAML_DIR" ]] || { echo "EXTRACT_FAILED no $YAML_DIR"; exit 1; }
-
-        echo "STEP_3_APPLY_CRDS"
-        # --server-side avoids the 256KB last-applied-configuration annotation
-        # limit on the OLM CRDs (clusterserviceversions.yaml schema is ~250KB).
-        kubectl apply --server-side --force-conflicts -f "$YAML_DIR/00_olm_crd.yaml"
-        kubectl apply --server-side --force-conflicts -f "$YAML_DIR/01_vizier_crd.yaml"
-        kubectl wait --for=condition=Established --timeout=60s \
-          crd/clusterserviceversions.operators.coreos.com \
-          crd/catalogsources.operators.coreos.com \
-          crd/subscriptions.operators.coreos.com \
-          crd/installplans.operators.coreos.com \
-          crd/operatorgroups.operators.coreos.com \
-          crd/viziers.px.dev >/dev/null
-
-        echo "STEP_4_APPLY_OLM"
-        kubectl apply -f "$YAML_DIR/02_olm.yaml"
-        kubectl -n olm rollout status deploy/olm-operator     --timeout=180s >/dev/null
-        kubectl -n olm rollout status deploy/catalog-operator --timeout=180s >/dev/null
-
-        echo "STEP_5_APPLY_OPERATOR_BUNDLE"
-        kubectl apply -f "$YAML_DIR/03_px_olm.yaml"
-        kubectl apply -f "$YAML_DIR/04_catalog.yaml"
-        kubectl apply -f "$YAML_DIR/05_subscription.yaml"
-
-        echo "STEP_6_WAIT_CSV"
-        PHASE=""
-        for i in $(seq 1 36); do
-          PHASE=$(kubectl -n px-operator get csv -o jsonpath='{.items[0].status.phase}' 2>/dev/null || true)
-          [[ "$PHASE" == "Succeeded" ]] && break
-          sleep 5
-        done
-        [[ "$PHASE" == "Succeeded" ]] || { echo "OPERATOR_CSV_NOT_SUCCEEDED phase=$PHASE"; exit 1; }
-
-        echo "STEP_7_APPLY_VIZIER"
-        # The extracted yamls don't include the pl namespace creation —
-        # the original `px deploy` did it implicitly before applying the CR.
-        kubectl create ns pl 2>/dev/null || true
-        kubectl apply -f "$YAML_DIR/06_vizier.yaml"
-
-        echo "STEP_8_WAIT_VIZIER_HEALTHY"
-        # cloud-connector is the last Pod up in the vizier set; once Available,
-        # SOC_VIZIER_EXISTING=1 below will find a usable cluster.
-        for i in $(seq 1 60); do
-          if kubectl -n pl get deploy vizier-cloud-connector >/dev/null 2>&1 \
-             && kubectl -n pl rollout status deploy/vizier-cloud-connector --timeout=5s >/dev/null 2>&1; then
-            echo "__VIZIER_DEPLOYED__"
-            exit 0
-          fi
-          sleep 10
-        done
-        echo "VIZIER_NEVER_BECAME_AVAILABLE (10min)"
-        kubectl -n pl get pods
-        exit 1
-
     # The sovereign-soc suite installs Kubescape + Vector on the experiment
     # cluster as part of the run (see KubescapeVectorWorkload). The
     # kubescape-operator chart is pre-rendered under
@@ -314,7 +220,6 @@ jobs:
         PX_API_KEY: ${{ secrets.PX_API_KEY }}
         GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.gcloud-creds.outputs.gcloud-creds }}
         KUBECONFIG: ${{ runner.temp }}/kubeconfig
-        SOC_VIZIER_EXISTING: "1"
       run: |
         bazel run //src/e2e_test/perf_tool:perf_tool -- run \
           --api_key="${PX_API_KEY}" \

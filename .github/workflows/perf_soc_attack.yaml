@@ -238,6 +238,22 @@ jobs:
         echo "STEP_1_AUTH"
         px auth login --use_api_key --api_key "$PX_API_KEY" -y >/dev/null
 
+        # PX_DEPLOY_KEY is optional in CI — fall back to runtime creation when
+        # the repo doesn't have it as a secret (the pixie repo only sets
+        # PX_API_KEY by convention). `px deploy-key create` mints a one-shot
+        # deploy key bound to the authenticated user / org, which is plenty
+        # for an ephemeral perf run.
+        if [[ -z "${PX_DEPLOY_KEY:-}" ]]; then
+          echo "PX_DEPLOY_KEY unset — creating an ephemeral deploy key"
+          PX_DEPLOY_KEY=$(px deploy-key create -o json 2>/dev/null \
+            | jq -r '.key // .deploy_key // .DeployKey // empty')
+          if [[ -z "$PX_DEPLOY_KEY" ]]; then
+            echo "deploy-key create returned empty — fallback YAML:" >&2
+            px deploy-key create -o yaml 2>&1 | head -10 >&2
+            exit 1
+          fi
+        fi
+
         echo "STEP_2_EXTRACT_YAMLS"
         rm -rf /tmp/px-yaml && mkdir -p /tmp/px-yaml
         px deploy --deploy_key "$PX_DEPLOY_KEY" --extract_yaml /tmp/px-yaml >/dev/null

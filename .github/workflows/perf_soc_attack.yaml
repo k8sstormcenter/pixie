@@ -238,20 +238,42 @@ jobs:
         echo "STEP_1_AUTH"
         px auth login --use_api_key --api_key "$PX_API_KEY" -y >/dev/null
 
-        # PX_DEPLOY_KEY is optional in CI — fall back to runtime creation when
-        # the repo doesn't have it as a secret (the pixie repo only sets
-        # PX_API_KEY by convention). `px deploy-key create` mints a one-shot
-        # deploy key bound to the authenticated user / org, which is plenty
-        # for an ephemeral perf run.
+        # PX_DEPLOY_KEY is optional in CI — fall back to runtime creation
+        # when the repo doesn't have it as a secret (the pixie repo only
+        # sets PX_API_KEY by convention). `px deploy-key create` mints a
+        # one-shot deploy key bound to the authenticated user / org.
+        #
+        # CRITICAL: run the px call OUTSIDE `set -e -o pipefail`, otherwise
+        # any non-zero in the pipeline (px error, jq miss) kills the script
+        # before the diagnostic echo can fire — observed in run 26758604321
+        # where the step exited 1 right after the "unset" echo with no
+        # explanation.
         if [[ -z "${PX_DEPLOY_KEY:-}" ]]; then
           echo "PX_DEPLOY_KEY unset — creating an ephemeral deploy key"
-          PX_DEPLOY_KEY=$(px deploy-key create -o json 2>/dev/null \
-            | jq -r '.key // .deploy_key // .DeployKey // empty')
-          if [[ -z "$PX_DEPLOY_KEY" ]]; then
-            echo "deploy-key create returned empty — fallback YAML:" >&2
-            px deploy-key create -o yaml 2>&1 | head -10 >&2
+          set +e
+          DEPLOY_KEY_OUT=$(px deploy-key create -o json 2>&1)
+          DEPLOY_KEY_RC=$?
+          set -e
+          if [[ $DEPLOY_KEY_RC -ne 0 ]]; then
+            echo "px deploy-key create failed (rc=$DEPLOY_KEY_RC):" >&2
+            echo "$DEPLOY_KEY_OUT" >&2
             exit 1
           fi
+          PX_DEPLOY_KEY=$(printf '%s' "$DEPLOY_KEY_OUT" \
+            | jq -r '.key // .deploy_key // .DeployKey // empty' 2>/dev/null || true)
+          # Fallback: some px versions print "Created Deploy Key: px-dep-…"
+          # plus a "key: <value>" YAML-ish line — grep for the literal prefix
+          # if jq couldn't find it.
+          if [[ -z "$PX_DEPLOY_KEY" ]]; then
+            PX_DEPLOY_KEY=$(printf '%s' "$DEPLOY_KEY_OUT" \
+              | grep -oE 'px-dep-[a-zA-Z0-9-]+' | head -1)
+          fi
+          if [[ -z "$PX_DEPLOY_KEY" ]]; then
+            echo "couldn't parse deploy key out of px output:" >&2
+            echo "$DEPLOY_KEY_OUT" | head -20 >&2
+            exit 1
+          fi
+          echo "minted ephemeral deploy key: ${PX_DEPLOY_KEY:0:14}…"
         fi
 
         echo "STEP_2_EXTRACT_YAMLS"

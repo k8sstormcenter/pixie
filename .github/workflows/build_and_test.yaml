@@ -2,6 +2,16 @@
 name: build-and-test
 on:
   pull_request_target:
+    # Skip the full bazel matrix when a PR only touches stand-alone perf
+    # workflows or the perf_tool harness — they're exercised via their own
+    # workflow_dispatch (`perf-eval-soc-attack`, `perf-eval-clickhouse`) and
+    # don't need a full build-and-test signal. Without this filter, every
+    # iteration on perf_soc_attack.yaml saturated the 3-runner oracle pool
+    # with clang-tidy / ASAN / GCC-opt legs for hours.
+    paths-ignore:
+      - '.github/workflows/perf_soc_attack.yaml'
+      - '.github/workflows/perf_clickhouse.yaml'
+      - '.github/workflows/build_and_test.yaml'
   push:
     branches:
     - 'main'

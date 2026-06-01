@@ -1,5 +1,5 @@
 data "kustomization_build" "elastic" {
-  # TODO(ddelnano): This will need to be updated for the terraform Azure pipeline 
+  # TODO(ddelnano): This will need to be updated for the terraform Azure pipeline
   path = "../../../k8s/cloud_deps/base/elastic/operator"
 }
 

@@ -296,4 +296,3 @@ import {
   id = "signup-password:signup-password"
   to = auth0_prompt_screen_partial.signup_password_signup_password
 }
-

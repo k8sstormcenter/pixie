@@ -40,6 +40,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -54,6 +55,7 @@ import (
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/clickhouse"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/config"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/control"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/controller"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pixie"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pixieapi"
@@ -444,6 +446,20 @@ func main() {
 		"window_before":  ctlCfg.Before,
 		"window_after":   ctlCfg.After,
 	}).Info("operator running")
+
+	// dx control surface: when DX_CONTROL_ADDR is set, the per-node dx-daemon
+	// steers this AE's activeSet (Upsert/Remove) over HTTP. Off by default so
+	// the existing trigger→controller→activeSet flow is unchanged.
+	if addr := os.Getenv("DX_CONTROL_ADDR"); addr != "" {
+		ctrlSrv := control.New(activeSet, nil) // OrderQuery runner wired later
+		go func() {
+			log.WithField("addr", addr).Info("dx control surface listening")
+			if err := http.ListenAndServe(addr, ctrlSrv.Handler()); err != nil &&
+				err != http.ErrServerClosed {
+				log.WithError(err).Error("dx control surface stopped")
+			}
+		}()
+	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

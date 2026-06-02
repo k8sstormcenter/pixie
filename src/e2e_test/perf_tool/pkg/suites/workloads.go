@@ -62,14 +62,29 @@ func VizierReleaseWorkload() *pb.WorkloadSpec {
 // removed: on this fork it hits the upstream bug where px deploy's
 // Subscription apply prints ✔ but never lands in k8s, so the operator never
 // reconciles the Vizier CR and the deploy times out at "cluster ID
-// assignment" (diagnosed in biz/iximiuz/MAKEFILE 2026-05-25). Skaffold
-// deploy builds vizier from this branch's source — including the
-// _pem_hostname UDF + adaptive write changes that the released 0.14.17
+// assignment" (diagnosed in biz/iximiuz/MAKEFILE 2026-05-25).
+//
+// We keep one PxCLIDeploy step with empty Args + SetClusterID=true — exactly
+// the existingVizierWorkload pattern — so pxCtx.SetClusterID gets called
+// against the already-registered cluster ID in Pixie Cloud before skaffold
+// runs. Without it, every subsequent NewVizierClient call errors with
+// "must call SetClusterID before calling NewVizierClient on Context" and
+// healthchecks loop until timeout (observed in run 26809108499).
+//
+// Skaffold deploy then builds vizier from this branch's source — including
+// the _pem_hostname UDF + adaptive write changes that the released 0.14.17
 // images don't have — and applies directly.
 func VizierWorkload() *pb.WorkloadSpec {
 	return &pb.WorkloadSpec{
 		Name: "vizier",
 		DeploySteps: []*pb.DeployStep{
+			{
+				DeployType: &pb.DeployStep_Px{
+					Px: &pb.PxCLIDeploy{
+						SetClusterID: true,
+					},
+				},
+			},
 			{
 				DeployType: &pb.DeployStep_Skaffold{
 					Skaffold: &pb.SkaffoldDeploy{

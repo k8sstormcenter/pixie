@@ -78,13 +78,11 @@ func VizierWorkload() *pb.WorkloadSpec {
 	return &pb.WorkloadSpec{
 		Name: "vizier",
 		DeploySteps: []*pb.DeployStep{
-			{
-				DeployType: &pb.DeployStep_Px{
-					Px: &pb.PxCLIDeploy{
-						SetClusterID: true,
-					},
-				},
-			},
+			// Skaffold first: bazel-build vizier from this branch's source and
+			// kubectl-apply the rendered manifests. Vizier's cloud-connector
+			// then registers with Pixie Cloud asynchronously and the cluster
+			// is assigned a fresh UUID — there's no static cluster_id to
+			// hardcode.
 			{
 				DeployType: &pb.DeployStep_Skaffold{
 					Skaffold: &pb.SkaffoldDeploy{
@@ -92,6 +90,17 @@ func VizierWorkload() *pb.WorkloadSpec {
 						SkaffoldArgs: []string{
 							"-p", "opt",
 						},
+					},
+				},
+			},
+			// SetClusterID second: pxDeployImpl retries `px get cluster --id`
+			// until cloud-connector finishes its registration handshake and a
+			// non-zero UUID surfaces. Then pxCtx.SetClusterID is called and
+			// subsequent NewVizierClient calls succeed.
+			{
+				DeployType: &pb.DeployStep_Px{
+					Px: &pb.PxCLIDeploy{
+						SetClusterID: true,
 					},
 				},
 			},

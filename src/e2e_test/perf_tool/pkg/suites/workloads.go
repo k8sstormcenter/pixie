@@ -57,35 +57,19 @@ func VizierReleaseWorkload() *pb.WorkloadSpec {
 }
 
 // VizierWorkload returns the workload spec to deploy Vizier.
+//
+// The first-pass `px deploy` + `px delete --clobber=false` reset cycle was
+// removed: on this fork it hits the upstream bug where px deploy's
+// Subscription apply prints ✔ but never lands in k8s, so the operator never
+// reconciles the Vizier CR and the deploy times out at "cluster ID
+// assignment" (diagnosed in biz/iximiuz/MAKEFILE 2026-05-25). Skaffold
+// deploy builds vizier from this branch's source — including the
+// _pem_hostname UDF + adaptive write changes that the released 0.14.17
+// images don't have — and applies directly.
 func VizierWorkload() *pb.WorkloadSpec {
 	return &pb.WorkloadSpec{
 		Name: "vizier",
 		DeploySteps: []*pb.DeployStep{
-			{
-				DeployType: &pb.DeployStep_Px{
-					Px: &pb.PxCLIDeploy{
-						Args: []string{
-							"deploy",
-						},
-						SetClusterID: true,
-						Namespaces: []string{
-							"pl",
-							"px-operator",
-							"olm",
-						},
-					},
-				},
-			},
-			{
-				DeployType: &pb.DeployStep_Px{
-					Px: &pb.PxCLIDeploy{
-						Args: []string{
-							"delete",
-							"--clobber=false",
-						},
-					},
-				},
-			},
 			{
 				DeployType: &pb.DeployStep_Skaffold{
 					Skaffold: &pb.SkaffoldDeploy{

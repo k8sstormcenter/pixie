@@ -27,6 +27,7 @@ go_library(
         "//src/vizier/services/adaptive_export/internal/activeset",
         "//src/vizier/services/adaptive_export/internal/clickhouse",
         "//src/vizier/services/adaptive_export/internal/config",
+        "//src/vizier/services/adaptive_export/internal/control",
         "//src/vizier/services/adaptive_export/internal/controller",
         "//src/vizier/services/adaptive_export/internal/pixie",
         "//src/vizier/services/adaptive_export/internal/pixieapi",

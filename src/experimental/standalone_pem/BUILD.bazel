@@ -79,6 +79,7 @@ cc_image(
     base = ":standalone_pem_base_image",
     binary = ":standalone_pem",
     visibility = [
+        "//k8s/vizier:__pkg__",
         "//src/vizier:__subpackages__",
     ],
 )

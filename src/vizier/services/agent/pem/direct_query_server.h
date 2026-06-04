@@ -1,0 +1,79 @@
+/*
+ * Copyright 2018- The Pixie Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+// Direct-query gRPC endpoint for the normal (metadata-connected) PEM — entlein/dx#29.
+//
+// STUB: dx-agent provides this interface + the TDD contract in
+// direct_query_server_test.cc and DIRECT_QUERY_CONTRACT.md. The pem-agent (build VM)
+// implements the bodies in direct_query_server.cc against the PEM's existing Carnot.
+//
+// Reference impl to port from: src/experimental/standalone_pem/vizier_server.h
+// (px::vizier::agent::VizierServer). Differences for the real PEM: reuse the live
+// Carnot + metadata (no second engine), and REQUIRE a valid cluster service JWT.
+
+#pragma once
+
+#include <grpcpp/grpcpp.h>
+#include <memory>
+#include <string>
+
+#include "src/api/proto/vizierpb/vizierapi.grpc.pb.h"
+#include "src/api/proto/vizierpb/vizierapi.pb.h"
+
+namespace px {
+namespace carnot {
+class Carnot;
+class EngineState;
+}  // namespace carnot
+
+namespace vizier {
+namespace agent {
+
+// AuthenticateRequest verifies the `authorization: Bearer <jwt>` metadata on an
+// incoming call against `jwt_signing_key` (HS256, unexpired, vizier-audience).
+// Returns OK iff the token is valid; UNAUTHENTICATED otherwise. A missing token
+// MUST NOT fall through to execution. See DIRECT_QUERY_CONTRACT.md § Auth.
+//
+// TODO(pem-agent): implement using src/shared/services/utils JWT verification.
+::grpc::Status AuthenticateRequest(::grpc::ServerContext* ctx, const std::string& jwt_signing_key);
+
+// DirectQueryServer serves api.vizierpb.VizierService.ExecuteScript directly on the
+// PEM, authenticated, against the live node-local Carnot. Construct with the PEM's
+// already-running engine — do not create a new one.
+class DirectQueryServer final : public api::vizierpb::VizierService::Service {
+ public:
+  DirectQueryServer() = delete;
+  DirectQueryServer(carnot::Carnot* carnot, carnot::EngineState* engine_state,
+                    std::string jwt_signing_key)
+      : carnot_(carnot), engine_state_(engine_state), jwt_signing_key_(std::move(jwt_signing_key)) {}
+
+  // ExecuteScript: authenticate, then run the PxL on the local Carnot and stream
+  // ExecuteScriptResponse rows. Mutations are out of scope (return UNIMPLEMENTED).
+  ::grpc::Status ExecuteScript(
+      ::grpc::ServerContext* context, const ::px::api::vizierpb::ExecuteScriptRequest* request,
+      ::grpc::ServerWriter<::px::api::vizierpb::ExecuteScriptResponse>* writer) override;
+
+ private:
+  carnot::Carnot* carnot_;
+  carnot::EngineState* engine_state_;
+  std::string jwt_signing_key_;
+};
+
+}  // namespace agent
+}  // namespace vizier
+}  // namespace px

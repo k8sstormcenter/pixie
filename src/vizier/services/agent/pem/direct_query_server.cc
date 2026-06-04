@@ -172,8 +172,26 @@ std::string hmacSha256(absl::string_view key, absl::string_view data) {
     return ::grpc::Status(::grpc::StatusCode::UNAUTHENTICATED,
                           "direct-query: payload not a JSON object");
   }
-  if (!payload.HasMember("aud") || !payload["aud"].IsString() ||
-      std::strcmp(payload["aud"].GetString(), kExpectedAudience) != 0) {
+  // RFC 7519 §4.1.3 — `aud` may be a single string OR an array of strings. The
+  // pixie-wide mint path (src/shared/services/utils/jwt.go:46) emits the array
+  // form (`"aud":["vizier"]`), and kelvin / query-broker verifiers accept both;
+  // we do the same so dx's live tokens authenticate against this verifier.
+  if (!payload.HasMember("aud")) {
+    return ::grpc::Status(::grpc::StatusCode::UNAUTHENTICATED, "direct-query: missing aud claim");
+  }
+  const auto& aud = payload["aud"];
+  bool aud_ok = false;
+  if (aud.IsString() && std::strcmp(aud.GetString(), kExpectedAudience) == 0) {
+    aud_ok = true;
+  } else if (aud.IsArray()) {
+    for (const auto& v : aud.GetArray()) {
+      if (v.IsString() && std::strcmp(v.GetString(), kExpectedAudience) == 0) {
+        aud_ok = true;
+        break;
+      }
+    }
+  }
+  if (!aud_ok) {
     return ::grpc::Status(::grpc::StatusCode::UNAUTHENTICATED,
                           "direct-query: wrong audience (expected vizier)");
   }
@@ -261,9 +279,8 @@ namespace {
 // ExecuteScriptResponse per GRPC_SINK_OPERATOR sink. The client uses these to
 // learn output table names and column types before the data chunks arrive.
 // Mirrors standalone_pem/vizier_server.h:132-173.
-void emitSchemaResponses(
-    const ::px::carnot::planpb::Plan& plan, const std::string& query_id,
-    ::grpc::ServerWriter<::px::api::vizierpb::ExecuteScriptResponse>* writer) {
+void emitSchemaResponses(const ::px::carnot::planpb::Plan& plan, const std::string& query_id,
+                         ::grpc::ServerWriter<::px::api::vizierpb::ExecuteScriptResponse>* writer) {
   for (const auto& f : plan.nodes()) {
     for (const auto& n : f.nodes()) {
       if (n.op().op_type() != ::px::carnot::planpb::OperatorType::GRPC_SINK_OPERATOR) continue;
@@ -291,30 +308,37 @@ void emitSchemaResponses(
 // standalone_pem/sink_server.h:60-105 but operates on already-collected
 // chunks rather than a streaming consumer.
 //
-// Step 2b emits one minimal-but-valid response per chunk so the contract test
-// (which only asserts OK + >=1 response) goes green. Full column-marshaling
-// from carnotpb::RowBatchData to vizierpb::RowBatchData (cols.{data,type})
-// lands when the dx-side consumer is wired in Step 4's live e2e; the column
-// payloads are non-trivial cross-proto translation, and the schema headers
-// emitted before this drain already give the client column metadata.
-void drainSinkAndStream(
-    ::px::carnot::exec::LocalGRPCResultSinkServer* result_server, const std::string& query_id,
-    ::grpc::ServerWriter<::px::api::vizierpb::ExecuteScriptResponse>* writer) {
+// Per-row column data is copied by wire-format round-trip: carnotpb's and
+// vizierpb's Column messages are bytewise identical (same oneof tags + field
+// numbers for boolean/int64/uint128/time64ns/float64/string), and the
+// surrounding RowBatchData shares field numbers 1-4 (cols/num_rows/eow/eos);
+// vizier's table_id sits at field 5 which carnot doesn't emit and we set
+// explicitly from query_result().table_name(). dx-agent confirmed this
+// envelope is what pxapi's TableMuxer/HandleRecord consumes.
+void drainSinkAndStream(::px::carnot::exec::LocalGRPCResultSinkServer* result_server,
+                        const std::string& query_id,
+                        ::grpc::ServerWriter<::px::api::vizierpb::ExecuteScriptResponse>* writer) {
   for (const auto& chunk : result_server->raw_query_results()) {
     ::px::api::vizierpb::ExecuteScriptResponse resp;
     resp.set_query_id(query_id);
     if (chunk.has_query_result() && chunk.query_result().has_row_batch()) {
       const auto& src = chunk.query_result().row_batch();
       auto* batch = resp.mutable_data()->mutable_batch();
-      batch->set_table_id(chunk.query_result().table_name());
-      batch->set_num_rows(src.num_rows());
-      batch->set_eow(src.eow());
-      batch->set_eos(src.eos());
-      // TODO(pem-agent / Step 4): copy carnotpb cols → vizierpb cols. The
-      // wire encoding differs (carnot uses RowBatchData inline, vizier
-      // wraps it in QueryData → RowBatchData with per-Column variants), so
-      // it's a per-type translation. Schema headers already give the client
-      // enough to recognise the response shape.
+      // Wire-compatible round-trip: serialize the carnot RowBatchData, parse
+      // into the vizier message. cols / num_rows / eow / eos all land verbatim
+      // (matching field numbers + identical Column oneof layout).
+      std::string buf;
+      if (src.SerializeToString(&buf) && batch->ParseFromString(buf)) {
+        batch->set_table_id(chunk.query_result().table_name());
+      } else {
+        // Roundtrip failed — should never happen on a well-formed payload, but
+        // fall back to the metadata-only shape so the client at least sees the
+        // batch boundary.
+        batch->set_table_id(chunk.query_result().table_name());
+        batch->set_num_rows(src.num_rows());
+        batch->set_eow(src.eow());
+        batch->set_eos(src.eos());
+      }
     }
     if (chunk.has_execution_error() && chunk.execution_error().err_code() != 0) {
       auto* status = resp.mutable_status();
@@ -364,8 +388,7 @@ void drainSinkAndStream(
   result_server_->ResetQueryResults();
   auto exec_s = carnot_->ExecuteQuery(request->query_str(), query_id, ::px::CurrentTimeNS());
   if (!exec_s.ok()) {
-    auto msg =
-        absl::Substitute("direct-query: PxL execute failed ($0)", exec_s.msg());
+    auto msg = absl::Substitute("direct-query: PxL execute failed ($0)", exec_s.msg());
     VLOG(1) << msg;
     return ::grpc::Status(::grpc::StatusCode::INTERNAL, msg);
   }

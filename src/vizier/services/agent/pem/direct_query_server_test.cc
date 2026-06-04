@@ -29,6 +29,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <vector>  // std::vector for the aud-array mint
 
 #include <grpcpp/grpcpp.h>
 #include <grpcpp/security/server_credentials.h>
@@ -71,7 +72,13 @@ std::string MakeBearerToken(const std::string& signing_key, TokenKind kind) {
 
   jwt::jwt_object obj{jwt::params::algorithm("HS256")};
   obj.add_claim("iss", "PL");
-  obj.add_claim("aud", "vizier");
+  // RFC 7519 §4.1.3 + pixie's go mint convention (jwt.go:46
+  // Audience([]string{...})) serialize aud as a JSON array. The verifier
+  // (direct_query_server.cc) accepts both string and array forms, but the
+  // unit test mints the ARRAY form so it guards against a regression to
+  // string-only verification — dx-agent reports the live e2e would
+  // UNAUTHENTICATED if we drifted back.
+  obj.add_claim("aud", std::vector<std::string>{"vizier"});
   obj.add_claim("jti", "direct-query-test");
   obj.add_claim("iat", now);
   obj.add_claim("nbf", now - seconds{60});

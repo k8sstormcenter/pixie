@@ -81,11 +81,11 @@ std::string MakeBearerToken(const std::string& signing_key, TokenKind kind) {
 class DirectQueryServerTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    // carnot/engine null for the auth + scope-guard cases (no execution reached).
-    // TODO(pem-agent): for QueryStreamsRows, build a Carnot fixture with a seeded
-    // table (see src/carnot/carnot_test.cc) and pass it here.
+    // carnot/engine/result_server null for the auth + scope-guard cases (no
+    // execution reached). Step 2: ValidToken_TrivialQuery_StreamsRows builds a
+    // real CarnotTest-style fixture in its own SetUp override.
     service_ = std::make_unique<DirectQueryServer>(/*carnot*/ nullptr, /*engine_state*/ nullptr,
-                                                   kTestSigningKey);
+                                                   /*result_server*/ nullptr, kTestSigningKey);
     ::grpc::ServerBuilder builder;
     builder.RegisterService(service_.get());
     server_ = builder.BuildAndStart();

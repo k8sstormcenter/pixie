@@ -31,6 +31,7 @@
 #include <grpcpp/grpcpp.h>
 #include <memory>
 #include <string>
+#include <utility>  // std::move (used in DirectQueryServer ctor)
 
 #include "src/api/proto/vizierpb/vizierapi.grpc.pb.h"
 #include "src/api/proto/vizierpb/vizierapi.pb.h"
@@ -60,7 +61,9 @@ class DirectQueryServer final : public api::vizierpb::VizierService::Service {
   DirectQueryServer() = delete;
   DirectQueryServer(carnot::Carnot* carnot, carnot::EngineState* engine_state,
                     std::string jwt_signing_key)
-      : carnot_(carnot), engine_state_(engine_state), jwt_signing_key_(std::move(jwt_signing_key)) {}
+      : carnot_(carnot),
+        engine_state_(engine_state),
+        jwt_signing_key_(std::move(jwt_signing_key)) {}
 
   // ExecuteScript: authenticate, then run the PxL on the local Carnot and stream
   // ExecuteScriptResponse rows. Mutations are out of scope (return UNIMPLEMENTED).

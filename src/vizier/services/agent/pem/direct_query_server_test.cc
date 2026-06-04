@@ -31,8 +31,8 @@
 #include <memory>
 #include <string>
 
-#include "src/common/testing/testing.h"
 #include "src/api/proto/vizierpb/vizierapi.grpc.pb.h"
+#include "src/common/testing/testing.h"
 #include "src/vizier/services/agent/pem/direct_query_server.h"
 
 namespace px {
@@ -126,7 +126,8 @@ TEST_F(DirectQueryServerTest, ExpiredToken_Unauthenticated) {
 // 5. Mutations are out of scope → UNIMPLEMENTED (and proves a valid token authenticates).
 TEST_F(DirectQueryServerTest, ValidToken_Mutation_Unimplemented) {
   auto tok = MakeBearerToken(kTestSigningKey, TokenKind::kValid);
-  EXPECT_EQ(::grpc::StatusCode::UNIMPLEMENTED, CallExecuteScript(tok, /*mutation*/ true).error_code());
+  EXPECT_EQ(::grpc::StatusCode::UNIMPLEMENTED,
+            CallExecuteScript(tok, /*mutation*/ true).error_code());
 }
 
 // 2. Valid token + trivial query → OK stream. Needs a Carnot fixture with a seeded

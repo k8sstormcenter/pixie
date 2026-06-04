@@ -239,6 +239,7 @@ std::string hmacSha256(absl::string_view key, absl::string_view data) {
   (void)writer;
   (void)carnot_;
   (void)engine_state_;
+  (void)result_server_;
   // TODO(pem-agent): port the standalone_pem VizierServer execution path — compile
   // the PxL via engine_state_->CreateLocalExecutionCompilerState, run on carnot_,
   // stream the result table(s) as ExecuteScriptResponse rows.

@@ -40,6 +40,9 @@ namespace px {
 namespace carnot {
 class Carnot;
 class EngineState;
+namespace exec {
+class LocalGRPCResultSinkServer;
+}  // namespace exec
 }  // namespace carnot
 
 namespace vizier {
@@ -49,20 +52,28 @@ namespace agent {
 // incoming call against `jwt_signing_key` (HS256, unexpired, vizier-audience).
 // Returns OK iff the token is valid; UNAUTHENTICATED otherwise. A missing token
 // MUST NOT fall through to execution. See DIRECT_QUERY_CONTRACT.md § Auth.
-//
-// TODO(pem-agent): implement using src/shared/services/utils JWT verification.
 ::grpc::Status AuthenticateRequest(::grpc::ServerContext* ctx, const std::string& jwt_signing_key);
 
 // DirectQueryServer serves api.vizierpb.VizierService.ExecuteScript directly on the
 // PEM, authenticated, against the live node-local Carnot. Construct with the PEM's
 // already-running engine — do not create a new one.
+//
+// `result_server` is the sink Carnot is configured to push results into; the
+// server polls it after `ExecuteQuery` returns and converts the accumulated
+// `TransferResultChunkRequest`s into streamed `ExecuteScriptResponse`s. Used
+// the same way standalone_pem's VizierServer does, except with the live PEM's
+// Carnot wired in production (see Step 4) and a CarnotTest-style fixture in
+// unit tests. Pass nullptr to disable the execution path (used by auth-only
+// tests so they don't need to stand up a TableStore).
 class DirectQueryServer final : public api::vizierpb::VizierService::Service {
  public:
   DirectQueryServer() = delete;
   DirectQueryServer(carnot::Carnot* carnot, carnot::EngineState* engine_state,
+                    carnot::exec::LocalGRPCResultSinkServer* result_server,
                     std::string jwt_signing_key)
       : carnot_(carnot),
         engine_state_(engine_state),
+        result_server_(result_server),
         jwt_signing_key_(std::move(jwt_signing_key)) {}
 
   // ExecuteScript: authenticate, then run the PxL on the local Carnot and stream
@@ -74,6 +85,7 @@ class DirectQueryServer final : public api::vizierpb::VizierService::Service {
  private:
   carnot::Carnot* carnot_;
   carnot::EngineState* engine_state_;
+  carnot::exec::LocalGRPCResultSinkServer* result_server_;
   std::string jwt_signing_key_;
 };
 

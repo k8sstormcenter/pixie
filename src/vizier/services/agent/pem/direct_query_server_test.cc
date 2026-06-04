@@ -26,10 +26,13 @@
 // The fixture runs an in-process gRPC server hosting DirectQueryServer and a real
 // client stub, so authorization metadata flows exactly as in production.
 
-#include <grpcpp/grpcpp.h>
-#include <grpcpp/security/server_credentials.h>
+#include <chrono>
 #include <memory>
 #include <string>
+
+#include <grpcpp/grpcpp.h>
+#include <grpcpp/security/server_credentials.h>
+#include <jwt/jwt.hpp>
 
 #include "src/api/proto/vizierpb/vizierapi.grpc.pb.h"
 #include "src/common/testing/testing.h"
@@ -44,28 +47,34 @@ constexpr char kWrongSigningKey[] = "a-different-key";
 
 enum class TokenKind { kValid, kWrongKey, kExpired };
 
-// MakeBearerToken returns a JWT for the in-process call's `authorization` metadata.
-// TODO(pem-agent): implement to match the C++ verifier in AuthenticateRequest —
-// kValid: HS256 over `signing_key`, unexpired, vizier audience (mirror the Go
-// GenerateJWTForService("dx","vizier") claims in src/shared/services/utils);
-// kWrongKey: signed with a different key; kExpired: valid signature but exp in the
-// past. The token-maker and the verifier are a matched pair you own.
+// MakeBearerToken mints a JWT for the in-process call's `authorization` metadata,
+// matching the verifier in AuthenticateRequest. Claim shape mirrors
+// src/vizier/services/agent/shared/manager/manager.cc::GenerateServiceToken —
+// HS256 / iss=PL / aud=vizier / iat,nbf,exp / sub=service. The token-maker and
+// the verifier are a matched pair.
 //
-// Placeholder body so the test BUILDS + LINKS today: it returns a non-empty
-// non-JWT string, which the fail-closed stub verifier rejects → the auth-negative
-// cases pass for the right reason, and ValidToken_* stays red until you implement
-// both this maker and AuthenticateRequest.
+// - kValid:    signed with `signing_key`, exp +60s
+// - kWrongKey: signed with `signing_key` argument — caller passes the wrong key
+//              so the resulting token won't verify against the server's key
+// - kExpired:  signed with `signing_key`, exp 60s in the past
 std::string MakeBearerToken(const std::string& signing_key, TokenKind kind) {
-  (void)signing_key;
-  switch (kind) {
-    case TokenKind::kValid:
-      return "PLACEHOLDER.valid.token";  // TODO(pem-agent): real signed JWT
-    case TokenKind::kWrongKey:
-      return "PLACEHOLDER.wrongkey.token";
-    case TokenKind::kExpired:
-      return "PLACEHOLDER.expired.token";
-  }
-  return "";
+  using std::chrono::seconds;
+  using std::chrono::system_clock;
+  auto now = system_clock::now();
+  auto exp_offset = (kind == TokenKind::kExpired) ? seconds{-60} : seconds{60};
+
+  jwt::jwt_object obj{jwt::params::algorithm("HS256")};
+  obj.add_claim("iss", "PL");
+  obj.add_claim("aud", "vizier");
+  obj.add_claim("jti", "direct-query-test");
+  obj.add_claim("iat", now);
+  obj.add_claim("nbf", now - seconds{60});
+  obj.add_claim("exp", now + exp_offset);
+  obj.add_claim("sub", "service");
+  obj.add_claim("Scopes", "service");
+  obj.add_claim("ServiceID", "dx-test");
+  obj.secret(signing_key);
+  return obj.signature();
 }
 
 // Test fixture: in-process server hosting DirectQueryServer + a client stub.

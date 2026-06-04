@@ -41,7 +41,14 @@ pl_cc_library(
         # Additional carnot sub-deps (engine_state, planner/compiler) get
         # added as we wire the ExecuteScript impl in Step 2.
         "//src/carnot",
+        # Step 1 (#29): HS256 verify uses BoringSSL HMAC directly and parses
+        # claims via rapidjson. cpp_jwt's own HMAC verify path calls
+        # BIO_f_base64 which is in boringssl/decrepit/ — not exposed as a
+        # bazel target on this fork. Native HMAC is ~50 LoC vs. a boringssl
+        # patch; the mint side (test only, via cpp_jwt) still uses the lib.
+        "@boringssl//:crypto",
         "@com_github_grpc_grpc//:grpc++",
+        "@com_github_tencent_rapidjson//:rapidjson",
         # existing PEM deps:
         "//src/carnot/planner/dynamic_tracing/ir/logicalpb:logical_pl_cc_proto",
         "//src/integrations/grpc_clocksync:cc_library",
@@ -76,6 +83,7 @@ pl_cc_test(
     deps = [
         ":cc_library",
         "//src/api/proto/vizierpb:vizier_pl_cc_proto",
+        "@com_github_arun11299_cpp_jwt//:cpp_jwt",  # Step 1: MakeBearerToken mints HS256
         "@com_github_grpc_grpc//:grpc++",
     ],
 )

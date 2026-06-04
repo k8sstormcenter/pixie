@@ -45,16 +45,13 @@ DEFINE_string(clock_converter, gflags::StringFromEnv("PL_CLOCK_CONVERTER", "defa
 // Carnot + EngineState and binds the listener. PL_JWT_SIGNING_KEY shares the
 // existing manager.cc DEFINE_string(jwt_signing_key) env so a single secret
 // covers both the outgoing mint path and the incoming verify path.
-DEFINE_bool(direct_query_enabled,
-            gflags::BoolFromEnv("PL_PEM_DIRECT_QUERY_ENABLED", false),
+DEFINE_bool(direct_query_enabled, gflags::BoolFromEnv("PL_PEM_DIRECT_QUERY_ENABLED", false),
             "If true, expose VizierService::ExecuteScript directly from this PEM. "
             "Default false; existing PEM deploys see no behavior change.");
-DEFINE_int32(direct_query_port,
-             gflags::Int32FromEnv("PL_PEM_DIRECT_QUERY_PORT", 50305),
+DEFINE_int32(direct_query_port, gflags::Int32FromEnv("PL_PEM_DIRECT_QUERY_PORT", 50305),
              "gRPC listen port for the direct-query service when "
              "--direct_query_enabled=true.");
-DEFINE_string(direct_query_jwt_signing_key,
-              gflags::StringFromEnv("PL_JWT_SIGNING_KEY", ""),
+DEFINE_string(direct_query_jwt_signing_key, gflags::StringFromEnv("PL_JWT_SIGNING_KEY", ""),
               "HMAC key the bearer JWT must verify against. Required when "
               "--direct_query_enabled=true. Shared with the existing PEM-side "
               "manager JWT mint path (manager.cc DEFINE_string(jwt_signing_key)).");

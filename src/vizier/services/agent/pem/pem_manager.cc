@@ -101,63 +101,98 @@ Status PEMManager::PostRegisterHookImpl() {
   return Status::OK();
 }
 
+// MaybeStartDirectQueryServer is FAIL-SOFT. pemdq4 (commit 9ce6fbdb4) was
+// observed to crashloop the live PEM with `exit=1` and `:50305 never bound`
+// when this returned an error from PostRegisterHookImpl — the base manager
+// PX_CHECK_OK's its result and the entire data plane goes down. Direct-query
+// is an OPTIONAL feature on the PEM; an init failure here must never take
+// the data plane with it. Every failure path now logs+swallows and returns
+// Status::OK() so the rest of the PEM stays up; dx_daemon sees a
+// "connection refused" on :50305 which is harmless on the broker path.
+//
+// Each step also emits a LOG(INFO) breadcrumb so a future crashloop pin-
+// points the exact failure line in stderr (--previous capture, canary etc.).
 Status PEMManager::MaybeStartDirectQueryServer() {
   if (!FLAGS_direct_query_enabled) {
     LOG(INFO) << "direct-query: disabled (--direct_query_enabled=false)";
     return Status::OK();
   }
+  LOG(INFO) << "direct-query: start (port=" << FLAGS_direct_query_port << ")";
   if (FLAGS_direct_query_jwt_signing_key.empty()) {
-    return error::InvalidArgument(
-        "direct-query: --direct_query_enabled=true but signing key is empty "
-        "(set PL_JWT_SIGNING_KEY)");
+    LOG(ERROR) << "direct-query: --direct_query_enabled=true but signing key is empty "
+                  "(set PL_JWT_SIGNING_KEY) — staying up, direct-query disabled";
+    return Status::OK();
   }
-  // Construct a Carnot dedicated to direct-query calls, sharing the base
-  // manager's table_store + metadata callback (no duplicate data plane).
-  // dx-agent's contract requires reusing the live Carnot's data state; the
-  // production base Carnot ships results to Kelvin via its server_config,
-  // which we can't redirect per-call. A dedicated direct_query_carnot_ that
-  // points at our LocalGRPCResultSinkServer is the smallest delta that keeps
-  // results node-local for the direct-query path.
-  direct_query_sink_ = std::make_unique<carnot::exec::LocalGRPCResultSinkServer>();
+  try {
+    LOG(INFO) << "direct-query: step 1/6 create sink server";
+    direct_query_sink_ = std::make_unique<carnot::exec::LocalGRPCResultSinkServer>();
 
-  auto func_registry = std::make_unique<carnot::udf::Registry>("direct_query_registry");
-  carnot::funcs::RegisterFuncsOrDie(func_registry.get());
+    LOG(INFO) << "direct-query: step 2/6 register udfs";
+    auto func_registry = std::make_unique<carnot::udf::Registry>("direct_query_registry");
+    carnot::funcs::RegisterFuncsOrDie(func_registry.get());
 
-  auto clients_config =
-      std::make_unique<carnot::Carnot::ClientsConfig>(carnot::Carnot::ClientsConfig{
-          [this](const std::string& address, const std::string&) {
-            return direct_query_sink_->StubGenerator(address);
-          },
-          [](::grpc::ClientContext*) {},
-      });
-  auto server_config = std::make_unique<carnot::Carnot::ServerConfig>();
-  server_config->grpc_server_creds = ::grpc::InsecureServerCredentials();
-  server_config->grpc_server_port = 0;
+    LOG(INFO) << "direct-query: step 3/6 build carnot configs";
+    auto clients_config =
+        std::make_unique<carnot::Carnot::ClientsConfig>(carnot::Carnot::ClientsConfig{
+            [this](const std::string& address, const std::string&) {
+              return direct_query_sink_->StubGenerator(address);
+            },
+            [](::grpc::ClientContext*) {},
+        });
+    auto server_config = std::make_unique<carnot::Carnot::ServerConfig>();
+    server_config->grpc_server_creds = ::grpc::InsecureServerCredentials();
+    server_config->grpc_server_port = 0;
 
-  std::shared_ptr<table_store::TableStore> ts(table_store(), [](table_store::TableStore*) {});
-  auto carnot_or = carnot::Carnot::Create(info()->agent_id, std::move(func_registry), ts,
-                                          std::move(clients_config), std::move(server_config));
-  if (!carnot_or.ok()) {
-    return error::Internal("direct-query: failed to construct local Carnot: $0",
-                           carnot_or.status().msg());
+    LOG(INFO) << "direct-query: step 4/6 Carnot::Create";
+    std::shared_ptr<table_store::TableStore> ts(table_store(), [](table_store::TableStore*) {});
+    auto carnot_or = carnot::Carnot::Create(info()->agent_id, std::move(func_registry), ts,
+                                            std::move(clients_config), std::move(server_config));
+    if (!carnot_or.ok()) {
+      LOG(ERROR) << "direct-query: Carnot::Create failed: " << carnot_or.status().msg()
+                 << " — staying up, direct-query disabled";
+      direct_query_sink_.reset();
+      return Status::OK();
+    }
+    direct_query_carnot_ = carnot_or.ConsumeValueOrDie();
+    direct_query_carnot_->RegisterAgentMetadataCallback(
+        std::bind(&::px::md::AgentMetadataStateManager::CurrentAgentMetadataState, mds_manager()));
+
+    LOG(INFO) << "direct-query: step 5/6 build DirectQueryServer";
+    direct_query_service_ = std::make_unique<DirectQueryServer>(
+        direct_query_carnot_.get(), direct_query_carnot_->GetEngineState(),
+        direct_query_sink_.get(), FLAGS_direct_query_jwt_signing_key);
+
+    LOG(INFO) << "direct-query: step 6/6 grpc BuildAndStart on :"
+              << FLAGS_direct_query_port;
+    ::grpc::ServerBuilder builder;
+    const std::string addr = absl::Substitute("0.0.0.0:$0", FLAGS_direct_query_port);
+    builder.AddListeningPort(addr, ::grpc::InsecureServerCredentials());
+    builder.RegisterService(direct_query_service_.get());
+    direct_query_grpc_server_ = builder.BuildAndStart();
+    if (direct_query_grpc_server_ == nullptr) {
+      LOG(ERROR) << "direct-query: BuildAndStart returned null for " << addr
+                 << " — staying up, direct-query disabled";
+      direct_query_service_.reset();
+      direct_query_carnot_.reset();
+      direct_query_sink_.reset();
+      return Status::OK();
+    }
+    LOG(INFO) << "direct-query: READY — gRPC ExecuteScript listening on " << addr;
+  } catch (const std::exception& e) {
+    LOG(ERROR) << "direct-query: exception during setup: " << e.what()
+               << " — staying up, direct-query disabled";
+    direct_query_grpc_server_.reset();
+    direct_query_service_.reset();
+    direct_query_carnot_.reset();
+    direct_query_sink_.reset();
+  } catch (...) {
+    LOG(ERROR) << "direct-query: non-std exception during setup — staying up, "
+                  "direct-query disabled";
+    direct_query_grpc_server_.reset();
+    direct_query_service_.reset();
+    direct_query_carnot_.reset();
+    direct_query_sink_.reset();
   }
-  direct_query_carnot_ = carnot_or.ConsumeValueOrDie();
-  direct_query_carnot_->RegisterAgentMetadataCallback(
-      std::bind(&::px::md::AgentMetadataStateManager::CurrentAgentMetadataState, mds_manager()));
-
-  direct_query_service_ = std::make_unique<DirectQueryServer>(
-      direct_query_carnot_.get(), direct_query_carnot_->GetEngineState(),
-      direct_query_sink_.get(), FLAGS_direct_query_jwt_signing_key);
-
-  ::grpc::ServerBuilder builder;
-  const std::string addr = absl::Substitute("0.0.0.0:$0", FLAGS_direct_query_port);
-  builder.AddListeningPort(addr, ::grpc::InsecureServerCredentials());
-  builder.RegisterService(direct_query_service_.get());
-  direct_query_grpc_server_ = builder.BuildAndStart();
-  if (direct_query_grpc_server_ == nullptr) {
-    return error::Internal("direct-query: BuildAndStart returned null for $0", addr);
-  }
-  LOG(INFO) << "direct-query: gRPC ExecuteScript listening on " << addr;
   return Status::OK();
 }
 

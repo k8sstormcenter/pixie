@@ -36,6 +36,16 @@ pl_cc_library(
         "clickhouse_source_node.h",
         "exec_node.h",
         "exec_state.h",
+        # entlein/dx#29 — direct_query_server_test in
+        # //src/vizier/services/agent/pem needs LocalGRPCResultSinkServer
+        # for its Carnot fixture (same pattern as //src/carnot:carnot_test).
+        # Per-target visibility extension below keeps the rest of cc_library
+        # package-internal.
+        "local_grpc_result_server.h",
+    ],
+    visibility = [
+        "//src/carnot:__subpackages__",
+        "//src/vizier/services/agent/pem:__pkg__",
     ],
     deps = [
         "//src/carnot/carnotpb:carnot_pl_cc_proto",
@@ -61,6 +71,10 @@ pl_cc_library(
 pl_cc_test_library(
     name = "test_utils",
     hdrs = glob(["*test_utils.h"]),
+    visibility = [
+        "//src/carnot:__subpackages__",
+        "//src/vizier/services/agent/pem:__pkg__",  # entlein/dx#29 fixture
+    ],
     deps = [
         ":exec_node_test_helpers",
         "@com_github_apache_arrow//:arrow",

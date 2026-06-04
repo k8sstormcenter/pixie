@@ -26,9 +26,20 @@
 #include "src/vizier/services/agent/shared/manager/exec.h"
 #include "src/vizier/services/agent/shared/manager/manager.h"
 
-DECLARE_bool(direct_query_enabled);
-DECLARE_int32(direct_query_port);
-DECLARE_string(direct_query_jwt_signing_key);
+// entlein/dx#29 — direct-query gRPC endpoint on the normal PEM. Defined here
+// (not in pem_main.cc) so the test binary, which links cc_library but not
+// pem_main.cc, picks up the symbol. Default-OFF: flag false → port never
+// opened → existing PEM deploys unchanged. See DIRECT_QUERY_CONTRACT.md.
+DEFINE_bool(direct_query_enabled, gflags::BoolFromEnv("PL_PEM_DIRECT_QUERY_ENABLED", false),
+            "If true, expose VizierService::ExecuteScript directly from this PEM. "
+            "Default false; existing PEM deploys see no behavior change.");
+DEFINE_int32(direct_query_port, gflags::Int32FromEnv("PL_PEM_DIRECT_QUERY_PORT", 50305),
+             "gRPC listen port for the direct-query service when "
+             "--direct_query_enabled=true.");
+DEFINE_string(direct_query_jwt_signing_key, gflags::StringFromEnv("PL_JWT_SIGNING_KEY", ""),
+              "HMAC key the bearer JWT must verify against. Required when "
+              "--direct_query_enabled=true. Shared with the existing PEM-side "
+              "manager JWT mint path (manager.cc DEFINE_string(jwt_signing_key)).");
 
 DEFINE_int32(
     table_store_data_limit, gflags::Int32FromEnv("PL_TABLE_STORE_DATA_LIMIT_MB", 1024 + 256),

@@ -14,12 +14,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+// Package pixie is a thin gRPC wrapper around Pixie cloud's
+// PluginService — used by adaptive_export at boot only, to ensure the
+// ClickHouse retention plugin is enabled. Retention scripts themselves
+// (the PxL that Pixie runs to populate forensic_db.<pixie_table>) are
+// user-defined via the Pixie UI; this package does NOT manage them.
 package pixie
 
 import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/gogo/protobuf/types"
@@ -38,6 +44,7 @@ const (
 	exportURLConfig    = "exportURL"
 )
 
+// Client wraps a gRPC connection to Pixie cloud's PluginService.
 type Client struct {
 	cloudAddr string
 	ctx       context.Context
@@ -46,43 +53,51 @@ type Client struct {
 	pluginClient cloudpb.PluginServiceClient
 }
 
+// NewClient dials the Pixie cloud and authenticates with apiKey via
+// the per-call metadata header.
 func NewClient(ctx context.Context, apiKey string, cloudAddr string) (*Client, error) {
 	if apiKey == "" {
-		fmt.Println("WARNING: API key is empty!")
+		return nil, fmt.Errorf("pixie: empty API key")
 	}
-
 	c := &Client{
 		cloudAddr: cloudAddr,
 		ctx:       metadata.AppendToOutgoingContext(ctx, "pixie-api-key", apiKey),
 	}
-
 	if err := c.init(); err != nil {
 		return nil, err
 	}
-
 	return c, nil
 }
 
 func (c *Client) init() error {
-	isInternal := strings.ContainsAny(c.cloudAddr, "cluster.local")
-
-	tlsConfig := &tls.Config{InsecureSkipVerify: isInternal}
+	host := c.cloudAddr
+	if h, _, err := net.SplitHostPort(c.cloudAddr); err == nil {
+		host = h
+	}
+	isInternal := host == "cluster.local" || strings.HasSuffix(host, ".cluster.local")
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: isInternal, //nolint:gosec // in-cluster vizier traffic only
+		MinVersion:         tls.VersionTLS12,
+	}
 	creds := credentials.NewTLS(tlsConfig)
-
 	conn, err := grpc.Dial(c.cloudAddr, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		return err
 	}
-
 	c.grpcConn = conn
 	c.pluginClient = cloudpb.NewPluginServiceClient(conn)
 	return nil
 }
 
+// ClickHousePluginConfig is the minimal config the ensure-on path needs.
+type ClickHousePluginConfig struct {
+	ExportURL string
+}
+
+// GetClickHousePlugin returns the ClickHouse retention plugin descriptor,
+// or an error if it is not registered with the cloud.
 func (c *Client) GetClickHousePlugin() (*cloudpb.Plugin, error) {
-	req := &cloudpb.GetPluginsRequest{
-		Kind: cloudpb.PK_RETENTION,
-	}
+	req := &cloudpb.GetPluginsRequest{Kind: cloudpb.PK_RETENTION}
 	resp, err := c.pluginClient.GetPlugins(c.ctx, req)
 	if err != nil {
 		return nil, err
@@ -92,44 +107,35 @@ func (c *Client) GetClickHousePlugin() (*cloudpb.Plugin, error) {
 			return plugin, nil
 		}
 	}
-	return nil, fmt.Errorf("the %s plugin could not be found", clickhousePluginID)
+	return nil, fmt.Errorf("pixie: %s plugin not found", clickhousePluginID)
 }
 
-type ClickHousePluginConfig struct {
-	ExportURL string
-}
-
+// GetClickHousePluginConfig returns the current org-level config (the
+// ExportURL the retention plugin is currently writing to), falling back
+// to the plugin's default if no custom URL is set.
 func (c *Client) GetClickHousePluginConfig() (*ClickHousePluginConfig, error) {
-	req := &cloudpb.GetOrgRetentionPluginConfigRequest{
-		PluginId: clickhousePluginID,
-	}
+	req := &cloudpb.GetOrgRetentionPluginConfigRequest{PluginId: clickhousePluginID}
 	resp, err := c.pluginClient.GetOrgRetentionPluginConfig(c.ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	exportURL := resp.CustomExportUrl
 	if exportURL == "" {
-		exportURL, err = c.getDefaultClickHouseExportURL()
+		info, err := c.pluginClient.GetRetentionPluginInfo(c.ctx,
+			&cloudpb.GetRetentionPluginInfoRequest{PluginId: clickhousePluginID})
 		if err != nil {
 			return nil, err
 		}
+		exportURL = info.DefaultExportURL
 	}
-	return &ClickHousePluginConfig{
-		ExportURL: exportURL,
-	}, nil
+	return &ClickHousePluginConfig{ExportURL: exportURL}, nil
 }
 
-func (c *Client) getDefaultClickHouseExportURL() (string, error) {
-	req := &cloudpb.GetRetentionPluginInfoRequest{
-		PluginId: clickhousePluginID,
-	}
-	info, err := c.pluginClient.GetRetentionPluginInfo(c.ctx, req)
-	if err != nil {
-		return "", err
-	}
-	return info.DefaultExportURL, nil
-}
-
+// EnableClickHousePlugin turns the plugin on with the supplied
+// ExportURL. Idempotent on the cloud side: calling Enable when already
+// enabled re-applies the same config without effect. DisablePresets is
+// true so existing user-defined retention scripts (the source of truth
+// for what gets written) are not overwritten by Pixie's preset set.
 func (c *Client) EnableClickHousePlugin(config *ClickHousePluginConfig, version string) error {
 	req := &cloudpb.UpdateRetentionPluginConfigRequest{
 		PluginId: clickhousePluginID,
@@ -146,18 +152,11 @@ func (c *Client) EnableClickHousePlugin(config *ClickHousePluginConfig, version 
 	return err
 }
 
-// DisableClickHousePlugin flips the retention plugin off without touching scripts.
-// Scripts are expected to be removed separately via DeleteDataRetentionScript.
-func (c *Client) DisableClickHousePlugin(version string) error {
-	req := &cloudpb.UpdateRetentionPluginConfigRequest{
-		PluginId: clickhousePluginID,
-		Enabled:  &types.BoolValue{Value: false},
-		Version:  &types.StringValue{Value: version},
-	}
-	_, err := c.pluginClient.UpdateRetentionPluginConfig(c.ctx, req)
-	return err
-}
-
+// GetPresetScripts returns the ClickHouse-plugin preset retention scripts.
+// These are the canonical http_events / dns_events / … bulk-write PxL
+// scripts the plugin ships with. INSTALL_PRESET_SCRIPTS=true on the
+// adaptive_export operator boot path uses this to bootstrap a cluster
+// that has no user-defined retention scripts yet (DEMO PATH).
 func (c *Client) GetPresetScripts() ([]*script.ScriptDefinition, error) {
 	resp, err := c.pluginClient.GetRetentionScripts(c.ctx, &cloudpb.GetRetentionScriptsRequest{})
 	if err != nil {
@@ -176,6 +175,12 @@ func (c *Client) GetPresetScripts() ([]*script.ScriptDefinition, error) {
 	return l, nil
 }
 
+// GetClusterScripts returns the retention scripts CURRENTLY installed on
+// clusterID. Caller diffs against GetPresetScripts to figure out what
+// to add / update / delete. Filters the cloud-returned ALL-clusters
+// script list to those that actually target the caller's clusterID —
+// without that filter, the diff later treats other clusters' scripts
+// as "stale on this cluster" and tries to delete them.
 func (c *Client) GetClusterScripts(clusterID, clusterName string) ([]*script.Script, error) {
 	resp, err := c.pluginClient.GetRetentionScripts(c.ctx, &cloudpb.GetRetentionScriptsRequest{})
 	if err != nil {
@@ -184,6 +189,19 @@ func (c *Client) GetClusterScripts(clusterID, clusterName string) ([]*script.Scr
 	var l []*script.Script
 	for _, s := range resp.Scripts {
 		if s.PluginId == clickhousePluginID {
+			clusterIDs := make([]string, 0, len(s.ClusterIDs))
+			// Empty clusterID = no filter (legacy callers; rare).
+			match := clusterID == ""
+			for _, id := range s.ClusterIDs {
+				idStr := utils.ProtoToUUIDStr(id)
+				clusterIDs = append(clusterIDs, idStr)
+				if idStr == clusterID {
+					match = true
+				}
+			}
+			if !match {
+				continue
+			}
 			sd, err := c.getScriptDefinition(s)
 			if err != nil {
 				return nil, err
@@ -191,22 +209,11 @@ func (c *Client) GetClusterScripts(clusterID, clusterName string) ([]*script.Scr
 			l = append(l, &script.Script{
 				ScriptDefinition: *sd,
 				ScriptId:         utils.ProtoToUUIDStr(s.ScriptID),
-				ClusterIds:       getClusterIDsAsString(s.ClusterIDs),
+				ClusterIds:       strings.Join(clusterIDs, ","),
 			})
 		}
 	}
 	return l, nil
-}
-
-func getClusterIDsAsString(clusterIDs []*uuidpb.UUID) string {
-	scriptClusterID := ""
-	for i, id := range clusterIDs {
-		if i > 0 {
-			scriptClusterID = scriptClusterID + ","
-		}
-		scriptClusterID = scriptClusterID + utils.ProtoToUUIDStr(id)
-	}
-	return scriptClusterID
 }
 
 func (c *Client) getScriptDefinition(s *cloudpb.RetentionScript) (*script.ScriptDefinition, error) {
@@ -223,6 +230,19 @@ func (c *Client) getScriptDefinition(s *cloudpb.RetentionScript) (*script.Script
 	}, nil
 }
 
+// DeleteDataRetentionScript removes the script with the given UUID.
+// Used by INSTALL_PRESET_SCRIPTS to purge stale scripts that target
+// tables no longer in the schema.
+func (c *Client) DeleteDataRetentionScript(scriptID string) error {
+	req := &cloudpb.DeleteRetentionScriptRequest{
+		ID: utils.ProtoFromUUIDStrOrNil(scriptID),
+	}
+	_, err := c.pluginClient.DeleteRetentionScript(c.ctx, req)
+	return err
+}
+
+// AddDataRetentionScript creates a new retention script on clusterID,
+// running every frequencyS seconds with the given PxL contents.
 func (c *Client) AddDataRetentionScript(clusterID string, scriptName string, description string, frequencyS int64, contents string) error {
 	req := &cloudpb.CreateRetentionScriptRequest{
 		ScriptName:  scriptName,
@@ -236,24 +256,32 @@ func (c *Client) AddDataRetentionScript(clusterID string, scriptName string, des
 	return err
 }
 
-func (c *Client) UpdateDataRetentionScript(clusterID string, scriptID string, scriptName string, description string, frequencyS int64, contents string) error {
-	req := &cloudpb.UpdateRetentionScriptRequest{
-		ID:          utils.ProtoFromUUIDStrOrNil(scriptID),
-		ScriptName:  &types.StringValue{Value: scriptName},
-		Description: &types.StringValue{Value: description},
-		Enabled:     &types.BoolValue{Value: true},
-		FrequencyS:  &types.Int64Value{Value: frequencyS},
-		Contents:    &types.StringValue{Value: contents},
-		ClusterIDs:  []*uuidpb.UUID{utils.ProtoFromUUIDStrOrNil(clusterID)},
+// EnsureClickHousePluginEnabled is the boot-time idempotent op the
+// operator calls in main.go. If the plugin is already enabled with a
+// non-empty ExportURL, no-op. Otherwise, enable it with the supplied
+// fallback URL. Returns the resolved ExportURL for diagnostics.
+func (c *Client) EnsureClickHousePluginEnabled(fallbackExportURL string) (string, error) {
+	plugin, err := c.GetClickHousePlugin()
+	if err != nil {
+		return "", err
 	}
-	_, err := c.pluginClient.UpdateRetentionScript(c.ctx, req)
-	return err
-}
-
-func (c *Client) DeleteDataRetentionScript(scriptID string) error {
-	req := &cloudpb.DeleteRetentionScriptRequest{
-		ID: utils.ProtoFromUUIDStrOrNil(scriptID),
+	if plugin.RetentionEnabled {
+		cfg, err := c.GetClickHousePluginConfig()
+		if err != nil {
+			return "", err
+		}
+		if cfg.ExportURL != "" {
+			return cfg.ExportURL, nil
+		}
 	}
-	_, err := c.pluginClient.DeleteRetentionScript(c.ctx, req)
-	return err
+	if fallbackExportURL == "" {
+		return "", fmt.Errorf("pixie: plugin not enabled and no fallback ExportURL provided")
+	}
+	if err := c.EnableClickHousePlugin(
+		&ClickHousePluginConfig{ExportURL: fallbackExportURL},
+		plugin.LatestVersion,
+	); err != nil {
+		return "", err
+	}
+	return fallbackExportURL, nil
 }

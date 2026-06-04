@@ -18,25 +18,20 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
-    name = "pxl",
-    srcs = [
-        "queryfor.go",
-        "tables.go",
-    ],
-    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl",
+    name = "sink",
+    srcs = ["clickhouse.go"],
+    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/sink",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
     deps = [
         "//src/vizier/services/adaptive_export/internal/anomaly",
+        "@com_github_sirupsen_logrus//:logrus",
     ],
 )
 
 pl_go_test(
-    name = "pxl_test",
-    srcs = [
-        "queryfor_test.go",
-        "tables_test.go",
-    ],
-    embed = [":pxl"],
+    name = "sink_test",
+    srcs = ["clickhouse_test.go"],
+    embed = [":sink"],
     deps = [
         "//src/vizier/services/adaptive_export/internal/anomaly",
     ],

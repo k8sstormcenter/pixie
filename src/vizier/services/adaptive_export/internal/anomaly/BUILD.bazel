@@ -18,26 +18,14 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
-    name = "pxl",
-    srcs = [
-        "queryfor.go",
-        "tables.go",
-    ],
-    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl",
+    name = "anomaly",
+    srcs = ["hash.go"],
+    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/anomaly",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
-    deps = [
-        "//src/vizier/services/adaptive_export/internal/anomaly",
-    ],
 )
 
 pl_go_test(
-    name = "pxl_test",
-    srcs = [
-        "queryfor_test.go",
-        "tables_test.go",
-    ],
-    embed = [":pxl"],
-    deps = [
-        "//src/vizier/services/adaptive_export/internal/anomaly",
-    ],
+    name = "anomaly_test",
+    srcs = ["hash_test.go"],
+    embed = [":anomaly"],
 )

@@ -38,6 +38,27 @@ DEFINE_string(clock_converter, gflags::StringFromEnv("PL_CLOCK_CONVERTER", "defa
               "Which ClockConverter to use for converting from mono to reference time. Current "
               "options are 'default' or 'grpc'");
 
+// entlein/dx#29 — direct-query gRPC endpoint on the normal PEM. See
+// src/vizier/services/agent/pem/DIRECT_QUERY_CONTRACT.md.
+// Default-OFF: flag false → port never opened → existing PEM deploys unchanged.
+// When true, pem_manager constructs DirectQueryServer against the PEM's live
+// Carnot + EngineState and binds the listener. PL_JWT_SIGNING_KEY shares the
+// existing manager.cc DEFINE_string(jwt_signing_key) env so a single secret
+// covers both the outgoing mint path and the incoming verify path.
+DEFINE_bool(direct_query_enabled,
+            gflags::BoolFromEnv("PL_PEM_DIRECT_QUERY_ENABLED", false),
+            "If true, expose VizierService::ExecuteScript directly from this PEM. "
+            "Default false; existing PEM deploys see no behavior change.");
+DEFINE_int32(direct_query_port,
+             gflags::Int32FromEnv("PL_PEM_DIRECT_QUERY_PORT", 50305),
+             "gRPC listen port for the direct-query service when "
+             "--direct_query_enabled=true.");
+DEFINE_string(direct_query_jwt_signing_key,
+              gflags::StringFromEnv("PL_JWT_SIGNING_KEY", ""),
+              "HMAC key the bearer JWT must verify against. Required when "
+              "--direct_query_enabled=true. Shared with the existing PEM-side "
+              "manager JWT mint path (manager.cc DEFINE_string(jwt_signing_key)).");
+
 using ::px::vizier::agent::DefaultDeathHandler;
 using ::px::vizier::agent::PEMManager;
 using ::px::vizier::agent::TerminationHandler;

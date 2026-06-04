@@ -33,7 +33,14 @@ pl_cc_library(
     deps = [
         # entlein/dx#29 direct-query server deps (direct_query_server.{h,cc}):
         "//src/api/proto/vizierpb:vizier_pl_cc_proto",
-        "//src/carnot:cc_library",
+        # Use //src/carnot:carnot (the public header target) rather than
+        # //src/carnot:cc_library — the impl target's visibility is limited
+        # to //src/carnot:__subpackages__ + //src/experimental:__subpackages__
+        # (which is why standalone_pem can use it but PEM can't); :carnot is
+        # explicitly opened to //src/vizier/services/agent:__subpackages__.
+        # Additional carnot sub-deps (engine_state, planner/compiler) get
+        # added as we wire the ExecuteScript impl in Step 2.
+        "//src/carnot",
         "@com_github_grpc_grpc//:grpc++",
         # existing PEM deps:
         "//src/carnot/planner/dynamic_tracing/ir/logicalpb:logical_pl_cc_proto",
@@ -59,13 +66,16 @@ pl_cc_test(
 # entlein/dx#29 — TDD contract for the PEM direct-query endpoint. dx-agent authored
 # the spec; pem-agent makes it pass (port the standalone_pem execution path + JWT
 # verify + Carnot fixture). See DIRECT_QUERY_CONTRACT.md.
+#
+# Note: pl_cc_test auto-injects //src/common/testing:cc_library for gtest/gmock,
+# so we must NOT list it explicitly here — same shape as tracepoint_manager_test
+# above (the dx-agent flagged this as a likely nit in the kickoff comment).
 pl_cc_test(
     name = "direct_query_server_test",
     srcs = ["direct_query_server_test.cc"],
     deps = [
         ":cc_library",
         "//src/api/proto/vizierpb:vizier_pl_cc_proto",
-        "//src/common/testing:cc_library",
         "@com_github_grpc_grpc//:grpc++",
     ],
 )

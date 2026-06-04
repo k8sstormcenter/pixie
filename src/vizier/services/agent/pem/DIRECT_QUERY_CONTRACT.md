@@ -81,7 +81,7 @@ addr is a one-line switch — add `DX_BENCH=pemdirect` selecting
 JWT mint + `WithBearerAuth` + `WithDisableTLSVerification` path proven against the
 broker. dx-agent adds this once #29's endpoint is live; no PEM-side work needed for it.
 
-## Done = 
+## Done =
 
 `direct_query_server_test.cc` green under `bazel test`, PEM image builds via the
 vizier-release workflow, and a live PG shows dx (`DX_BENCH=pemdirect`) ruling in the

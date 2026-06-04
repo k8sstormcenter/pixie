@@ -38,7 +38,8 @@ namespace agent {
   // and the vizier audience, and return OK only then. Use src/shared/services/utils.
   (void)ctx;
   (void)jwt_signing_key;
-  return ::grpc::Status(::grpc::StatusCode::UNAUTHENTICATED, "direct-query: auth not implemented (#29)");
+  return ::grpc::Status(::grpc::StatusCode::UNAUTHENTICATED,
+                        "direct-query: auth not implemented (#29)");
 }
 
 ::grpc::Status DirectQueryServer::ExecuteScript(
@@ -48,13 +49,19 @@ namespace agent {
     return s;
   }
   if (request->mutation()) {
-    return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, "direct-query: mutations out of scope (#29)");
+    return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED,
+                          "direct-query: mutations out of scope (#29)");
   }
+  // Members are placeholders until Step 2 ports the standalone_pem exec path;
+  // touch them to keep -Wunused-private-field happy under -Werror.
   (void)writer;
+  (void)carnot_;
+  (void)engine_state_;
   // TODO(pem-agent): port the standalone_pem VizierServer execution path — compile
   // the PxL via engine_state_->CreateLocalExecutionCompilerState, run on carnot_,
   // stream the result table(s) as ExecuteScriptResponse rows.
-  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, "direct-query: ExecuteScript not implemented (#29)");
+  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED,
+                        "direct-query: ExecuteScript not implemented (#29)");
 }
 
 }  // namespace agent

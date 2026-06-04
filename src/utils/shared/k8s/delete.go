@@ -123,8 +123,8 @@ func (o *ObjectDeleter) DeleteNamespace() error {
 // groups are skipped during cluster-wide deletion sweeps because aggregated
 // servers frequently advertise the delete verb on read-only virtual resources
 // and fail the call with "operation not supported".
-func (o *ObjectDeleter) getAggregatedGroupVersions() (sets.String, error) {
-	out := sets.NewString()
+func (o *ObjectDeleter) getAggregatedGroupVersions() (sets.Set[string], error) {
+	out := sets.New[string]()
 	list, err := o.dynamicClient.Resource(apiServiceGVR).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) || meta.IsNoMatchError(err) {
@@ -173,7 +173,7 @@ func (o *ObjectDeleter) getDeletableResourceTypes() ([]string, error) {
 			if len(resource.Verbs) == 0 {
 				continue
 			}
-			if !sets.NewString(resource.Verbs...).HasAll("delete") {
+			if !sets.New[string](resource.Verbs...).HasAll("delete") {
 				continue
 			}
 			resources = append(resources, resource.Name)

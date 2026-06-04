@@ -31,6 +31,11 @@ pl_cc_library(
     ),
     hdrs = glob(["*.h"]),
     deps = [
+        # entlein/dx#29 direct-query server deps (direct_query_server.{h,cc}):
+        "//src/api/proto/vizierpb:vizier_pl_cc_proto",
+        "//src/carnot:cc_library",
+        "@com_github_grpc_grpc//:grpc++",
+        # existing PEM deps:
         "//src/carnot/planner/dynamic_tracing/ir/logicalpb:logical_pl_cc_proto",
         "//src/integrations/grpc_clocksync:cc_library",
         "//src/shared/tracepoint_translation:cc_library",
@@ -48,6 +53,20 @@ pl_cc_test(
         "//src/common/testing/event:cc_library",
         "//src/stirling/testing:stirling_mock",
         "//src/vizier/services/agent/shared/manager:test_utils",
+    ],
+)
+
+# entlein/dx#29 — TDD contract for the PEM direct-query endpoint. dx-agent authored
+# the spec; pem-agent makes it pass (port the standalone_pem execution path + JWT
+# verify + Carnot fixture). See DIRECT_QUERY_CONTRACT.md.
+pl_cc_test(
+    name = "direct_query_server_test",
+    srcs = ["direct_query_server_test.cc"],
+    deps = [
+        ":cc_library",
+        "//src/api/proto/vizierpb:vizier_pl_cc_proto",
+        "//src/common/testing:cc_library",
+        "@com_github_grpc_grpc//:grpc++",
     ],
 )
 

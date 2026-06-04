@@ -18,9 +18,17 @@
 
 #include "src/vizier/services/agent/pem/pem_manager.h"
 
+#include <absl/strings/substitute.h>
+
+#include "src/carnot/funcs/funcs.h"
+#include "src/carnot/udf/registry.h"
 #include "src/common/system/config.h"
 #include "src/vizier/services/agent/shared/manager/exec.h"
 #include "src/vizier/services/agent/shared/manager/manager.h"
+
+DECLARE_bool(direct_query_enabled);
+DECLARE_int32(direct_query_port);
+DECLARE_string(direct_query_jwt_signing_key);
 
 DEFINE_int32(
     table_store_data_limit, gflags::Int32FromEnv("PL_TABLE_STORE_DATA_LIMIT_MB", 1024 + 256),
@@ -78,10 +86,82 @@ Status PEMManager::PostRegisterHookImpl() {
                                           stirling_.get(), table_store(), relation_info_manager());
   PX_RETURN_IF_ERROR(RegisterMessageHandler(messages::VizierMessage::MsgCase::kTracepointMessage,
                                             tracepoint_manager_));
+  PX_RETURN_IF_ERROR(MaybeStartDirectQueryServer());
   return Status::OK();
 }
 
+Status PEMManager::MaybeStartDirectQueryServer() {
+  if (!FLAGS_direct_query_enabled) {
+    LOG(INFO) << "direct-query: disabled (--direct_query_enabled=false)";
+    return Status::OK();
+  }
+  if (FLAGS_direct_query_jwt_signing_key.empty()) {
+    return error::InvalidArgument(
+        "direct-query: --direct_query_enabled=true but signing key is empty "
+        "(set PL_JWT_SIGNING_KEY)");
+  }
+  // Construct a Carnot dedicated to direct-query calls, sharing the base
+  // manager's table_store + metadata callback (no duplicate data plane).
+  // dx-agent's contract requires reusing the live Carnot's data state; the
+  // production base Carnot ships results to Kelvin via its server_config,
+  // which we can't redirect per-call. A dedicated direct_query_carnot_ that
+  // points at our LocalGRPCResultSinkServer is the smallest delta that keeps
+  // results node-local for the direct-query path.
+  direct_query_sink_ = std::make_unique<carnot::exec::LocalGRPCResultSinkServer>();
+
+  auto func_registry = std::make_unique<carnot::udf::Registry>("direct_query_registry");
+  carnot::funcs::RegisterFuncsOrDie(func_registry.get());
+
+  auto clients_config =
+      std::make_unique<carnot::Carnot::ClientsConfig>(carnot::Carnot::ClientsConfig{
+          [this](const std::string& address, const std::string&) {
+            return direct_query_sink_->StubGenerator(address);
+          },
+          [](::grpc::ClientContext*) {},
+      });
+  auto server_config = std::make_unique<carnot::Carnot::ServerConfig>();
+  server_config->grpc_server_creds = ::grpc::InsecureServerCredentials();
+  server_config->grpc_server_port = 0;
+
+  std::shared_ptr<table_store::TableStore> ts(table_store(), [](table_store::TableStore*) {});
+  auto carnot_or = carnot::Carnot::Create(info()->agent_id, std::move(func_registry), ts,
+                                          std::move(clients_config), std::move(server_config));
+  if (!carnot_or.ok()) {
+    return error::Internal("direct-query: failed to construct local Carnot: $0",
+                           carnot_or.status().msg());
+  }
+  direct_query_carnot_ = carnot_or.ConsumeValueOrDie();
+  direct_query_carnot_->RegisterAgentMetadataCallback(
+      std::bind(&::px::md::AgentMetadataStateManager::CurrentAgentMetadataState, mds_manager()));
+
+  direct_query_service_ = std::make_unique<DirectQueryServer>(
+      direct_query_carnot_.get(), direct_query_carnot_->GetEngineState(),
+      direct_query_sink_.get(), FLAGS_direct_query_jwt_signing_key);
+
+  ::grpc::ServerBuilder builder;
+  const std::string addr = absl::Substitute("0.0.0.0:$0", FLAGS_direct_query_port);
+  builder.AddListeningPort(addr, ::grpc::InsecureServerCredentials());
+  builder.RegisterService(direct_query_service_.get());
+  direct_query_grpc_server_ = builder.BuildAndStart();
+  if (direct_query_grpc_server_ == nullptr) {
+    return error::Internal("direct-query: BuildAndStart returned null for $0", addr);
+  }
+  LOG(INFO) << "direct-query: gRPC ExecuteScript listening on " << addr;
+  return Status::OK();
+}
+
+void PEMManager::StopDirectQueryServer() {
+  if (direct_query_grpc_server_) {
+    direct_query_grpc_server_->Shutdown();
+    direct_query_grpc_server_.reset();
+  }
+  direct_query_service_.reset();
+  direct_query_carnot_.reset();
+  direct_query_sink_.reset();
+}
+
 Status PEMManager::StopImpl(std::chrono::milliseconds) {
+  StopDirectQueryServer();
   stirling_->Stop();
   stirling_.reset();
   return Status::OK();

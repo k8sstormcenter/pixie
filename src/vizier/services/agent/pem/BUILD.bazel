@@ -40,8 +40,10 @@ pl_cc_library(
         "//src/carnot:cc_library",  # Carnot, EngineState concrete defs
         "//src/carnot/carnotpb:carnot_pl_cc_proto",  # TransferResultChunkRequest
         "//src/carnot/exec:cc_library",  # LocalGRPCResultSinkServer
+        "//src/carnot/funcs:cc_library",  # Step 9: funcs::RegisterFuncsOrDie
         "//src/carnot/planner/compiler:cc_library",  # Compiler().Compile(...)
         "//src/carnot/planpb:plan_pl_cc_proto",  # planpb::Plan, OperatorType
+        "//src/carnot/udf:cc_library",  # Step 9: udf::Registry
         # Step 1 (#29): HS256 verify uses BoringSSL HMAC directly and parses
         # claims via rapidjson. cpp_jwt's own HMAC verify path calls
         # BIO_f_base64 which is in boringssl/decrepit/ — not exposed as a

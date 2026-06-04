@@ -308,41 +308,67 @@ void emitSchemaResponses(const ::px::carnot::planpb::Plan& plan, const std::stri
 // standalone_pem/sink_server.h:60-105 but operates on already-collected
 // chunks rather than a streaming consumer.
 //
-// Per-row column data is copied by wire-format round-trip: carnotpb's and
-// vizierpb's Column messages are bytewise identical (same oneof tags + field
-// numbers for boolean/int64/uint128/time64ns/float64/string), and the
-// surrounding RowBatchData shares field numbers 1-4 (cols/num_rows/eow/eos);
-// vizier's table_id sits at field 5 which carnot doesn't emit and we set
-// explicitly from query_result().table_name(). dx-agent confirmed this
-// envelope is what pxapi's TableMuxer/HandleRecord consumes.
+// Per-row column data + exec stats are copied by wire-format round-trip:
+// carnotpb's and vizierpb's Column messages are bytewise identical (same oneof
+// tags + field numbers for boolean/int64/uint128/time64ns/float64/string), the
+// surrounding RowBatchData shares field numbers 1-4 (cols/num_rows/eow/eos),
+// and QueryExecutionStats shares field 1 (timing) / 2 (bytes_processed) /
+// 3 (records_processed). Wire-format roundtrip carries the data without a
+// per-type switch; vizier-only RowBatchData.table_id (field 5) is set
+// explicitly.
+//
+// **Don't write empty responses.** pxapi/results.go:142-143 returns
+// "unimplemented type : internal error" when an ExecuteScriptResponse has
+// neither meta_data, data.batch, data.encrypted_batch, nor data.execution_stats
+// set. Carnot's sink emits chunks that are neither query_result nor
+// execution_error (e.g. initiate_conn). Skip those instead of writing
+// query_id-only frames — that was the live e2e bug dx-agent caught on pemdq3.
 void drainSinkAndStream(::px::carnot::exec::LocalGRPCResultSinkServer* result_server,
                         const std::string& query_id,
                         ::grpc::ServerWriter<::px::api::vizierpb::ExecuteScriptResponse>* writer) {
   for (const auto& chunk : result_server->raw_query_results()) {
     ::px::api::vizierpb::ExecuteScriptResponse resp;
     resp.set_query_id(query_id);
+    bool has_payload = false;
+
     if (chunk.has_query_result() && chunk.query_result().has_row_batch()) {
       const auto& src = chunk.query_result().row_batch();
       auto* batch = resp.mutable_data()->mutable_batch();
-      // Wire-compatible round-trip: serialize the carnot RowBatchData, parse
-      // into the vizier message. cols / num_rows / eow / eos all land verbatim
-      // (matching field numbers + identical Column oneof layout).
       std::string buf;
       if (src.SerializeToString(&buf) && batch->ParseFromString(buf)) {
         batch->set_table_id(chunk.query_result().table_name());
       } else {
-        // Roundtrip failed — should never happen on a well-formed payload, but
-        // fall back to the metadata-only shape so the client at least sees the
-        // batch boundary.
+        // Roundtrip failed — should never happen on a well-formed payload,
+        // fall back to the metadata-only shape so the client at least sees
+        // the batch boundary.
         batch->set_table_id(chunk.query_result().table_name());
         batch->set_num_rows(src.num_rows());
         batch->set_eow(src.eow());
         batch->set_eos(src.eos());
       }
+      has_payload = true;
     }
+
+    if (chunk.has_execution_and_timing_info() &&
+        chunk.execution_and_timing_info().has_execution_stats()) {
+      const auto& src_stats = chunk.execution_and_timing_info().execution_stats();
+      auto* dst_stats = resp.mutable_data()->mutable_execution_stats();
+      std::string buf;
+      (void)(src_stats.SerializeToString(&buf) && dst_stats->ParseFromString(buf));
+      has_payload = true;
+    }
+
     if (chunk.has_execution_error() && chunk.execution_error().err_code() != 0) {
       auto* status = resp.mutable_status();
       status->set_message(chunk.execution_error().msg());
+      has_payload = true;
+    }
+
+    if (!has_payload) {
+      // initiate_conn or any future variant we haven't mapped — pxapi rejects
+      // payload-less ExecuteScriptResponses as ErrInternalUnImplementedType.
+      // Skipping preserves stream OK.
+      continue;
     }
     writer->Write(resp);
   }

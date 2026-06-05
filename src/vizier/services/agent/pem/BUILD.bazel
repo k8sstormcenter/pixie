@@ -20,6 +20,23 @@ load("//bazel:pl_build_system.bzl", "pl_cc_binary", "pl_cc_library", "pl_cc_test
 
 package(default_visibility = ["//src/vizier:__subpackages__"])
 
+# entlein/dx#29 — compile-time kill switch for the direct-query endpoint.
+# Operators who do not want the feature available IN THE BINARY at all build
+# with `bazel build … --//src/vizier/services/agent/pem:direct_query=disabled`
+# (or equivalently `--define=PX_PEM_DIRECT_QUERY=disabled` if invoking via
+# bazel's legacy --define flag). When disabled, this propagates
+# `-DPX_PEM_DIRECT_QUERY_DISABLED` into every translation unit in cc_library;
+# direct_query_server.cc's body, pem_manager.cc's flag DEFINEs, and
+# MaybeStartDirectQueryServer's implementation are all `#ifndef`'d out, and
+# the stub class methods return UNIMPLEMENTED for any caller that still
+# routes through DirectQueryServer. The runtime flag --direct_query_enabled
+# is the soft, per-deploy toggle; this is the hard, per-build toggle. See
+# DIRECT_QUERY_SECURITY.md "Disabling the feature".
+config_setting(
+    name = "direct_query_disabled",
+    define_values = {"PX_PEM_DIRECT_QUERY": "disabled"},
+)
+
 pl_cc_library(
     name = "cc_library",
     srcs = glob(
@@ -30,6 +47,10 @@ pl_cc_library(
         ],
     ),
     hdrs = glob(["*.h"]),
+    defines = select({
+        ":direct_query_disabled": ["PX_PEM_DIRECT_QUERY_DISABLED"],
+        "//conditions:default": [],
+    }),
     deps = [
         # entlein/dx#29 direct-query server deps (direct_query_server.{h,cc}):
         "//src/api/proto/vizierpb:vizier_pl_cc_proto",

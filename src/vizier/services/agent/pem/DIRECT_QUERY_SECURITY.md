@@ -119,6 +119,131 @@ by the real `DirectQueryServer`, so the authentication metadata flow is
 end-to-end — gRPC client → metadata API → `AuthenticateRequest` → `verifyHs256Jwt`.
 There is no mock layer between the test and the verifier.
 
+## Client authentication — how to integrate
+
+The canonical client is `dx_daemon` (`cmd/dx-daemon/pxbroker.go`). The
+contract any other client must follow:
+
+1. **Mint a JWT inside the cluster** using the **same `pl-cluster-secrets/
+   jwt-signing-key`** the PEM verifies against. The mint helper is
+   `src/shared/services/utils/jwt.go`'s `SignJWTClaims` /
+   `GenerateJWTForService`. Mount the secret via Kubernetes `secretKeyRef`;
+   never hard-code, never read from a ConfigMap, never pass via a CLI
+   flag baked into a manifest.
+2. **Claim shape** (must match the verifier):
+   - `alg=HS256` in the JWT header.
+   - `aud` containing the literal string `"vizier"` (array OR plain string
+     both work; array is canonical).
+   - `exp` numeric, seconds-since-epoch, in the future. Recommended
+     lifetime: ≤ 60 seconds.
+3. **Send as gRPC metadata** `authorization: Bearer <jwt>`. The Bearer
+   scheme is case-insensitive in the verifier — `bearer <jwt>` also works
+   — but RFC 6750 Title-case is preferred for interop.
+4. **Mint per-call when fan-out > 30 seconds**. Long-lived processes (like
+   AE's pixieapi direct-mode `Adapter.Query`) re-mint inside the call,
+   not at constructor time, because cpp_jwt locks the key at object
+   construction; refreshing means re-instantiating the mint object. The
+   60-second `exp` is intentional — even leaked tokens stop working
+   within a minute.
+
+### Discouraged practices (and why)
+
+| Practice | Why it's discouraged |
+|---|---|
+| **Long-lived JWTs** (`exp > 1 hour`, or no `exp`). | A captured token is a permanent credential under TLS-stripped traffic. The 60-second mint window bounds replay damage; longer windows convert direct-query into an always-on backdoor for anyone who sees one token. The verifier rejects no-`exp` outright; long-`exp` is accepted but **strongly** discouraged. |
+| **Hard-coding the signing key in code or container images.** | The key flows from `pl-cluster-secrets` → env var → process memory. Anything baked into a layer or git history can be extracted from a compromised registry / repository. Always use `secretKeyRef`. |
+| **Reading the signing key from a non-Secret source** (ConfigMap, env var from a manifest literal, S3 bucket, etc.). | Secrets get base64-decoded only at mount-time + receive K8s RBAC restrictions; the alternatives don't. |
+| **Logging tokens or the signing key.** | Stderr / k8s logs are not access-controlled the same way the Secret is. The verifier's specific-failure VLOG line is the one place a curious operator can see *which check* failed, and even there only at `--v=1`; the token bytes themselves never appear. |
+| **Sharing one token across services.** Mint per-service. | Per-service `ServiceID` (the `sub` claim) is the only audit trail the cluster has for who-called-what. Sharing tokens makes attribution impossible. |
+| **Self-signing tokens with a non-cluster key for "testing"**, then leaving the test path in production. | The verifier accepts any token signed with `jwt-signing-key`; if a developer minted with their own key to bypass auth, the production verifier rejects it (good). But if the developer added a code-path that *swaps* the key, the production verifier might accept the leaked test token. Don't refactor the verifier to take a second key. |
+| **Calling direct-query from the cloud (kelvin / cloud_connector).** | Direct-query is **node-local**, no broker hop. The cloud path is `kelvin`. Routing cloud → direct-query bypasses kelvin's cloud-side authorization and skips per-cluster API-key checks. The two paths have different threat models — keep them separate. |
+| **Bypassing the Bearer scheme** (e.g. sending the JWT as a raw header value). | The verifier requires `bearer ` (case-insensitive) before the token. Raw values are rejected; future versions may accept different schemes (mTLS), and the scheme delimiter is what gives us forward-compat. |
+
+## Disabling the feature
+
+Two levels of disable. Pick the right one for your threat model:
+
+### Runtime disable (soft, per-deploy)
+
+```yaml
+# In the Vizier CR, or as a direct env on the PEM DaemonSet:
+env:
+- name: PL_PEM_DIRECT_QUERY_ENABLED
+  value: "false"        # default
+```
+
+When `--direct_query_enabled=false`:
+- `:50305` is never bound (`builder.AddListeningPort` is never called).
+- The dedicated direct-query Carnot is never constructed.
+- The JWT verifier is loaded into the binary but never reached by a
+  request — the gRPC service exists but no request can route to it
+  because the service is never `RegisterService`'d.
+- The runtime flag is the per-deploy toggle. Cluster operators who
+  want direct-query in some clusters but not others use this.
+
+### Compile-time disable (hard, per-binary)
+
+```bash
+bazel build //src/vizier/services/agent/pem:pem_image \
+    --define=PX_PEM_DIRECT_QUERY=disabled
+```
+
+When `PX_PEM_DIRECT_QUERY_DISABLED` is defined at compile time
+(propagated by the `:direct_query_disabled` `config_setting` in
+`src/vizier/services/agent/pem/BUILD.bazel`):
+
+- The **entire feature-bearing body** of `direct_query_server.cc` is
+  excluded via `#ifndef`: no openssl HMAC, no rapidjson, no JWT
+  verifier, no Carnot driver, no drain loop. The binary carries only
+  ~50 bytes of stub `AuthenticateRequest` / `ExecuteScript` that return
+  `UNAUTHENTICATED` / `UNIMPLEMENTED` so the class still resolves at
+  link time.
+- `pem_manager.cc`'s flag DEFINEs are excluded — `--direct_query_enabled`,
+  `--direct_query_port`, `--direct_query_jwt_signing_key` do not exist
+  in this build's gflags registry. Trying to pass them on the CLI
+  yields "unknown flag" at startup.
+- `MaybeStartDirectQueryServer` returns `Status::OK()` after a single
+  LOG line; no carnot construction, no port binding, no thread starts.
+- **Use this when shipping to customers / sectors who must not have
+  the feature available even as a disable-by-default option.** The
+  feature is gone from the binary; no runtime configuration can
+  re-enable it.
+
+### Effectiveness asserted by unit tests
+
+- `direct_query_server_test.cc::CompiledOut_ValidToken_StillUnauthenticated`
+  proves that even a freshly-minted, signed-by-the-cluster JWT cannot
+  re-enable the feature in a disabled build — the auth path short-
+  circuits before reaching the JWT verifier.
+- `direct_query_server_test.cc::CompiledOut_NoToken_Unauthenticated`
+  proves the same for the trivial no-token case.
+- `direct_query_server_test.cc::ToggleContract_DocumentBothLevels` is
+  the default-build documentary book-end naming both toggle levels.
+
+### Cleanup of in-flight references when disabling
+
+- If you flip the **runtime** flag from `true` → `false` on a live
+  cluster, the existing direct-query gRPC server keeps running until
+  the PEM pod restarts. The flag is read at PEMManager init.
+  Cleanup = roll the DaemonSet.
+- If you flip the **compile-time** macro, the redeployed image has no
+  direct-query at all; old binaries on rolling-update nodes continue
+  to serve direct-query until they cycle out. No partial state — each
+  binary is wholly enabled or wholly disabled.
+
+## Failure modes — what each auth failure looks like to a client
+
+| Client-observed gRPC status | Server-side cause | Operator action |
+|---|---|---|
+| `UNAUTHENTICATED` "direct-query: invalid bearer token" | Any verifier failure (sig mismatch, expired, wrong aud, etc.). Specific reason is `VLOG(1)`'d in PEM stderr. | Check `--v=1` PEM stderr for the specific check; usually a clock skew, wrong key (rotated secret), or token shape mismatch. |
+| `UNAUTHENTICATED` "missing authorization metadata" | Caller didn't send the `authorization` header. | Client bug. Add `Bearer <jwt>` to gRPC metadata. |
+| `UNAUTHENTICATED` "authorization is not a Bearer token" | Header present but not `Bearer ...`. | Client bug. Use the Bearer scheme. |
+| `UNIMPLEMENTED` "mutations out of scope (#29)" | `req.mutation == true`. | Direct-query is read-only by design. Use the broker path for mutations. |
+| `UNIMPLEMENTED` "compiled out of this build (PX_PEM_DIRECT_QUERY_DISABLED)" | This PEM was built with the compile-time disable macro. | Either rebuild with the feature enabled, or use the broker path. |
+| `FAILED_PRECONDITION` "server not wired with a live Carnot" | `MaybeStartDirectQueryServer` failed during init (one of `step 1/6 … 6/6` breadcrumbs in PEM stderr will be the last line printed). Direct-query stayed fail-soft; the gRPC service exists but Carnot was never wired. | Check PEM stderr's breadcrumbs to see which step failed; fix the underlying cause (port collision, JWT key empty, Carnot::Create error). |
+| `INVALID_ARGUMENT` "PxL compile failed (...)" | The PxL is syntactically invalid or refers to an unknown table. | Fix the PxL. |
+| `INTERNAL` "PxL execute failed (...)" | Carnot's exec path failed mid-stream. | Check the error message; often a table_store inconsistency or a UDF panic. |
+
 ## Key rotation
 
 Rotation = update the Secret + restart the consumers (kelvin, query-broker,

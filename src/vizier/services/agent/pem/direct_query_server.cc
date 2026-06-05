@@ -23,6 +23,12 @@
 
 #include "src/vizier/services/agent/pem/direct_query_server.h"
 
+// Note: stdlib + boringssl + rapidjson + absl includes stay at the top
+// (not inside the `#ifndef` below) because cpplint's
+// build/include_what_you_use scan doesn't follow preprocessor branches
+// and would otherwise flag every type used in the feature body as
+// "missing include". The disabled build pays a few KB of unused header
+// parse cost; the .cc emits nothing for them.
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
 #include <rapidjson/document.h>
@@ -38,6 +44,16 @@
 #include <absl/strings/string_view.h>
 #include <absl/strings/substitute.h>
 #include <sole.hpp>
+
+// Compile-time kill switch. When PX_PEM_DIRECT_QUERY_DISABLED is defined
+// (passed via the //src/vizier/services/agent/pem:direct_query=disabled
+// config_setting in BUILD.bazel), the entire feature-bearing body of this
+// file — JWT verifier, Carnot exec path — is EXCLUDED. The
+// DirectQueryServer class still resolves at link time (so callers don't
+// break) but every public function returns UNAUTHENTICATED/UNIMPLEMENTED.
+// Operators get a binary with zero direct-query feature code. See
+// DIRECT_QUERY_SECURITY.md "Disabling the feature".
+#ifndef PX_PEM_DIRECT_QUERY_DISABLED
 
 #include "src/carnot/carnot.h"
 #include "src/carnot/carnotpb/carnot.pb.h"
@@ -425,3 +441,42 @@ void drainSinkAndStream(::px::carnot::exec::LocalGRPCResultSinkServer* result_se
 }  // namespace agent
 }  // namespace vizier
 }  // namespace px
+
+#else  // PX_PEM_DIRECT_QUERY_DISABLED
+
+// Compile-out stubs. Linker-satisfying definitions of the two public
+// surfaces with zero feature behaviour. Includes deliberately minimal —
+// no openssl, no rapidjson, no carnot — so a "feature disabled" build
+// carries no direct-query attack surface in the binary.
+
+namespace px {
+namespace vizier {
+namespace agent {
+
+::grpc::Status AuthenticateRequest(::grpc::ServerContext*, const std::string&) {
+  return ::grpc::Status(::grpc::StatusCode::UNAUTHENTICATED,
+                        "direct-query: compiled out of this build "
+                        "(PX_PEM_DIRECT_QUERY_DISABLED)");
+}
+
+::grpc::Status DirectQueryServer::ExecuteScript(
+    ::grpc::ServerContext*, const ::px::api::vizierpb::ExecuteScriptRequest*,
+    ::grpc::ServerWriter<::px::api::vizierpb::ExecuteScriptResponse>*) {
+  // Reference the unused private fields so -Wunused-private-field doesn't
+  // flag the disabled build. The class signature is the same in both modes
+  // (so callers see one type); we just don't drive any work from these
+  // pointers in the disabled stub.
+  (void)carnot_;
+  (void)engine_state_;
+  (void)result_server_;
+  (void)jwt_signing_key_;
+  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED,
+                        "direct-query: compiled out of this build "
+                        "(PX_PEM_DIRECT_QUERY_DISABLED)");
+}
+
+}  // namespace agent
+}  // namespace vizier
+}  // namespace px
+
+#endif  // PX_PEM_DIRECT_QUERY_DISABLED

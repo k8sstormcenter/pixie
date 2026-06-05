@@ -584,7 +584,16 @@ func seedActiveSetFromRehydrate(ctl *controller.Controller, set *activeset.Activ
 	// active map from CH. We re-issue QueryActive here to mirror
 	// those rows into the ActiveSet — keeping the streaming layer
 	// fully decoupled from controller internals.
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	//
+	// Timeout: defaults to 60s (bumped from a 30s hardcode for
+	// entlein/dx#7); ADAPTIVE_SCRIPT_TIMEOUT_SECONDS overrides for
+	// busy clusters where a large rehydrate snapshot won't land in
+	// the default window. Defensive: dx-agent could not reproduce
+	// the original "DeadlineExceeded" symptom on the soak PG, but
+	// the env knob exists so operators don't have to ship a patch
+	// to widen it.
+	scriptTimeout := durEnv("ADAPTIVE_SCRIPT_TIMEOUT_SECONDS", 60*time.Second, time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), scriptTimeout)
 	defer cancel()
 	rows, err := ctl.SnapshotActive(ctx)
 	if err != nil {

@@ -162,8 +162,7 @@ Status PEMManager::MaybeStartDirectQueryServer() {
         direct_query_carnot_.get(), direct_query_carnot_->GetEngineState(),
         direct_query_sink_.get(), FLAGS_direct_query_jwt_signing_key);
 
-    LOG(INFO) << "direct-query: step 6/6 grpc BuildAndStart on :"
-              << FLAGS_direct_query_port;
+    LOG(INFO) << "direct-query: step 6/6 grpc BuildAndStart on :" << FLAGS_direct_query_port;
     ::grpc::ServerBuilder builder;
     const std::string addr = absl::Substitute("0.0.0.0:$0", FLAGS_direct_query_port);
     builder.AddListeningPort(addr, ::grpc::InsecureServerCredentials());

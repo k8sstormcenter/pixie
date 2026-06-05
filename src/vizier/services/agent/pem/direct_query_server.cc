@@ -427,6 +427,17 @@ void drainSinkAndStream(::px::carnot::exec::LocalGRPCResultSinkServer* result_se
   // Reset the sink so we only see chunks for THIS query, then execute.
   // Synchronous: Carnot::ExecuteQuery blocks until the plan finishes (same as
   // standalone_pem + carnot_test).
+  //
+  // exec_mu_ guards the reset-execute-drain critical section. The sink's
+  // accumulator is shared mutable state across ExecuteScript calls — without
+  // the lock, a concurrent caller's ResetQueryResults could wipe another
+  // caller's chunks mid-drain, or two callers' chunks could interleave in
+  // a single sink. Holding from before reset to after drain serializes
+  // queries at the sink boundary, matching standalone_pem's single-threaded
+  // assumption. dx_daemon doesn't fan out per-PEM today, so contention is
+  // expected to be low; ConcurrentQueries_AllSucceed in the test verifies
+  // the contract under N parallel callers. CodeRabbit r3364645000.
+  absl::MutexLock lk(&exec_mu_);
   result_server_->ResetQueryResults();
   auto exec_s = carnot_->ExecuteQuery(request->query_str(), query_id, ::px::CurrentTimeNS());
   if (!exec_s.ok()) {

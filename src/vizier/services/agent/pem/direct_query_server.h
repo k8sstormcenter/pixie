@@ -33,6 +33,8 @@
 #include <string>
 #include <utility>  // std::move (used in DirectQueryServer ctor)
 
+#include <absl/synchronization/mutex.h>
+
 #include "src/api/proto/vizierpb/vizierapi.grpc.pb.h"
 #include "src/api/proto/vizierpb/vizierapi.pb.h"
 
@@ -87,6 +89,15 @@ class DirectQueryServer final : public api::vizierpb::VizierService::Service {
   carnot::EngineState* engine_state_;
   carnot::exec::LocalGRPCResultSinkServer* result_server_;
   std::string jwt_signing_key_;
+
+  // exec_mu_ serializes the ResetQueryResults / ExecuteQuery /
+  // drainSinkAndStream critical section. The LocalGRPCResultSinkServer's
+  // accumulator is shared mutable state: a concurrent ExecuteScript call
+  // would clear or interleave another caller's chunks if not protected
+  // (CodeRabbit r3364645000 catch). Per-instance (not file-scope) so
+  // distinct DirectQueryServer instances in tests don't over-serialize
+  // against each other.
+  mutable absl::Mutex exec_mu_;
 };
 
 }  // namespace agent

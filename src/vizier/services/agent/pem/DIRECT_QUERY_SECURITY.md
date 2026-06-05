@@ -80,7 +80,7 @@ covers the gRPC/PxL surface; this doc covers crypto + key handling only.
 |---|---|
 | **Key compromise.** If `pl-cluster-secrets/jwt-signing-key` leaks, an attacker can mint valid tokens for kelvin / query-broker / direct-query at will. | Same threat model as the entire in-cluster service mesh. Out-of-band protections (RBAC on the Secret, sealed-secrets/SOPS at rest, key rotation) are the appropriate controls. |
 | **Token replay within the validity window.** A captured valid token is replayable until `exp`. | The `jti` claim is minted by `GenerateServiceToken` but the direct-query verifier does NOT track it (no nonce store). Defensive choice: tokens are short-lived (60s in `GenerateServiceToken`) and in-cluster traffic is TLS-encapsulated, so capture surface is small. If/when we need anti-replay, add a sliding `jti` LRU. |
-| **Confidentiality of the PxL query body.** The JWT only authenticates the caller; the gRPC channel itself carries the script. | Channel TLS is the PixieTLS in `k8s/vizier/base/*` manifests; direct-query inherits it via the `pem_daemonset.yaml` cert mounts (or `InsecureServerCredentials` when explicitly disabled for soak/dev — never in production). |
+| **Confidentiality of the PxL query body** + **JWT exposure on the wire**. The JWT only authenticates the caller; the gRPC channel itself carries both the bearer header and the script body. | The :50305 listener uses **cluster-default TLS via `SSL::DefaultGRPCServerCreds()`** (`pem_manager.cc:MaybeStartDirectQueryServer`), reusing the same `tls_ca_crt` + `client_tls_cert` + `client_tls_key` mounts kelvin / metadata / the broker use. Plaintext fallback only when the operator sets `PL_DISABLE_SSL=1` — that is an EXPLICIT dev/soak choice, not a silent default. See "Transport" below. |
 | **PEM-level authorization (who can run what PxL).** Any valid token can run any read-only PxL. | Mutations are rejected at the scope guard (`req.mutation() == true → UNIMPLEMENTED`). For read-only queries, the contract is "anyone the cluster trusts to mint a JWT can read PEM data" — same as kelvin's contract. |
 | **Cross-tenant isolation in a multi-cluster cloud.** | Out of scope: this is a per-cluster service-to-service token; cross-cluster auth is the cloud's job. |
 | **Network-level access control to `:50305`.** | `NetworkPolicy` in the manifest is the right place (out-of-scope for this PR; tracked as a future hardening). |
@@ -118,6 +118,47 @@ The fixture (`DirectQueryServerTest`) hosts an in-process gRPC server backed
 by the real `DirectQueryServer`, so the authentication metadata flow is
 end-to-end — gRPC client → metadata API → `AuthenticateRequest` → `verifyHs256Jwt`.
 There is no mock layer between the test and the verifier.
+
+## Transport — gRPC channel encryption
+
+The direct-query listener is configured with `SSL::DefaultGRPCServerCreds()`
+(`src/vizier/services/agent/shared/manager/ssl.cc:67`). That reuses the
+PEM's existing cluster TLS pair:
+
+```yaml
+# k8s/vizier/pem/base/pem_daemonset.yaml (already in the manifest)
+env:
+- name: PL_TLS_CA_CERT
+  value: /certs/ca.crt
+- name: PL_CLIENT_TLS_CERT
+  value: /certs/client.crt
+- name: PL_CLIENT_TLS_KEY
+  value: /certs/client.key
+- name: PL_DISABLE_SSL
+  value: "false"        # default; flip to "true" only on dev/soak clusters
+```
+
+When `PL_DISABLE_SSL` is unset or `false`, `:50305` rejects plaintext
+gRPC clients — the JWT bearer never crosses the pod network in the
+clear. The same `cert-provisioner` Job that mints kelvin / metadata
+TLS pairs already covers the PEM via `pl-cluster-secrets`; no
+operator action needed beyond the existing install path.
+
+**Insecure credentials are a deliberate dev-only escape hatch.** If
+`PL_DISABLE_SSL=1` is set on a production cluster, the operator has
+explicitly opted out — every consumer of the cluster (kelvin / MDS /
+direct-query / etc.) drops TLS simultaneously, so the operator
+necessarily knows the trade-off. Direct-query does not add a
+separate per-feature opt-out.
+
+The runtime soak harness asserts the TLS path:
+1. PEM stderr on a healthy install logs `direct-query: step 6/6 grpc
+   BuildAndStart on :50305` followed by `direct-query: READY`.
+2. `openssl s_client -connect <pem>:50305` returns a valid cluster
+   cert chain.
+3. A plaintext gRPC call (`grpcurl -plaintext`) is refused with the
+   server-side `transport: received unexpected content-type "text/plain"`
+   message, confirming TLS-only enforcement.
 
 ## Client authentication — how to integrate
 

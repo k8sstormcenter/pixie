@@ -37,9 +37,17 @@ DEFINE_int32(direct_query_port, gflags::Int32FromEnv("PL_PEM_DIRECT_QUERY_PORT",
              "gRPC listen port for the direct-query service when "
              "--direct_query_enabled=true.");
 DEFINE_string(direct_query_jwt_signing_key, gflags::StringFromEnv("PL_JWT_SIGNING_KEY", ""),
-              "HMAC key the bearer JWT must verify against. Required when "
-              "--direct_query_enabled=true. Shared with the existing PEM-side "
-              "manager JWT mint path (manager.cc DEFINE_string(jwt_signing_key)).");
+              "HMAC key the bearer JWT must verify against. Optional; when "
+              "empty, falls back to the shared manager JWT mint key "
+              "(--jwt_signing_key in manager.cc, same PL_JWT_SIGNING_KEY env). "
+              "Required only if you want direct-query verification to use a "
+              "different key from the agent's outgoing-mint key.");
+
+// Declared (not defined) here so MaybeStartDirectQueryServer can fall back to
+// it when --direct_query_jwt_signing_key is unset — avoids the split-brain
+// where a CLI override of only one flag silently disables direct-query auth.
+// The actual DEFINE_string(jwt_signing_key, …) lives in shared/manager/manager.cc.
+DECLARE_string(jwt_signing_key);
 
 DEFINE_int32(
     table_store_data_limit, gflags::Int32FromEnv("PL_TABLE_STORE_DATA_LIMIT_MB", 1024 + 256),
@@ -118,8 +126,19 @@ Status PEMManager::MaybeStartDirectQueryServer() {
     return Status::OK();
   }
   LOG(INFO) << "direct-query: start (port=" << FLAGS_direct_query_port << ")";
-  if (FLAGS_direct_query_jwt_signing_key.empty()) {
-    LOG(ERROR) << "direct-query: --direct_query_enabled=true but signing key is empty "
+  // Fall back to the shared manager key when the direct-query-specific flag is
+  // empty (the common case — both flags share PL_JWT_SIGNING_KEY by default,
+  // but a CLI override of one without the other would otherwise leave
+  // direct-query silently disabled). Manager::Init has already refused to
+  // start with an empty FLAGS_jwt_signing_key, so the only way to land here
+  // with effective_signing_key empty is an explicit
+  // --direct_query_jwt_signing_key='' override while --jwt_signing_key was
+  // also intentionally cleared — treat that as "direct-query disabled".
+  const std::string& effective_signing_key = FLAGS_direct_query_jwt_signing_key.empty()
+                                                 ? FLAGS_jwt_signing_key
+                                                 : FLAGS_direct_query_jwt_signing_key;
+  if (effective_signing_key.empty()) {
+    LOG(ERROR) << "direct-query: --direct_query_enabled=true but both signing keys are empty "
                   "(set PL_JWT_SIGNING_KEY) — staying up, direct-query disabled";
     return Status::OK();
   }
@@ -160,7 +179,7 @@ Status PEMManager::MaybeStartDirectQueryServer() {
     LOG(INFO) << "direct-query: step 5/6 build DirectQueryServer";
     direct_query_service_ = std::make_unique<DirectQueryServer>(
         direct_query_carnot_.get(), direct_query_carnot_->GetEngineState(),
-        direct_query_sink_.get(), FLAGS_direct_query_jwt_signing_key);
+        direct_query_sink_.get(), effective_signing_key);
 
     LOG(INFO) << "direct-query: step 6/6 grpc BuildAndStart on :" << FLAGS_direct_query_port;
     ::grpc::ServerBuilder builder;

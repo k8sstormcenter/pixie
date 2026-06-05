@@ -25,6 +25,7 @@
 #include "src/common/system/config.h"
 #include "src/vizier/services/agent/shared/manager/exec.h"
 #include "src/vizier/services/agent/shared/manager/manager.h"
+#include "src/vizier/services/agent/shared/manager/ssl.h"
 
 // entlein/dx#29 — direct-query gRPC endpoint on the normal PEM. Defined here
 // (not in pem_main.cc) so the test binary, which links cc_library but not
@@ -174,7 +175,14 @@ Status PEMManager::MaybeStartDirectQueryServer() {
             [](::grpc::ClientContext*) {},
         });
     auto server_config = std::make_unique<carnot::Carnot::ServerConfig>();
-    server_config->grpc_server_creds = ::grpc::InsecureServerCredentials();
+    // SSL::DefaultGRPCServerCreds reuses the PEM's cluster-mounted certs
+    // (tls_ca_crt + client_tls_cert + client_tls_key). PL_DISABLE_SSL=1
+    // falls back to insecure for dev/soak clusters — matches manager.cc's
+    // base Carnot setup. Carnot's internal sink uses InProcessChannel
+    // (LocalGRPCResultSinkServer::StubGenerator), so this credential is
+    // exercised only when an external client opens a TCP channel; defense
+    // in depth still calls for matching the cluster's TLS policy.
+    server_config->grpc_server_creds = SSL::DefaultGRPCServerCreds();
     server_config->grpc_server_port = 0;
 
     LOG(INFO) << "direct-query: step 4/6 Carnot::Create";
@@ -199,7 +207,14 @@ Status PEMManager::MaybeStartDirectQueryServer() {
     LOG(INFO) << "direct-query: step 6/6 grpc BuildAndStart on :" << FLAGS_direct_query_port;
     ::grpc::ServerBuilder builder;
     const std::string addr = absl::Substitute("0.0.0.0:$0", FLAGS_direct_query_port);
-    builder.AddListeningPort(addr, ::grpc::InsecureServerCredentials());
+    // Cluster-default TLS — the JWT bearer flowing over this socket MUST
+    // NOT be plaintext on the pod network. SSL::DefaultGRPCServerCreds
+    // pulls the same in-cluster cert pair kelvin / metadata / the broker
+    // use (mounted via secretKeyRef in the PEM DaemonSet). Dev/soak
+    // clusters where the operator sets PL_DISABLE_SSL=1 still get an
+    // insecure channel — that's an EXPLICIT operator choice, not a
+    // silent default. See DIRECT_QUERY_SECURITY.md "Transport".
+    builder.AddListeningPort(addr, SSL::DefaultGRPCServerCreds());
     builder.RegisterService(direct_query_service_.get());
     direct_query_grpc_server_ = builder.BuildAndStart();
     if (direct_query_grpc_server_ == nullptr) {

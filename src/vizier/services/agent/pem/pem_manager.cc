@@ -30,6 +30,13 @@
 // (not in pem_main.cc) so the test binary, which links cc_library but not
 // pem_main.cc, picks up the symbol. Default-OFF: flag false → port never
 // opened → existing PEM deploys unchanged. See DIRECT_QUERY_CONTRACT.md.
+//
+// Compile-time disable: when PX_PEM_DIRECT_QUERY_DISABLED is defined
+// (`--//src/vizier/services/agent/pem:direct_query=disabled`), the gflags
+// registrations + the runtime feature flag are EXCLUDED from the binary
+// entirely. Operators who do not want direct-query available even as a
+// disabled-by-default option get a binary with zero direct-query bytes.
+#ifndef PX_PEM_DIRECT_QUERY_DISABLED
 DEFINE_bool(direct_query_enabled, gflags::BoolFromEnv("PL_PEM_DIRECT_QUERY_ENABLED", false),
             "If true, expose VizierService::ExecuteScript directly from this PEM. "
             "Default false; existing PEM deploys see no behavior change.");
@@ -48,6 +55,7 @@ DEFINE_string(direct_query_jwt_signing_key, gflags::StringFromEnv("PL_JWT_SIGNIN
 // where a CLI override of only one flag silently disables direct-query auth.
 // The actual DEFINE_string(jwt_signing_key, …) lives in shared/manager/manager.cc.
 DECLARE_string(jwt_signing_key);
+#endif  // PX_PEM_DIRECT_QUERY_DISABLED
 
 DEFINE_int32(
     table_store_data_limit, gflags::Int32FromEnv("PL_TABLE_STORE_DATA_LIMIT_MB", 1024 + 256),
@@ -121,6 +129,13 @@ Status PEMManager::PostRegisterHookImpl() {
 // Each step also emits a LOG(INFO) breadcrumb so a future crashloop pin-
 // points the exact failure line in stderr (--previous capture, canary etc.).
 Status PEMManager::MaybeStartDirectQueryServer() {
+#ifdef PX_PEM_DIRECT_QUERY_DISABLED
+  // Compile-time kill switch. Zero direct-query bytes in the binary — no
+  // gflag registrations, no JWT verifier, no Carnot, no gRPC server. The
+  // runtime --direct_query_enabled flag does not exist in this build.
+  LOG(INFO) << "direct-query: compiled out (PX_PEM_DIRECT_QUERY_DISABLED)";
+  return Status::OK();
+#else
   if (!FLAGS_direct_query_enabled) {
     LOG(INFO) << "direct-query: disabled (--direct_query_enabled=false)";
     return Status::OK();
@@ -212,6 +227,7 @@ Status PEMManager::MaybeStartDirectQueryServer() {
     direct_query_sink_.reset();
   }
   return Status::OK();
+#endif  // PX_PEM_DIRECT_QUERY_DISABLED
 }
 
 void PEMManager::StopDirectQueryServer() {

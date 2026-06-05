@@ -619,10 +619,14 @@ func (p *pixieAdapter) Query(ctx context.Context, src string) ([]map[string]any,
 
 // installPresetScripts purges any stale ClickHouse-plugin retention
 // scripts on the cluster, then installs the operator's built-in PxL
-// scripts targeting the 12 socket_tracer tables we DDL'd. Cloud-side
-// "presets" are deliberately ignored: in this fork they target legacy
-// tables (conn_stats, stack_traces, dc_snoop) that aren't in the
-// rev-2 schema, so installing them would just silently fail to write.
+// scripts targeting the 13 socket_tracer tables we DDL'd. Cloud-side
+// "presets" are deliberately ignored: in this fork the legacy
+// "conn_stats export" / "dc snoop export" / "stack_traces export"
+// preset names predate the rev-2 schema and would silently fail to
+// write. conn_stats is now in the rev-2 schema (entlein/dx#5), but it
+// ships as "ch-conn_stats" (operator-managed naming) — the legacy
+// "conn_stats export" preset name is still purged below so a stale
+// one doesn't double-write.
 func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (int, error) {
 	current, err := client.GetClusterScripts(clusterID, clusterName)
 	if err != nil {
@@ -705,6 +709,11 @@ func builtinPresetScripts() []*script.ScriptDefinition {
 		"http_events", "dns_events", "redis_events", "mysql_events",
 		"pgsql_events", "cql_events", "mongodb_events", "amqp_events",
 		"mux_events", "tls_events",
+		// conn_stats (entlein/dx#5) — counter snapshots; same shape as
+		// the protocol-events PxL (DataFrame + namespace/pod cols +
+		// px.display). Each pull is one snapshot row per (remote tuple,
+		// protocol); ClickHouse merges by (hostname, event_time).
+		"conn_stats",
 	}
 	out := make([]*script.ScriptDefinition, 0, len(tables))
 	for _, t := range tables {

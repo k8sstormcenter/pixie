@@ -54,6 +54,9 @@ var KnownTables = []string{
 	"amqp_events",
 	"mux_events",
 	"tls_events",
+	// conn_stats (entlein/dx#5) — re-added to rev-2 schema; counts per
+	// (remote_addr, remote_port, protocol) on each retention-script pull.
+	"conn_stats",
 	// operator-owned attribution table
 	"adaptive_attribution",
 	// operator-owned persistent trigger cursor
@@ -106,6 +109,7 @@ func PixieTables() []string {
 		"amqp_events",
 		"mux_events",
 		"tls_events",
+		"conn_stats",
 	}
 }
 

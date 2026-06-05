@@ -21,13 +21,13 @@ import (
 )
 
 // TestBuiltinTables_Count — guard against accidental list churn.
-// The set is the 12 socket_tracer tables in pixie's stirling layer
+// The set is the 13 socket_tracer tables in pixie's stirling layer
 // (http_events, http2_messages.beta, dns_events, redis_events,
 // mysql_events, pgsql_events, cql_events, mongodb_events,
-// kafka_events.beta, amqp_events, mux_events, tls_events). Update
-// this guard if the spec adds / removes a table.
+// kafka_events.beta, amqp_events, mux_events, tls_events, conn_stats).
+// Update this guard if the spec adds / removes a table.
 func TestBuiltinTables_Count(t *testing.T) {
-	const want = 12
+	const want = 13
 	if got := len(builtinTables); got != want {
 		t.Fatalf("builtinTables = %d entries, want %d", got, want)
 	}
@@ -62,8 +62,8 @@ func TestIsBuiltin(t *testing.T) {
 	if !IsBuiltin("http2_messages.beta") {
 		t.Fatalf("dotted table http2_messages.beta should be a builtin")
 	}
-	if IsBuiltin("conn_stats") {
-		t.Fatalf("conn_stats is no longer in scope; should NOT be builtin")
+	if !IsBuiltin("conn_stats") {
+		t.Fatalf("conn_stats was re-added for entlein/dx#5; should be builtin")
 	}
 	if IsBuiltin("") {
 		t.Fatalf("empty string should not be builtin")

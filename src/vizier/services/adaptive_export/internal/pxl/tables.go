@@ -43,13 +43,21 @@ type TableSpec struct {
 	Protocol string
 }
 
-// builtinTables enumerates the 12 pixie socket_tracer tables the
+// builtinTables enumerates the 13 pixie socket_tracer tables the
 // adaptive-write feature is shipped with. The order is stable and
 // matches the project's published documentation. Do NOT loop over
 // dynamic discovery to populate this — strong static definition is
 // the requirement. Unexported so the slice cannot be mutated by
 // external callers; use [Builtins] or [DefaultRegistry] for read
 // access (both return defensive copies).
+//
+// conn_stats was previously out-of-scope (rev-1) but is re-added for
+// entlein/dx#5 — the rev-2 ClickHouse schema now carries it and the
+// retention-script preset emits it alongside the protocol-events
+// tables. Unlike the protocol tables it carries counters, not
+// per-message rows; ClickHouse MERGEs snapshot rows over the order
+// key (no aggregating engine — each retention-script pull is its own
+// snapshot row).
 var builtinTables = []TableSpec{
 	{Name: "http_events", Protocol: "HTTP/1.x"},
 	{Name: "http2_messages.beta", Protocol: "HTTP/2 + gRPC"},
@@ -63,6 +71,7 @@ var builtinTables = []TableSpec{
 	{Name: "amqp_events", Protocol: "AMQP / RabbitMQ"},
 	{Name: "mux_events", Protocol: "Mux (Twitter Finagle)"},
 	{Name: "tls_events", Protocol: "TLS handshake"},
+	{Name: "conn_stats", Protocol: "Connection-level statistics"},
 }
 
 // Registry is the extension surface for users to register their own

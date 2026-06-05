@@ -352,6 +352,37 @@ CREATE TABLE IF NOT EXISTS forensic_db.tls_events (
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
 
+-- conn_stats — conn_stats_table.h
+-- Connection-level statistics (open/close/active counters + bytes_sent/recv +
+-- protocol/ssl). Re-added to the rev-2 schema for entlein/dx#5 so the
+-- adaptive_export retention scripts can persist it. local_addr/local_port are
+-- intentionally absent — the pixie kConnStatsElements set carries only
+-- remote_addr/remote_port (the connection is identified by the local upid +
+-- the remote tuple). Counters are MERGEd by ClickHouse over the (hostname,
+-- event_time) order; no aggregating engine because each retention-script
+-- pull is a discrete snapshot row.
+CREATE TABLE IF NOT EXISTS forensic_db.conn_stats (
+    time_         DateTime64(9, 'UTC'),
+    upid          String,
+    namespace     String,
+    pod           String,
+    remote_addr   String,
+    remote_port   Int64,
+    trace_role    Int64,
+    addr_family   Int64,
+    protocol      Int64,
+    ssl           UInt8,
+    conn_open     Int64,
+    conn_close    Int64,
+    conn_active   Int64,
+    bytes_sent    Int64,
+    bytes_recv    Int64,
+    hostname      String,
+    event_time    DateTime64(3, 'UTC')
+) ENGINE = MergeTree()
+  PARTITION BY toYYYYMM(event_time)
+  ORDER BY (hostname, event_time);
+
 -- ============================================================================
 -- adaptive_attribution — operator's only write target in ClickHouse.
 --

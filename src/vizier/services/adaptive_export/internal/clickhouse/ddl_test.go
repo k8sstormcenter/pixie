@@ -110,7 +110,7 @@ func TestDDL_KubescapeLogs_PreservesAnomalyHash(t *testing.T) {
 
 // TestDDL_UnknownTable_ErrUnknownTable — defensive contract.
 func TestDDL_UnknownTable_ErrUnknownTable(t *testing.T) {
-	for _, bad := range []string{"", "no_such_table", "process_events", "conn_stats"} {
+	for _, bad := range []string{"", "no_such_table", "process_events", "process_stats"} {
 		_, err := DDL(bad)
 		if !errors.Is(err, ErrUnknownTable) {
 			t.Fatalf("DDL(%q) → %v, want ErrUnknownTable", bad, err)

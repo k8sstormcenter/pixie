@@ -352,6 +352,34 @@ CREATE TABLE IF NOT EXISTS forensic_db.tls_events (
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
 
+-- conn_stats — conn_stats_table.h (connection-level socket stats: bytes/conns per
+-- client-server pair). AE writes this (dx#5 forensic conn evidence) but it was
+-- previously OMITTED from this schema, so aeprod4 — which requires it — crashlooped
+-- on every fresh PG (dx#43). Now shipped by AE like every other table. Columns
+-- mirror pixie src/stirling/.../conn_stats_table.h (no local_addr/local_port; ssl
+-- in place of http's encrypted) + AE's namespace/pod/hostname/event_time convention.
+CREATE TABLE IF NOT EXISTS forensic_db.conn_stats (
+    time_       DateTime64(9, 'UTC'),
+    upid        String,
+    namespace   String,
+    pod         String,
+    remote_addr String,
+    remote_port Int64,
+    trace_role  Int64,
+    addr_family Int64,
+    protocol    Int64,
+    ssl         UInt8,
+    conn_open   Int64,
+    conn_close  Int64,
+    conn_active Int64,
+    bytes_sent  Int64,
+    bytes_recv  Int64,
+    hostname    String,
+    event_time  DateTime64(3, 'UTC')
+) ENGINE = MergeTree()
+  PARTITION BY toYYYYMM(event_time)
+  ORDER BY (hostname, event_time);
+
 -- ============================================================================
 -- adaptive_attribution — operator's only write target in ClickHouse.
 --

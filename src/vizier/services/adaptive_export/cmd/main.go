@@ -41,6 +41,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	_ "net/http/pprof" // /debug/pprof/* on the debug-only listener (gated by DX_PPROF_ADDR; not in release builds otherwise unused)
 	"os"
 	"os/signal"
 	"strconv"
@@ -134,6 +135,21 @@ const (
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Debug pprof listener — gated on DX_PPROF_ADDR (e.g. "127.0.0.1:6060").
+	// Off by default; when set, /debug/pprof/* on that addr exposes the
+	// runtime profiles for live CPU / heap / goroutine investigations. The
+	// blank-import of net/http/pprof above registers the handlers on the
+	// DefaultServeMux. Bind loopback in containers unless you port-forward.
+	if addr := os.Getenv("DX_PPROF_ADDR"); addr != "" {
+		go func() {
+			log.WithField("addr", addr).Info("pprof listening (/debug/pprof/*)")
+			if err := http.ListenAndServe(addr, nil); err != nil &&
+				err != http.ErrServerClosed {
+				log.WithError(err).Error("pprof listener stopped")
+			}
+		}()
+	}
 
 	log.Info("starting adaptive-export operator (push flow, rev 2)")
 	cfg, err := config.GetConfig()

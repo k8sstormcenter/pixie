@@ -29,6 +29,10 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
       with:
         fetch-depth: 0
+        # dx is a private submodule (src/vizier/services/dx -> entlein/dx); pull it
+        # with the read PAT, same pattern as entlein/bob in k8sstormcenter/bob.
+        submodules: 'recursive'
+        token: ${{ secrets.DX_ENTLEIN_PAT }}
     - name: Add pwd to git safe dir
       run: git config --global --add safe.directory `pwd`
     - name: Use github bazel config

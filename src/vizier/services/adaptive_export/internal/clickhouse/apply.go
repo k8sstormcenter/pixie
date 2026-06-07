@@ -50,6 +50,14 @@ var OperatorOwnedTables = []string{
 	"amqp_events",
 	"mux_events",
 	"tls_events",
+	// conn_stats (entlein/dx#5) — pixie observation table; created in the
+	// same boot pass as the others so Apply (here) and Verify (KnownTables
+	// in ddl.go) can't drift. The drift was a real regression: aeprod3/4/5
+	// shipped with this list at 14 entries while ddl.go's KnownTables had 15,
+	// so Apply created 14 tables on fresh install and Verify failed at boot
+	// with "conn_stats schema drift, missing columns". Locked down by
+	// TestOperatorOwnedTables_CoversAllPixieTables in apply_test.go.
+	"conn_stats",
 	// operator's write targets.
 	"adaptive_attribution",
 	"trigger_watermark",

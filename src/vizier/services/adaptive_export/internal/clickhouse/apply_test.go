@@ -202,3 +202,31 @@ func TestOperatorOwnedTables_TrailingOperatorTables(t *testing.T) {
 		}
 	}
 }
+
+// TestOperatorOwnedTables_CoversAllPixieTables — drift guard between the
+// boot-time Apply (OperatorOwnedTables, this file) and the verify path
+// that uses ddl.go's KnownTables / PixieTables. aeprod3/4/5 shipped with
+// the two lists out of sync: ddl.go's PixieTables() included "conn_stats"
+// (re-added for entlein/dx#5 in commit a54a1f6d3) but OperatorOwnedTables
+// did not, so Apply created 14 tables and Verify expected 15 — AE fatal'd
+// at boot with `pixie table schema drift detected … conn_stats schema
+// drift, missing columns`. Anyone adding a new pixie observation table in
+// the future MUST add it to both lists; this test fails loudly otherwise.
+func TestOperatorOwnedTables_CoversAllPixieTables(t *testing.T) {
+	owned := map[string]bool{}
+	for _, n := range OperatorOwnedTables {
+		owned[n] = true
+	}
+	var missing []string
+	for _, p := range PixieTables() {
+		if !owned[p] {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("PixieTables() not covered by OperatorOwnedTables: %v "+
+			"(adding a pixie table requires updating BOTH apply.go OperatorOwnedTables "+
+			"and ddl.go KnownTables+PixieTables — drift causes the boot-time schema "+
+			"verify to fail with \"missing columns\")", missing)
+	}
+}

@@ -157,26 +157,60 @@ func (e *SchemaDriftError) Error() string {
 var requiredPixieColumns = []string{"namespace", "pod", "hostname", "time_"}
 
 // VerifyPixieSchema queries system.columns for each pixie observation
-// table and confirms the operator-required columns are present. Used
-// as a defensive guard against Pixie's retention plugin having
-// auto-created a table BEFORE our Apply ran (e.g., operator was
-// installed onto a cluster where the plugin had already been running
-// with its own minimal DDL).
+// table and confirms EVERY column AE writes for that table is present
+// in CH. This is the **writer ⇔ schema contract** test (the T1 in
+// dx-agent's PR #47 schema-loss report on 2026-06-07).
+//
+// The earlier shape of this function only checked the 4
+// operator-required columns (namespace/pod/hostname/time_) — a table
+// could be hand-created with those four plus a different subset of
+// data columns and pass verification, while AE's writer would post
+// JSON containing the column names schema.sql says the table should
+// have. The result on rig 6a25c85c: CH silently dropped 22 of 24
+// columns into nothing because they were "unknown fields"
+// (input_format_skip_unknown_fields default = 1), AE's
+// summaryWroteFewerThan saw written_rows=0 / rows_sent=259 only AFTER
+// the data was lost, and the controller hot-looped on the rejection.
+//
+// The expanded contract: for every table in PixieTables(), CH's
+// actual column set must be a superset of clickhouse.Columns(table) —
+// i.e. the canonical column list parsed out of schema.sql, which IS
+// the single source of truth.
 //
 // Returns the FIRST drift detected as *SchemaDriftError. Callers
 // usually want to log loudly and refuse to start so the misconfig
 // is visible — silently continuing leaves the table with a schema
-// the analyst-side JOINs can't cope with.
+// the AE writer can't actually populate.
 func (a *Applier) VerifyPixieSchema(ctx context.Context) error {
 	for _, table := range PixieTables() {
-		cols, err := a.tableColumns(ctx, table)
+		actual, err := a.tableColumns(ctx, table)
 		if err != nil {
 			return fmt.Errorf("verify %s: %w", table, err)
 		}
+		// The canonical column shape AE expects (schema.sql).
+		want, err := Columns(table)
+		if err != nil {
+			return fmt.Errorf("verify %s: load expected columns: %w", table, err)
+		}
+		// Operator-required + canonical union, deduped.
+		need := make([]string, 0, len(want)+len(requiredPixieColumns))
+		seen := map[string]bool{}
+		for _, c := range want {
+			if !seen[c] {
+				seen[c] = true
+				need = append(need, c)
+			}
+		}
+		for _, c := range requiredPixieColumns {
+			if !seen[c] {
+				seen[c] = true
+				need = append(need, c)
+			}
+		}
 		var missing []string
-		for _, want := range requiredPixieColumns {
-			if !contains(cols, want) {
-				missing = append(missing, want)
+		for _, w := range need {
+			if !contains(actual, w) {
+				missing = append(missing, w)
 			}
 		}
 		if len(missing) > 0 {

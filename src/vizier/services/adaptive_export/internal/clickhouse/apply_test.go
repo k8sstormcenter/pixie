@@ -19,6 +19,7 @@ package clickhouse
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -103,17 +104,40 @@ func TestApply_FailsFastOnHTTPError(t *testing.T) {
 	}
 }
 
-// TestVerifyPixieSchema_DetectsMissingColumns — defensive guard:
-// if a pixie table lacks namespace or pod (because Pixie's plugin
-// auto-created it before our Apply), VerifyPixieSchema returns
-// SchemaDriftError naming the table and the missing columns.
+// tableForQuery extracts the table name from a system.columns query
+// like "...AND table='http_events' FORMAT JSONEachRow".
+func tableForQuery(q string) string {
+	const marker = "table='"
+	i := strings.Index(q, marker)
+	if i < 0 {
+		return ""
+	}
+	rest := q[i+len(marker):]
+	j := strings.Index(rest, "'")
+	if j < 0 {
+		return ""
+	}
+	return rest[:j]
+}
+
+// TestVerifyPixieSchema_DetectsMissingColumns — defensive guard.
+// On rig 6a25c85c (PR #47 schema-loss report), http_events was created
+// by a hand-maintained stopgap that DIDN'T include req_path /
+// req_headers / etc. — the columns AE's writer puts into JSONEachRow
+// posts. The old VerifyPixieSchema only checked namespace/pod/hostname/
+// time_, so it passed; the writer's 22 unknown fields then got silently
+// dropped by CH at default settings. The expanded contract verifies
+// EVERY column AE expects per table is present in CH (the writer ⇔
+// schema contract). This test reproduces the rig 6a25c85c shape:
+// http_events comes back with the 4 operator-required columns but
+// missing the data columns the writer fills.
 func TestVerifyPixieSchema_DetectsMissingColumns(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query().Get("query")
-		// First pixie table → respond with FULL column list (well-formed).
-		// Subsequent pixie tables → respond with a column list missing namespace + pod
-		// (simulating Pixie's auto-DDL having created them earlier).
-		if strings.Contains(q, "table='http_events'") {
+		// Return only the operator-required columns for the first pixie
+		// table iterated; that's the regression shape — looks "valid"
+		// to the old checker but fails the writer-column union.
+		table := tableForQuery(r.URL.Query().Get("query"))
+		if table == "http_events" {
 			_, _ = w.Write([]byte(`{"name":"time_"}` + "\n"))
 			_, _ = w.Write([]byte(`{"name":"upid"}` + "\n"))
 			_, _ = w.Write([]byte(`{"name":"namespace"}` + "\n"))
@@ -121,10 +145,11 @@ func TestVerifyPixieSchema_DetectsMissingColumns(t *testing.T) {
 			_, _ = w.Write([]byte(`{"name":"hostname"}` + "\n"))
 			return
 		}
-		// pretend dns_events was auto-created by Pixie without our columns.
-		_, _ = w.Write([]byte(`{"name":"time_"}` + "\n"))
-		_, _ = w.Write([]byte(`{"name":"upid"}` + "\n"))
-		_, _ = w.Write([]byte(`{"name":"hostname"}` + "\n"))
+		// Other tables (won't be reached) — fully populated.
+		cols, _ := Columns(table)
+		for _, c := range cols {
+			fmt.Fprintf(w, "{\"name\":%q}\n", c)
+		}
 	}))
 	defer srv.Close()
 	a, err := NewApplier(srv.URL, "", "")
@@ -139,25 +164,33 @@ func TestVerifyPixieSchema_DetectsMissingColumns(t *testing.T) {
 	if !errors.As(err, &drift) {
 		t.Fatalf("err type = %T, want *SchemaDriftError", err)
 	}
-	if drift.Table != "http2_messages.beta" {
-		// pixie tables iterated in PixieTables() order; first one missing should
-		// be http2_messages.beta (the second entry).
-		t.Fatalf("first drift = %q, want http2_messages.beta", drift.Table)
+	if drift.Table != "http_events" {
+		t.Fatalf("first drift = %q, want http_events", drift.Table)
 	}
-	if !contains(drift.Missing, "namespace") || !contains(drift.Missing, "pod") {
-		t.Fatalf("Missing should include namespace + pod; got %v", drift.Missing)
+	// Spot-check that several of the data columns the writer fills are
+	// flagged missing — that's the new coverage vs the old 4-column
+	// check.
+	for _, want := range []string{"req_path", "req_headers", "resp_status", "latency"} {
+		if !contains(drift.Missing, want) {
+			t.Errorf("Missing should include %q (writer-column drift); got %v", want, drift.Missing)
+		}
 	}
 }
 
-// TestVerifyPixieSchema_AllPresent — happy path: all expected columns
-// present on every pixie table.
+// TestVerifyPixieSchema_AllPresent — happy path. The mock server returns
+// the FULL schema.sql column shape for each table, so VerifyPixieSchema
+// confirms the writer ⇔ schema contract holds and returns nil.
 func TestVerifyPixieSchema_AllPresent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"name":"time_"}` + "\n"))
-		_, _ = w.Write([]byte(`{"name":"upid"}` + "\n"))
-		_, _ = w.Write([]byte(`{"name":"namespace"}` + "\n"))
-		_, _ = w.Write([]byte(`{"name":"pod"}` + "\n"))
-		_, _ = w.Write([]byte(`{"name":"hostname"}` + "\n"))
+		table := tableForQuery(r.URL.Query().Get("query"))
+		cols, err := Columns(table)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		for _, c := range cols {
+			fmt.Fprintf(w, "{\"name\":%q}\n", c)
+		}
 	}))
 	defer srv.Close()
 	a, err := NewApplier(srv.URL, "", "")

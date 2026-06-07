@@ -55,6 +55,40 @@ import (
 // before they're interpolated into the INSERT query.
 var pixieTableIdentRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
 
+// setFailLoudSettings pins ClickHouse's input-format settings on every
+// AE INSERT so an upstream schema-drift surfaces as an HTTP 4xx with a
+// real error body, not a silent written_rows=0 + 200 OK that AE's
+// summaryWroteFewerThan only catches AFTER the data is lost (entlein/
+// dx#27 + the 2026-06-07 rig 6a25c85c regression that dropped
+// http_events + dns_events at 0 written_rows while the writer reported
+// 259 rows_sent and AE re-looped on the failure → 3.2-core CPU
+// runaway).
+//
+// Pinned defaults differ from the historical CH 22+ tolerant defaults:
+//
+//	input_format_skip_unknown_fields=0    fail on a column AE writes
+//	                                      that doesn't exist in CH.
+//	input_format_null_as_default=0        fail on a NULL where the
+//	                                      column is non-nullable.
+//	input_format_allow_errors_num=0       reject the whole batch on
+//	                                      the first parse error
+//	                                      (rather than silently
+//	                                      dropping bad rows up to the
+//	                                      CH default's tolerance).
+//	input_format_allow_errors_ratio=0     same, for the proportional
+//	                                      knob.
+//
+// Loud failures are the contract: AE then either restarts on the
+// fatal-path that wraps the write (controller / streaming both bubble
+// the error up) OR retries — but never advances its watermark over
+// data it didn't actually persist.
+func setFailLoudSettings(q url.Values) {
+	q.Set("input_format_skip_unknown_fields", "0")
+	q.Set("input_format_null_as_default", "0")
+	q.Set("input_format_allow_errors_num", "0")
+	q.Set("input_format_allow_errors_ratio", "0")
+}
+
 // chIdentRE — strict CH identifier (no dots). Used to gate Database
 // (and any future single-segment identifier) against SQL injection
 // from env/config-driven values.
@@ -205,6 +239,7 @@ func (s *ClickHouseHTTP) WritePixieRows(ctx context.Context, table string, rows 
 	}
 	q := url.Values{}
 	q.Set("query", fmt.Sprintf("INSERT INTO %s.%s FORMAT JSONEachRow", s.cfg.Database, identifier))
+	setFailLoudSettings(q)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.Endpoint+"/?"+q.Encode(), bytes.NewReader(buf.Bytes()))
 	if err != nil {
 		return err
@@ -317,6 +352,7 @@ func (s *ClickHouseHTTP) Write(ctx context.Context, rows []AttributionRow) error
 	q := url.Values{}
 	q.Set("query", fmt.Sprintf(
 		"INSERT INTO %s.adaptive_attribution FORMAT JSONEachRow", s.cfg.Database))
+	setFailLoudSettings(q)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		s.cfg.Endpoint+"/?"+q.Encode(), bytes.NewReader(body))
 	if err != nil {

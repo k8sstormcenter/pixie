@@ -128,6 +128,68 @@ func BenchmarkEncodeJSONEachRow_PixieShape_SmallBatch(b *testing.B) {
 	}
 }
 
+// BenchmarkEncodePixieRowsFast_PixieShape — the option-2 refactor.
+// Walks each row in fixed schema column order, type-switches values
+// directly to bytes.Buffer; no reflect, no encoding/json, no
+// per-row map-key sort. Direct apples-to-apples comparison vs
+// BenchmarkEncodeJSONEachRow_PixieShape above.
+func BenchmarkEncodePixieRowsFast_PixieShape(b *testing.B) {
+	rows := makePixieRowsBatch(1000)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for n := 0; n < b.N; n++ {
+		var buf bytes.Buffer
+		if err := encodePixieRowsFast(&buf, benchTable, rows); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodePixieRowsFast_PixieShape_SmallBatch(b *testing.B) {
+	rows := makePixieRowsBatch(50)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for n := 0; n < b.N; n++ {
+		var buf bytes.Buffer
+		if err := encodePixieRowsFast(&buf, benchTable, rows); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkEncodePixieRowsFast_Pooled — option 1 on top of option 2.
+// The bench mimics the real WritePixieRows shape: pull a buffer from
+// the pool, encode, Reset+Put. Measures the steady-state allocation
+// rate that AE actually pays in production (the first iteration's
+// allocation gets amortised across b.N).
+func BenchmarkEncodePixieRowsFast_Pooled_PixieShape(b *testing.B) {
+	rows := makePixieRowsBatch(1000)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for n := 0; n < b.N; n++ {
+		buf := encodeBufPool.Get().(*bytes.Buffer)
+		buf.Reset()
+		if err := encodePixieRowsFast(buf, benchTable, rows); err != nil {
+			b.Fatal(err)
+		}
+		encodeBufPool.Put(buf)
+	}
+}
+
+func BenchmarkEncodePixieRowsFast_Pooled_PixieShape_SmallBatch(b *testing.B) {
+	rows := makePixieRowsBatch(50)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for n := 0; n < b.N; n++ {
+		buf := encodeBufPool.Get().(*bytes.Buffer)
+		buf.Reset()
+		if err := encodePixieRowsFast(buf, benchTable, rows); err != nil {
+			b.Fatal(err)
+		}
+		encodeBufPool.Put(buf)
+	}
+}
+
 // BenchmarkNormalisePixieValue_TimeRow — per-row column iterations
 // includes a time.Time normalisation that calls .UTC().Format() (one
 // 30-byte string allocation per time field). Isolated cost.

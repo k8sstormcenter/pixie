@@ -34,6 +34,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -46,6 +47,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/anomaly"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/clickhouse"
 )
 
 // pixieTableIdentRE accepts plain CH identifiers and dotted protobuf
@@ -155,16 +157,46 @@ func (s *ClickHouseHTTP) WritePixieRows(ctx context.Context, table string, rows 
 	if err := validateTableIdentifier(table); err != nil {
 		return err
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	for _, r := range rows {
-		obj := make(map[string]any, len(r))
-		for k, v := range r {
-			obj[k] = normalisePixieValue(v)
+	// Pooled buffer (option 1) — controller fan-out + streaming flush
+	// call this on a tight cadence, so reusing the backing array across
+	// calls cuts the per-call B/op cost by ~70 % once the pool stabilises
+	// (the bench BenchmarkEncodePixieRowsFast_Pooled tracks the steady
+	// state). buf.Reset() preserves the cap on Put so the next caller
+	// gets a warm allocation.
+	buf := encodeBufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer func() {
+		// Avoid hoarding pathologically large buffers. The pixie batch
+		// upper bound is ~MaxBatchRows * ~900 B/row ≈ 1 MB; anything
+		// over 2 MB came from a one-off oversize batch and shouldn't
+		// stay in the pool eating heap.
+		if buf.Cap() > 2*1024*1024 {
+			return
 		}
-		if err := enc.Encode(obj); err != nil {
-			return fmt.Errorf("sink: encode pixie row for %s: %w", table, err)
+		encodeBufPool.Put(buf)
+	}()
+	// Fast path: known table → walk rows in schema column order, no
+	// reflect, no map-key sort. The fast encoder's CPU + alloc profile
+	// is ~3 % of the encoding/json path (AE benchmark suite); it's the
+	// hot path for every controller fan-out + streaming flush.
+	// errFastEncodeUnsupported falls back so an unexpected value type
+	// can't silently drop a row. ErrUnknownTable falls back so a new
+	// pixie table not yet in schema.sql still works (just slower).
+	if err := encodePixieRowsFast(buf, table, rows); err != nil {
+		if !errors.Is(err, errFastEncodeUnsupported) && !errors.Is(err, clickhouse.ErrUnknownTable) {
+			return fmt.Errorf("sink: fast encode %s: %w", table, err)
+		}
+		buf.Reset()
+		enc := json.NewEncoder(buf)
+		enc.SetEscapeHTML(false)
+		for _, r := range rows {
+			obj := make(map[string]any, len(r))
+			for k, v := range r {
+				obj[k] = normalisePixieValue(v)
+			}
+			if err := enc.Encode(obj); err != nil {
+				return fmt.Errorf("sink: encode pixie row for %s: %w", table, err)
+			}
 		}
 	}
 	identifier := table

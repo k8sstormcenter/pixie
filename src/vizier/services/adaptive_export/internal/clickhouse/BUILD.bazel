@@ -33,6 +33,7 @@ pl_go_test(
     name = "clickhouse_test",
     srcs = [
         "apply_test.go",
+        "columns_test.go",
         "ddl_test.go",
         "insert_test.go",
     ],

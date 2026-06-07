@@ -19,11 +19,15 @@ load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
     name = "sink",
-    srcs = ["clickhouse.go"],
+    srcs = [
+        "clickhouse.go",
+        "fastencode.go",
+    ],
     importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/sink",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
     deps = [
         "//src/vizier/services/adaptive_export/internal/anomaly",
+        "//src/vizier/services/adaptive_export/internal/clickhouse",
         "@com_github_sirupsen_logrus//:logrus",
     ],
 )
@@ -33,9 +37,11 @@ pl_go_test(
     srcs = [
         "clickhouse_test.go",
         "encode_bench_test.go",
+        "fastencode_test.go",
     ],
     embed = [":sink"],
     deps = [
         "//src/vizier/services/adaptive_export/internal/anomaly",
+        "//src/vizier/services/adaptive_export/internal/clickhouse",
     ],
 )

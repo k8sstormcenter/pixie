@@ -26,6 +26,9 @@ go_library(
 
 pl_go_test(
     name = "anomaly_test",
-    srcs = ["hash_test.go"],
+    srcs = [
+        "hash_bench_test.go",
+        "hash_test.go",
+    ],
     embed = [":anomaly"],
 )

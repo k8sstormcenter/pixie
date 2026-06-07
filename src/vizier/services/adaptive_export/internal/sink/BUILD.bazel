@@ -30,7 +30,10 @@ go_library(
 
 pl_go_test(
     name = "sink_test",
-    srcs = ["clickhouse_test.go"],
+    srcs = [
+        "clickhouse_test.go",
+        "encode_bench_test.go",
+    ],
     embed = [":sink"],
     deps = [
         "//src/vizier/services/adaptive_export/internal/anomaly",

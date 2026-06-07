@@ -33,6 +33,7 @@ go_library(
 pl_go_test(
     name = "pxl_test",
     srcs = [
+        "queryfor_bench_test.go",
         "queryfor_test.go",
         "tables_test.go",
     ],

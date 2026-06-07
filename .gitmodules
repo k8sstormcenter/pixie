@@ -1,0 +1,4 @@
+[submodule "src/vizier/services/dx"]
+	path = src/vizier/services/dx
+	url = https://github.com/entlein/dx.git
+	branch = feat/dapr-detection

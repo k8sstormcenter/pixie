@@ -36,8 +36,8 @@ build:
     bazel:
       target: //src/vizier/services/cloud_connector:cloud_connector_server_image.tar
       args:
-        - --config=x86_64_sysroot
-        - --compilation_mode=opt
+      - --config=x86_64_sysroot
+      - --compilation_mode=opt
   - image: vizier-cert_provisioner_image
     context: .
     bazel:
@@ -49,6 +49,16 @@ build:
     context: .
     bazel:
       target: //src/vizier/services/adaptive_export:adaptive_export_image.tar
+      args:
+      - --config=x86_64_sysroot
+      - --compilation_mode=opt
+  # vizier-dx_daemon_image — Go binary built from the private entlein/dx
+  # submodule mounted at src/vizier/services/dx (pulled in CI via
+  # DX_ENTLEIN_PAT; mirrors the entlein/bob → k8sstormcenter/bob pattern).
+  - image: vizier-dx_daemon_image
+    context: .
+    bazel:
+      target: //src/vizier/services/dx:dx_daemon_image.tar
       args:
       - --config=x86_64_sysroot
       - --compilation_mode=opt

@@ -26,6 +26,13 @@ VIZIER_IMAGE_TO_LABEL = {
     "$(IMAGE_PREFIX)/vizier-adaptive_export_image:$(BUNDLE_VERSION)": "//src/vizier/services/adaptive_export:adaptive_export_image",
     "$(IMAGE_PREFIX)/vizier-cert_provisioner_image:$(BUNDLE_VERSION)": "//src/utils/cert_provisioner:cert_provisioner_image",
     "$(IMAGE_PREFIX)/vizier-cloud_connector_server_image:$(BUNDLE_VERSION)": "//src/vizier/services/cloud_connector:cloud_connector_server_image",
+    # dx_daemon_image rides the same vizier-release flow as the rest of the
+    # bundle. BUILD lives inside the private entlein/dx submodule mounted at
+    # src/vizier/services/dx (pulled in CI via secrets.DX_ENTLEIN_PAT). See
+    # the AE PR comment thread for the BUILD.bazel templates committed
+    # inside the submodule (top-level pl_go_image + cmd/pl_go_binary +
+    # per-internal go_library).
+    "$(IMAGE_PREFIX)/vizier-dx_daemon_image:$(BUNDLE_VERSION)": "//src/vizier/services/dx:dx_daemon_image",
     "$(IMAGE_PREFIX)/vizier-kelvin_image:$(BUNDLE_VERSION)": "//src/vizier/services/agent/kelvin:kelvin_image",
     "$(IMAGE_PREFIX)/vizier-metadata_server_image:$(BUNDLE_VERSION)": "//src/vizier/services/metadata:metadata_server_image",
     "$(IMAGE_PREFIX)/vizier-pem_image:$(BUNDLE_VERSION)": "//src/vizier/services/agent/pem:pem_image",

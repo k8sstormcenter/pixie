@@ -58,6 +58,7 @@ import (
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/config"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/control"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/controller"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/passthrough"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pixie"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pixieapi"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl"
@@ -130,6 +131,16 @@ const (
 	//   "streaming" → rev-3: N TableScanners with shared whitelist
 	//                 (see .local/adaptive-write-rev3-plan.md)
 	envAdaptiveWriteMode = "ADAPTIVE_WRITE_MODE"
+
+	// envPassthrough — firehose mode counterpart to the anomaly-gated
+	// path. When "true", a single background loop queries every pixie
+	// observation table with an empty Target (no ns/pod predicate),
+	// over the rolling window, and writes the result via the existing
+	// sink. Enables A/B measurement of AE's capture fraction by
+	// running the same workload+window twice with the env flipped.
+	envPassthrough        = "ADAPTIVE_PASSTHROUGH"
+	envPassthroughWindow  = "ADAPTIVE_PASSTHROUGH_WINDOW_SEC"
+	envPassthroughRefresh = "ADAPTIVE_PASSTHROUGH_REFRESH_SEC"
 )
 
 func main() {
@@ -333,10 +344,13 @@ func main() {
 	}
 	ctl := controller.New(trg, snk, ctlCfg, nil)
 
-	// Build the pixie adapter ONCE — shared by both rev-2's
-	// pushPixieRows path and the rev-3 streaming.Supervisor.
+	// Build the pixie adapter ONCE — shared by rev-2's pushPixieRows
+	// path, the rev-3 streaming.Supervisor, AND the firehose passthrough
+	// loop. All three need a live pxapi client; constructing once avoids
+	// holding two parallel grpc streams for the same vizier.
+	passthroughEnabled := strings.EqualFold(os.Getenv(envPassthrough), "true")
 	var pixieAdapterInst *pixieapi.Adapter
-	if len(ctlCfg.PushPixieTables) > 0 || streamingMode {
+	if len(ctlCfg.PushPixieTables) > 0 || streamingMode || passthroughEnabled {
 		var adapter *pixieapi.Adapter
 		if direct := os.Getenv("ADAPTIVE_VIZIER_DIRECT_ADDR"); direct != "" {
 			// Direct mode — bypass the cloud's passthrough proxy and
@@ -453,6 +467,29 @@ func main() {
 			supervisor.Run(ctx)
 		}()
 		log.WithField("tables", streamTables).Info("rev-3 streaming supervisor started")
+	}
+
+	// 7c. Firehose passthrough loop — independent of fan-out / streaming.
+	//     Off unless ADAPTIVE_PASSTHROUGH=true. Reuses the same adapter +
+	//     sink so byte-shape of written rows matches the AE-filter phase.
+	if passthroughEnabled {
+		if pixieAdapterInst == nil {
+			log.Fatal("ADAPTIVE_PASSTHROUGH=true but pixie adapter is nil — internal wiring bug")
+		}
+		ptCfg := passthrough.Config{
+			Window:  durEnv(envPassthroughWindow, 30*time.Second, time.Second),
+			Refresh: durEnv(envPassthroughRefresh, 30*time.Second, time.Second),
+		}
+		ptLoop := passthrough.New(&pixieAdapter{a: pixieAdapterInst}, snk, ptCfg)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ptLoop.Run(ctx)
+		}()
+		log.WithFields(log.Fields{
+			"window":  ptCfg.Window,
+			"refresh": ptCfg.Refresh,
+		}).Info("ADAPTIVE_PASSTHROUGH=true — firehose loop running (no anomaly gate)")
 	}
 
 	log.WithFields(log.Fields{

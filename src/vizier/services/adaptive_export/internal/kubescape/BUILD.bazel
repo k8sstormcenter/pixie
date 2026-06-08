@@ -18,12 +18,9 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
-    name = "pxl",
-    srcs = [
-        "queryfor.go",
-        "tables.go",
-    ],
-    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl",
+    name = "kubescape",
+    srcs = ["extract.go"],
+    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/kubescape",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
     deps = [
         "//src/vizier/services/adaptive_export/internal/anomaly",
@@ -31,13 +28,9 @@ go_library(
 )
 
 pl_go_test(
-    name = "pxl_test",
-    srcs = [
-        "queryfor_bench_test.go",
-        "queryfor_test.go",
-        "tables_test.go",
-    ],
-    embed = [":pxl"],
+    name = "kubescape_test",
+    srcs = ["extract_test.go"],
+    embed = [":kubescape"],
     deps = [
         "//src/vizier/services/adaptive_export/internal/anomaly",
     ],

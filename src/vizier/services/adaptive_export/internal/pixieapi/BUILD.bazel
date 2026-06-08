@@ -1,3 +1,5 @@
+load("@px//bazel:pl_build_system.bzl", "pl_go_test")
+
 # Copyright 2018- The Pixie Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,30 +17,22 @@
 # SPDX-License-Identifier: Apache-2.0
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
-load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
-    name = "pxl",
-    srcs = [
-        "queryfor.go",
-        "tables.go",
-    ],
-    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl",
+    name = "pixieapi",
+    srcs = ["pixieapi.go"],
+    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/pixieapi",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
     deps = [
-        "//src/vizier/services/adaptive_export/internal/anomaly",
+        "//src/api/go/pxapi",
+        "//src/api/go/pxapi/errdefs",
+        "//src/api/go/pxapi/types",
+        "//src/shared/services/utils",
     ],
 )
 
 pl_go_test(
-    name = "pxl_test",
-    srcs = [
-        "queryfor_bench_test.go",
-        "queryfor_test.go",
-        "tables_test.go",
-    ],
-    embed = [":pxl"],
-    deps = [
-        "//src/vizier/services/adaptive_export/internal/anomaly",
-    ],
+    name = "pixieapi_test",
+    srcs = ["pixieapi_test.go"],
+    embed = [":pixieapi"],
 )

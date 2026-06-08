@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.http_events (
     resp_body_size Int64,
     latency        Int64,
     hostname       String,
-    event_time     DateTime64(3, 'UTC')
+    event_time     DateTime64(3, 'UTC') DEFAULT toDateTime64(time_, 3)
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.`http2_messages.beta` (
     body        String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3, 'UTC')
+    event_time  DateTime64(3, 'UTC') DEFAULT toDateTime64(time_, 3)
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.dns_events (
     resp_body   String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3, 'UTC')
+    event_time  DateTime64(3, 'UTC') DEFAULT toDateTime64(time_, 3)
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.redis_events (
     resp        String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3, 'UTC')
+    event_time  DateTime64(3, 'UTC') DEFAULT toDateTime64(time_, 3)
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -192,7 +192,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.mysql_events (
     resp_body   String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3, 'UTC')
+    event_time  DateTime64(3, 'UTC') DEFAULT toDateTime64(time_, 3)
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -213,7 +213,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.pgsql_events (
     resp        String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3, 'UTC')
+    event_time  DateTime64(3, 'UTC') DEFAULT toDateTime64(time_, 3)
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -236,7 +236,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.cql_events (
     resp_body   String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3, 'UTC')
+    event_time  DateTime64(3, 'UTC') DEFAULT toDateTime64(time_, 3)
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -259,7 +259,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.mongodb_events (
     resp_body   String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3, 'UTC')
+    event_time  DateTime64(3, 'UTC') DEFAULT toDateTime64(time_, 3)
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -282,7 +282,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.`kafka_events.beta` (
     resp        String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3, 'UTC')
+    event_time  DateTime64(3, 'UTC') DEFAULT toDateTime64(time_, 3)
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -305,7 +305,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.amqp_events (
     payload     String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3, 'UTC')
+    event_time  DateTime64(3, 'UTC') DEFAULT toDateTime64(time_, 3)
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -327,7 +327,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.mux_events (
     resp        String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(3, 'UTC')
+    event_time  DateTime64(3, 'UTC') DEFAULT toDateTime64(time_, 3)
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -347,7 +347,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.tls_events (
     handshake     String,
     latency       Int64,
     hostname      String,
-    event_time    DateTime64(3, 'UTC')
+    event_time    DateTime64(3, 'UTC') DEFAULT toDateTime64(time_, 3)
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -378,7 +378,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.conn_stats (
     bytes_sent    Int64,
     bytes_recv    Int64,
     hostname      String,
-    event_time    DateTime64(3, 'UTC')
+    event_time    DateTime64(3, 'UTC') DEFAULT toDateTime64(time_, 3)
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);

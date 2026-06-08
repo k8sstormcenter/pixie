@@ -55,7 +55,29 @@ func encodePixieRowsFast(buf *bytes.Buffer, table string, rows []map[string]any)
 		for _, col := range cols {
 			v, ok := row[col]
 			if !ok {
-				continue
+				// event_time derivation: pxapi result rows carry time_
+				// (TIME64NS) but never event_time — that column was added by
+				// Pixie's retention plugin in the production flow, but the
+				// operator-direct push path AE takes bypasses the plugin.
+				// Without this derivation the column collapsed to CH's
+				// epoch-0 default and every operator-pushed row landed in
+				// partition 197001 (rig 6a25c85c, 2026-06-07 — visible in
+				// the data even though the silent-drop was fixed by aeprod6).
+				// schema.sql also carries a DEFAULT toDateTime64(time_, 3)
+				// as a belt-and-suspenders safety net for fresh installs;
+				// this derivation handles existing tables (where the
+				// CREATE TABLE IF NOT EXISTS is a no-op) AND tables on CH
+				// versions that don't evaluate DEFAULT expressions on
+				// JSONEachRow insert.
+				if col == "event_time" {
+					if t, hasTime := row["time_"]; hasTime {
+						v = t
+						ok = true
+					}
+				}
+				if !ok {
+					continue
+				}
 			}
 			if !first {
 				buf.WriteByte(',')

@@ -177,6 +177,64 @@ func TestFastEncode_UnsupportedType_FallsBack(t *testing.T) {
 	}
 }
 
+// event_time derivation — pxapi rows don't carry event_time, only time_.
+// The fast encoder MUST emit event_time = time_ rather than skip the
+// column (which would silently fall back to CH's epoch-0 default and
+// land every row in partition 197001 — rig 6a25c85c regression, aeprod6
+// silent-drop tail). This test is the T2 write-integrity guard
+// dx-agent asked for on PR #47.
+func TestFastEncode_EventTime_DerivedFromTime(t *testing.T) {
+	// Realistic Pixie timestamp; trailing fractional nanos verify the
+	// time.Time value is emitted verbatim through CH's DateTime64(9)
+	// shape, which CH then truncates to DateTime64(3) on insert.
+	pixieTS := time.Unix(0, 1_717_790_021_560_000_000).UTC()
+	row := sampleHTTPRow(0)
+	row["time_"] = pixieTS
+	delete(row, "event_time") // pxapi result rows arrive WITHOUT event_time
+
+	var buf bytes.Buffer
+	if err := encodePixieRowsFast(&buf, "http_events", []map[string]any{row}); err != nil {
+		t.Fatalf("encodePixieRowsFast: %v", err)
+	}
+	parsed := parseNDJSON(buf.Bytes())
+	if len(parsed) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(parsed))
+	}
+	et, ok := parsed[0]["event_time"].(string)
+	if !ok {
+		t.Fatalf("event_time absent from encoded row: %v", parsed[0])
+	}
+	// The fast encoder formats time.Time as the CH DateTime64 string
+	// shape "YYYY-MM-DD HH:MM:SS.NNNNNNNNN" (UTC, 9 fractional digits).
+	// The exact serialised string the fast encoder produces for this UTC
+	// time.Time. The pin is by value (not derivation) so a regression in
+	// the time-string format also trips this test.
+	want := "2024-06-07 19:53:41.560000000"
+	if et != want {
+		t.Fatalf("event_time = %q, want %q (must equal time_ verbatim, not epoch 0)", et, want)
+	}
+}
+
+// event_time NOT derived when the source row already carries it — caller-
+// supplied event_time wins. Belt-and-suspenders: if a future code path
+// already filled it correctly, the derivation must not overwrite.
+func TestFastEncode_EventTime_NotOverwritten(t *testing.T) {
+	rowTS := time.Unix(0, 1_717_790_000_000_000_000).UTC()
+	differentTS := time.Unix(0, 1_700_000_000_000_000_000).UTC()
+	row := sampleHTTPRow(0)
+	row["time_"] = rowTS
+	row["event_time"] = differentTS // caller supplied; must be preserved
+
+	var buf bytes.Buffer
+	if err := encodePixieRowsFast(&buf, "http_events", []map[string]any{row}); err != nil {
+		t.Fatal(err)
+	}
+	parsed := parseNDJSON(buf.Bytes())
+	if et := parsed[0]["event_time"].(string); !strings.HasPrefix(et, "2023-11-14") {
+		t.Fatalf("caller-supplied event_time was overwritten: got %q", et)
+	}
+}
+
 // Special characters in string columns must JSON-escape the same way
 // encoding/json does — otherwise CH would parse different bytes than
 // the slow path produces. Tab, newline, quote, backslash, control,

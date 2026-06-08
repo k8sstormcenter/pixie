@@ -1,0 +1,123 @@
+// Copyright 2018- The Pixie Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
+
+// Package clickhouse owns the canonical ClickHouse DDL for the
+// forensic_db tables that adaptive_export reads (kubescape_logs) and
+// the 12 socket_tracer tables Pixie's retention plugin writes (which
+// the operator joins against via forensic_db.adaptive_attribution).
+//
+// schema.sql is the single source of truth. The operator never invents
+// SQL — it always extracts statements verbatim from the embedded copy.
+package clickhouse
+
+import (
+	_ "embed"
+	"errors"
+	"fmt"
+	"strings"
+)
+
+//go:embed schema.sql
+var canonicalSchema string
+
+// KnownTables enumerates every forensic_db table the operator is aware
+// of, in the order they appear in schema.sql. Backtick-quoted table
+// names (those containing dots, e.g. "http2_messages.beta") are listed
+// here without backticks; DDL() reinjects them.
+var KnownTables = []string{
+	// non-pixie
+	"alerts",
+	"kubescape_logs",
+	// 12 socket_tracer pixie observation tables
+	"http_events",
+	"http2_messages.beta",
+	"dns_events",
+	"redis_events",
+	"mysql_events",
+	"pgsql_events",
+	"cql_events",
+	"mongodb_events",
+	"kafka_events.beta",
+	"amqp_events",
+	"mux_events",
+	"tls_events",
+	// conn_stats — re-added to rev-2 schema; counts per
+	// (remote_addr, remote_port, protocol) on each retention-script pull.
+	"conn_stats",
+	// operator-owned attribution table
+	"adaptive_attribution",
+	// operator-owned persistent trigger cursor
+	"trigger_watermark",
+}
+
+// ErrUnknownTable is returned by DDL / Columns when asked for a table
+// not in KnownTables.
+var ErrUnknownTable = errors.New("clickhouse: unknown table")
+
+// DDL returns the canonical CREATE TABLE statement for the named table,
+// extracted from the embedded schema.sql.
+func DDL(table string) (string, error) {
+	if !isKnown(table) {
+		return "", fmt.Errorf("%w: %q", ErrUnknownTable, table)
+	}
+	// ClickHouse identifiers containing a dot must be backtick-quoted.
+	// Build the right header for the lookup.
+	identifier := table
+	if strings.Contains(table, ".") {
+		identifier = "`" + table + "`"
+	}
+	header := "CREATE TABLE IF NOT EXISTS forensic_db." + identifier
+	start := strings.Index(canonicalSchema, header)
+	if start < 0 {
+		return "", fmt.Errorf("%w: %q registered in KnownTables but not present in embedded schema.sql", ErrUnknownTable, table)
+	}
+	rest := canonicalSchema[start:]
+	semi := strings.Index(rest, ";")
+	if semi < 0 {
+		return "", fmt.Errorf("malformed schema.sql: no terminating ';' after %q", table)
+	}
+	return rest[:semi+1], nil
+}
+
+// PixieTables returns the subset of KnownTables that are pixie
+// socket_tracer observation tables (the JOIN targets for
+// adaptive_attribution).
+func PixieTables() []string {
+	return []string{
+		"http_events",
+		"http2_messages.beta",
+		"dns_events",
+		"redis_events",
+		"mysql_events",
+		"pgsql_events",
+		"cql_events",
+		"mongodb_events",
+		"kafka_events.beta",
+		"amqp_events",
+		"mux_events",
+		"tls_events",
+		"conn_stats",
+	}
+}
+
+func isKnown(name string) bool {
+	for _, t := range KnownTables {
+		if t == name {
+			return true
+		}
+	}
+	return false
+}

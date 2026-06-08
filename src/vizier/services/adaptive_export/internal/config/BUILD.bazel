@@ -18,17 +18,12 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "config",
-    srcs = [
-        "config.go",
-        "definition.go",
-    ],
+    srcs = ["config.go"],
     importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/config",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
     deps = [
         "//src/utils/shared/k8s",
-        "//src/vizier/services/adaptive_export/internal/script",
         "@com_github_sirupsen_logrus//:logrus",
-        "@in_gopkg_yaml_v2//:yaml_v2",
         "@io_k8s_apimachinery//pkg/apis/meta/v1:meta",
         "@io_k8s_client_go//kubernetes",
         "@io_k8s_client_go//rest",

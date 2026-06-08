@@ -14,6 +14,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+load("@io_bazel_rules_docker//container:container.bzl", "container_bundle")
+load("@io_bazel_rules_docker//contrib:push-all.bzl", "container_push")
 load("//bazel:pl_build_system.bzl", "pl_go_image")
 
 pl_go_image(
@@ -23,4 +25,28 @@ pl_go_image(
         "//k8s:__subpackages__",
         "//src/vizier:__subpackages__",
     ],
+)
+
+# Single-image bundle + push targets — same shape as
+# //k8s/vizier:image_bundle / vizier_images_push, but scoped to ONLY
+# the adaptive_export image so the SBOB PoC can rebuild this one
+# component without rebuilding kelvin / pem / metadata. Consumed by
+# .github/workflows/adaptive_export_image.yaml via
+# `bazel run :adaptive_export_image_push` with the standard
+# --//k8s:image_repository / --//k8s:image_version overrides.
+container_bundle(
+    name = "adaptive_export_image_bundle",
+    images = {
+        "$(IMAGE_PREFIX)/vizier-adaptive_export_image:$(BUNDLE_VERSION)": ":adaptive_export_image",
+    },
+    toolchains = [
+        "//k8s:image_prefix",
+        "//k8s:bundle_version",
+    ],
+)
+
+container_push(
+    name = "adaptive_export_image_push",
+    bundle = ":adaptive_export_image_bundle",
+    format = "Docker",
 )

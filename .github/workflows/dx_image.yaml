@@ -1,0 +1,127 @@
+---
+name: dx-image
+# Build + publish the dx-daemon container image (entlein/dx).
+#
+# The dx source lives in the private repo entlein/dx (Active-Diagnosis
+# Framework). It is built here in pixie because pixie owns the cluster
+# release pipeline + the ghcr.io/k8sstormcenter publishing surface.
+#
+# Triggers:
+#   - tag push `release/dx/v*` on the pixie repo cuts a release build.
+#       The image tag is everything after `release/dx/v` (e.g.
+#       `release/dx/v0.1.0` -> ghcr image tag `0.1.0`).
+#   - workflow_dispatch lets us build any dx ref on demand with a custom
+#       image tag (default: short sha of the resolved dx commit).
+#
+# Build uses docker buildx with the Go Dockerfile (Dockerfile.dxd) in the
+# dx repo. Cross-compile happens in the native BUILDPLATFORM stage and
+# the final stage is COPY-only, so the multi-arch build does not need
+# target-arch emulation — QEMU is still set up for manifest handling.
+on:
+  push:
+    tags:
+    - release/dx/v**
+  workflow_dispatch:
+    inputs:
+      dx-ref:
+        description: 'entlein/dx ref to build (branch, tag, or sha). Default: main.'
+        required: false
+        type: string
+        default: 'main'
+      image-tag:
+        description: 'Image tag to publish. Default: short sha of the dx ref.'
+        required: false
+        type: string
+permissions:
+  contents: read
+  packages: write
+env:
+  IMAGE_REPO: ${{ vars.IMAGE_REPO || 'ghcr.io/k8sstormcenter' }}
+  IMAGE_NAME: dx-daemon
+jobs:
+  build-and-push:
+    name: Build & push dx-daemon image
+    runs-on: ubuntu-latest
+    steps:
+    - name: Resolve dx ref + image tag
+      id: resolve
+      shell: bash
+      env:
+        REF: ${{ github.event.ref }}
+        EVENT_NAME: ${{ github.event_name }}
+        INPUT_DX_REF: ${{ inputs.dx-ref }}
+        INPUT_IMAGE_TAG: ${{ inputs.image-tag }}
+      run: |
+        set -euo pipefail
+        if [[ "${EVENT_NAME}" == "push" ]]; then
+          # REF looks like refs/tags/release/dx/v0.1.0 — strip the release/dx/v prefix
+          tag="${REF#refs/tags/release/dx/v}"
+          dx_ref="main"
+        else
+          dx_ref="${INPUT_DX_REF:-main}"
+          tag="${INPUT_IMAGE_TAG:-}"
+        fi
+        echo "dx-ref=${dx_ref}" >> "$GITHUB_OUTPUT"
+        echo "image-tag-hint=${tag}" >> "$GITHUB_OUTPUT"
+    - name: Checkout entlein/dx
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      with:
+        repository: entlein/dx
+        ref: ${{ steps.resolve.outputs.dx-ref }}
+        token: ${{ secrets.DX_ENTLEIN_PAT }}
+        path: dx
+        fetch-depth: 0
+    - name: Finalize image tag
+      id: tag
+      shell: bash
+      env:
+        TAG_HINT: ${{ steps.resolve.outputs.image-tag-hint }}
+      run: |
+        set -euo pipefail
+        cd dx
+        sha="$(git rev-parse --short HEAD)"
+        if [[ -z "${TAG_HINT}" ]]; then
+          tag="${sha}"
+        else
+          tag="${TAG_HINT}"
+        fi
+        echo "image-tag=${tag}" >> "$GITHUB_OUTPUT"
+        echo "dx-sha=${sha}" >> "$GITHUB_OUTPUT"
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf  # v3.2.0
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349  # v3.7.1
+    - name: Login to GHCR
+      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Build & push dx-daemon
+      uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75  # v6.9.0
+      with:
+        context: dx
+        file: dx/Dockerfile.dxd
+        platforms: linux/amd64,linux/arm64
+        push: true
+        provenance: false
+        tags: |
+          ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.image-tag }}
+        labels: |
+          org.opencontainers.image.source=https://github.com/entlein/dx
+          org.opencontainers.image.revision=${{ steps.tag.outputs.dx-sha }}
+          org.opencontainers.image.version=${{ steps.tag.outputs.image-tag }}
+    - name: Summary
+      shell: bash
+      env:
+        IMG: ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.image-tag }}
+        SHA: ${{ steps.tag.outputs.dx-sha }}
+        DX_REF: ${{ steps.resolve.outputs.dx-ref }}
+      run: |
+        {
+          echo "### dx-daemon image published"
+          echo
+          echo "- image: \`${IMG}\`"
+          echo "- dx ref: \`${DX_REF}\`"
+          echo "- dx sha: \`${SHA}\`"
+        } >> "$GITHUB_STEP_SUMMARY"

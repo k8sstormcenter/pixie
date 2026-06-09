@@ -15,7 +15,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
-load("@px//bazel:pl_build_system.bzl", "pl_go_binary")
+load("//bazel:pl_build_system.bzl", "pl_go_binary")
 
 go_library(
     name = "cmd_lib",
@@ -29,6 +29,7 @@ go_library(
         "//src/vizier/services/adaptive_export/internal/config",
         "//src/vizier/services/adaptive_export/internal/control",
         "//src/vizier/services/adaptive_export/internal/controller",
+        "//src/vizier/services/adaptive_export/internal/passthrough",
         "//src/vizier/services/adaptive_export/internal/pixie",
         "//src/vizier/services/adaptive_export/internal/pixieapi",
         "//src/vizier/services/adaptive_export/internal/pxl",

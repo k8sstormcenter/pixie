@@ -1,0 +1,44 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: plc
+replicas:
+- name: api-server
+  count: 1
+- name: auth-server
+  count: 1
+- name: profile-server
+  count: 1
+- name: cloud-proxy
+  count: 1
+- name: project-manager-server
+  count: 1
+- name: vzmgr-server
+  count: 1
+- name: scriptmgr-server
+  count: 1
+resources:
+- ../../k8s/cloud/base
+- plugin_db_updater_job.yaml
+components:
+- ../../k8s/cloud/overlays/exposed_services_traefik
+labels:
+- includeSelectors: true
+  pairs:
+    app: pl-cloud
+patches:
+- path: artifact_config.yaml
+- path: auth_deployment.yaml
+- path: domain_config.yaml
+- path: script_bundles_config.yaml
+- path: proxy_envoy.yaml
+- path: cloud_ingress.yaml
+  target:
+    kind: Ingress
+    name: cloud-ingress
+- path: servers_transport.yaml
+  target:
+    group: traefik.io
+    version: v1alpha1
+    kind: ServersTransport
+    name: cloud-backend-transport

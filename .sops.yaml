@@ -1,0 +1,5 @@
+---
+# az login -t 1e8a0c86-2410-4f48-91c3-dc1d164680ca
+creation_rules:
+- path_regex: terraform/credentials/cockpit
+  azure_keyvault: https://kv-pixie-cloud.vault.azure.net/keys/sops-key

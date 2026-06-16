@@ -27,12 +27,14 @@ settle(){ sleep "${SETTLE_S:-3}"; }
 
 echo "rep,exp,uniq_exp,uniq_act,attrib_exp,attrib_act,wm_exp,wm_act,pass" | tee "$OUT"
 WM_PREV=0       # for monotonicity check (trigger_watermark persists on a ~5s throttle)
-BASE="$(now_s)" # event_time is unix SECONDS (production unit)
 
 for rep in $(seq 1 "$REPS"); do
-  # Per-rep 10s slot → distinct, monotone second-granularity event_times with
-  # room for E2's 10 rows / E3's 8 pods without cross-rep collision.
-  T=$(( BASE + rep*10 ))
+  # event_time = REAL current second. The trigger watermark is a strict
+  # high-water-mark (contract C3 / F8): future-dated stamps (BASE+rep*N) push
+  # the watermark ahead of wall-clock, so later experiments' now-based stamps
+  # fall BELOW it and are silently dropped. now_s keeps the watermark tracking
+  # real time → monotone across experiments on the same (per-node) hostname.
+  T="$(now_s)"
   R="$(printf '%03d' "$rep")"   # zero-pad → collision-proof LIKE filters
   filt=""; uexp=1; aexp=1; wmexp="$T"; idemp=""
   case "$EXP" in
@@ -45,11 +47,13 @@ for rep in $(seq 1 "$REPS"); do
       inj --ns aeload --pod "$filt" --rule R0001 --pid 1234 --comm java --event-time "$T" --count 10 --dt-s 1 || { echo "$rep,$EXP,,,,,,,INJECT_FAIL"|tee -a "$OUT"; continue; }
       sleep 8  # let all 10 rows (spanning 9s) be polled before measuring
       ;;
-    E3) # fan-out: 8 distinct pods → 8 hashes, 8 rows
+    E3) # fan-out: 8 distinct pods → 8 hashes. Same event_time (now_s) for all 8 —
+        # distinct pods → distinct content fingerprints → all 8 surface (boundary
+        # dedup is per-fingerprint), and the watermark only advances to now_s.
       filt="cp-e3-${R}-"; K=8; uexp="$K"; aexp="$K"; wmexp=""
       ok=1
       for j in $(seq 1 "$K"); do
-        inj --ns aeload --pod "${filt}${j}" --rule R0001 --pid "$((1234+j))" --comm java --event-time "$((T + j))" || ok=0
+        inj --ns aeload --pod "${filt}${j}" --rule R0001 --pid "$((1234+j))" --comm java --event-time "$T" || ok=0
       done
       [[ "$ok" == 1 ]] || { echo "$rep,$EXP,,,,,,,INJECT_FAIL"|tee -a "$OUT"; continue; }
       ;;

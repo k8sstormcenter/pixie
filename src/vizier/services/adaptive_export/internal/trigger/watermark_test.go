@@ -91,7 +91,10 @@ func TestTrigger_LoadsPersistentWatermarkOnBoot(t *testing.T) {
 	_, _ = tr.Subscribe(ctx)
 	select {
 	case q := <-queries:
-		if !strings.Contains(q, "event_time >= 1744000000000000000") {
+		// post-#10/trigger-unit-normalize: SQL emits multiIf(...) >= <ns watermark>
+		// (event_time is auto-normalized to nanoseconds). 1.744e18 is already
+		// ns-scale so it passes through the multiIf unchanged.
+		if !strings.Contains(q, ") >= 1744000000000000000") {
 			t.Fatalf("first query did not use persisted watermark; got %q", q)
 		}
 	case <-time.After(500 * time.Millisecond):
@@ -122,7 +125,9 @@ func TestTrigger_FallsBackToInitialWatermarkWhenStoreEmpty(t *testing.T) {
 	_, _ = tr.Subscribe(ctx)
 	select {
 	case q := <-queries:
-		if !strings.Contains(q, "event_time >= 42") {
+		// post-#10/trigger-unit-normalize: InitialWatermark=42 is <1e10 so the
+		// multiIf treats it as seconds and multiplies by 1e9 → 42_000_000_000.
+		if !strings.Contains(q, ") >= 42000000000") {
 			t.Fatalf("first query did not use InitialWatermark fallback; got %q", q)
 		}
 	case <-time.After(500 * time.Millisecond):
@@ -153,7 +158,9 @@ func TestTrigger_FallsBackOnStoreLoadError(t *testing.T) {
 	_, _ = tr.Subscribe(ctx)
 	select {
 	case q := <-queries:
-		if !strings.Contains(q, "event_time >= 7") {
+		// post-#10/trigger-unit-normalize: InitialWatermark=7 is <1e10 so the
+		// multiIf treats it as seconds and multiplies by 1e9 → 7_000_000_000.
+		if !strings.Contains(q, ") >= 7000000000") {
 			t.Fatalf("error path did not fall back to InitialWatermark; got %q", q)
 		}
 	case <-time.After(500 * time.Millisecond):
@@ -294,7 +301,10 @@ func TestTrigger_PartialBodyReadStillAdvances(t *testing.T) {
 	<-queries
 	select {
 	case q := <-queries:
-		if !strings.Contains(q, "event_time >= 5000") {
+		// post-#10/trigger-unit-normalize: the good line emits event_time="5000"
+		// (seconds); the advanced watermark goes through the multiIf with the
+		// sec→ns multiplier (× 1e9) → 5_000_000_000_000.
+		if !strings.Contains(q, ") >= 5000000000000") {
 			t.Fatalf("watermark did not advance on partial read; second query: %q", q)
 		}
 	case <-time.After(500 * time.Millisecond):

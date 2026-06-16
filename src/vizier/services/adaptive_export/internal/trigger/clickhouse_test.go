@@ -79,7 +79,9 @@ func TestTrigger_Polls_HostnameAndWatermark(t *testing.T) {
 	if !strings.Contains(lastQuery, "hostname = 'node-1'") {
 		t.Fatalf("query missing hostname filter: %q", lastQuery)
 	}
-	if !strings.Contains(lastQuery, "event_time >= 1744477360303026359") {
+	// post-#10/trigger-unit-normalize: SQL wraps event_time in multiIf(...);
+	// 1.744e18 is already ns-scale so it passes through unchanged.
+	if !strings.Contains(lastQuery, ") >= 1744477360303026359") {
 		t.Fatalf("watermark didn't advance to inclusive boundary: %q", lastQuery)
 	}
 }

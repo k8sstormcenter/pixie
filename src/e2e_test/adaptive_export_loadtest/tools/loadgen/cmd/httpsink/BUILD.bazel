@@ -14,18 +14,24 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-load("//bazel:pl_build_system.bzl", "pl_go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@px//bazel:pl_build_system.bzl", "pl_go_binary", "pl_go_image")
 
-pl_go_test(
-    name = "e2e_test",
-    srcs = [
-        "e2e_test.go",
-        "loadtest_test.go",
-    ],
-    deps = [
-        "//src/vizier/services/adaptive_export/internal/anomaly",
-        "//src/vizier/services/adaptive_export/internal/controller",
-        "//src/vizier/services/adaptive_export/internal/sink",
-        "//src/vizier/services/adaptive_export/internal/trigger",
-    ],
+go_library(
+    name = "httpsink_lib",
+    srcs = ["main.go"],
+    importpath = "px.dev/pixie/src/e2e_test/adaptive_export_loadtest/tools/loadgen/cmd/httpsink",
+    visibility = ["//visibility:private"],
+)
+
+pl_go_binary(
+    name = "httpsink",
+    embed = [":httpsink_lib"],
+    visibility = ["//visibility:public"],
+)
+
+pl_go_image(
+    name = "httpsink_image",
+    binary = ":httpsink",
+    visibility = ["//visibility:public"],
 )

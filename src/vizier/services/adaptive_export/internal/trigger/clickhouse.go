@@ -196,6 +196,10 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 				Info("trigger: no persistent watermark; using InitialWatermark")
 		}
 	}
+	// Cursor is canonical NANOS (F8). Normalize whatever we loaded so a
+	// pre-fix persisted seconds watermark (or a non-seconds InitialWatermark)
+	// is interpreted on the same scale as chNormEventTimeNanos in the SQL.
+	watermark = normalizeEventTimeNanos(watermark)
 	seenAtBoundary := map[string]bool{}
 	ticker := time.NewTicker(t.cfg.PollInterval)
 	defer ticker.Stop()
@@ -271,7 +275,11 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 		const saveEveryN = 256
 		for i, row := range rows {
 			fp := rowFingerprint(row)
-			if row.EventTime == watermark && seenAtBoundary[fp] {
+			// Cursor comparisons are in NORMALIZED nanos (F8): the raw
+			// event_time unit is not enforced, so compare on the same scale
+			// as the SQL filter (chNormEventTimeNanos) and maxSeen.
+			evn := normalizeEventTimeNanos(row.EventTime)
+			if evn == watermark && seenAtBoundary[fp] {
 				continue // already pushed in a prior poll at this exact boundary
 			}
 			ev, err := kubescape.Extract(row)
@@ -279,10 +287,10 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 				log.WithError(err).Debug("trigger: skip incomplete row")
 				continue
 			}
-			// Promote the per-row event_time into the watermark
+			// Promote the per-row (normalized) event_time into the watermark
 			// immediately so flushWatermark below can persist mid-drain.
-			if ev.EventTime > watermark {
-				watermark = ev.EventTime
+			if evn > watermark {
+				watermark = evn
 				dirty = true
 			}
 			select {
@@ -290,7 +298,7 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 			case <-ctx.Done():
 				return
 			}
-			if row.EventTime == maxSeen {
+			if evn == maxSeen {
 				nextSeen[fp] = true
 			}
 			if i > 0 && i%saveEveryN == 0 {
@@ -331,6 +339,34 @@ func rowFingerprint(r kubescape.Row) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// normalizeEventTimeNanos maps a raw kubescape event_time (UInt64, whose unit
+// the pipeline does not enforce) to canonical UNIX NANOSECONDS using the same
+// magnitude thresholds as controller.eventTimeToTime. This is the fix for the
+// watermark-poison bug (FINDINGS_AND_BACKLOG F8): the trigger's cursor is a
+// monotonic high-water-mark, so without a single canonical unit a stray row in
+// a larger unit (e.g. one nanos row, ~1.78e18) drives the watermark past every
+// real seconds row (~1.78e9) and AE silently stops processing forever. The
+// cursor + the SQL filter both operate on the normalized value so units are
+// always comparable.
+func normalizeEventTimeNanos(et uint64) uint64 {
+	switch {
+	case et < 1e10:
+		return et * 1_000_000_000 // seconds → nanos
+	case et < 1e13:
+		return et * 1_000_000 // millis → nanos
+	default:
+		return et // already nanos
+	}
+}
+
+// chNormEventTimeNanos is the ClickHouse expression equivalent of
+// normalizeEventTimeNanos — used in the trigger SELECT so the >= watermark
+// filter and ORDER BY are unit-agnostic server-side. (UInt64 headroom: the
+// largest pre-normalization input that hits the *1e9 branch is <1e10, so the
+// product is <1e19 < 2^64.)
+const chNormEventTimeNanos = "multiIf(event_time < 10000000000, event_time * 1000000000, " +
+	"event_time < 10000000000000, event_time * 1000000, event_time)"
+
 func (t *ClickHouseHTTP) fetchSince(ctx context.Context, watermark uint64) ([]kubescape.Row, uint64, error) {
 	q := url.Values{}
 	// LIMIT bounds per-poll work. ORDER BY event_time + LIMIT N means
@@ -338,12 +374,15 @@ func (t *ClickHouseHTTP) fetchSince(ctx context.Context, watermark uint64) ([]ku
 	// of small responses instead of one giant scan. Without this, an
 	// operator that restarted into a multi-hour backlog could never
 	// recover — every unbounded query exceeded HTTPTimeout.
+	// Filter + order on the NORMALIZED (nanos) event_time so the watermark
+	// cursor is unit-agnostic (F8 fix). watermark is already in nanos.
 	q.Set("query", fmt.Sprintf(
 		"SELECT RuleID, RuntimeK8sDetails, RuntimeProcessDetails, event_time, hostname "+
 			"FROM %s.%s "+
-			"WHERE hostname = %s AND event_time >= %d "+
-			"ORDER BY event_time LIMIT %d FORMAT JSONEachRow",
-		t.cfg.Database, t.cfg.Table, quoteCH(t.cfg.Hostname), watermark, t.cfg.PollLimit))
+			"WHERE hostname = %s AND %s >= %d "+
+			"ORDER BY %s LIMIT %d FORMAT JSONEachRow",
+		t.cfg.Database, t.cfg.Table, quoteCH(t.cfg.Hostname),
+		chNormEventTimeNanos, watermark, chNormEventTimeNanos, t.cfg.PollLimit))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		t.cfg.Endpoint+"/?"+q.Encode(), nil)
 	if err != nil {
@@ -408,8 +447,10 @@ func parseJSONEachRow(r io.Reader) ([]kubescape.Row, uint64, error) {
 			K8sDetails:     rr.RuntimeK8sDetails,
 			ProcessDetails: rr.RuntimeProcessDetails,
 		})
-		if ev > maxSeen {
-			maxSeen = ev
+		// maxSeen is the cursor max in NORMALIZED nanos (F8): with an
+		// unenforced unit the raw max is not necessarily the time-max.
+		if n := normalizeEventTimeNanos(ev); n > maxSeen {
+			maxSeen = n
 		}
 	}
 	if err := scanner.Err(); err != nil {

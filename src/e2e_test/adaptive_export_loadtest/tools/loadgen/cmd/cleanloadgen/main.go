@@ -196,10 +196,43 @@ func main() {
 	fmt.Printf("AELOAD_MANIFEST %s\n", out)
 	fmt.Println("AELOAD_FIRED")
 
-	// HOLD: keep the pod (and its upid) alive so Pixie metadata still resolves
-	// upid_to_pod_name when AE queries the window. Harness deletes us when done.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+
+	// SUSTAIN: after the exact counted band, optionally keep a low continuous
+	// HTTP trickle for SUSTAIN_SEC. A FRESH pod's traffic is often missed because
+	// Pixie/Stirling's eBPF attaches to the new process only after a scan cycle —
+	// so a one-shot band fires before capture begins (the "0 for freshly-flagged
+	// pods" symptom). A trickle keeps the pod observable for the whole window, so
+	// Pixie captures it once attached. Used by the sustained / "does AE keep
+	// writing until t_end" RCA (E8-data). For exact-count tests (E5) leave
+	// SUSTAIN_SEC=0 and instead pre-warm via SETTLE_PRE_MS so Stirling is already
+	// attached when the exact band fires.
+	if sustainSec := envInt("SUSTAIN_SEC", 0); sustainSec > 0 {
+		deadline := time.Now().Add(time.Duration(sustainSec) * time.Second)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		// Trickle DISTINCT DNS lookups (one A-query each) — a protocol Pixie
+		// reliably traces — so every AE re-pull pass sees NEW rows and we can
+		// observe the C15 "keep writing until t_end" contract. (HTTP trickle was
+		// invisible on rigs where Pixie isn't tracing HTTP.)
+		sres := &net.Resolver{PreferGo: true}
+		si := dnsN
+		for time.Now().Before(deadline) {
+			select {
+			case <-sig:
+				return
+			case <-ticker.C:
+				sctx, scancel := context.WithTimeout(context.Background(), 3*time.Second)
+				_, _ = sres.LookupNetIP(sctx, "ip4", fmt.Sprintf(dnsBase, si))
+				scancel()
+				si++
+			}
+		}
+	}
+
+	// HOLD: keep the pod (and its upid) alive so Pixie metadata still resolves
+	// upid_to_pod_name when AE queries the window. Harness deletes us when done.
 	<-sig
 }
 

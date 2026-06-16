@@ -70,6 +70,28 @@ flowchart LR
 | C12 | AE owns + self-applies the `forensic_db` DDL | ✅ when `ADAPTIVE_SKIP_APPLY=false` | ok; but DDL TTL/PARTITION assume seconds (C1) |
 | C13 | `adaptive_attribution` / protocol writes are durable | ❌ best-effort: logged, non-fatal, **not retried** | 🔴 silent loss under CH hiccup; AE-4 retry+count |
 | C14 | **DX⊇AE invariant**: AE write-set ⊇ DX read-set (AE persists everything dx queries) | ❌ by convention | ⚠️ validated per-table in the load-test, not enforced in code |
+| C15 | **Write-duration (the one DX steers on):** once an anomaly opens a pod's window, AE **keeps re-pulling + writing that pod's forensic data continuously** until `t_end` expires OR DX explicitly stops it. `t_end = now + After`, extended by each new anomaly for the hash. | ❌ partial | 🔴 **last week's "wrote then stopped" bug.** Premature stop modes under investigation (E8-data RCA): (a) F8 — extension anomalies dropped → `t_end` not extended → expires early; (b) EmptyResultSkip negative cache skips a (pod,table) mid-window after N empty pulls; (c) prune/in-flight race; (d) my `PUSH_REFRESH=-1` single-shot is a TEST affordance that *violates* this contract (writes once) — production must re-pull. |
+
+## DX steering contract (what DX can rely on / control)
+
+```mermaid
+sequenceDiagram
+  participant DX
+  participant AE
+  participant Pixie
+  participant CH as forensic_db
+  Note over AE: anomaly (or DX referral) opens window [t_start, t_end=now+After]
+  loop every PushRefreshInterval until t_end OR DX stop  (C15)
+    AE->>Pixie: PxL per table for (ns,pod), slice since last_upper
+    Pixie-->>AE: rows
+    AE->>CH: write rows (write ⊇ DX read, C14)
+  end
+  DX->>AE: StartExport / StopExport / extend t_end  (control surface, CONTROL_ADDR)
+  Note over AE: stop ONLY on t_end or DX stop — never silently early (C15)
+```
+
+- **DX controls:** (1) open/extend a window (each referral/anomaly extends `t_end`), (2) explicit **StopExport** via the control surface (`CONTROL_ADDR`, design rev-3 — confirm wired), (3) the active set (which pods AE over-captures).
+- **DX relies on:** C5 (stable hash identity), C14 (write ⊇ read), **C15 (no premature stop)**, C9 (0 rows only when the workload is genuinely silent), C10 (the `ns/pod` ↔ bare join). For DX to steer dependably, C3/C8/C13/C15 must move from 🔴 to ✅.
 
 ## Legend
 ✅ enforced in code · ⚠️ implied (assumed, not checked) · 🔴 observed violated (fix noted).

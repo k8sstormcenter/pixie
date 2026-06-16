@@ -173,13 +173,17 @@ fire_gen(){
   local hip pip
   hip="$(svc_ip http-sink)"; pip="$(svc_ip pg-sink)"
   [[ -n "$hip" && -n "$pip" ]] || die "could not resolve sink ClusterIPs"
+  # GEN_SETTLE_MS: pre-band warm-up so Pixie/Stirling attaches BEFORE the exact
+  # band (exact-count tests). GEN_SUSTAIN_SEC: continuous trickle AFTER the band
+  # (sustained "keep writing until t_end" RCA). Defaults suit exact-count runs.
   sed -e "s#__NAME__#${name}#g" -e "s#__IMAGE__#${AELOAD_IMAGE}#g" \
       -e "s#__HTTP_ADDR__#${hip}:8080#g" -e "s#__PG_ADDR__#${pip}:5432#g" \
       -e "s#__HTTP_N__#${hn}#g" -e "s#__DNS_N__#${dn}#g" -e "s#__PGSQL_N__#${pn}#g" \
+      -e "s#__SETTLE_PRE_MS__#${GEN_SETTLE_MS:-30000}#g" -e "s#__SUSTAIN_SEC__#${GEN_SUSTAIN_SEC:-0}#g" \
       "$K8S_DIR/gen-pod.tmpl.yaml" | k apply -f - >&2
-  # Wait for the FIRED sentinel + grab the manifest line.
+  # Wait for the FIRED sentinel + grab the manifest line (allow for the warm-up).
   local mani=""
-  for _ in $(seq 1 60); do
+  for _ in $(seq 1 90); do
     if k -n "$AELOAD_NS" logs "$name" 2>/dev/null | grep -q AELOAD_FIRED; then
       mani="$(k -n "$AELOAD_NS" logs "$name" 2>/dev/null | grep AELOAD_MANIFEST | tail -1 | sed 's/^AELOAD_MANIFEST //')"
       break

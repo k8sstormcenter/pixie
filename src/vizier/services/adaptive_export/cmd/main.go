@@ -85,6 +85,12 @@ const (
 	envTriggerPollMS    = "ADAPTIVE_TRIGGER_POLL_MS"
 	envPruneIntervalSec = "ADAPTIVE_PRUNE_INTERVAL_SEC"
 
+	// envPushRefreshSec overrides controller.PushRefreshInterval. Unset →
+	// 30s default. A NEGATIVE value selects single-shot mode (one pull per
+	// anomaly window), which the load-test harness uses so the non-deduping
+	// MergeTree protocol tables get each window exactly once.
+	envPushRefreshSec = "ADAPTIVE_PUSH_REFRESH_SEC"
+
 	// envTriggerHTTPTimeoutSec — per-poll HTTP budget (default 30s).
 	// The pre-watermark 5s default timed out every catch-up SELECT.
 	envTriggerHTTPTimeoutSec = "ADAPTIVE_TRIGGER_HTTP_TIMEOUT_SEC"
@@ -341,6 +347,20 @@ func main() {
 		ctlCfg.PushPixieTables = tables
 		log.WithField("tables", ctlCfg.PushPixieTables).
 			Info("ADAPTIVE_PUSH_PIXIE_ROWS=true — operator will query pixie + write rows directly on each anomaly")
+	}
+	// Optional single-shot / custom refresh override (default-unchanged when
+	// unset). Negative → single-shot: exactly one pull per anomaly window.
+	if v := strings.TrimSpace(os.Getenv(envPushRefreshSec)); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			if n < 0 {
+				ctlCfg.PushRefreshInterval = -1
+				log.Info(envPushRefreshSec + "<0 — single-shot pull mode (one pull per anomaly window)")
+			} else {
+				ctlCfg.PushRefreshInterval = time.Duration(n) * time.Second
+			}
+		} else {
+			log.WithField("value", v).Warn(envPushRefreshSec + " not an integer; using default refresh")
+		}
 	}
 	ctl := controller.New(trg, snk, ctlCfg, nil)
 

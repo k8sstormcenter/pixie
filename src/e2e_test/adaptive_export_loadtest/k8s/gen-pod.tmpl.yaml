@@ -30,7 +30,8 @@ spec:
         - { name: PGSQL_N,   value: "__PGSQL_N__" }
         - { name: PG_USER,   value: "postgres" }
         - { name: PG_PASSWORD, value: "postgres" }
-        - { name: SETTLE_PRE_MS, value: "1500" }
+        - { name: SETTLE_PRE_MS, value: "__SETTLE_PRE_MS__" }
+        - { name: SUSTAIN_SEC,   value: "__SUSTAIN_SEC__" }
         - { name: POD_NAME,  valueFrom: { fieldRef: { fieldPath: metadata.name } } }
         - { name: POD_NAMESPACE, valueFrom: { fieldRef: { fieldPath: metadata.namespace } } }
         - { name: NODE_NAME, valueFrom: { fieldRef: { fieldPath: spec.nodeName } } }

@@ -133,6 +133,9 @@ jobs:
     # cluster DISCONNECTED so the subsequent deploy reuses the record on the
     # first try instead of racing that timeout.
     - name: Ensure prior Pixie install is disconnected
+      # The container defaults `run` steps to `sh` (dash); pin bash so the
+      # script's bash-isms (pipefail, (( )), [[ ]], $SECONDS) work.
+      shell: bash
       env:
         PX_API_KEY: ${{ secrets.PX_API_KEY }}
         PX_CLOUD_ADDR: ${{ vars.PERF_CLOUD_ADDR }}

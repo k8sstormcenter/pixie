@@ -1,0 +1,38 @@
+---
+# Scanner pod — runs nmap inside the cluster against another pod's
+# ClusterIP. NET_RAW + NET_ADMIN required so nmap can build raw SYN
+# packets for -sS.
+#
+# Image: instrumentisto/nmap is the standard alpine-based nmap
+# distribution, ~30 MB.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: synscanner
+  namespace: default
+  labels:
+    app: synscanner
+    secprof.pixie.io/role: scanner
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 5
+  containers:
+  - name: scanner
+    image: instrumentisto/nmap:7.95
+    imagePullPolicy: IfNotPresent
+    command:
+    - /bin/sh
+    - -c
+    - sleep infinity
+    securityContext:
+      capabilities:
+        add:
+        - NET_RAW
+        - NET_ADMIN
+    resources:
+      requests:
+        cpu: 100m
+        memory: 64Mi
+      limits:
+        cpu: "1"
+        memory: 256Mi

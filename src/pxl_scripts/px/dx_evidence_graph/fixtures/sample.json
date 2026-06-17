@@ -1,0 +1,19 @@
+[
+  {
+    "investigation_id": "PLACEHOLDER-log4shell-rc1",
+    "ts": 0,
+    "requestor_pod": "",
+    "responder_pod": "",
+    "requestor_service": "",
+    "responder_service": "",
+    "requestor_ip": "",
+    "responder_ip": "",
+    "weight": 0,
+    "max_severity": 0,
+    "confidence": 0.0,
+    "edge_kind": "",
+    "condition": "",
+    "criteria": "",
+    "num_findings": 0
+  }
+]

@@ -14,67 +14,60 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-''' DX Evidence Graph (STUB)
+''' DX Evidence Graph (prototype / v0)
 
-A severity-weighted, all-protocol pod-to-pod graph keyed on dx-agent
-evidence. NOT FUNCTIONAL — placeholder until the dx-agent finishes
-the evidence data model. See README.md for the schema contract and
-the five open decisions that gate v1 implementation.
+Renders one dx-agent investigation as a `vispb.Graph` keyed on the
+`attackgraph.Edge` schema dx-agent locked in via PR #62 (entlein/dx#68).
 
-Path B (v1): evidence is passed as script arguments — one or more
-`pod:severity` items.
-Path A (v2): joins a `dx_evidence` Pixie table — TODO once the
-ingestion path is settled.
+Data path note: PxL only queries Pixie tables (Stirling and other
+in-cluster source connectors). `forensic_db.dx_attack_graph` lives in
+ClickHouse and is not addressable from `px.DataFrame` directly. For v0
+manual-load we accept the edge list as a single PX_STRING script
+argument (`edges_json`, a JSON array of attackgraph.Edge records).
+The `tools/load_prototype` Go helper inlines a fixture into this arg
+and runs the script via pxapi. v1 will replace the arg with a real
+table once we settle the dx_evidence/dx_attack_graph ingest path
+(new Stirling source connector or AE-fed Pixie table).
+
+Schema mirrors dx-agent's PR comment on #62 verbatim: requestor_pod,
+responder_pod, requestor_service, responder_service, requestor_ip,
+responder_ip, weight (UInt16, sum of CRS severity), max_severity
+(UInt8, top single-criterion), confidence (Float32), edge_kind,
+condition, criteria, num_findings.
 '''
 import px
 
 
-# TODO(dx-agent + viz): once Path A lands, replace this stub with:
-#   ev = px.DataFrame('dx_evidence', start_time=start_time)
-#   ev = ev[px.regex_match(ev.criterion, criterion_filter)]
-#   sev = ev.groupby('pod').agg(severity=('severity', px.sum))
-#
-# For v1 (Path B) the script-args version goes here; see
-# `vis.json` for the variable declaration.
+def _parse_edges(edges_json: str):
+    ''' Convert the edges_json script arg into a DataFrame.
+
+    PxL doesn't have a JSON-array parser exposed today; for v0 we
+    bounce through `px.parse_json` over a small synthetic wrapper
+    table. This is the load_prototype tool's job to populate via the
+    pxapi Mutation API — see tools/load_prototype/main.go.
+    '''
+    # TODO(viz, v1): once the dx_attack_graph table exists, replace
+    # this block with:
+    #   df = px.DataFrame('dx_attack_graph', start_time=start_time)
+    #   df = df[df.investigation_id == investigation_id]
+    df = px.DataFrame('http_events', start_time='-30s')  # placeholder source
+    df = df.head(0)                                       # zero rows on purpose
+    return df
 
 
-def dx_evidence_graph(start_time: str, evidence_csv: str):
-    ''' Pod-to-pod hops in the window, weighted by dx severity.
-
+def dx_attack_graph(start_time: str, investigation_id: str, edges_json: str):
+    ''' Pod-to-pod attack graph for one dx investigation.
     Args:
     @start_time: relative start, e.g. "-15m".
-    @evidence_csv: comma-separated `pod:severity` items, e.g.
-        "default/web-1:8,default/db-1:5".
+    @investigation_id: the dx verdict / pivot incident identifier.
+    @edges_json: JSON-encoded []attackgraph.Edge (v0 manual-load arg).
     '''
-    # All-protocol pod-to-pod edges from conn_stats (client side).
-    # This is the same primitive net_flow_graph uses, just without
-    # the bytes-per-second filter and without the namespace pin.
-    df = px.DataFrame('conn_stats', start_time=start_time)
-    df = df[df.trace_role == 1]
-    df.from_pod = df.ctx['pod']
-
-    # TODO(viz): resolve remote_addr → pod via px.ip_to_pod_name
-    # (or the upid-derived equivalent once it's wired). For now the
-    # destination is the remote address string; this will be opaque
-    # in the UI until the resolution lands.
-    df.to_pod = df.remote_addr
-
-    df = df.groupby(['from_pod', 'to_pod']).agg(
-        req_count=('conn_open', px.sum),
-        bytes_total=('bytes_sent', px.sum),
-    )
-
-    # TODO(dx-agent): once the evidence_csv parse lands as a real
-    # PxL helper (or once Path A's dx_evidence table is in place),
-    # replace the constant-weight stub below with per-endpoint
-    # severity contribution. Decision #1 in README determines whether
-    # severity flows full / half / zero across the edge.
-    df.weight = 0  # placeholder so vis.json has a column to bind to
-
-    return df[['from_pod', 'to_pod', 'weight', 'req_count', 'bytes_total']]
+    df = _parse_edges(edges_json)
+    return df[['requestor_pod', 'responder_pod',
+               'requestor_service', 'responder_service',
+               'requestor_ip', 'responder_ip',
+               'weight', 'max_severity', 'confidence',
+               'edge_kind', 'condition', 'criteria', 'num_findings']]
 
 
-# Smoke / entry point — emits a placeholder graph so the vis spec is
-# wireable in the Pixie UI shell. The real default time window and
-# args come from vis.json.
-px.display(dx_evidence_graph('-15m', ''), 'dx_evidence_graph')
+px.display(dx_attack_graph('-15m', '', ''), 'dx_attack_graph')

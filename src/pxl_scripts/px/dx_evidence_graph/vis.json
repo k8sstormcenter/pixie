@@ -3,39 +3,50 @@
     {
       "name": "start_time",
       "type": "PX_STRING",
-      "description": "Relative start time of the window. Current time is assumed to be now.",
+      "description": "Relative start time of the window.",
       "defaultValue": "-15m"
     },
     {
-      "name": "evidence_csv",
+      "name": "investigation_id",
       "type": "PX_STRING",
-      "description": "Comma-separated list of `<namespace/pod>:<severity>` items emitted by dx. v1 takes this as a string argument; v2 will read it from a dx_evidence Pixie table. STUB — schema unsettled.",
+      "description": "dx investigation / verdict id to render. Empty = all in window.",
       "defaultValue": ""
+    },
+    {
+      "name": "edges_json",
+      "type": "PX_STRING",
+      "description": "v0 manual-load arg: JSON-encoded []attackgraph.Edge. Replaced by a real dx_attack_graph table in v1.",
+      "defaultValue": "[]"
     }
   ],
   "widgets": [
     {
-      "name": "DX Evidence Graph (STUB)",
+      "name": "DX Attack Graph",
       "position": {"x": 0, "y": 0, "w": 12, "h": 4},
       "func": {
-        "name": "dx_evidence_graph",
+        "name": "dx_attack_graph",
         "args": [
           {"name": "start_time", "variable": "start_time"},
-          {"name": "evidence_csv", "variable": "evidence_csv"}
+          {"name": "investigation_id", "variable": "investigation_id"},
+          {"name": "edges_json", "variable": "edges_json"}
         ]
       },
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Graph",
         "adjacencyList": {
-          "fromColumn": "from_pod",
-          "toColumn": "to_pod"
+          "fromColumn": "requestor_pod",
+          "toColumn": "responder_pod"
         },
         "edgeWeightColumn": "weight",
-        "edgeColorColumn": "weight",
+        "edgeColorColumn": "max_severity",
         "edgeHoverInfo": [
           "weight",
-          "req_count",
-          "bytes_total"
+          "max_severity",
+          "confidence",
+          "edge_kind",
+          "condition",
+          "criteria",
+          "num_findings"
         ],
         "edgeLength": 500
       }

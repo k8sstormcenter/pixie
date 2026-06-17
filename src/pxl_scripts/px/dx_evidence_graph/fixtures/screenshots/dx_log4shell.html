@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <title>dx attack graph — log4shell-6a32ea57</title>
@@ -63,18 +63,31 @@ const cy = cytoscape({
   layout: { name: 'cose', animate: false, padding: 40, idealEdgeLength: 180, nodeRepulsion: 4500 },
 });
 const detail = document.getElementById('detail');
+
+
+
+function renderDetail(d) {
+  detail.replaceChildren();
+  const h2 = document.createElement('h2');
+  h2.textContent = 'edge ' + d.id;
+  detail.appendChild(h2);
+  const rows = [
+    ['kind', d.edge_kind], ['condition', d.condition], ['criteria', d.criteria],
+    ['weight', d.weight], ['max_severity', d.max_severity], ['confidence', d.confidence],
+    ['num_findings', d.num_findings], ['source', d.source], ['target', d.target],
+  ];
+  for (const [key, val] of rows) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const b = document.createElement('b');
+    b.textContent = key;
+    row.appendChild(b);
+    row.appendChild(document.createTextNode(String(val)));
+    detail.appendChild(row);
+  }
+}
 cy.on('tap', 'edge', e => {
-  const d = e.target.data();
-  detail.innerHTML = '<h2>edge ' + d.id + '</h2>' +
-    '<div class="row"><b>kind</b>' + d.edge_kind + '</div>' +
-    '<div class="row"><b>condition</b>' + d.condition + '</div>' +
-    '<div class="row"><b>criteria</b>' + d.criteria + '</div>' +
-    '<div class="row"><b>weight</b>' + d.weight + '</div>' +
-    '<div class="row"><b>max_severity</b>' + d.max_severity + '</div>' +
-    '<div class="row"><b>confidence</b>' + d.confidence + '</div>' +
-    '<div class="row"><b>num_findings</b>' + d.num_findings + '</div>' +
-    '<div class="row"><b>source</b>' + d.source + '</div>' +
-    '<div class="row"><b>target</b>' + d.target + '</div>';
+  renderDetail(e.target.data());
   detail.style.display = 'block';
 });
 cy.on('tap', e => { if (e.target === cy) { detail.style.display = 'none'; }});

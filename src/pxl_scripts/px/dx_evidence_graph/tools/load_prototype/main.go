@@ -63,10 +63,13 @@ type Edge struct {
 }
 
 // endpointID picks the most-resolved identity available for a side:
-// pod (preferred) → service → IP → "unknown". Mirrors how
-// net_flow_graph's vispb.Graph falls back to IPs when the conn
-// tracker hasn't resolved a pod yet.
-func endpointID(pod, service, ip string) string {
+// pod (preferred) → service → IP → a per-edge synthetic ID. Mirrors
+// how net_flow_graph's vispb.Graph falls back to IPs when the conn
+// tracker hasn't resolved a pod yet. The `side` + `edgeIdx` tail on
+// the fully-unresolved fallback keeps distinct unknown endpoints
+// from collapsing into one shared node (which would silently merge
+// unrelated hops).
+func endpointID(pod, service, ip, side string, edgeIdx int) string {
 	switch {
 	case pod != "":
 		return pod
@@ -75,7 +78,7 @@ func endpointID(pod, service, ip string) string {
 	case ip != "":
 		return ip
 	default:
-		return "(unknown)"
+		return fmt.Sprintf("(unknown-%s-%d)", side, edgeIdx)
 	}
 }
 
@@ -125,8 +128,8 @@ func buildGraph(edges []Edge, investigationID string) cyGraph {
 		g.Title = "all-investigations"
 	}
 	for i, e := range edges {
-		from := endpointID(e.RequestorPod, e.RequestorService, e.RequestorIP)
-		to := endpointID(e.ResponderPod, e.ResponderService, e.ResponderIP)
+		from := endpointID(e.RequestorPod, e.RequestorService, e.RequestorIP, "src", i)
+		to := endpointID(e.ResponderPod, e.ResponderService, e.ResponderIP, "dst", i)
 		for _, n := range []string{from, to} {
 			if _, ok := nodeSet[n]; !ok {
 				nodeSet[n] = struct{}{}
@@ -153,7 +156,7 @@ func buildGraph(edges []Edge, investigationID string) cyGraph {
 }
 
 const tmplStr = `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <title>dx attack graph — {{.Title}}</title>
@@ -217,18 +220,31 @@ const cy = cytoscape({
   layout: { name: 'cose', animate: false, padding: 40, idealEdgeLength: 180, nodeRepulsion: 4500 },
 });
 const detail = document.getElementById('detail');
+// Edge payload values come from the fixture JSON — never trust them
+// to be markup-safe. Build the detail panel with DOM APIs so values
+// land as text, not parsed HTML.
+function renderDetail(d) {
+  detail.replaceChildren();
+  const h2 = document.createElement('h2');
+  h2.textContent = 'edge ' + d.id;
+  detail.appendChild(h2);
+  const rows = [
+    ['kind', d.edge_kind], ['condition', d.condition], ['criteria', d.criteria],
+    ['weight', d.weight], ['max_severity', d.max_severity], ['confidence', d.confidence],
+    ['num_findings', d.num_findings], ['source', d.source], ['target', d.target],
+  ];
+  for (const [key, val] of rows) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const b = document.createElement('b');
+    b.textContent = key;
+    row.appendChild(b);
+    row.appendChild(document.createTextNode(String(val)));
+    detail.appendChild(row);
+  }
+}
 cy.on('tap', 'edge', e => {
-  const d = e.target.data();
-  detail.innerHTML = '<h2>edge ' + d.id + '</h2>' +
-    '<div class="row"><b>kind</b>' + d.edge_kind + '</div>' +
-    '<div class="row"><b>condition</b>' + d.condition + '</div>' +
-    '<div class="row"><b>criteria</b>' + d.criteria + '</div>' +
-    '<div class="row"><b>weight</b>' + d.weight + '</div>' +
-    '<div class="row"><b>max_severity</b>' + d.max_severity + '</div>' +
-    '<div class="row"><b>confidence</b>' + d.confidence + '</div>' +
-    '<div class="row"><b>num_findings</b>' + d.num_findings + '</div>' +
-    '<div class="row"><b>source</b>' + d.source + '</div>' +
-    '<div class="row"><b>target</b>' + d.target + '</div>';
+  renderDetail(e.target.data());
   detail.style.display = 'block';
 });
 cy.on('tap', e => { if (e.target === cy) { detail.style.display = 'none'; }});

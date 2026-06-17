@@ -15,8 +15,8 @@
     {
       "name": "clickhouse_dsn",
       "type": "PX_STRING",
-      "description": "ClickHouse DSN — `user:pass@host:port/db`. Default reads forensic_db on the in-cluster soc deployment.",
-      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+      "description": "ClickHouse DSN — `user:pass@host:port/db`. Required. Per-rig value: see README.md (e.g. forensic_analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db).",
+      "defaultValue": ""
     }
   ],
   "widgets": [

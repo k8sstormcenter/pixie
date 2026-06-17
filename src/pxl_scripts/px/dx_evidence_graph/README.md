@@ -1,108 +1,114 @@
-# dx evidence graph — coordination stub
+# dx_evidence_graph
 
-**Status:** stub. Not functional. Coordination placeholder so the
-dx-agent and the pixie-side viz work can converge on a schema and a
-behaviour before either side ships code.
+A Pixie UI dashboard that renders one dx-agent investigation as a
+**severity-weighted, all-protocol pod-to-pod attack graph**. Replaces
+the latency-weighted HTTP service map in `cluster_overview` for
+security work.
 
-## What this script will be
+* Nodes = pods. Falls back to service → IP, mirroring `net_flow_graph`.
+* Edges = the attack path emitted by dx (delivery → egress →
+  execution → collection → exfil → pivot).
+* Display spec: `vispb.Graph`. **`edgeWeightColumn = weight`**
+  (open-ended UInt16 sum of CRS severity → edge thickness),
+  **`edgeColorColumn = max_severity`** (discrete 2-5 heat → edge
+  colour).
+* Read source: `forensic_db.dx_attack_graph` via `px.DataFrame`'s
+  `clickhouse_dsn` kwarg (`src/carnot/planner/objects/dataframe.cc:43`).
 
-A Pixie UI dashboard that replaces the latency-weighted HTTP service
-map in `cluster_overview` with a **severity-weighted, all-protocol
-pod-to-pod graph** built from dx-agent evidence.
+## Schema — `forensic_db.dx_attack_graph`
 
-* Nodes = pods.
-* Edges = any observed pod→pod hop in the window (HTTP, gRPC, DNS,
-  Kafka, MySQL, PgSQL, raw TCP) sourced from `conn_stats` (so the
-  result is protocol-agnostic by construction).
-* Edge weight = severity contribution from dx evidence whose pod
-  participates in the edge.
-* Display spec: `vispb.Graph` with `edgeWeightColumn=weight`,
-  `edgeColorColumn=weight` — same primitive as `net_flow_graph`,
-  not the HTTP-only `RequestGraph`.
+Locked with dx-agent in PR #62 / `entlein/dx#68`. The
+`attackgraph.Edge` Go struct is the single source of truth for the
+JSON wire format, the ClickHouse row, and the test fixture.
 
-## Why a stub PR
-
-The dx-agent is building the evidence data model right now. The
-pixie-side script needs to know:
-
-1. Where the evidence sits at query time (Pixie table vs ClickHouse
-   vs script-arg). Path B in the plan keeps it as script-arg for v1;
-   Path A migrates to a Pixie table in v2.
-2. The exact fields available per evidence row.
-3. How severity is encoded.
-
-This file is the contract. Update it as decisions land; the `.pxl`
-and `vis.json` follow once the contract is firm.
-
-## Schema contract (proposed — open for dx-agent input)
-
-What the pixie script needs per evidence record:
-
-| Field | Type | Required | Used for |
-|---|---|:---:|---|
-| `time_` | TIME64NS | yes | window anchor |
-| `pod` | STRING (`namespace/pod`) | yes | node identity |
-| `upid` | UINT128 | optional | fallback if pod name not yet resolved |
-| `severity` | INT64 | yes | edge weight + node colour |
-| `criterion` | STRING (e.g. `R0002`) | yes | filter, hover text |
-| `source` | STRING (`kubescape` / `pixie`) | yes | filter |
-| `confidence` | FLOAT64 (0..1) | optional | tooltip only in v1 |
-| `raw` | STRING (JSON blob) | optional | drill-down on click in v2 |
-
-Field names match `dx/internal/vectors/Finding` and
-`dx/internal/symptom/Verdict.Severity` from the dx repo. If dx
-emits something differently I will rename rather than fight it —
-this table is a proposal, not a demand.
-
-## Where evidence comes from at query time
-
-Two paths (full reasoning in `/home/constanze/dx-evidence-graph-PLAN.md`):
-
-* **Path B (v1, no Pixie changes):** the script takes evidence as
-  arguments — one pod + one severity per invocation, or a
-  comma-separated list of `pod:severity` pairs. The dx UI (or a
-  Slack alert link) deep-links into Pixie's URL with these args
-  filled in. Ships fast.
-* **Path A (v2):** dx-agent (or AE) writes evidence into a Pixie
-  table `dx_evidence` whose schema matches the contract above. PxL
-  script joins `dx_evidence` × `conn_stats` directly. Self-serve.
-
-v1 ships first to validate the visual; the contract above is forward
-compatible to v2.
-
-## Open decisions — please weigh in
-
-| # | Question | Default I'd pick |
+| Column | Type | Role |
 |---|---|---|
-| 1 | Edge severity inheritance: A→B with only B flagged — full / half / zero? | full |
-| 2 | Time anchor: relative to evidence.T ± window, or free-form start/end? | anchor ± 2 min, free-form fallback |
-| 3 | Hop depth cap from the evidence pod? | 2 (`pod-to-pod-to-pod` = neighbourhood-of-2) |
-| 4 | Aggregating multiple evidence items on one edge: sum, max, both? | sum for weight, max for colour |
-| 5 | Script placement: upstream `src/pxl_scripts/px/`, or private `dx/scripts/`? | this PR assumes upstream; reversible |
+| `investigation_id` | String | one graph per dx verdict / pivot incident (UI filter key) |
+| `ts` | UInt64 | unix nanos |
+| `requestor_pod` / `responder_pod` | String | the hop (`ns/pod`); `""` if only an IP is known |
+| `requestor_service` / `responder_service` | String | |
+| `requestor_ip` / `responder_ip` | String | peer IP when pod unresolved |
+| `weight` | UInt16 | Σ CRS severity on the hop — `edgeWeightColumn` |
+| `max_severity` | UInt8 | top single-criterion severity (2-5) — `edgeColorColumn` |
+| `confidence` | Float32 | verdict confidence |
+| `edge_kind` | String | `delivery`/`egress`/`execution`/`collection`/`exfil`/`pivot` |
+| `condition` / `criteria` | String | ruled-in condition + criterion label(s) |
+| `num_findings` | UInt32 | |
 
-Any of these dx-agent answers differently → flip the default in this
-file, not anywhere else; the .pxl reads from this contract.
+Table DDL (mirrors `kubescape_logs` partition/TTL convention):
 
-## Open questions for dx-agent (data model side)
+```sql
+CREATE TABLE forensic_db.dx_attack_graph ( ...columns above... )
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(fromUnixTimestamp64Nano(ts))
+ORDER BY (investigation_id, requestor_pod, responder_pod)
+TTL toDateTime(fromUnixTimestamp64Nano(ts)) + INTERVAL 30 DAY DELETE;
+```
 
-* Is `severity` stable across kubescape rule revisions, or do we need
-  a per-criterion normaliser?
-* Will dx emit evidence per upid (process) or per pod (rollup)? The
-  pixie script can do either — but only one. Confirm.
-* Does dx emit a "chain" record (multiple findings stitched into one
-  Diagnosis), or one row per `vectors.Finding`? If a chain, we need
-  a `diagnosis_id` foreign key.
-* For Path A: would dx push into a Pixie table via a new Stirling
-  source connector, via the AE adaptive_export sink, or via the
-  standalone-pem data-ingestion gRPC?
+## Per-rig ClickHouse DSN
 
-## What lands in this PR
+The bundled `vis.json` ships with `clickhouse_dsn` **empty** — the
+default is intentionally non-credentialed so the bundle stays
+portable across clusters. Operators fill the DSN in via the Pixie
+UI script-args panel at run time.
 
-* This README — the contract above.
-* `dx_evidence_graph.pxl` — stub with TODO markers naming the
-  unresolved schema fields. Not runnable.
-* `vis.json` — stub mapping `edgeWeightColumn=weight`,
-  `edgeColorColumn=weight` against a placeholder table. Not runnable.
+For the in-cluster soc deployment the DSN is:
 
-No working code until decisions 1-5 are settled. Once they are, v1
-is ~1-2 days of work; replacement of `cluster_overview` is a follow-up.
+```
+forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db
+```
+
+`forensic_analyst` has read-only SELECT on `forensic_db`; same
+credential the existing `soc/analysis/px_clickhouse/kubescape/observe.pxl`
+script uses for `kubescape_logs`. Override in the UI for other rigs.
+
+## Manual-load prototype
+
+`tools/load_prototype/` is a Go helper that renders the `Edge`
+schema from a JSON fixture into a standalone HTML page using
+cytoscape.js. Same column→visual mapping the production
+`vispb.Graph` spec uses. Useful when ClickHouse isn't reachable
+from the UI (offline review, fixture validation).
+
+```bash
+go run ./tools/load_prototype \
+    -fixture fixtures/sample.json \
+    -investigation_id log4shell-6a32ea57 \
+    -out /tmp/dx_log4shell.html
+```
+
+The fixture in `fixtures/sample.json` is dx-agent's real
+log4shell + argocd verdicts from the rig run that locked the
+schema. `fixtures/screenshots/dx_log4shell.html` and
+`fixtures/screenshots/dx_argocd.html` are the pre-rendered pages
+for review without running the tool.
+
+The tool retires once the AE live-write (`WriteAttackGraph` →
+`forensic_db.dx_attack_graph`) is on every cluster running this
+bundle.
+
+## Deploy
+
+Bundle build path:
+
+1. `//src/pxl_scripts:script_bundle` walks every `*.pxl` + `vis.json`
+   under `src/pxl_scripts/` and emits `bundle-oss.json`
+   (`src/pxl_scripts/BUILD.bazel:34`).
+2. `//src/cloud/proxy:proxy_server_image` bakes the bundle in as a
+   container layer at `/bundle`
+   (`src/cloud/proxy/BUILD.bazel:36`).
+3. `skaffold run -f skaffold/skaffold_cloud.yaml` rebuilds the
+   cloud-proxy image and applies the Deployment.
+
+Vizier / PEM / standalone-pem images are unaffected — this is a
+UI-bundle-only change.
+
+## Out of scope for v1
+
+* `conn_stats` overlay (the "render the benign neighbourhood + light
+  up the attack path" view). Ship the attack-path-only graph first;
+  add the join in v2 once the visual has been used on a real
+  incident.
+* Time anchoring relative to `ts` rather than free-form `start_time`.
+  Operators today use `-15m` defaults; a future widget could centre
+  the window on the investigation's first `ts`.

@@ -55,8 +55,9 @@ def dx_attack_graph(start_time: str, investigation_id: str, clickhouse_dsn: str)
                'edge_kind', 'condition', 'criteria', 'num_findings']]
 
 
-px.display(dx_attack_graph(
-    '-15m',
-    '',
-    'forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db',
-), 'dx_attack_graph')
+# The clickhouse_dsn default is intentionally empty. The Pixie UI
+# fills it in from the per-cluster vis.json script-args panel (or
+# via the URL); operators see and edit the DSN at run time rather
+# than the bundle shipping credentials. See README.md for the
+# per-rig DSN (forensic_analyst@clickhouse-forensic-soc-db…).
+px.display(dx_attack_graph('-15m', '', ''), 'dx_attack_graph')

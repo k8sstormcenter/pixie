@@ -60,6 +60,7 @@ func TestCompilePassthrough_Shape(t *testing.T) {
 		t.Fatalf("CompilePassthrough: %v", err)
 	}
 	for _, want := range []string{
+		"#px:set max_output_rows_per_table=1000000",           // raise Pixie 10k cap
 		"px.DataFrame(table='dns_events', start_time='-90s')", // window 60s + 30s pad
 		"df.time_ >= px.int64_to_time(%d)",
 		"df.time_ <  px.int64_to_time(%d)",

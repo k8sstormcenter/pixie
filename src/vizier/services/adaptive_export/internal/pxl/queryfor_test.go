@@ -202,8 +202,8 @@ func TestQueryFor_EveryBuiltinTableEmits(t *testing.T) {
 		if err != nil {
 			t.Fatalf("table %s: %v", table, err)
 		}
-		if !strings.HasPrefix(q, "import px\n") {
-			t.Fatalf("table %s: expected import px header; got:\n%s", table, q)
+		if !strings.HasPrefix(q, "#px:set max_output_rows_per_table=1000000\nimport px\n") {
+			t.Fatalf("table %s: expected #px:set cap header then import px; got:\n%s", table, q)
 		}
 		if !strings.Contains(q, "px.display(df, '"+table+"')") {
 			t.Fatalf("table %s: expected px.display call with table name; got:\n%s", table, q)

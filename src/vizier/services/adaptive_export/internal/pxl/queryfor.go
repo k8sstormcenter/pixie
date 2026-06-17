@@ -30,6 +30,16 @@ import (
 // ErrUnknownTable is returned by QueryFor for a table not in BuiltinTables.
 var ErrUnknownTable = errors.New("pxl: unknown pixie table")
 
+// pxSetMaxRows raises Pixie's per-table result cap via the query-broker's
+// own `#px:set` query flag (parsed from the script — see
+// src/vizier/services/query_broker/controllers/query_flags.go, default
+// max_output_rows_per_table = 10000). Without it the planner's
+// add_limit_to_batch_result_sink_rule silently truncates any px.display to
+// 10000 rows, so a wide firehose window (or a very busy pod) loses the
+// excess at the read. 1e6 is far above any realistic AE window. See
+// memory project-ae-passthrough-10k-cap.
+const pxSetMaxRows = "#px:set max_output_rows_per_table=1000000\n"
+
 // QueryFor returns a PxL script that selects rows from `table` for the
 // (namespace, pod) of `t`, time-bounded to [sliceStart, sliceEnd). The
 // `now` argument lets us compute a relative `start_time=` for
@@ -50,6 +60,7 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	relStart := "-" + strconv.FormatInt(int64(pad/time.Second), 10) + "s"
 
 	var b strings.Builder
+	b.WriteString(pxSetMaxRows)
 	b.WriteString("import px\n")
 	b.WriteString("df = px.DataFrame(table='" + table + "', start_time='" + relStart + "')\n")
 	b.WriteString("df = df[df.time_ >= px.int64_to_time(" + strconv.FormatInt(sliceStart.UnixNano(), 10) + ")]\n")

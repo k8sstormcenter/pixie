@@ -37,6 +37,7 @@ import (
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/anomaly"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/clickhouse"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/reconcile"
 )
 
 // querier matches the cmd-side pixieAdapter wrapper (returns
@@ -59,6 +60,11 @@ type Config struct {
 	Window  time.Duration
 	Refresh time.Duration
 	Tables  []string
+	// Rec records per-pull read/wrote counts (ADAPTIVE_RECONCILE). nil →
+	// defaulted to reconcile.Nop{} in New (instrument off).
+	Rec reconcile.Recorder
+	// Hostname is the node name stamped on reconcile rows.
+	Hostname string
 }
 
 // Loop is the passthrough goroutine.
@@ -81,7 +87,26 @@ func New(q querier, s sink, cfg Config) *Loop {
 	if len(cfg.Tables) == 0 {
 		cfg.Tables = clickhouse.PixieTables()
 	}
+	if cfg.Rec == nil {
+		cfg.Rec = reconcile.Nop{}
+	}
 	return &Loop{q: q, s: s, cfg: cfg}
+}
+
+// rec emits one passthrough reconciliation row (best-effort; Nop when the
+// instrument is off).
+func (l *Loop) rec(ctx context.Context, table string, winStart, winEnd time.Time, read, wrote int, errStr string) {
+	l.cfg.Rec.Record(ctx, reconcile.Row{
+		TS:         time.Now(),
+		Mode:       "passthrough",
+		Table:      table,
+		WinStart:   winStart,
+		WinEnd:     winEnd,
+		ReadCount:  int64(read),
+		WroteCount: int64(wrote),
+		WriteErr:   errStr,
+		Hostname:   l.cfg.Hostname,
+	})
 }
 
 // Run blocks until ctx is cancelled. On each refresh tick the loop walks
@@ -128,15 +153,18 @@ func (l *Loop) tick(ctx context.Context) {
 		src, err := pxl.QueryFor(table, anomaly.Target{}, sliceStart, sliceEnd, now)
 		if err != nil {
 			log.WithError(err).WithField("table", table).Warn("ADAPTIVE_PASSTHROUGH: QueryFor failed")
+			l.rec(ctx, table, sliceStart, sliceEnd, 0, 0, err.Error())
 			continue
 		}
 		rows, err := l.q.Query(ctx, src)
 		if err != nil {
 			log.WithError(err).WithField("table", table).Warn("ADAPTIVE_PASSTHROUGH: pixie query failed")
+			l.rec(ctx, table, sliceStart, sliceEnd, 0, 0, err.Error())
 			continue
 		}
 		if len(rows) == 0 {
 			log.WithField("table", table).Debug("ADAPTIVE_PASSTHROUGH: 0 rows")
+			l.rec(ctx, table, sliceStart, sliceEnd, 0, 0, "")
 			continue
 		}
 		if err := l.s.WritePixieRows(ctx, table, rows); err != nil {
@@ -144,11 +172,13 @@ func (l *Loop) tick(ctx context.Context) {
 				"table": table,
 				"rows":  len(rows),
 			}).Warn("ADAPTIVE_PASSTHROUGH: sink write failed")
+			l.rec(ctx, table, sliceStart, sliceEnd, len(rows), 0, err.Error())
 			continue
 		}
 		log.WithFields(log.Fields{
 			"table": table,
 			"rows":  len(rows),
 		}).Info("ADAPTIVE_PASSTHROUGH: rows written")
+		l.rec(ctx, table, sliceStart, sliceEnd, len(rows), len(rows), "")
 	}
 }

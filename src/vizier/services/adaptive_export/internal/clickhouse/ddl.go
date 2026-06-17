@@ -61,6 +61,9 @@ var KnownTables = []string{
 	"adaptive_attribution",
 	// operator-owned persistent trigger cursor
 	"trigger_watermark",
+	// operator-owned per-pull write-fidelity instrument (ADAPTIVE_RECONCILE).
+	// NOT a pixie table — absent from PixieTables().
+	"ae_reconcile",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

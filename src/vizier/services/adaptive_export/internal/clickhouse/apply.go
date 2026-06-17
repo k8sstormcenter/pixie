@@ -61,6 +61,10 @@ var OperatorOwnedTables = []string{
 	// operator's write targets.
 	"adaptive_attribution",
 	"trigger_watermark",
+	// per-pull write-fidelity instrument (ADAPTIVE_RECONCILE). Created on
+	// boot so a reconcile run has a target without manual DDL. Not a pixie
+	// table → not in PixieTables(), so VerifyPixieSchema ignores it.
+	"ae_reconcile",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the

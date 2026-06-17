@@ -27,6 +27,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/reconcile"
 )
 
 // Querier executes a PxL string against a vizier and returns the
@@ -60,6 +61,13 @@ type ScannerConfig struct {
 	// errors. 0 → 1s / 30s.
 	BackoffInitial time.Duration
 	BackoffMax     time.Duration
+
+	// Rec records per-pull read/submitted counts (ADAPTIVE_RECONCILE).
+	// nil → reconcile.Nop{} in defaulted() (instrument off).
+	Rec reconcile.Recorder
+
+	// Hostname is stamped on reconcile rows.
+	Hostname string
 }
 
 func (c ScannerConfig) defaulted() ScannerConfig {
@@ -77,6 +85,9 @@ func (c ScannerConfig) defaulted() ScannerConfig {
 	}
 	if c.BackoffMax <= 0 {
 		c.BackoffMax = 30 * time.Second
+	}
+	if c.Rec == nil {
+		c.Rec = reconcile.Nop{}
 	}
 	return c
 }
@@ -166,12 +177,20 @@ func (s *TableScanner) Run(ctx context.Context) {
 
 		// 2. Build PxL + execute.
 		pxl := s.buildPxL(s.currentFilter)
+		winEnd := time.Now()
+		winStart := winEnd.Add(-s.cfg.QueryWindow)
 		qctx, cancel := context.WithTimeout(ctx, s.cfg.QueryTimeout)
 		rows, err := s.querier.Query(qctx, pxl)
 		cancel()
 		s.queries.Add(1)
 		if err != nil {
 			s.queryErr.Add(1)
+			s.cfg.Rec.Record(ctx, reconcile.Row{
+				TS: winEnd, Mode: "streaming", Table: s.cfg.Table,
+				WinStart: winStart, WinEnd: winEnd,
+				ReadCount: 0, WroteCount: 0, WriteErr: err.Error(),
+				Hostname: s.cfg.Hostname,
+			})
 			log.WithError(err).WithFields(log.Fields{
 				"table":   s.cfg.Table,
 				"pods":    len(s.currentFilter.Pods),
@@ -197,9 +216,18 @@ func (s *TableScanner) Run(ctx context.Context) {
 		s.rowsIn.Add(int64(len(rows)))
 
 		// 3. Hand off to writer.
+		submitted := 0
 		if len(rows) > 0 {
-			s.writer.Submit(rows)
+			if s.writer.Submit(rows) {
+				submitted = len(rows)
+			}
 		}
+		s.cfg.Rec.Record(ctx, reconcile.Row{
+			TS: winEnd, Mode: "streaming", Table: s.cfg.Table,
+			WinStart: winStart, WinEnd: winEnd,
+			ReadCount: int64(len(rows)), WroteCount: int64(submitted),
+			Hostname: s.cfg.Hostname,
+		})
 		log.WithFields(log.Fields{
 			"table":   s.cfg.Table,
 			"pods":    len(s.currentFilter.Pods),

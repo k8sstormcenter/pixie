@@ -62,6 +62,7 @@ import (
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pixie"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pixieapi"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/reconcile"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/script"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/sink"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/streaming"
@@ -147,6 +148,13 @@ const (
 	envPassthrough        = "ADAPTIVE_PASSTHROUGH"
 	envPassthroughWindow  = "ADAPTIVE_PASSTHROUGH_WINDOW_SEC"
 	envPassthroughRefresh = "ADAPTIVE_PASSTHROUGH_REFRESH_SEC"
+
+	// envReconcile — per-pull write-fidelity instrument. When "true",
+	// every data-plane pull (filter / passthrough / streaming) records
+	// one forensic_db.ae_reconcile row (read_count vs wrote_count, window,
+	// pod) so a reconcile run can localize loss to query (R5) vs sink (R6).
+	// Off by default; the recorder is reconcile.Nop{} unless set.
+	envReconcile = "ADAPTIVE_RECONCILE"
 )
 
 func main() {
@@ -293,6 +301,15 @@ func main() {
 		log.WithError(err).Fatal("failed to create sink")
 	}
 
+	// Per-pull write-fidelity instrument (ADAPTIVE_RECONCILE). When on,
+	// the CH-backed sink IS the Recorder; otherwise a Nop drops every row.
+	// Shared by the controller fan-out, passthrough, and streaming paths.
+	var rec reconcile.Recorder = reconcile.Nop{}
+	if strings.EqualFold(os.Getenv(envReconcile), "true") {
+		rec = snk
+		log.Info("ADAPTIVE_RECONCILE=true — per-pull read/wrote counts → forensic_db.ae_reconcile")
+	}
+
 	// Mode selection:
 	//   "streaming" → rev-3: leave PushPixieTables EMPTY (so the
 	//                 controller skips fan-out) and stand up the
@@ -317,6 +334,7 @@ func main() {
 
 	ctlCfg := controller.Config{
 		Hostname:                  hostname,
+		Rec:                       rec,
 		Before:                    durEnv(envWindowBeforeSec, 5*time.Minute, time.Second),
 		After:                     durEnv(envWindowAfterSec, 5*time.Minute, time.Second),
 		MaxParallelQueriesPerHash: intEnvOrZero(envMaxParallelQueriesPerHash),
@@ -475,6 +493,8 @@ func main() {
 			streaming.ScannerConfig{
 				QueryWindow:     durEnvOrZero("ADAPTIVE_STREAM_WINDOW_SEC", time.Second),
 				RefreshInterval: durEnvOrZero("ADAPTIVE_STREAM_REFRESH_SEC", time.Second),
+				Rec:             rec,
+				Hostname:        hostname,
 			},
 			streaming.WriterConfig{
 				BatchRows:  intEnvOrZero("ADAPTIVE_STREAM_BATCH_ROWS"),
@@ -497,8 +517,10 @@ func main() {
 			log.Fatal("ADAPTIVE_PASSTHROUGH=true but pixie adapter is nil — internal wiring bug")
 		}
 		ptCfg := passthrough.Config{
-			Window:  durEnv(envPassthroughWindow, 30*time.Second, time.Second),
-			Refresh: durEnv(envPassthroughRefresh, 30*time.Second, time.Second),
+			Window:   durEnv(envPassthroughWindow, 30*time.Second, time.Second),
+			Refresh:  durEnv(envPassthroughRefresh, 30*time.Second, time.Second),
+			Rec:      rec,
+			Hostname: hostname,
 		}
 		ptLoop := passthrough.New(&pixieAdapter{a: pixieAdapterInst}, snk, ptCfg)
 		wg.Add(1)

@@ -122,6 +122,64 @@ jobs:
         install -m 0755 bazel-bin/src/pixie_cli/px_/px /usr/local/bin/px
         px version
 
+    # Pixie's cloud dedups clusters by the kube-system namespace UID, which is
+    # stable across reinstalls on this long-lived cluster. vzmgr rejects a
+    # redeploy while the prior install's cloud record is still non-DISCONNECTED
+    # (ErrProvisionFailedVizierIsActive), so `px deploy` crash-loops on "Timed
+    # out waiting for cluster ID assignment" until the cloud StatusMonitor flips
+    # the stale record to DISCONNECTED -- up to 15m if the old record was left
+    # in UPDATING (durationBeforeUpdateDisconnect). Pre-emptively delete the
+    # prior install (stops heartbeats) and wait for the cloud to report the
+    # cluster DISCONNECTED so the subsequent deploy reuses the record on the
+    # first try instead of racing that timeout.
+    - name: Ensure prior Pixie install is disconnected
+      env:
+        PX_API_KEY: ${{ secrets.PX_API_KEY }}
+        PX_CLOUD_ADDR: ${{ vars.PERF_CLOUD_ADDR }}
+        KUBECONFIG: ${{ runner.temp }}/kubeconfig
+      run: |
+        set -euo pipefail
+
+        # Authenticate the CLI to the cloud non-interactively (PX_API_KEY /
+        # PX_CLOUD_ADDR are read from the env by viper).
+        px auth login --use_api_key
+
+        # `px deploy` registers the cluster under the current kubeconfig context
+        # name (deploy.go: clusterName defaults to kubeAPIConfig.CurrentContext),
+        # so match the cloud record on that same value.
+        cluster_name="$(kubectl config current-context)"
+        echo "Target cluster name: ${cluster_name}"
+
+        # Tear down any existing install so it stops heartbeating; that lets the
+        # StatusMonitor transition the record to DISCONNECTED.
+        if kubectl get ns pl >/dev/null 2>&1; then
+          echo "Existing Pixie install found in 'pl' namespace; deleting..."
+          px delete --clobber || true
+        else
+          echo "No existing 'pl' namespace; nothing to delete."
+        fi
+
+        # Poll the cloud until the cluster record is DISCONNECTED or absent.
+        # CS_DISCONNECTED == 3 in cloudpb.ClusterStatus; `-o json` serializes the
+        # enum as its integer value.
+        deadline=$(( SECONDS + 1080 ))   # 18m: covers the 15m UPDATING window + buffer
+        while (( SECONDS < deadline )); do
+          status="$(px get viziers -o json 2>/dev/null \
+            | jq -r --arg n "${cluster_name}" 'select(.ClusterName == $n) | .Status' || true)"
+          if [[ -z "${status}" ]]; then
+            echo "Cluster '${cluster_name}' is not registered in the cloud; proceeding."
+            exit 0
+          fi
+          if [[ "${status}" == "3" || "${status}" == "CS_DISCONNECTED" ]]; then
+            echo "Cluster '${cluster_name}' is DISCONNECTED; safe to deploy."
+            exit 0
+          fi
+          echo "Cluster '${cluster_name}' status=${status}; waiting for DISCONNECTED (3)..."
+          sleep 15
+        done
+        echo "Timed out after 18m waiting for cluster '${cluster_name}' to disconnect." >&2
+        exit 1
+
     - name: Run clickhouse-export perf
       env:
         PX_API_KEY: ${{ secrets.PX_API_KEY }}

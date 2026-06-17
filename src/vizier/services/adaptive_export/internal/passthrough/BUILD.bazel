@@ -26,15 +26,21 @@ go_library(
         "//src/vizier/services/adaptive_export/internal/anomaly",
         "//src/vizier/services/adaptive_export/internal/clickhouse",
         "//src/vizier/services/adaptive_export/internal/pxl",
+        "//src/vizier/services/adaptive_export/internal/reconcile",
         "@com_github_sirupsen_logrus//:logrus",
     ],
 )
 
 pl_go_test(
     name = "passthrough_test",
-    srcs = ["passthrough_test.go"],
+    srcs = [
+        "compiled_test.go",
+        "passthrough_test.go",
+        "reconcile_test.go",
+    ],
     embed = [":passthrough"],
     deps = [
         "//src/vizier/services/adaptive_export/internal/clickhouse",
+        "//src/vizier/services/adaptive_export/internal/reconcile",
     ],
 )

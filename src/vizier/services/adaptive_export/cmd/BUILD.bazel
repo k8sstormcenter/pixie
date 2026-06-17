@@ -33,6 +33,7 @@ go_library(
         "//src/vizier/services/adaptive_export/internal/pixie",
         "//src/vizier/services/adaptive_export/internal/pixieapi",
         "//src/vizier/services/adaptive_export/internal/pxl",
+        "//src/vizier/services/adaptive_export/internal/reconcile",
         "//src/vizier/services/adaptive_export/internal/script",
         "//src/vizier/services/adaptive_export/internal/sink",
         "//src/vizier/services/adaptive_export/internal/streaming",

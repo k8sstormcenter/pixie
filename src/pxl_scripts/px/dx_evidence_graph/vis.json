@@ -9,14 +9,14 @@
     {
       "name": "investigation_id",
       "type": "PX_STRING",
-      "description": "dx investigation / verdict id to render. Empty = all in window.",
+      "description": "dx investigation / verdict id to render. Empty = every edge in the window.",
       "defaultValue": ""
     },
     {
-      "name": "edges_json",
+      "name": "clickhouse_dsn",
       "type": "PX_STRING",
-      "description": "v0 manual-load arg: JSON-encoded []attackgraph.Edge. Replaced by a real dx_attack_graph table in v1.",
-      "defaultValue": "[]"
+      "description": "ClickHouse DSN — `user:pass@host:port/db`. Default reads forensic_db on the in-cluster soc deployment.",
+      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
     }
   ],
   "widgets": [
@@ -28,7 +28,7 @@
         "args": [
           {"name": "start_time", "variable": "start_time"},
           {"name": "investigation_id", "variable": "investigation_id"},
-          {"name": "edges_json", "variable": "edges_json"}
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}
         ]
       },
       "displaySpec": {

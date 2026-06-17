@@ -14,55 +14,40 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-''' DX Evidence Graph (prototype / v0)
+''' DX Attack Graph
 
-Renders one dx-agent investigation as a `vispb.Graph` keyed on the
-`attackgraph.Edge` schema dx-agent locked in via PR #62 (entlein/dx#68).
+Severity-weighted, all-protocol pod-to-pod attack graph for one
+dx-agent investigation. Reads `dx_attack_graph` from the forensic
+ClickHouse via this fork's `clickhouse_dsn` kwarg on `px.DataFrame`
+(`src/carnot/planner/objects/dataframe.cc:43`). Schema matches the
+`attackgraph.Edge` contract dx-agent locked in via entlein/dx#68
+(see README.md in this directory).
 
-Data path note: PxL only queries Pixie tables (Stirling and other
-in-cluster source connectors). `forensic_db.dx_attack_graph` lives in
-ClickHouse and is not addressable from `px.DataFrame` directly. For v0
-manual-load we accept the edge list as a single PX_STRING script
-argument (`edges_json`, a JSON array of attackgraph.Edge records).
-The `tools/load_prototype` Go helper inlines a fixture into this arg
-and runs the script via pxapi. v1 will replace the arg with a real
-table once we settle the dx_evidence/dx_attack_graph ingest path
-(new Stirling source connector or AE-fed Pixie table).
-
-Schema mirrors dx-agent's PR comment on #62 verbatim: requestor_pod,
-responder_pod, requestor_service, responder_service, requestor_ip,
-responder_ip, weight (UInt16, sum of CRS severity), max_severity
-(UInt8, top single-criterion), confidence (Float32), edge_kind,
-condition, criteria, num_findings.
+The companion `tools/load_prototype` Go helper renders the same
+schema from a JSON fixture into a standalone HTML page; that path is
+for visual validation without a live ClickHouse, and retires once
+this script is wired into the Pixie UI.
 '''
 import px
 
 
-def _parse_edges(edges_json: str):
-    ''' Convert the edges_json script arg into a DataFrame.
-
-    PxL doesn't have a JSON-array parser exposed today; for v0 we
-    bounce through `px.parse_json` over a small synthetic wrapper
-    table. This is the load_prototype tool's job to populate via the
-    pxapi Mutation API — see tools/load_prototype/main.go.
-    '''
-    # TODO(viz, v1): once the dx_attack_graph table exists, replace
-    # this block with:
-    #   df = px.DataFrame('dx_attack_graph', start_time=start_time)
-    #   df = df[df.investigation_id == investigation_id]
-    df = px.DataFrame('http_events', start_time='-30s')  # placeholder source
-    df = df.head(0)                                       # zero rows on purpose
-    return df
-
-
-def dx_attack_graph(start_time: str, investigation_id: str, edges_json: str):
+def dx_attack_graph(start_time: str, investigation_id: str, clickhouse_dsn: str):
     ''' Pod-to-pod attack graph for one dx investigation.
     Args:
     @start_time: relative start, e.g. "-15m".
     @investigation_id: the dx verdict / pivot incident identifier.
-    @edges_json: JSON-encoded []attackgraph.Edge (v0 manual-load arg).
+        Empty string returns every edge in the window.
+    @clickhouse_dsn: ClickHouse DSN — `user:pass@host:port/db`. The
+        forensic_db.dx_attack_graph table is read with this. Keep the
+        default as the in-cluster service DNS so the script works on
+        a stock deployment; operators override per-cluster from the
+        Pixie UI script-args panel when the DSN differs.
     '''
-    df = _parse_edges(edges_json)
+    df = px.DataFrame('dx_attack_graph',
+                      clickhouse_dsn=clickhouse_dsn,
+                      start_time=start_time)
+    if investigation_id != '':
+        df = df[df.investigation_id == investigation_id]
     return df[['requestor_pod', 'responder_pod',
                'requestor_service', 'responder_service',
                'requestor_ip', 'responder_ip',
@@ -70,4 +55,8 @@ def dx_attack_graph(start_time: str, investigation_id: str, edges_json: str):
                'edge_kind', 'condition', 'criteria', 'num_findings']]
 
 
-px.display(dx_attack_graph('-15m', '', ''), 'dx_attack_graph')
+px.display(dx_attack_graph(
+    '-15m',
+    '',
+    'forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db',
+), 'dx_attack_graph')

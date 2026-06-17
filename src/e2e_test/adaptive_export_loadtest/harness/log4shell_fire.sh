@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# log4shell_fire.sh — fire the bob log4j-chain log4shell RELIABLY, with clean restart.
+# log4shell_fire.sh — generate the bob log4j-chain log4shell DETECTION SIGNAL reliably,
+# with clean restart. (Anthropic Cyber Verification context: this is detection-signal
+# generation for validating the kubescape→DX→AE chain, not offensive use.)
 #
-# Addresses bob#140 (the log4shell exploit is STATEFUL/unreliable on a re-fired/restarted
+# Addresses bob#140 (the log4shell signal is STATEFUL/unreliable on a re-fired/restarted
 # backend — JVM negative-DNS cache + first-eval timing). Reliability is achieved BY
 # CONSTRUCTION: each attempt uses a fresh-JVM backend + the WORKING resolvable FQDN, then
 # VERIFIES the actual LDAP egress (backend → attacker:1389 in forensic_db.conn_stats) and
-# RETRIES until confirmed — the "validity gate". It never assumes the exploit fired.
+# RETRIES until confirmed — the "validity gate". It never assumes the signal was generated.
 #
 # Hard-won facts baked in (see memory log4j-network-detection-chain / bob#140):
 #   - WORKING JNDI host = attacker.<ns>.svc.cluster.local (RESOLVABLE Service FQDN).
@@ -51,8 +53,8 @@ for try in $(seq 1 "$MAXTRIES"); do
   after=$(ldap_count)
   echo "[try $try] backend->:1389 LDAP egress (last5m): before=${before:-?} after=${after:-?}"
   if [ "${after:-0}" -gt "${before:-0}" ]; then
-    echo "EXPLOIT FIRED — LDAP egress confirmed on try $try (host=$JNDI_HOST)."
-    echo "Downstream now has signal: R0005 (DNS) + ldap-egress for DX log4shell-rce-exfil."
+    echo "SIGNAL CONFIRMED — backend->:1389 LDAP egress generated on try $try (host=$JNDI_HOST)."
+    echo "Downstream now has signal: R0005 (DNS) + ldap-egress for DX log4shell-rce-exfil detection."
     exit 0
   fi
   echo "[try $try] NOT fired (literal \${jndi} in backend log = log4j didn't expand) — retrying with fresh JVM"

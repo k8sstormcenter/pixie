@@ -1,0 +1,7 @@
+# Intermediate sweep artifacts — only the canonical sampling_sweep.csv
+# (kept in this directory) is checked in. Re-runs land alongside; ignore
+# them so the PR diff doesn't churn.
+*.log
+sampling_sweep2.csv
+sampling_sweep3.csv
+sampling_sweep4.csv

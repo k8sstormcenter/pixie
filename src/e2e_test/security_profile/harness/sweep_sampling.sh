@@ -41,13 +41,16 @@ DNSVERIFY=${DNSVERIFY:-/tmp/dnsverify}
 mkdir -p "$(dirname "$OUT")"
 echo "sampling_ms,N,rate,sent,seen,captured,coverage_pct,pem_cpu_m,pem_mem_mi,duration_s" > "$OUT"
 
-# Bursty cells: short wall-time, very high instantaneous rate. These
-# are the ones where 200 ms polling should drop and 50 ms should not.
+# Cells calibrated to (a) stay inside the PEM container memory
+# envelope — 100k @ 50k/s OOMs a 1 GiB PEM on this lab — and
+# (b) stress sampling cadence vs retention separately. The probe
+# tops out at ~3500 q/s once UDP socket pressure stacks up, so
+# rates above that aren't worth requesting.
 cells=(
-  "10000 5000"     # 2 s burst
-  "20000 10000"    # 2 s burst, twice the queue depth
-  "50000 25000"    # 2 s burst, 5x default cap
-  "100000 50000"   # 2 s burst, 10x — perf-buffer territory
+  "10000  3500"
+  "30000  3500"
+  "60000  3500"
+  "100000 3500"
 )
 
 set_sampling() {
@@ -66,7 +69,7 @@ set_sampling() {
 }
 
 pem_top() {
-  kc -n "$PEM_NS" top pod -l name="$PEM_DS" --no-headers 2>/dev/null \
+  kc -n "$PEM_NS" top pod -l app="$PEM_DS" --no-headers 2>/dev/null \
     | awk '{print $2","$3}' | head -1
 }
 

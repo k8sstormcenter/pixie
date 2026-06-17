@@ -56,6 +56,7 @@ func CompilePassthrough(table string, window time.Duration) (string, error) {
 	// Builtin table names never contain '%', so embedding them around the
 	// two `%d` verbs is Sprintf-safe.
 	var b strings.Builder
+	b.WriteString(pxSetMaxRows)
 	b.WriteString("import px\n")
 	b.WriteString("df = px.DataFrame(table='" + table + "', start_time='" + relStart + "')\n")
 	b.WriteString("df = df[df.time_ >= px.int64_to_time(%d)]\n")

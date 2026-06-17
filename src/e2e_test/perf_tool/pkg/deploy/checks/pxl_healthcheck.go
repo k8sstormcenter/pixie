@@ -61,29 +61,66 @@ func (hc *pxlHealthCheck) Name() string {
 	return "PxL Healthcheck"
 }
 
-// Wait waits for the PxL script to successfully run, and for the 'success' column to be true.
+const (
+	// A freshly deployed Vizier can report healthy and then flap back to
+	// unhealthy for a couple minutes after it first responds. On Cilium with
+	// kube-proxy-replacement, the BPF socket-LB maps for the new pods' ClusterIP
+	// backends take ~40s to program -- until then the cloud-connector's
+	// connect() to the query-broker returns EPERM ("operation not permitted")
+	// and the cluster is marked unhealthy. The cloud-connector's NATS bridge
+	// also recycles every 60s. A single passing healthcheck is therefore not
+	// enough: require a run of consecutive successes so we don't start metric
+	// recorders (or workloads) during a flap and then fail with "cluster is not
+	// in a healthy state".
+	healthcheckStableCount   = 5
+	healthcheckStableSpacing = 15 * time.Second
+	healthcheckMaxWait       = 10 * time.Minute
+)
+
+// Wait waits for the PxL healthcheck script to succeed for healthcheckStableCount
+// consecutive attempts (with the 'success' column true), so the cluster is
+// confirmed stably healthy rather than momentarily healthy during a flap.
 func (hc *pxlHealthCheck) Wait(ctx context.Context, clusterCtx *cluster.Context, clusterSpec *experimentpb.ClusterSpec) error {
 	if err := hc.prepareScript(clusterSpec); err != nil {
 		return err
 	}
 
-	expBackoff := backoff.NewExponentialBackOff()
-	expBackoff.InitialInterval = time.Second
-	expBackoff.MaxElapsedTime = 10 * time.Minute
-	bo := backoff.WithContext(expBackoff, ctx)
+	ctx, cancel := context.WithTimeout(ctx, healthcheckMaxWait)
+	defer cancel()
 
-	op := func() error {
+	consecutive := 0
+	var lastErr error
+	for {
 		hc.scriptSuccess = false
-		return hc.runHealthCheck(ctx)
+		if err := hc.runHealthCheck(ctx); err != nil {
+			// A permanent error (e.g. a misconfigured success column) is not
+			// going to resolve by retrying -- fail fast.
+			var permErr *backoff.PermanentError
+			if errors.As(err, &permErr) {
+				return permErr.Err
+			}
+			lastErr = err
+			if consecutive > 0 {
+				log.WithError(err).Tracef("healthcheck flapped after %d/%d consecutive successes; restarting stability window", consecutive, healthcheckStableCount)
+			}
+			consecutive = 0
+		} else {
+			consecutive++
+			log.Tracef("pxl healthcheck passed (%d/%d consecutive)", consecutive, healthcheckStableCount)
+			if consecutive >= healthcheckStableCount {
+				return nil
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			if lastErr != nil {
+				return fmt.Errorf("timed out waiting for stable healthcheck (%d/%d consecutive): %w", consecutive, healthcheckStableCount, lastErr)
+			}
+			return ctx.Err()
+		case <-time.After(healthcheckStableSpacing):
+		}
 	}
-	notify := func(err error, dur time.Duration) {
-		log.WithError(err).Tracef("failed pxl healthcheck, retrying in %v", dur.Round(time.Second))
-	}
-	err := backoff.RetryNotify(op, bo, notify)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 func (hc *pxlHealthCheck) runHealthCheck(ctx context.Context) error {

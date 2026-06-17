@@ -127,6 +127,18 @@ DEFINE_bool(stirling_disable_golang_tls_tracing,
             "If true, stirling will not trace TLS traffic for Go applications. This implies "
             "stirling_enable_http2_tracing=false.");
 
+// Overrides the perf-buffer poll cadence for the socket tracer. The
+// compile-time default is SocketTraceConnector::kSamplingPeriod (200 ms).
+// Lower values reduce the chance that bursty captures (e.g. DNS recon
+// sweeps) overflow the kernel perf buffer before stirling drains it;
+// the cost is extra CPU spent polling. Clamped to [1, 60000] ms; 0
+// keeps the compiled-in default.
+DEFINE_int32(stirling_socket_tracer_sampling_period_ms,
+             gflags::Int32FromEnv("PX_STIRLING_SOCKET_TRACER_SAMPLING_PERIOD_MS", 0),
+             "Override stirling socket_tracer sampling (perf-buffer poll) "
+             "period in milliseconds. 0 = keep compiled-in default (200 ms). "
+             "Range: 1..60000.");
+
 DEFINE_bool(stirling_disable_self_tracing, true,
             "If true, stirling will not trace and process syscalls made by itself.");
 
@@ -564,7 +576,16 @@ void CheckDebugFlags() {
 Status SocketTraceConnector::InitImpl() {
   CheckDebugFlags();
 
-  sampling_freq_mgr_.set_period(kSamplingPeriod);
+  auto sampling_period = kSamplingPeriod;
+  const int32_t override_ms = FLAGS_stirling_socket_tracer_sampling_period_ms;
+  if (override_ms > 0) {
+    const int32_t clamped = std::clamp(override_ms, 1, 60000);
+    sampling_period = std::chrono::milliseconds{clamped};
+    LOG(INFO) << "socket_tracer sampling period overridden via "
+                 "PX_STIRLING_SOCKET_TRACER_SAMPLING_PERIOD_MS to "
+              << clamped << " ms";
+  }
+  sampling_freq_mgr_.set_period(sampling_period);
   push_freq_mgr_.set_period(kPushPeriod);
 
   constexpr uint64_t kNanosPerSecond = 1000 * 1000 * 1000;

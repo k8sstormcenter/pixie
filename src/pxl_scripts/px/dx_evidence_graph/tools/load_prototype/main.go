@@ -14,33 +14,36 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// load_prototype — manual-load harness for the dx_evidence_graph PxL
-// stub. Reads a JSON fixture of attackgraph.Edge records (the same
-// shape dx-agent writes to AE in PR entlein/dx#68), inlines it as the
-// `edges_json` script arg, and executes the script against a Pixie
-// PEM via pxapi.
+// load_prototype — manual-load harness for the dx_evidence_graph
+// PxL stub. Reads a JSON fixture of attackgraph.Edge records (the
+// same shape dx-agent writes via WriteAttackGraph in entlein/dx#68)
+// and emits a self-contained HTML page that renders the graph with
+// cytoscape.js — same column->visual mapping the production
+// vispb.Graph spec uses (requestor_pod → responder_pod,
+// weight as edge thickness, max_severity as edge colour).
 //
-// Use this to validate the graph end-to-end before the
-// dx_attack_graph table ingest path lands. Once Path A v1 ships,
-// this tool retires.
+// Why HTML and not pxapi: PxL has no literal-table constructor, so
+// we can't feed an inline fixture into px.DataFrame today. Once the
+// AE → Pixie-table ingest lands (B2 in the PR-62 discussion), this
+// tool retires and the visualization goes through Pixie's own UI.
+//
+// The colour scale matches the discrete CRS severity buckets
+// dx-agent uses: 2 = grey, 3 = yellow, 4 = orange, 5 = red.
 
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
+	"html/template"
 	"os"
-
-	"px.dev/pixie/src/api/go/pxapi"
-	"px.dev/pixie/src/api/go/pxapi/types"
+	"sort"
 )
 
-// Edge mirrors attackgraph.Edge from entlein/dx#68 — the JSON tags
-// are the contract. Kept loose (interface{}) on optional fields so
-// future schema additions don't break the prototype.
+// Edge mirrors attackgraph.Edge from entlein/dx#68 — JSON tags are
+// the contract. Kept loose on optional fields so future schema
+// additions don't break the prototype.
 type Edge struct {
 	InvestigationID  string  `json:"investigation_id"`
 	TS               uint64  `json:"ts"`
@@ -59,98 +62,219 @@ type Edge struct {
 	NumFindings      uint32  `json:"num_findings"`
 }
 
-type rowSink struct{ n int }
-
-func (s *rowSink) AcceptTable(_ context.Context, md types.TableMetadata) (pxapi.TableRecordHandler, error) {
-	fmt.Fprintf(os.Stdout, "== table %s ==\n", md.Name)
-	return s, nil
-}
-func (s *rowSink) HandleInit(_ context.Context, _ types.TableMetadata) error { return nil }
-func (s *rowSink) HandleRecord(_ context.Context, r *types.Record) error {
-	out := ""
-	for _, c := range r.TableMetadata.ColInfo {
-		d := r.GetDatum(c.Name)
-		if d != nil {
-			out += c.Name + "=" + d.String() + " "
-		}
+// endpointID picks the most-resolved identity available for a side:
+// pod (preferred) → service → IP → "unknown". Mirrors how
+// net_flow_graph's vispb.Graph falls back to IPs when the conn
+// tracker hasn't resolved a pod yet.
+func endpointID(pod, service, ip string) string {
+	switch {
+	case pod != "":
+		return pod
+	case service != "":
+		return service
+	case ip != "":
+		return ip
+	default:
+		return "(unknown)"
 	}
-	fmt.Println(out)
-	s.n++
-	return nil
 }
 
-func (s *rowSink) HandleDone(_ context.Context) error {
-	fmt.Fprintf(os.Stdout, "  rows=%d\n", s.n)
-	return nil
+// severityColor matches dx-agent's CRS severity buckets. Same scale
+// the production vispb.Graph spec would resolve via edgeColorColumn=
+// max_severity.
+func severityColor(s uint8) string {
+	switch {
+	case s >= 5:
+		return "#d93025" // red
+	case s == 4:
+		return "#f29900" // orange
+	case s == 3:
+		return "#f9ab00" // yellow
+	default:
+		return "#9aa0a6" // grey
+	}
 }
 
-func main() {
-	var (
-		addr            = flag.String("addr", "127.0.0.1:12345", "PEM direct addr")
-		scriptPath      = flag.String("script", "dx_evidence_graph.pxl", "path to the .pxl script")
-		fixturePath     = flag.String("fixture", "fixtures/sample.json", "JSON fixture of []Edge")
-		investigationID = flag.String("investigation_id", "", "filter to this id (empty = render all)")
-	)
-	flag.Parse()
+type cyNode struct {
+	Data map[string]string `json:"data"`
+}
 
-	fixtureRaw, err := os.ReadFile(*fixturePath)
-	if err != nil {
-		die("read fixture: %v", err)
-	}
-	var edges []Edge
-	if err := json.Unmarshal(fixtureRaw, &edges); err != nil {
-		die("parse fixture: %v", err)
-	}
-	if *investigationID != "" {
+type cyEdge struct {
+	Data map[string]any `json:"data"`
+}
+
+type cyGraph struct {
+	Nodes []cyNode `json:"nodes"`
+	Edges []cyEdge `json:"edges"`
+	Title string   `json:"-"`
+}
+
+func buildGraph(edges []Edge, investigationID string) cyGraph {
+	if investigationID != "" {
 		filtered := edges[:0]
 		for _, e := range edges {
-			if e.InvestigationID == *investigationID {
+			if e.InvestigationID == investigationID {
 				filtered = append(filtered, e)
 			}
 		}
 		edges = filtered
 	}
-	fmt.Fprintf(os.Stderr, "load_prototype: %d edges from %s\n", len(edges), *fixturePath)
+	nodeSet := map[string]struct{}{}
+	g := cyGraph{Title: investigationID}
+	if g.Title == "" {
+		g.Title = "all-investigations"
+	}
+	for i, e := range edges {
+		from := endpointID(e.RequestorPod, e.RequestorService, e.RequestorIP)
+		to := endpointID(e.ResponderPod, e.ResponderService, e.ResponderIP)
+		for _, n := range []string{from, to} {
+			if _, ok := nodeSet[n]; !ok {
+				nodeSet[n] = struct{}{}
+				g.Nodes = append(g.Nodes, cyNode{Data: map[string]string{"id": n, "label": n}})
+			}
+		}
+		g.Edges = append(g.Edges, cyEdge{Data: map[string]any{
+			"id":           fmt.Sprintf("e%d", i),
+			"source":       from,
+			"target":       to,
+			"weight":       e.Weight,
+			"max_severity": e.MaxSeverity,
+			"confidence":   e.Confidence,
+			"edge_kind":    e.EdgeKind,
+			"condition":    e.Condition,
+			"criteria":     e.Criteria,
+			"num_findings": e.NumFindings,
+			"color":        severityColor(e.MaxSeverity),
+			"width":        2 + int(e.Weight)/2, // mirrors edgeWeightColumn=weight
+		}})
+	}
+	sort.Slice(g.Nodes, func(i, j int) bool { return g.Nodes[i].Data["id"] < g.Nodes[j].Data["id"] })
+	return g
+}
 
-	scriptRaw, err := os.ReadFile(*scriptPath)
+const tmplStr = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>dx attack graph — {{.Title}}</title>
+<script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+<style>
+  html, body { margin:0; padding:0; height:100%; font-family:system-ui, sans-serif; background:#0e1116; color:#e6e6e6; }
+  #cy { width:100vw; height:calc(100vh - 60px); }
+  header { padding:14px 22px; background:#171a21; border-bottom:1px solid #303641; display:flex; align-items:center; gap:24px; }
+  header h1 { margin:0; font-size:14px; font-weight:600; }
+  header .legend { display:flex; gap:14px; font-size:12px; align-items:center; }
+  header .legend span.swatch { width:14px; height:14px; display:inline-block; border-radius:3px; margin-right:6px; vertical-align:middle; }
+  #detail { position:absolute; right:20px; top:80px; max-width:380px; background:#171a21; border:1px solid #303641; border-radius:6px; padding:14px 18px; font-size:12px; line-height:1.4; display:none; }
+  #detail h2 { margin:0 0 8px; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#9aa0a6; }
+  #detail .row { margin:2px 0; }
+  #detail .row b { color:#9aa0a6; font-weight:500; min-width:110px; display:inline-block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>dx attack graph &mdash; {{.Title}}</h1>
+  <div class="legend">
+    <span><span class="swatch" style="background:#d93025"></span>severity 5</span>
+    <span><span class="swatch" style="background:#f29900"></span>severity 4</span>
+    <span><span class="swatch" style="background:#f9ab00"></span>severity 3</span>
+    <span><span class="swatch" style="background:#9aa0a6"></span>severity ≤2</span>
+  </div>
+  <div style="margin-left:auto; font-size:11px; color:#9aa0a6">edge thickness ∝ weight (Σ CRS severity)</div>
+</header>
+<div id="cy"></div>
+<div id="detail"></div>
+<script>
+const G = {{.JSON}};
+const cy = cytoscape({
+  container: document.getElementById('cy'),
+  elements: { nodes: G.nodes, edges: G.edges },
+  style: [
+    { selector: 'node', style: {
+        'background-color': '#3c4150',
+        'label': 'data(label)',
+        'color': '#e6e6e6',
+        'font-size': 11,
+        'text-margin-y': -8,
+        'text-wrap': 'wrap',
+        'text-max-width': '160px',
+        'width': 24, 'height': 24,
+    }},
+    { selector: 'edge', style: {
+        'curve-style': 'bezier',
+        'target-arrow-shape': 'triangle',
+        'arrow-scale': 1.2,
+        'line-color': 'data(color)',
+        'target-arrow-color': 'data(color)',
+        'width': 'data(width)',
+        'label': 'data(edge_kind)',
+        'font-size': 10,
+        'color': '#9aa0a6',
+        'text-rotation': 'autorotate',
+        'text-margin-y': -6,
+    }},
+  ],
+  layout: { name: 'cose', animate: false, padding: 40, idealEdgeLength: 180, nodeRepulsion: 4500 },
+});
+const detail = document.getElementById('detail');
+cy.on('tap', 'edge', e => {
+  const d = e.target.data();
+  detail.innerHTML = '<h2>edge ' + d.id + '</h2>' +
+    '<div class="row"><b>kind</b>' + d.edge_kind + '</div>' +
+    '<div class="row"><b>condition</b>' + d.condition + '</div>' +
+    '<div class="row"><b>criteria</b>' + d.criteria + '</div>' +
+    '<div class="row"><b>weight</b>' + d.weight + '</div>' +
+    '<div class="row"><b>max_severity</b>' + d.max_severity + '</div>' +
+    '<div class="row"><b>confidence</b>' + d.confidence + '</div>' +
+    '<div class="row"><b>num_findings</b>' + d.num_findings + '</div>' +
+    '<div class="row"><b>source</b>' + d.source + '</div>' +
+    '<div class="row"><b>target</b>' + d.target + '</div>';
+  detail.style.display = 'block';
+});
+cy.on('tap', e => { if (e.target === cy) { detail.style.display = 'none'; }});
+</script>
+</body>
+</html>
+`
+
+func main() {
+	var (
+		fixturePath     = flag.String("fixture", "fixtures/sample.json", "JSON fixture of []Edge")
+		investigationID = flag.String("investigation_id", "", "filter to this id (empty = render all)")
+		outPath         = flag.String("out", "/tmp/dx_attack_graph.html", "HTML output path")
+	)
+	flag.Parse()
+
+	raw, err := os.ReadFile(*fixturePath)
 	if err != nil {
-		die("read script: %v", err)
+		die("read fixture: %v", err)
 	}
-	edgesJSON, err := json.Marshal(edges)
+	var edges []Edge
+	if err := json.Unmarshal(raw, &edges); err != nil {
+		die("parse fixture: %v", err)
+	}
+	g := buildGraph(edges, *investigationID)
+	gJSON, err := json.Marshal(map[string]any{"nodes": g.Nodes, "edges": g.Edges})
 	if err != nil {
-		die("re-encode edges: %v", err)
+		die("encode graph: %v", err)
 	}
 
-	// The v0 PxL stub doesn't (yet) parse edges_json itself — it
-	// emits a zero-row placeholder. This tool's real job for v0 is
-	// to validate the round-trip: ExecuteScript reaches the PEM,
-	// the script compiles, the vispb.Graph spec is well-formed.
-	// Once dx-agent's WriteAttackGraph ingest lands, the script
-	// reads from a real table and this tool retires.
-	pxlSrc := string(scriptRaw) + fmt.Sprintf(`
-# load_prototype-injected display of the fixture as a literal table.
-import px
-_pxl_args = {"investigation_id": %q, "edges_json": %q}
-`, *investigationID, string(edgesJSON))
-
-	ctx := context.Background()
-	c, err := pxapi.NewClient(ctx,
-		pxapi.WithDirectAddr(*addr), pxapi.WithDirectCredsInsecure())
+	tmpl, err := template.New("g").Parse(tmplStr)
 	if err != nil {
-		die("NewClient: %v", err)
+		die("parse template: %v", err)
 	}
-	v, err := c.NewVizierClient(ctx, "")
+	f, err := os.Create(*outPath)
 	if err != nil {
-		die("NewVizierClient: %v", err)
+		die("create out: %v", err)
 	}
-	rs, err := v.ExecuteScript(ctx, pxlSrc, &rowSink{})
-	if err != nil && err != io.EOF {
-		die("ExecuteScript: %v", err)
+	defer func() { _ = f.Close() }()
+	if err := tmpl.Execute(f, map[string]any{
+		"Title": g.Title,
+		"JSON":  template.JS(gJSON),
+	}); err != nil {
+		die("render: %v", err)
 	}
-	if rs != nil {
-		_ = rs.Stream()
-		_ = rs.Close()
-	}
+	fmt.Fprintf(os.Stderr, "load_prototype: %d nodes, %d edges -> %s\n", len(g.Nodes), len(g.Edges), *outPath)
 }
 
 func die(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...); os.Exit(1) }

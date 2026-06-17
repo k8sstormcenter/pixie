@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>dx attack graph — argocd-6a32ea57</title>
+<script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+<style>
+  html, body { margin:0; padding:0; height:100%; font-family:system-ui, sans-serif; background:#0e1116; color:#e6e6e6; }
+  #cy { width:100vw; height:calc(100vh - 60px); }
+  header { padding:14px 22px; background:#171a21; border-bottom:1px solid #303641; display:flex; align-items:center; gap:24px; }
+  header h1 { margin:0; font-size:14px; font-weight:600; }
+  header .legend { display:flex; gap:14px; font-size:12px; align-items:center; }
+  header .legend span.swatch { width:14px; height:14px; display:inline-block; border-radius:3px; margin-right:6px; vertical-align:middle; }
+  #detail { position:absolute; right:20px; top:80px; max-width:380px; background:#171a21; border:1px solid #303641; border-radius:6px; padding:14px 18px; font-size:12px; line-height:1.4; display:none; }
+  #detail h2 { margin:0 0 8px; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#9aa0a6; }
+  #detail .row { margin:2px 0; }
+  #detail .row b { color:#9aa0a6; font-weight:500; min-width:110px; display:inline-block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>dx attack graph &mdash; argocd-6a32ea57</h1>
+  <div class="legend">
+    <span><span class="swatch" style="background:#d93025"></span>severity 5</span>
+    <span><span class="swatch" style="background:#f29900"></span>severity 4</span>
+    <span><span class="swatch" style="background:#f9ab00"></span>severity 3</span>
+    <span><span class="swatch" style="background:#9aa0a6"></span>severity ≤2</span>
+  </div>
+  <div style="margin-left:auto; font-size:11px; color:#9aa0a6">edge thickness ∝ weight (Σ CRS severity)</div>
+</header>
+<div id="cy"></div>
+<div id="detail"></div>
+<script>
+const G = {"edges":[{"data":{"color":"#d93025","condition":"argocd-malicious-render","confidence":0.95,"criteria":"unexpected-spawn","edge_kind":"execution","id":"e0","max_severity":5,"num_findings":1,"source":"argocd/argocd-repo-server-5f8489c8bf-gxsbc","target":"argocd/argocd-repo-server-5f8489c8bf-gxsbc","weight":5,"width":4}},{"data":{"color":"#d93025","condition":"argocd-malicious-render","confidence":0.95,"criteria":"sensitive-file-read","edge_kind":"collection","id":"e1","max_severity":5,"num_findings":1,"source":"argocd/argocd-repo-server-5f8489c8bf-gxsbc","target":"argocd/argocd-repo-server-5f8489c8bf-gxsbc","weight":5,"width":4}}],"nodes":[{"data":{"id":"argocd/argocd-repo-server-5f8489c8bf-gxsbc","label":"argocd/argocd-repo-server-5f8489c8bf-gxsbc"}}]};
+const cy = cytoscape({
+  container: document.getElementById('cy'),
+  elements: { nodes: G.nodes, edges: G.edges },
+  style: [
+    { selector: 'node', style: {
+        'background-color': '#3c4150',
+        'label': 'data(label)',
+        'color': '#e6e6e6',
+        'font-size': 11,
+        'text-margin-y': -8,
+        'text-wrap': 'wrap',
+        'text-max-width': '160px',
+        'width': 24, 'height': 24,
+    }},
+    { selector: 'edge', style: {
+        'curve-style': 'bezier',
+        'target-arrow-shape': 'triangle',
+        'arrow-scale': 1.2,
+        'line-color': 'data(color)',
+        'target-arrow-color': 'data(color)',
+        'width': 'data(width)',
+        'label': 'data(edge_kind)',
+        'font-size': 10,
+        'color': '#9aa0a6',
+        'text-rotation': 'autorotate',
+        'text-margin-y': -6,
+    }},
+  ],
+  layout: { name: 'cose', animate: false, padding: 40, idealEdgeLength: 180, nodeRepulsion: 4500 },
+});
+const detail = document.getElementById('detail');
+cy.on('tap', 'edge', e => {
+  const d = e.target.data();
+  detail.innerHTML = '<h2>edge ' + d.id + '</h2>' +
+    '<div class="row"><b>kind</b>' + d.edge_kind + '</div>' +
+    '<div class="row"><b>condition</b>' + d.condition + '</div>' +
+    '<div class="row"><b>criteria</b>' + d.criteria + '</div>' +
+    '<div class="row"><b>weight</b>' + d.weight + '</div>' +
+    '<div class="row"><b>max_severity</b>' + d.max_severity + '</div>' +
+    '<div class="row"><b>confidence</b>' + d.confidence + '</div>' +
+    '<div class="row"><b>num_findings</b>' + d.num_findings + '</div>' +
+    '<div class="row"><b>source</b>' + d.source + '</div>' +
+    '<div class="row"><b>target</b>' + d.target + '</div>';
+  detail.style.display = 'block';
+});
+cy.on('tap', e => { if (e.target === cy) { detail.style.display = 'none'; }});
+</script>
+</body>
+</html>

@@ -227,7 +227,7 @@ func TestOperatorOwnedTables_DoesNotIncludeKubescape(t *testing.T) {
 // plugin can auto-DDL them with the wrong schema), then the operator's
 // own write targets in declared order.
 func TestOperatorOwnedTables_TrailingOperatorTables(t *testing.T) {
-	want := []string{"adaptive_attribution", "trigger_watermark"}
+	want := []string{"adaptive_attribution", "trigger_watermark", "ae_reconcile"}
 	got := OperatorOwnedTables[len(OperatorOwnedTables)-len(want):]
 	for i, w := range want {
 		if got[i] != w {

@@ -39,6 +39,7 @@ import (
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/anomaly"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/kubescape"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/reconcile"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/sink"
 )
 
@@ -80,6 +81,10 @@ func (RealClock) Now() time.Time { return time.Now() }
 type Config struct {
 	// Hostname is the node-local key. REQUIRED.
 	Hostname string
+
+	// Rec records per-pull read/wrote counts for the FILTER fan-out path
+	// (ADAPTIVE_RECONCILE). nil → reconcile.Nop{} in New (instrument off).
+	Rec reconcile.Recorder
 
 	// Before / After form the time window: t_start = event_time - Before,
 	// t_end = max(t_end, now + After). Both default to 5 min.
@@ -214,6 +219,9 @@ func New(trig Trigger, snk Sink, cfg Config, clk Clock) *Controller {
 		clk = RealClock{}
 	}
 	defaulted := cfg.defaulted()
+	if defaulted.Rec == nil {
+		defaulted.Rec = reconcile.Nop{}
+	}
 	c := &Controller{
 		trig:           trig,
 		sink:           snk,
@@ -457,8 +465,30 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 				continue
 			}
 			wg.Add(1)
-			go func(table, q string, sliceEnd time.Time) {
+			go func(table, q string, sliceStart, sliceEnd time.Time) {
 				defer wg.Done()
+				// Per-pull reconciliation (ADAPTIVE_RECONCILE): record what
+				// this goroutine READ from Pixie vs WROTE to CH for this
+				// (pod, table, window), on EVERY return path. Deferred so a
+				// sem-cancel / query error / sink error all still emit a row
+				// — the reconcile run needs the failures, not just successes.
+				var readCount, wroteCount int
+				var recErr string
+				defer func() {
+					c.cfg.Rec.Record(ctx, reconcile.Row{
+						TS:         now,
+						Mode:       "filter",
+						Table:      table,
+						Namespace:  initial.Namespace,
+						Pod:        initial.Pod,
+						WinStart:   sliceStart,
+						WinEnd:     sliceEnd,
+						ReadCount:  int64(readCount),
+						WroteCount: int64(wroteCount),
+						WriteErr:   recErr,
+						Hostname:   c.cfg.Hostname,
+					})
+				}()
 				// Acquire per-hash slot, then optional global slot.
 				// Order matters: per-hash is cheap and local; global
 				// gates network. Releasing in reverse order avoids the
@@ -468,6 +498,7 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 					select {
 					case perHashSem <- struct{}{}:
 					case <-ctx.Done():
+						recErr = ctx.Err().Error()
 						results <- tableResult{table: table, err: ctx.Err()}
 						return
 					}
@@ -477,6 +508,7 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 					select {
 					case c.globalSem <- struct{}{}:
 					case <-ctx.Done():
+						recErr = ctx.Err().Error()
 						results <- tableResult{table: table, err: ctx.Err()}
 						return
 					}
@@ -486,12 +518,14 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 				rows, qerr := c.querier.Query(qctx, q)
 				cancel()
 				if qerr != nil {
+					recErr = qerr.Error()
 					results <- tableResult{table: table, err: qerr}
 					return
 				}
 				// Update negative cache: 0 rows bumps streak, ≥1 row resets.
 				c.noteQueryResult(initial.Namespace, initial.Pod, table, len(rows))
 				nrows := len(rows)
+				readCount = nrows
 				if nrows > 0 {
 					// Bound the sink write with its own timeout. Without
 					// this, a stalled CH HTTP write would hold the table
@@ -503,9 +537,11 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 					werr := c.sink.WritePixieRows(wctx, table, rows)
 					wcancel()
 					if werr != nil {
+						recErr = werr.Error()
 						results <- tableResult{table: table, err: werr}
 						return
 					}
+					wroteCount = nrows
 					log.WithFields(log.Fields{
 						"table": table,
 						"rows":  nrows,
@@ -514,7 +550,7 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 					}).Info("pushed pixie rows for active anomaly window")
 				}
 				results <- tableResult{table: table, sliceEnd: sliceEnd, rows: nrows}
-			}(table, q, sliceEnd)
+			}(table, q, sliceStart, sliceEnd)
 		}
 		wg.Wait()
 		close(results)

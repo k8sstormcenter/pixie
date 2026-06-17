@@ -48,6 +48,7 @@ import (
 
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/anomaly"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/clickhouse"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/reconcile"
 )
 
 // pixieTableIdentRE accepts plain CH identifiers and dotted protobuf
@@ -372,6 +373,64 @@ func (s *ClickHouseHTTP) Write(ctx context.Context, rows []AttributionRow) error
 		return fmt.Errorf("sink: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
 	return nil
+}
+
+// chTimeFmt is the ClickHouse DateTime64 literal format used for every
+// time column AE writes (see Write/encodeJSONEachRow and fastencode.go).
+const chTimeFmt = "2006-01-02 15:04:05.000000000"
+
+// Record implements reconcile.Recorder: it inserts ONE per-pull
+// reconciliation row into forensic_db.ae_reconcile. Best-effort by
+// contract — any failure is logged at warn and swallowed so the
+// reconcile instrument can NEVER stall or fail the data path.
+func (s *ClickHouseHTTP) Record(ctx context.Context, r reconcile.Row) {
+	ts := r.TS
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+	obj := map[string]any{
+		"ts":          ts.UTC().Format(chTimeFmt),
+		"mode":        r.Mode,
+		"table_name":  r.Table,
+		"namespace":   r.Namespace,
+		"pod":         r.Pod,
+		"win_start":   r.WinStart.UTC().Format(chTimeFmt),
+		"win_end":     r.WinEnd.UTC().Format(chTimeFmt),
+		"read_count":  r.ReadCount,
+		"wrote_count": r.WroteCount,
+		"write_err":   r.WriteErr,
+		"hostname":    r.Hostname,
+	}
+	body, err := json.Marshal(obj)
+	if err != nil {
+		log.WithError(err).Warn("reconcile: marshal row")
+		return
+	}
+	q := url.Values{}
+	q.Set("query", fmt.Sprintf(
+		"INSERT INTO %s.ae_reconcile FORMAT JSONEachRow", s.cfg.Database))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		s.cfg.Endpoint+"/?"+q.Encode(), bytes.NewReader(body))
+	if err != nil {
+		log.WithError(err).Warn("reconcile: new request")
+		return
+	}
+	req.Header.Set("Content-Type", "application/x-ndjson")
+	if s.cfg.Username != "" {
+		req.SetBasicAuth(s.cfg.Username, s.cfg.Password)
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		log.WithError(err).Warn("reconcile: POST")
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		log.WithField("status", resp.StatusCode).
+			WithField("body", strings.TrimSpace(string(msg))).
+			Warn("reconcile: CH rejected ae_reconcile insert")
+	}
 }
 
 // QueryActive fetches all attribution rows on this hostname whose t_end

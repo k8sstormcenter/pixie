@@ -454,3 +454,32 @@ CREATE TABLE IF NOT EXISTS forensic_db.trigger_watermark (
 ) ENGINE = ReplacingMergeTree(updated_at)
   PARTITION BY hostname
   ORDER BY (hostname, table_name);
+
+-- ============================================================================
+-- ae_reconcile — per-pull write-fidelity instrument (gated by ADAPTIVE_RECONCILE).
+--
+-- One row per data-plane pull: how many rows AE READ back from Pixie for a
+-- (table, pod, window) vs how many it WROTE to ClickHouse. Lets a reconcile
+-- run localize any loss to a single hop:
+--   read  < px-direct PEM count  → query/window/filter miss (R5)
+--   wrote < read                 → sink/batch drop          (R6)
+--   CH distinct > read           → re-pull duplication       (C8)
+-- Plain MergeTree (append-only debug log). NOT a pixie observation table and
+-- NOT in PixieTables(); the operator creates it so a reconcile run has a
+-- target without manual DDL.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS forensic_db.ae_reconcile (
+    ts          DateTime64(9, 'UTC'),
+    mode        String,
+    table_name  String,
+    namespace   String,
+    pod         String,
+    win_start   DateTime64(9, 'UTC'),
+    win_end     DateTime64(9, 'UTC'),
+    read_count  Int64,
+    wrote_count Int64,
+    write_err   String,
+    hostname    String
+) ENGINE = MergeTree
+  PARTITION BY toYYYYMMDD(ts)
+  ORDER BY (table_name, ts);

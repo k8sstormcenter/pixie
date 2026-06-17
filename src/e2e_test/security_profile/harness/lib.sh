@@ -78,25 +78,48 @@ wait_pem_ready() {
   return 1
 }
 
-# Compute coverage stats from sent + seen CSVs. Reads sent column 2,
-# seen column 2, emits the headline metrics on stdout as `K=V` lines.
+# Compute coverage stats from sent + seen CSVs. Sent column 2 is a
+# bare FQDN (with trailing dot); seen column 2 is the dns_events
+# req_body which is a JSON envelope {"queries":[{"name":...}]}.
+# We strip the trailing dot from sent and extract every "name":"…"
+# value from seen, then compute set intersection.
 coverage_stats() {
   local sent="$1" seen="$2"
-  python3 - <<PY
+  python3 - "$sent" "$seen" <<'PY'
 import csv
+import json
+import sys
+
+sent_path, seen_path = sys.argv[1], sys.argv[2]
+
+def normalize(name: str) -> str:
+    return name.rstrip(".").lower()
+
 sent_names = set()
-with open("$sent") as f:
-    r = csv.reader(f); next(r, None)
+with open(sent_path) as f:
+    r = csv.reader(f)
+    next(r, None)
     for row in r:
-        if len(row) >= 2: sent_names.add(row[1])
+        if len(row) >= 2:
+            sent_names.add(normalize(row[1]))
+
 seen_names = set()
 seen_unresolved = 0
-with open("$seen") as f:
-    r = csv.reader(f); next(r, None)
+with open(seen_path) as f:
+    r = csv.reader(f)
+    next(r, None)
     for row in r:
-        if len(row) >= 2: seen_names.add(row[1])
+        if len(row) >= 2:
+            try:
+                payload = json.loads(row[1])
+                for q in payload.get("queries", []):
+                    if "name" in q:
+                        seen_names.add(normalize(q["name"]))
+            except (json.JSONDecodeError, TypeError):
+                seen_names.add(normalize(row[1]))
         if len(row) >= 3 and (row[2] == "" or row[2] == "00000000-0000-0000-0000-000000000000"):
             seen_unresolved += 1
+
 captured = sent_names & seen_names
 print(f"sent_unique={len(sent_names)}")
 print(f"seen_unique={len(seen_names)}")

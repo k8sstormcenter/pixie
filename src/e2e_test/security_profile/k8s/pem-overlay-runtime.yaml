@@ -1,0 +1,30 @@
+---
+# Kustomize patch — applies the security-runtime envvar set to the PEM
+# DaemonSet without touching the upstream chart. Used as:
+#
+#   kubectl -n pl patch daemonset vizier-pem \
+#     --type strategic --patch-file pem-overlay-runtime.yaml
+#
+# Each value mirrors harness/flags_security_runtime.env. Keep them in
+# sync — the README links the two for the PR reviewer.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: vizier-pem
+  namespace: pl
+spec:
+  template:
+    spec:
+      containers:
+      - name: pem
+        env:
+        - name: PX_STIRLING_ENABLE_DNS_TRACING
+          value: "1"
+        - name: PL_TABLE_STORE_DATA_LIMIT_MB
+          value: "2048"
+        - name: PL_TABLE_STORE_HTTP_EVENTS_PERCENT
+          value: "25"
+        - name: STIRLING_SOCKET_TRACER_TARGET_CONTROL_BW_PERCPU
+          value: "20971520"
+        - name: PL_DATASTREAM_BUFFER_SIZE
+          value: "4194304"

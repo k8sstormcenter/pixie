@@ -1,0 +1,36 @@
+---
+# Probe pod — runs dnsprobe inside the cluster so its UDP queries are
+# observed by the local PEM (same node, hostNetwork off so the BPF
+# socket-trace hits the pod netns where most real workloads sit).
+#
+# The pod intentionally stays running after the probe finishes so the
+# harness can re-exec dnsprobe across multiple sweeps without spinning
+# up a new pod between cells.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dnsprobe
+  namespace: default
+  labels:
+    app: dnsprobe
+    secprof.pixie.io/role: probe
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 5
+  containers:
+  - name: probe
+    # Built locally by the harness — `bazel build ...:dnsprobe_image`
+    # and imported into the k3s containerd via `k3s ctr image import`.
+    image: localhost/pixie/dnsprobe:latest
+    imagePullPolicy: IfNotPresent
+    command:
+    - /bin/sh
+    - -c
+    - sleep infinity
+    resources:
+      requests:
+        cpu: 100m
+        memory: 64Mi
+      limits:
+        cpu: "2"
+        memory: 256Mi

@@ -1,0 +1,44 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "Relative start time of the window. Current time is assumed to be now.",
+      "defaultValue": "-15m"
+    },
+    {
+      "name": "evidence_csv",
+      "type": "PX_STRING",
+      "description": "Comma-separated list of `<namespace/pod>:<severity>` items emitted by dx. v1 takes this as a string argument; v2 will read it from a dx_evidence Pixie table. STUB — schema unsettled.",
+      "defaultValue": ""
+    }
+  ],
+  "widgets": [
+    {
+      "name": "DX Evidence Graph (STUB)",
+      "position": {"x": 0, "y": 0, "w": 12, "h": 4},
+      "func": {
+        "name": "dx_evidence_graph",
+        "args": [
+          {"name": "start_time", "variable": "start_time"},
+          {"name": "evidence_csv", "variable": "evidence_csv"}
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Graph",
+        "adjacencyList": {
+          "fromColumn": "from_pod",
+          "toColumn": "to_pod"
+        },
+        "edgeWeightColumn": "weight",
+        "edgeColorColumn": "weight",
+        "edgeHoverInfo": [
+          "weight",
+          "req_count",
+          "bytes_total"
+        ],
+        "edgeLength": 500
+      }
+    }
+  ]
+}

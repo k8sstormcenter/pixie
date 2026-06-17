@@ -30,6 +30,7 @@ package passthrough
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -39,6 +40,16 @@ import (
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/reconcile"
 )
+
+// excludedTables are dropped from the firehose table set: tables that are
+// declared builtin but are not materialised on every cluster, so a
+// passthrough pull against them returns a "Table not found" compilation
+// error every tick (pure log spam, zero rows). http2_messages.beta is the
+// known offender. Removing it here keeps the schema/DDL lists (which still
+// own the table when it DOES exist) untouched.
+var excludedTables = map[string]bool{
+	"http2_messages.beta": true,
+}
 
 // querier matches the cmd-side pixieAdapter wrapper (returns
 // []map[string]any instead of pixieapi.Row) so the loop is decoupled
@@ -65,6 +76,13 @@ type Config struct {
 	Rec reconcile.Recorder
 	// Hostname is the node name stamped on reconcile rows.
 	Hostname string
+	// Compiled selects the firehose query path. When true (the default
+	// wired by cmd/main.go), per-table PxL is precompiled ONCE at New and
+	// all tables are pulled CONCURRENTLY per tick. When false, the legacy
+	// path is used: QueryFor rebuilds each table's PxL every tick and the
+	// tables are walked serially. The env var ADAPTIVE_PASSTHROUGH_COMPILED
+	// (cmd/main.go) flips this — set it to "false" to revert.
+	Compiled bool
 }
 
 // Loop is the passthrough goroutine.
@@ -72,6 +90,10 @@ type Loop struct {
 	q   querier
 	s   sink
 	cfg Config
+	// tmpl holds the precompiled per-table PxL templates (table → fmt
+	// template with two %d time-bound verbs). Populated in New only when
+	// cfg.Compiled; nil otherwise.
+	tmpl map[string]string
 }
 
 // New constructs a Loop. Caller-provided querier+sink must already be
@@ -87,10 +109,44 @@ func New(q querier, s sink, cfg Config) *Loop {
 	if len(cfg.Tables) == 0 {
 		cfg.Tables = clickhouse.PixieTables()
 	}
+	// Drop tables that aren't materialised on this cluster (e.g.
+	// http2_messages.beta) so they don't error every tick.
+	cfg.Tables = filterExcluded(cfg.Tables)
 	if cfg.Rec == nil {
 		cfg.Rec = reconcile.Nop{}
 	}
-	return &Loop{q: q, s: s, cfg: cfg}
+	l := &Loop{q: q, s: s, cfg: cfg}
+	if cfg.Compiled {
+		// Precompile each table's PxL once. The window is fixed for the
+		// lifetime of the loop, so only the per-tick time bounds vary.
+		l.tmpl = make(map[string]string, len(cfg.Tables))
+		for _, table := range cfg.Tables {
+			t, err := pxl.CompilePassthrough(table, cfg.Window)
+			if err != nil {
+				// A non-builtin table can't be compiled; skip it rather
+				// than fail construction (matches the per-table tolerance
+				// of the run loop).
+				log.WithError(err).WithField("table", table).
+					Warn("ADAPTIVE_PASSTHROUGH: precompile skipped")
+				continue
+			}
+			l.tmpl[table] = t
+		}
+	}
+	return l
+}
+
+// filterExcluded returns tables with the excludedTables entries removed,
+// preserving order.
+func filterExcluded(tables []string) []string {
+	out := tables[:0:0]
+	for _, t := range tables {
+		if excludedTables[t] {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
 }
 
 // rec emits one passthrough reconciliation row (best-effort; Nop when the
@@ -137,12 +193,19 @@ func (l *Loop) Run(ctx context.Context) {
 	}
 }
 
-// tick runs one passthrough sweep across every configured table.
+// tick runs one passthrough sweep across every configured table. When
+// cfg.Compiled (the default) all tables are pulled CONCURRENTLY using the
+// precompiled templates; otherwise they are walked serially with QueryFor
+// rebuilt per tick (legacy path, kept for rollback via the env var).
 func (l *Loop) tick(ctx context.Context) {
 	now := time.Now()
 	sliceStart := now.Add(-l.cfg.Window)
 	sliceEnd := now
 
+	if l.cfg.Compiled {
+		l.tickConcurrent(ctx, sliceStart, sliceEnd)
+		return
+	}
 	for _, table := range l.cfg.Tables {
 		if ctx.Err() != nil {
 			return
@@ -156,29 +219,61 @@ func (l *Loop) tick(ctx context.Context) {
 			l.rec(ctx, table, sliceStart, sliceEnd, 0, 0, err.Error())
 			continue
 		}
-		rows, err := l.q.Query(ctx, src)
-		if err != nil {
-			log.WithError(err).WithField("table", table).Warn("ADAPTIVE_PASSTHROUGH: pixie query failed")
-			l.rec(ctx, table, sliceStart, sliceEnd, 0, 0, err.Error())
+		l.pull(ctx, table, src, sliceStart, sliceEnd)
+	}
+}
+
+// tickConcurrent fires every table's precompiled query at once and waits
+// for all to finish. Per-table failures are isolated inside pull, so one
+// table's error never affects another.
+func (l *Loop) tickConcurrent(ctx context.Context, sliceStart, sliceEnd time.Time) {
+	var wg sync.WaitGroup
+	for _, table := range l.cfg.Tables {
+		if ctx.Err() != nil {
+			break
+		}
+		tmpl, ok := l.tmpl[table]
+		if !ok {
+			// Non-builtin table skipped at precompile time.
 			continue
 		}
-		if len(rows) == 0 {
-			log.WithField("table", table).Debug("ADAPTIVE_PASSTHROUGH: 0 rows")
-			l.rec(ctx, table, sliceStart, sliceEnd, 0, 0, "")
-			continue
-		}
-		if err := l.s.WritePixieRows(ctx, table, rows); err != nil {
-			log.WithError(err).WithFields(log.Fields{
-				"table": table,
-				"rows":  len(rows),
-			}).Warn("ADAPTIVE_PASSTHROUGH: sink write failed")
-			l.rec(ctx, table, sliceStart, sliceEnd, len(rows), 0, err.Error())
-			continue
-		}
-		log.WithFields(log.Fields{
+		src := pxl.Render(tmpl, sliceStart, sliceEnd)
+		wg.Add(1)
+		go func(table, src string) {
+			defer wg.Done()
+			l.pull(ctx, table, src, sliceStart, sliceEnd)
+		}(table, src)
+	}
+	wg.Wait()
+}
+
+// pull runs one table's query, writes the rows, and records the reconcile
+// row. It is safe for concurrent use across distinct tables: the querier,
+// sink, and recorder are all pool/HTTP-backed and concurrency-safe, and
+// each call touches a different forensic_db.<table>.
+func (l *Loop) pull(ctx context.Context, table, src string, sliceStart, sliceEnd time.Time) {
+	rows, err := l.q.Query(ctx, src)
+	if err != nil {
+		log.WithError(err).WithField("table", table).Warn("ADAPTIVE_PASSTHROUGH: pixie query failed")
+		l.rec(ctx, table, sliceStart, sliceEnd, 0, 0, err.Error())
+		return
+	}
+	if len(rows) == 0 {
+		log.WithField("table", table).Debug("ADAPTIVE_PASSTHROUGH: 0 rows")
+		l.rec(ctx, table, sliceStart, sliceEnd, 0, 0, "")
+		return
+	}
+	if err := l.s.WritePixieRows(ctx, table, rows); err != nil {
+		log.WithError(err).WithFields(log.Fields{
 			"table": table,
 			"rows":  len(rows),
-		}).Info("ADAPTIVE_PASSTHROUGH: rows written")
-		l.rec(ctx, table, sliceStart, sliceEnd, len(rows), len(rows), "")
+		}).Warn("ADAPTIVE_PASSTHROUGH: sink write failed")
+		l.rec(ctx, table, sliceStart, sliceEnd, len(rows), 0, err.Error())
+		return
 	}
+	log.WithFields(log.Fields{
+		"table": table,
+		"rows":  len(rows),
+	}).Info("ADAPTIVE_PASSTHROUGH: rows written")
+	l.rec(ctx, table, sliceStart, sliceEnd, len(rows), len(rows), "")
 }

@@ -148,6 +148,11 @@ const (
 	envPassthrough        = "ADAPTIVE_PASSTHROUGH"
 	envPassthroughWindow  = "ADAPTIVE_PASSTHROUGH_WINDOW_SEC"
 	envPassthroughRefresh = "ADAPTIVE_PASSTHROUGH_REFRESH_SEC"
+	// envPassthroughCompiled — selects the firehose query path. Default
+	// ON: per-table PxL is precompiled once and all tables are pulled
+	// concurrently per tick. Set to "false" to revert to the legacy path
+	// (QueryFor rebuilt per tick, tables walked serially).
+	envPassthroughCompiled = "ADAPTIVE_PASSTHROUGH_COMPILED"
 
 	// envReconcile — per-pull write-fidelity instrument. When "true",
 	// every data-plane pull (filter / passthrough / streaming) records
@@ -516,11 +521,15 @@ func main() {
 		if pixieAdapterInst == nil {
 			log.Fatal("ADAPTIVE_PASSTHROUGH=true but pixie adapter is nil — internal wiring bug")
 		}
+		// Compiled path is the default; ADAPTIVE_PASSTHROUGH_COMPILED=false
+		// reverts to the legacy serial QueryFor loop.
+		compiled := !strings.EqualFold(os.Getenv(envPassthroughCompiled), "false")
 		ptCfg := passthrough.Config{
 			Window:   durEnv(envPassthroughWindow, 30*time.Second, time.Second),
 			Refresh:  durEnv(envPassthroughRefresh, 30*time.Second, time.Second),
 			Rec:      rec,
 			Hostname: hostname,
+			Compiled: compiled,
 		}
 		ptLoop := passthrough.New(&pixieAdapter{a: pixieAdapterInst}, snk, ptCfg)
 		wg.Add(1)
@@ -529,8 +538,9 @@ func main() {
 			ptLoop.Run(ctx)
 		}()
 		log.WithFields(log.Fields{
-			"window":  ptCfg.Window,
-			"refresh": ptCfg.Refresh,
+			"window":   ptCfg.Window,
+			"refresh":  ptCfg.Refresh,
+			"compiled": ptCfg.Compiled,
 		}).Info("ADAPTIVE_PASSTHROUGH=true — firehose loop running (no anomaly gate)")
 	}
 

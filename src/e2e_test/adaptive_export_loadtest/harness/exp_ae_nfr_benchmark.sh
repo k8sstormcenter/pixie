@@ -45,20 +45,18 @@ echo "=== [1] THROUGHPUT + [4] LATENCY (window ${dt}s) ===" | tee -a "$OUT"
 printf "  %-13s %10s %12s %10s %12s %10s\n" table d_rows rows_per_s d_bytes bytes_per_s lag_s | tee -a "$OUT"
 while IFS=$'\t' read -r t r b; do
   dr=$(( r-${R0[$t]:-0} )); db=$(( b-${B0[$t]:-0} ))
-  lag=$(chq "SELECT toInt32(now() - max(time_)) FROM forensic_db.$t WHERE time_ > now()-INTERVAL 5 MINUTE"); lag=${lag:-na}
+  lag=$(chq "SELECT dateDiff('second', max(time_), now()) FROM forensic_db.$t WHERE time_ > now()-INTERVAL 5 MINUTE"); lag=${lag:-na}
   printf "  %-13s %10d %12.0f %10d %12.0f %10s\n" "$t" "$dr" "$(awk -v x=$dr -v d=$dt 'BEGIN{print x/d}')" "$db" "$(awk -v x=$db -v d=$dt 'BEGIN{print x/d}')" "$lag" | tee -a "$OUT"
 done < <(snap)
 
-echo "=== [2] CAPTURE COMPLETENESS + [3] FIDELITY + [6] PER-CYCLE (ae_reconcile, last ${WIN}s) ===" | tee -a "$OUT"
-printf "  %-13s %8s %10s %10s %6s %10s %8s\n" table cycles max_read tot_wrote errs broker pct | tee -a "$OUT"
+echo "=== [3] WRITE FIDELITY + [6] PER-CYCLE (ae_reconcile, last ${WIN}s) ===" | tee -a "$OUT"
+printf "  %-13s %8s %10s %10s %10s %6s\n" table cycles max_read tot_read tot_wrote errs | tee -a "$OUT"
 for t in $TABLES; do
-  read -r cyc mr tw er < <(chq "SELECT count(), max(read_count), sum(wrote_count), countIf(write_err!='') FROM forensic_db.ae_reconcile WHERE table_name='$t' AND mode='passthrough' AND ts > now()-INTERVAL ${WIN} SECOND FORMAT TSV")
-  cyc=${cyc:-0}; mr=${mr:-0}; tw=${tw:-0}; er=${er:-0}
-  bc=$(brokercount "$t" "$WIN"); bc=${bc:-0}
-  pct=$(awk -v m="$mr" -v b="$bc" 'BEGIN{ if(b>0) printf "%.0f%%", (m/b)*100; else print "n/a" }')
-  printf "  %-13s %8d %10d %10d %6d %10d %8s\n" "$t" "$cyc" "$mr" "$tw" "$er" "$bc" "$pct" | tee -a "$OUT"
+  read -r cyc mr tr tw er < <(chq "SELECT count(), max(read_count), sum(read_count), sum(wrote_count), countIf(write_err!='') FROM forensic_db.ae_reconcile WHERE table_name='$t' AND mode='passthrough' AND ts > now()-INTERVAL ${WIN} SECOND FORMAT TSV")
+  printf "  %-13s %8d %10d %10d %10d %6d\n" "$t" "${cyc:-0}" "${mr:-0}" "${tr:-0}" "${tw:-0}" "${er:-0}" | tee -a "$OUT"
 done
-echo "  NOTE max_read==broker(window) & errs==0 ⇒ uncapped capture + clean sink (F1 fix)." | tee -a "$OUT"
+echo "  NOTE tot_read==tot_wrote & errs==0 ⇒ clean sink (no dropped batches)." | tee -a "$OUT"
+echo "  (Capture completeness / 10k-cap proof = the dedicated F1 test: max_read>10000 vs broker count for the SAME window.)" | tee -a "$OUT"
 
 for i in $(seq 1 6); do kubectl -n $NS delete pod nf-$i --ignore-not-found --wait=false >/dev/null 2>&1; done
 echo "DONE $(date -u +%FT%TZ)" | tee -a "$OUT"

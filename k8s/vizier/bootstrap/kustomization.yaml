@@ -16,5 +16,10 @@ resources:
 - cert_provisioner_job.yaml
 - vizier_crd_role.yaml
 - adaptive_export_role.yaml
-- adaptive_export_secrets.yaml
+# adaptive_export_secrets.yaml is intentionally NOT bundled here: it holds real
+# credentials (pixie-api-key, clickhouse-dsn) owned by `make ae-auth`. Bundling
+# it meant every infra re-apply clobbered the real key with the placeholder.
+# Separation of concerns: infra (role+deployment) re-appliable; secret is
+# created ONCE by ae-auth and never touched by this kustomization. ponytail:
+# apply adaptive_export_secrets.yaml manually only to seed a fresh cluster.
 - adaptive_export_deployment.yaml

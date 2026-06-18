@@ -7,30 +7,29 @@
       "defaultValue": "-15m"
     },
     {
-      "name": "investigation_id",
-      "type": "PX_STRING",
-      "description": "dx investigation / verdict id to render. Empty = every edge in the window.",
-      "defaultValue": ""
-    },
-    {
       "name": "clickhouse_dsn",
       "type": "PX_STRING",
       "description": "ClickHouse DSN — `user:pass@host:port/db`. Required. Per-rig value: see README.md (e.g. forensic_analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db).",
       "defaultValue": ""
     }
   ],
-  "widgets": [
+  "globalFuncs": [
     {
-      "name": "DX Attack Graph",
-      "position": {"x": 0, "y": 0, "w": 12, "h": 4},
+      "outputName": "dx_graph",
       "func": {
         "name": "dx_attack_graph",
         "args": [
           {"name": "start_time", "variable": "start_time"},
-          {"name": "investigation_id", "variable": "investigation_id"},
           {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}
         ]
-      },
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "name": "DX Attack Graph",
+      "position": {"x": 0, "y": 0, "w": 12, "h": 5},
+      "globalFuncOutputName": "dx_graph",
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Graph",
         "adjacencyList": {
@@ -49,6 +48,14 @@
           "num_findings"
         ],
         "edgeLength": 500
+      }
+    },
+    {
+      "name": "Edges",
+      "position": {"x": 0, "y": 5, "w": 12, "h": 4},
+      "globalFuncOutputName": "dx_graph",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
       }
     }
   ]

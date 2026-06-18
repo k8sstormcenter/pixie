@@ -16,48 +16,36 @@
 
 ''' DX Attack Graph
 
-Severity-weighted, all-protocol pod-to-pod attack graph for one
-dx-agent investigation. Reads `dx_attack_graph` from the forensic
-ClickHouse via this fork's `clickhouse_dsn` kwarg on `px.DataFrame`
+Severity-weighted, all-protocol pod-to-pod attack graph from dx-agent
+evidence. Reads `dx_attack_graph` from the forensic ClickHouse via
+this fork's `clickhouse_dsn` kwarg on `px.DataFrame`
 (`src/carnot/planner/objects/dataframe.cc:43`). Schema matches the
 `attackgraph.Edge` contract dx-agent locked in via entlein/dx#68
 (see README.md in this directory).
 
-The companion `tools/load_prototype` Go helper renders the same
-schema from a JSON fixture into a standalone HTML page; that path is
-for visual validation without a live ClickHouse, and retires once
-this script is wired into the Pixie UI.
+2-arg signature (start_time, clickhouse_dsn) matches the
+`globalFuncs` entry in vis.json. Per-investigation filtering is a
+follow-up — PxL has no `if` statement and Pixie's convention for
+optional filters is to omit them rather than gate at script level.
 '''
 import px
 
 
-def dx_attack_graph(start_time: str, investigation_id: str, clickhouse_dsn: str):
-    ''' Pod-to-pod attack graph for one dx investigation.
+def dx_attack_graph(start_time: str, clickhouse_dsn: str):
+    ''' Pod-to-pod attack graph for dx investigations in the window.
     Args:
     @start_time: relative start, e.g. "-15m".
-    @investigation_id: the dx verdict / pivot incident identifier.
-        Empty string returns every edge in the window.
     @clickhouse_dsn: ClickHouse DSN — `user:pass@host:port/db`. The
-        forensic_db.dx_attack_graph table is read with this. Keep the
-        default as the in-cluster service DNS so the script works on
-        a stock deployment; operators override per-cluster from the
-        Pixie UI script-args panel when the DSN differs.
+        forensic_db.dx_attack_graph table is read with this. The
+        bundled vis.json defaults this to empty; operators paste the
+        per-rig DSN via the UI script-args panel. README.md documents
+        the soc rig DSN.
     '''
     df = px.DataFrame('dx_attack_graph',
                       clickhouse_dsn=clickhouse_dsn,
                       start_time=start_time)
-    if investigation_id != '':
-        df = df[df.investigation_id == investigation_id]
     return df[['requestor_pod', 'responder_pod',
                'requestor_service', 'responder_service',
                'requestor_ip', 'responder_ip',
                'weight', 'max_severity', 'confidence',
                'edge_kind', 'condition', 'criteria', 'num_findings']]
-
-
-# The clickhouse_dsn default is intentionally empty. The Pixie UI
-# fills it in from the per-cluster vis.json script-args panel (or
-# via the URL); operators see and edit the DSN at run time rather
-# than the bundle shipping credentials. See README.md for the
-# per-rig DSN (forensic_analyst@clickhouse-forensic-soc-db…).
-px.display(dx_attack_graph('-15m', '', ''), 'dx_attack_graph')

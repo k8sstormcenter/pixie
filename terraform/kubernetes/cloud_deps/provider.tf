@@ -8,19 +8,15 @@ terraform {
       source  = "kbst/kustomization"
       version = "0.9.7"
     }
-    sops = {
-      source  = "carlpett/sops"
-      version = "~> 1.0"
-    }
   }
 }
 
 provider "kubernetes" {
-  config_path    = "~/.kube/cockpick-config"
+  config_path    = "~/.kube/cockpit-config"
   config_context = "default"
 }
 
 provider "kustomization" {
   context = "default"
-  kubeconfig_path = "~/.kube/cockpick-config"
+  kubeconfig_path = "~/.kube/cockpit-config"
 }

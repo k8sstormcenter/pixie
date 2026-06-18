@@ -15,7 +15,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package streaming implements the rev-3 push-flow: long-running
-// PxL submissions per pixie table, with a pod whitelist derived from
+// PxL submissions per pixie table, with a pod allowlist derived from
 // the ActiveSet. See .local/adaptive-write-rev3-plan.md for the full
 // architectural rationale.
 package streaming
@@ -30,18 +30,18 @@ import (
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset"
 )
 
-// FilterMode selects how the embedded PxL whitelist is constructed.
+// FilterMode selects how the embedded PxL allowlist is constructed.
 type FilterMode int
 
 const (
-	// FilterModeWhitelist embeds an explicit pod list in the PxL
+	// FilterModeAllowlist embeds an explicit pod list in the PxL
 	// `df = df[df.pod.in_([...])]` clause. Optimal while the set is
 	// small.
-	FilterModeWhitelist FilterMode = iota
+	FilterModeAllowlist FilterMode = iota
 
 	// FilterModeUnfiltered emits the script WITHOUT a pod filter —
 	// the stream returns ALL pods on this node. Used when the active
-	// set exceeds MaxWhitelistSize: the PxL script-size limit + parse
+	// set exceeds MaxAllowlistSize: the PxL script-size limit + parse
 	// cost would dominate; we prefer to pull everything and filter
 	// in the operator's CH writer. Memory-speed filtering beats
 	// linear-in-N PxL parse cost.
@@ -51,8 +51,8 @@ const (
 // String for log output.
 func (m FilterMode) String() string {
 	switch m {
-	case FilterModeWhitelist:
-		return "whitelist"
+	case FilterModeAllowlist:
+		return "allowlist"
 	case FilterModeUnfiltered:
 		return "unfiltered"
 	default:
@@ -64,7 +64,7 @@ func (m FilterMode) String() string {
 // produce one PxL submission.
 type Filter struct {
 	Mode    FilterMode
-	Pods    []activeset.Key // populated iff Mode == Whitelist
+	Pods    []activeset.Key // populated iff Mode == Allowlist
 	Version uint64          // ActiveSet version this filter was derived from
 }
 
@@ -76,10 +76,10 @@ type UpdaterConfig struct {
 	// TableScanner. 0 → 1 second default.
 	Debounce time.Duration
 
-	// MaxWhitelistSize is the threshold at which we switch to
+	// MaxAllowlistSize is the threshold at which we switch to
 	// FilterModeUnfiltered. 0 → 500 default. -1 disables the cap
-	// (whitelist always; PxL parse cost is yours to own).
-	MaxWhitelistSize int
+	// (allowlist always; PxL parse cost is yours to own).
+	MaxAllowlistSize int
 
 	// SubscribeBuffer is the per-subscriber delta buffer size on the
 	// underlying ActiveSet subscription. 0 → 32 default.
@@ -90,8 +90,8 @@ func (c UpdaterConfig) defaulted() UpdaterConfig {
 	if c.Debounce <= 0 {
 		c.Debounce = 1 * time.Second
 	}
-	if c.MaxWhitelistSize == 0 {
-		c.MaxWhitelistSize = 500
+	if c.MaxAllowlistSize == 0 {
+		c.MaxAllowlistSize = 500
 	}
 	if c.SubscribeBuffer <= 0 {
 		c.SubscribeBuffer = 32
@@ -205,19 +205,19 @@ func (u *FilterUpdater) Run(ctx context.Context) {
 				"mode":    f.Mode,
 				"pods":    len(f.Pods),
 				"version": f.Version,
-			}).Debug("streaming.FilterUpdater: emitted filter")
+			}).Info("streaming.FilterUpdater: emitted filter")
 		}
 	}
 }
 
 // computeFilter snapshots the ActiveSet and decides whether to embed
-// a whitelist or fall back to unfiltered mode based on size.
+// an allowlist or fall back to unfiltered mode based on size.
 func (u *FilterUpdater) computeFilter() Filter {
 	keys, version := u.set.Snapshot()
-	if u.cfg.MaxWhitelistSize > 0 && len(keys) > u.cfg.MaxWhitelistSize {
+	if u.cfg.MaxAllowlistSize > 0 && len(keys) > u.cfg.MaxAllowlistSize {
 		return Filter{Mode: FilterModeUnfiltered, Version: version}
 	}
-	return Filter{Mode: FilterModeWhitelist, Pods: keys, Version: version}
+	return Filter{Mode: FilterModeAllowlist, Pods: keys, Version: version}
 }
 
 // broadcast non-blockingly delivers to every subscriber. Subscribers

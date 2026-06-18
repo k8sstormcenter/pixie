@@ -67,7 +67,7 @@ func TestFilterUpdater_FallsBackToUnfilteredOnSizeCap(t *testing.T) {
 	set := activeset.New()
 	u := NewUpdater(set, UpdaterConfig{
 		Debounce:         20 * time.Millisecond,
-		MaxWhitelistSize: 3,
+		MaxAllowlistSize: 3,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -88,13 +88,13 @@ func TestFilterUpdater_FallsBackToUnfilteredOnSizeCap(t *testing.T) {
 	}
 }
 
-// TestFilterUpdater_CapBoundary_AtLimit — exactly MaxWhitelistSize
-// pods MUST stay in whitelist mode (not flip to unfiltered).
+// TestFilterUpdater_CapBoundary_AtLimit — exactly MaxAllowlistSize
+// pods MUST stay in allowlist mode (not flip to unfiltered).
 func TestFilterUpdater_CapBoundary_AtLimit(t *testing.T) {
 	set := activeset.New()
 	u := NewUpdater(set, UpdaterConfig{
 		Debounce:         10 * time.Millisecond,
-		MaxWhitelistSize: 3,
+		MaxAllowlistSize: 3,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -105,11 +105,11 @@ func TestFilterUpdater_CapBoundary_AtLimit(t *testing.T) {
 		set.Upsert(activeset.Key{Pod: string(rune('a' + i))}, time.Now().Add(time.Minute))
 	}
 	f := waitForFilter(t, ch, 300*time.Millisecond)
-	if f.Mode != FilterModeWhitelist {
-		t.Fatalf("at exactly cap=3, expected whitelist, got %v", f.Mode)
+	if f.Mode != FilterModeAllowlist {
+		t.Fatalf("at exactly cap=3, expected allowlist, got %v", f.Mode)
 	}
 	if len(f.Pods) != 3 {
-		t.Fatalf("expected 3 pods in whitelist, got %d", len(f.Pods))
+		t.Fatalf("expected 3 pods in allowlist, got %d", len(f.Pods))
 	}
 }
 
@@ -119,7 +119,7 @@ func TestFilterUpdater_CapBoundary_OneOverLimit(t *testing.T) {
 	set := activeset.New()
 	u := NewUpdater(set, UpdaterConfig{
 		Debounce:         10 * time.Millisecond,
-		MaxWhitelistSize: 3,
+		MaxAllowlistSize: 3,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -137,13 +137,13 @@ func TestFilterUpdater_CapBoundary_OneOverLimit(t *testing.T) {
 
 // TestFilterUpdater_CapBoundary_RecoversAfterShrink — going from
 // unfiltered (set was huge) back to a small set MUST switch back to
-// whitelist mode. Without this, a transient burst that hit the cap
+// allowlist mode. Without this, a transient burst that hit the cap
 // would force unfiltered mode forever.
 func TestFilterUpdater_CapBoundary_RecoversAfterShrink(t *testing.T) {
 	set := activeset.New()
 	u := NewUpdater(set, UpdaterConfig{
 		Debounce:         10 * time.Millisecond,
-		MaxWhitelistSize: 3,
+		MaxAllowlistSize: 3,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -164,7 +164,7 @@ func TestFilterUpdater_CapBoundary_RecoversAfterShrink(t *testing.T) {
 		set.Remove(activeset.Key{Pod: string(rune('a' + i))})
 	}
 	// Drain any intermediate filters; verify the LATEST emission is
-	// back to whitelist mode.
+	// back to allowlist mode.
 	deadline := time.Now().Add(500 * time.Millisecond)
 	last := f
 	for time.Now().Before(deadline) {
@@ -172,21 +172,21 @@ func TestFilterUpdater_CapBoundary_RecoversAfterShrink(t *testing.T) {
 		case last = <-ch:
 		case <-time.After(100 * time.Millisecond):
 		}
-		if last.Mode == FilterModeWhitelist {
+		if last.Mode == FilterModeAllowlist {
 			return // recovered
 		}
 	}
-	t.Fatalf("did not recover to whitelist mode after shrink; last mode=%v pods=%d",
+	t.Fatalf("did not recover to allowlist mode after shrink; last mode=%v pods=%d",
 		last.Mode, len(last.Pods))
 }
 
-// TestFilterUpdater_CapDisabled_AllowsAnySize — when MaxWhitelistSize <= 0
-// the cap is disabled and even very large sets stay in whitelist mode.
+// TestFilterUpdater_CapDisabled_AllowsAnySize — when MaxAllowlistSize <= 0
+// the cap is disabled and even very large sets stay in allowlist mode.
 func TestFilterUpdater_CapDisabled_AllowsAnySize(t *testing.T) {
 	set := activeset.New()
 	u := NewUpdater(set, UpdaterConfig{
 		Debounce:         10 * time.Millisecond,
-		MaxWhitelistSize: -1, // explicit disable
+		MaxAllowlistSize: -1, // explicit disable
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -197,8 +197,8 @@ func TestFilterUpdater_CapDisabled_AllowsAnySize(t *testing.T) {
 		set.Upsert(activeset.Key{Pod: string(rune('a'+i%26)) + string(rune('a'+i/26))}, time.Now().Add(time.Minute))
 	}
 	f := waitForFilter(t, ch, 300*time.Millisecond)
-	if f.Mode != FilterModeWhitelist {
-		t.Fatalf("with cap disabled (=-1), expected whitelist; got %v", f.Mode)
+	if f.Mode != FilterModeAllowlist {
+		t.Fatalf("with cap disabled (=-1), expected allowlist; got %v", f.Mode)
 	}
 }
 

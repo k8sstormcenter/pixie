@@ -22,7 +22,7 @@
 // per-(hash, table); the fan-out spawned an O(active_hashes × tables)
 // concurrency tree that DoS'd vizier-query-broker under load. Rev-3
 // inverts the relationship: ONE PxL submission per table per refresh,
-// embedding a whitelist drawn from this ActiveSet. The set is keyed
+// embedding an allowlist drawn from this ActiveSet. The set is keyed
 // per-pod, not per-hash, because pixie events have no hash dimension
 // — multiple anomaly hashes on the same pod share one stream slot.
 //
@@ -38,13 +38,13 @@ import (
 
 // Key identifies one pod in the set. "namespace/pod" matches what
 // `px.upid_to_pod_name` returns inside PxL, so embedding Keys verbatim
-// into a PxL whitelist filter requires no transformation.
+// into a PxL allowlist filter requires no transformation.
 type Key struct {
 	Namespace string
 	Pod       string
 }
 
-// Render returns the "namespace/pod" form used in PxL whitelists.
+// Render returns the "namespace/pod" form used in PxL allowlists.
 // Pod-only Keys (empty Namespace) render as bare "pod" — kept for
 // host-pid edge cases though those don't currently reach a stream.
 func (k Key) Render() string {
@@ -115,7 +115,7 @@ func (s *ActiveSet) Upsert(k Key, tEnd time.Time) {
 }
 
 // Remove drops a pod. No-op if not present. Always emits a delta on
-// real removals so subscribers can shrink whitelists.
+// real removals so subscribers can shrink allowlists.
 func (s *ActiveSet) Remove(k Key) {
 	s.mu.Lock()
 	if _, ok := s.members[k]; !ok {
@@ -154,7 +154,7 @@ func (s *ActiveSet) PruneExpired(at time.Time) []Key {
 
 // Snapshot returns the current set + version atomically. Caller owns
 // the returned slice — safe to mutate. Use this on subscription to
-// build the initial whitelist before listening for deltas.
+// build the initial allowlist before listening for deltas.
 func (s *ActiveSet) Snapshot() ([]Key, uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

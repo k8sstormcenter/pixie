@@ -85,11 +85,11 @@ func (f *fakeWriter) WritePixieRows(ctx context.Context, table string, rows []ma
 	return nil
 }
 
-func TestScanner_BuildsPxLWithWhitelistOR(t *testing.T) {
+func TestScanner_BuildsPxLWithAllowlistOR(t *testing.T) {
 	cfg := ScannerConfig{Table: "pgsql_events"}.defaulted()
 	s := &TableScanner{cfg: cfg}
 	f := Filter{
-		Mode: FilterModeWhitelist,
+		Mode: FilterModeAllowlist,
 		Pods: []activeset.Key{
 			{Namespace: "n1", Pod: "a"},
 			{Namespace: "n2", Pod: "b"},
@@ -113,7 +113,7 @@ func TestScanner_BuildsPxLWithWhitelistOR(t *testing.T) {
 	}
 }
 
-func TestScanner_UnfilteredModeOmitsWhitelist(t *testing.T) {
+func TestScanner_UnfilteredModeOmitsAllowlist(t *testing.T) {
 	cfg := ScannerConfig{Table: "http_events"}.defaulted()
 	s := &TableScanner{cfg: cfg}
 	f := Filter{Mode: FilterModeUnfiltered}
@@ -123,11 +123,11 @@ func TestScanner_UnfilteredModeOmitsWhitelist(t *testing.T) {
 	}
 }
 
-func TestScanner_EmptyWhitelistSkipsQuery(t *testing.T) {
+func TestScanner_EmptyAllowlistSkipsQuery(t *testing.T) {
 	q := &fakeQuerier{rows: nil}
 	w := NewBatchWriter("pgsql_events", &fakeWriter{}, WriterConfig{BatchEvery: time.Hour})
 	filtCh := make(chan Filter, 4)
-	filtCh <- Filter{Mode: FilterModeWhitelist, Pods: nil} // empty
+	filtCh <- Filter{Mode: FilterModeAllowlist, Pods: nil} // empty
 	cfg := ScannerConfig{Table: "pgsql_events", RefreshInterval: 100 * time.Millisecond}
 	sc := NewScanner(cfg, q, w, filtCh)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -136,7 +136,7 @@ func TestScanner_EmptyWhitelistSkipsQuery(t *testing.T) {
 	sc.Run(ctx)
 	st := sc.Stats()
 	if st.Queries != 0 {
-		t.Fatalf("expected 0 queries on empty whitelist, got %d", st.Queries)
+		t.Fatalf("expected 0 queries on empty allowlist, got %d", st.Queries)
 	}
 	if st.Skipped == 0 {
 		t.Fatalf("expected skipped > 0")
@@ -150,7 +150,7 @@ func TestScanner_BackoffOnRepeatedErrors(t *testing.T) {
 	q := &failingQuerier{err: errors.New("simulated broker outage")}
 	w := NewBatchWriter("pgsql_events", &fakeWriter{}, WriterConfig{BatchEvery: 50 * time.Millisecond})
 	filtCh := make(chan Filter, 4)
-	filtCh <- Filter{Mode: FilterModeWhitelist, Pods: []activeset.Key{{Pod: "p"}}}
+	filtCh <- Filter{Mode: FilterModeAllowlist, Pods: []activeset.Key{{Pod: "p"}}}
 	cfg := ScannerConfig{
 		Table:           "pgsql_events",
 		RefreshInterval: 100 * time.Second, // huge — backoff must dominate, not refresh
@@ -188,7 +188,7 @@ func TestScanner_BackoffResetsOnSuccess(t *testing.T) {
 	}
 	w := NewBatchWriter("pgsql_events", &fakeWriter{}, WriterConfig{BatchEvery: 1 * time.Hour})
 	filtCh := make(chan Filter, 4)
-	filtCh <- Filter{Mode: FilterModeWhitelist, Pods: []activeset.Key{{Pod: "p"}}}
+	filtCh <- Filter{Mode: FilterModeAllowlist, Pods: []activeset.Key{{Pod: "p"}}}
 	cfg := ScannerConfig{
 		Table:           "pgsql_events",
 		RefreshInterval: 10 * time.Millisecond,
@@ -223,7 +223,7 @@ func TestScanner_QueriesOnNonEmptyFilter(t *testing.T) {
 	fw := &fakeWriter{}
 	w := NewBatchWriter("pgsql_events", fw, WriterConfig{BatchEvery: 50 * time.Millisecond})
 	filtCh := make(chan Filter, 4)
-	filtCh <- Filter{Mode: FilterModeWhitelist, Pods: []activeset.Key{{Pod: "p"}}}
+	filtCh <- Filter{Mode: FilterModeAllowlist, Pods: []activeset.Key{{Pod: "p"}}}
 	cfg := ScannerConfig{Table: "pgsql_events", RefreshInterval: 50 * time.Millisecond, QueryTimeout: 1 * time.Second}
 	sc := NewScanner(cfg, q, w, filtCh)
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)

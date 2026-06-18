@@ -84,19 +84,11 @@ def _pl_webpack_library_impl(ctx):
         'pushd "$TMPPATH/src/ui" &> /dev/null',
         'tar -xzf "$BASE_PATH/{}"'.format(ctx.file.deps.path),
         'mv -f "$BASE_PATH/{}" src/pages/credits/licenses.json'.format(ctx.file.licenses.path),
-        # Capture yarn output to a file and dump it unconditionally.
-        # The previous capture-and-echo pattern (and a streaming
-        # variant) both produced empty failure messages, blocking
-        # diagnosis. tee + cat guarantees we see *something*.
-        "echo '--- ENV: pwd / yarn / node ---'",
-        "pwd; which yarn; which node; node --version || true; yarn --version || true",
-        "echo '--- contents of src/ui after tar ---'",
-        "ls -la . | head -20",
-        "echo '--- running yarn build_prod ---'",
-        "yarn build_prod 2>&1 | tee /tmp/yarn-build.log; rc=${PIPESTATUS[0]}",
-        "echo '=== yarn build_prod tail (exit '$rc') ==='",
-        "tail -200 /tmp/yarn-build.log",
-        "[ \"$rc\" -eq 0 ] || (echo 'Build Failed with Code: '$rc; exit $rc)",
+        # Stream yarn output directly so failures surface a usable stderr
+        # in CI logs. The old `output=\`…\`; echo $output` pattern
+        # swallowed newlines (unquoted echo) and produced empty failure
+        # messages, making release breakage impossible to diagnose.
+        "yarn build_prod || (echo 'Build Failed with Code: '$?; exit 1)",
         'cp dist/bundle.tar.gz "$BASE_PATH/{}"'.format(out.path),
     ] + ui_shared_cmds_finish
 

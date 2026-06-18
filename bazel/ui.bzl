@@ -84,9 +84,11 @@ def _pl_webpack_library_impl(ctx):
         'pushd "$TMPPATH/src/ui" &> /dev/null',
         'tar -xzf "$BASE_PATH/{}"'.format(ctx.file.deps.path),
         'mv -f "$BASE_PATH/{}" src/pages/credits/licenses.json'.format(ctx.file.licenses.path),
-        "retval=0",
-        "output=`yarn build_prod 2>&1` || retval=$?",
-        '[ "$retval" -eq 0 ] || (echo $output; echo "Build Failed with Code: $retval"; exit $retval)',
+        # Stream yarn output directly so failures surface a usable stderr
+        # in CI logs. The old `output=\`…\`; echo $output` pattern
+        # swallowed newlines (unquoted echo) and produced empty failure
+        # messages, making release breakage impossible to diagnose.
+        "yarn build_prod || (echo 'Build Failed with Code: '$?; exit 1)",
         'cp dist/bundle.tar.gz "$BASE_PATH/{}"'.format(out.path),
     ] + ui_shared_cmds_finish
 

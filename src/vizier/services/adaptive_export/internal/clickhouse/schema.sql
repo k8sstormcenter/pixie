@@ -505,13 +505,18 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_attack_graph (
     responder_service String,
     requestor_ip      String,
     responder_ip      String,
-    weight            UInt16,
-    max_severity      UInt8,
-    confidence        Float32,
+    -- Int64/Float64 ONLY for the numeric columns: Pixie's clickhouse_dsn type
+    -- mapper reads UInt8 as BOOLEAN and does not handle UInt16/UInt32/Float32,
+    -- so those fail px marshaling with "Column[N] given incorrect type". Int64
+    -- + Float64 map cleanly (INT64→Int64, FLOAT64→Float64). event_time stays
+    -- UInt64 (same as kubescape_logs, which px reads fine).
+    weight            Int64,
+    max_severity      Int64,
+    confidence        Float64,
     edge_kind         String,
     `condition`       String,
     criteria          String,
-    num_findings      UInt32
+    num_findings      Int64
 ) ENGINE = MergeTree()
   ORDER BY (event_time, hostname)
   PARTITION BY toYYYYMM(fromUnixTimestamp64Nano(event_time))

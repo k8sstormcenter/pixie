@@ -261,9 +261,18 @@ func (s *TableScanner) Run(ctx context.Context) {
 }
 
 // buildPxL renders the script for one query.
+// pxSetMaxRows raises Pixie's per-table result cap (default 10000) via the
+// query-broker's `#px:set` query flag, mirroring internal/pxl (queryfor.go /
+// compile.go). Without it the streaming/DX arm silently caps each pull at 10k
+// rows while the passthrough/ALL arm (which already emits this) does not — which
+// would UNDER-count DX and OVERSTATE the DX-vs-ALL volume reduction. Must be the
+// first line of the script (before `import px`).
+const pxSetMaxRows = "#px:set max_output_rows_per_table=1000000\n"
+
 func (s *TableScanner) buildPxL(f Filter) string {
 	relStart := "-" + strconv.FormatInt(int64(s.cfg.QueryWindow/time.Second), 10) + "s"
 	var b strings.Builder
+	b.WriteString(pxSetMaxRows)
 	b.WriteString("import px\n")
 	b.WriteString("df = px.DataFrame(table='" + s.cfg.Table + "', start_time='" + relStart + "')\n")
 	b.WriteString("df.namespace = px.upid_to_namespace(df.upid)\n")

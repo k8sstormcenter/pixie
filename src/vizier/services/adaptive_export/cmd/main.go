@@ -135,7 +135,7 @@ const (
 
 	// envAdaptiveWriteMode selects the protocol-table write path:
 	//   "pull"      → rev-2: per-hash×per-table fan-out (default)
-	//   "streaming" → rev-3: N TableScanners with shared whitelist
+	//   "streaming" → rev-3: N TableScanners with shared allowlist
 	//                 (see .local/adaptive-write-rev3-plan.md)
 	envAdaptiveWriteMode = "ADAPTIVE_WRITE_MODE"
 
@@ -488,7 +488,7 @@ func main() {
 		}
 		updater := streaming.NewUpdater(activeSet, streaming.UpdaterConfig{
 			Debounce:         durEnvOrZero("ADAPTIVE_STREAM_DEBOUNCE_SEC", time.Second),
-			MaxWhitelistSize: intEnvOrZero("ADAPTIVE_STREAM_MAX_WHITELIST"),
+			MaxAllowlistSize: intEnvOrZero("ADAPTIVE_STREAM_MAX_ALLOWLIST"),
 		})
 		supervisor := streaming.NewSupervisor(
 			updater,
@@ -682,7 +682,7 @@ func durEnvOrZero(key string, unit time.Duration) time.Duration {
 // seedActiveSetFromRehydrate reads the operator's rehydrated
 // attribution rows back from CH and Upserts them into the streaming
 // ActiveSet. Without this, a restart in streaming mode leaves the
-// scanners with an empty whitelist until the next kubescape event
+// scanners with an empty allowlist until the next kubescape event
 // arrives — N minutes of coverage gap per restart.
 func seedActiveSetFromRehydrate(ctl *controller.Controller, set *activeset.ActiveSet) {
 	// The controller's Rehydrate already populated its in-memory

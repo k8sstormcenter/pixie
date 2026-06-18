@@ -29,7 +29,7 @@ import (
 
 // recordingQuerier captures every PxL string + lets the test inject
 // a per-call row count. Useful for verifying that the PxL the scanner
-// emits actually carries the whitelist the test set up upstream.
+// emits actually carries the allowlist the test set up upstream.
 type recordingQuerier struct {
 	mu       sync.Mutex
 	queries  []string
@@ -81,19 +81,19 @@ func (w *countingWriter) count(table string) int64 {
 	return w.perTable[table]
 }
 
-// TestIntegration_NotifierToScannerWhitelistFlow — exercises the
+// TestIntegration_NotifierToScannerAllowlistFlow — exercises the
 // whole rev-3 pipeline minus pixie:
 //
 //	AttributionNotifier.Submit
 //	  → ActiveSet.Upsert
 //	    → FilterUpdater (debounce)
-//	      → TableScanner.buildPxL (whitelist embedded)
+//	      → TableScanner.buildPxL (allowlist embedded)
 //	        → recordingQuerier (verify PxL contains pod names)
 //	          → BatchWriter (verify rows reach sink)
 //
 // The whole chain runs against fake pixie + fake sink so we can
 // assert on PxL strings + row counts deterministically.
-func TestIntegration_NotifierToScannerWhitelistFlow(t *testing.T) {
+func TestIntegration_NotifierToScannerAllowlistFlow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -103,7 +103,7 @@ func TestIntegration_NotifierToScannerWhitelistFlow(t *testing.T) {
 	updater := NewUpdater(set, UpdaterConfig{Debounce: 20 * time.Millisecond})
 	q := &recordingQuerier{
 		rowsFunc: func(pxl string) []map[string]any {
-			// Return 3 rows iff the whitelist contains "wantpod"; else 0.
+			// Return 3 rows iff the allowlist contains "wantpod"; else 0.
 			if strings.Contains(pxl, "wantpod") {
 				return []map[string]any{{"a": 1}, {"a": 2}, {"a": 3}}
 			}
@@ -184,10 +184,10 @@ func TestIntegration_EmptyActiveSetSkipsAllQueries(t *testing.T) {
 	}
 }
 
-// TestIntegration_PrunePropagatesToScannerWhitelist — when the
+// TestIntegration_PrunePropagatesToScannerAllowlist — when the
 // controller's prune fires, the scanner's next PxL must omit the
 // pruned pod.
-func TestIntegration_PrunePropagatesToScannerWhitelist(t *testing.T) {
+func TestIntegration_PrunePropagatesToScannerAllowlist(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -207,7 +207,7 @@ func TestIntegration_PrunePropagatesToScannerWhitelist(t *testing.T) {
 	go func() { defer wg.Done(); scanner.Run(ctx) }()
 
 	// Add a SECOND pod so the scanner keeps issuing queries after
-	// we Remove "soon-pruned" (else it'd just sit in empty-whitelist
+	// we Remove "soon-pruned" (else it'd just sit in empty-allowlist
 	// mode and we'd have no way to deterministically witness the
 	// filter change).
 	notif.Submit(activeset.Key{Pod: "soon-pruned"}, time.Now().Add(time.Minute))

@@ -111,12 +111,51 @@ func (r *pxlScriptRecorderImpl) prepareScript() error {
 	return nil
 }
 
+const (
+	// The self-hosted cloud's ingress (a ~60s stream timeout in the
+	// Tailscale/Traefik path in front of it) periodically recycles long-lived
+	// gRPC streams. When that severs a recorder's passthrough query we want to
+	// recover rather than abort the whole experiment, but we still bail out if
+	// the script fails persistently, which signals a genuinely broken recorder
+	// or cluster.
+	maxConsecutiveRecorderFailures = 5
+	// A streaming run that lasted at least this long before being severed was
+	// healthy (it hit the ingress recycle), so it shouldn't count toward the
+	// consecutive-failure budget.
+	streamHealthyThreshold = 30 * time.Second
+)
+
 func (r *pxlScriptRecorderImpl) runStreamingScript(ctx context.Context) error {
-	err := r.executeScript(ctx)
-	if err != nil {
-		return err
+	consecutiveFailures := 0
+	for {
+		start := time.Now()
+		err := r.executeScript(ctx)
+		if err == nil {
+			// The streaming script completed on its own.
+			return nil
+		}
+		// Our own context was canceled (recorder stopped): clean shutdown.
+		if ctx.Err() != nil {
+			return nil
+		}
+		if !isTransientStreamErr(err) {
+			return err
+		}
+		if time.Since(start) >= streamHealthyThreshold {
+			consecutiveFailures = 0
+		} else {
+			consecutiveFailures++
+			if consecutiveFailures >= maxConsecutiveRecorderFailures {
+				return fmt.Errorf("streaming pxl recorder severed %d consecutive times, last error: %w", consecutiveFailures, err)
+			}
+		}
+		log.WithError(err).Warnf("streaming pxl recorder stream severed; reconnecting (%d/%d)", consecutiveFailures, maxConsecutiveRecorderFailures)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(time.Second):
+		}
 	}
-	return nil
 }
 
 func errIsCanceled(err error) bool {
@@ -129,22 +168,73 @@ func errIsCanceled(err error) bool {
 	return false
 }
 
+// isTransientStreamErr reports whether err looks like the Vizier passthrough
+// stream being severed underneath us (e.g. the ~60s cloud-ingress stream
+// recycle) rather than a genuine script or cluster failure. Because the error
+// arrives multi-hop-wrapped -- the inner "context canceled"/Canceled is
+// flattened to an outer Unknown code by the proxy hops -- we match on the
+// message as well as the status code.
+func isTransientStreamErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if s, ok := status.FromError(err); ok {
+		switch s.Code() {
+		case codes.Canceled, codes.Unavailable:
+			return true
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	for _, frag := range []string{
+		"context canceled",
+		"code = canceled",
+		"code = unavailable",
+		"transport is closing",
+		"connection reset",
+		"stream terminated",
+	} {
+		if strings.Contains(msg, frag) {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *pxlScriptRecorderImpl) runPeriodicScript(ctx context.Context) error {
 	d, err := types.DurationFromProto(r.spec.CollectionPeriod)
 	if err != nil {
 		return err
 	}
 	t := time.NewTicker(d)
+	defer t.Stop()
 
+	consecutiveFailures := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-t.C:
 			err := r.executeScript(ctx)
-			if err != nil {
-				return err
+			if err == nil {
+				consecutiveFailures = 0
+				continue
 			}
+			// Our own context was canceled (recorder stopped): clean shutdown.
+			if ctx.Err() != nil {
+				return nil
+			}
+			// A single tick severed by the ingress recycle shouldn't abort the
+			// experiment -- log and keep collecting on the next tick.
+			if isTransientStreamErr(err) {
+				consecutiveFailures++
+				if consecutiveFailures >= maxConsecutiveRecorderFailures {
+					return fmt.Errorf("pxl recorder failed %d consecutive times, last error: %w", consecutiveFailures, err)
+				}
+				log.WithError(err).Warnf("pxl recorder tick severed transiently; continuing (%d/%d)", consecutiveFailures, maxConsecutiveRecorderFailures)
+				continue
+			}
+			// Non-transient error: fail fast.
+			return err
 		}
 	}
 }

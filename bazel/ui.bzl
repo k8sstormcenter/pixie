@@ -49,6 +49,10 @@ def _pl_webpack_deps_impl(ctx):
         execution_requirements = {tag: "" for tag in ctx.attr.tags},
         outputs = [out],
         command = " && ".join(cmd),
+        # `--incompatible_strict_action_env` (.bazelrc) strips host PATH
+        # from actions, so yarn/node at /opt/px_dev/tools/node/bin aren't
+        # resolvable. Match how licenses.bzl + proto_compile.bzl handle it.
+        use_default_shell_env = True,
         progress_message =
             "Generating webpack deps %s" % out.short_path,
     )
@@ -84,19 +88,10 @@ def _pl_webpack_library_impl(ctx):
         'pushd "$TMPPATH/src/ui" &> /dev/null',
         'tar -xzf "$BASE_PATH/{}"'.format(ctx.file.deps.path),
         'mv -f "$BASE_PATH/{}" src/pages/credits/licenses.json'.format(ctx.file.licenses.path),
-        # Capture yarn output to a file and dump it unconditionally.
-        # The previous capture-and-echo pattern (and a streaming
-        # variant) both produced empty failure messages, blocking
-        # diagnosis. tee + cat guarantees we see *something*.
-        "echo '--- ENV: pwd / yarn / node ---'",
-        "pwd; which yarn; which node; node --version || true; yarn --version || true",
-        "echo '--- contents of src/ui after tar ---'",
-        "ls -la . | head -20",
-        "echo '--- running yarn build_prod ---'",
-        "yarn build_prod 2>&1 | tee /tmp/yarn-build.log; rc=${PIPESTATUS[0]}",
-        "echo '=== yarn build_prod tail (exit '$rc') ==='",
-        "tail -200 /tmp/yarn-build.log",
-        "[ \"$rc\" -eq 0 ] || (echo 'Build Failed with Code: '$rc; exit $rc)",
+        # Stream yarn output directly so failures surface a usable stderr
+        # in CI logs. (The original capture-into-$output + unquoted-echo
+        # pattern produced empty failure messages.)
+        "yarn build_prod",
         'cp dist/bundle.tar.gz "$BASE_PATH/{}"'.format(out.path),
     ] + ui_shared_cmds_finish
 
@@ -105,6 +100,10 @@ def _pl_webpack_library_impl(ctx):
         execution_requirements = {tag: "" for tag in ctx.attr.tags},
         outputs = [out],
         command = " && ".join(cmd),
+        # `--incompatible_strict_action_env` (.bazelrc) strips host PATH
+        # from actions, so yarn/node at /opt/px_dev/tools/node/bin aren't
+        # resolvable. Match how licenses.bzl + proto_compile.bzl handle it.
+        use_default_shell_env = True,
         progress_message =
             "Generating webpack bundle %s" % out.short_path,
     )
@@ -180,6 +179,10 @@ def _pl_deps_licenses_impl(ctx):
         execution_requirements = {tag: "" for tag in ctx.attr.tags},
         outputs = [out],
         command = " && ".join(cmd),
+        # `--incompatible_strict_action_env` strips host PATH from
+        # actions; yarn lives at /opt/px_dev/tools/node/bin in the
+        # dev image.
+        use_default_shell_env = True,
         progress_message =
             "Generating licenses %s" % out.short_path,
     )

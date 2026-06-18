@@ -58,13 +58,14 @@ func TestApply_ExecutesEveryOperatorOwnedTable(t *testing.T) {
 		t.Fatalf("first DDL must create the database; got: %s", bodies[0])
 	}
 	// Spot-check that the SECOND call is for the first OperatorOwnedTables entry,
-	// and that the LAST call is for trigger_watermark (the newest
-	// operator-owned table, registered after adaptive_attribution).
+	// and that the LAST call is for the last OperatorOwnedTables entry (robust to
+	// new operator-owned tables being appended, e.g. dx_attack_graph).
 	if !strings.Contains(bodies[1], "forensic_db."+OperatorOwnedTables[0]) {
 		t.Fatalf("second DDL not for %s; got: %s", OperatorOwnedTables[0], bodies[1])
 	}
-	if !strings.Contains(bodies[len(bodies)-1], "forensic_db.trigger_watermark") {
-		t.Fatalf("last DDL not for trigger_watermark; got: %s", bodies[len(bodies)-1])
+	lastTable := OperatorOwnedTables[len(OperatorOwnedTables)-1]
+	if !strings.Contains(bodies[len(bodies)-1], "forensic_db."+lastTable) {
+		t.Fatalf("last DDL not for %s; got: %s", lastTable, bodies[len(bodies)-1])
 	}
 	// And ensure no kubescape DDL leaked through.
 	for _, b := range bodies {
@@ -227,7 +228,7 @@ func TestOperatorOwnedTables_DoesNotIncludeKubescape(t *testing.T) {
 // plugin can auto-DDL them with the wrong schema), then the operator's
 // own write targets in declared order.
 func TestOperatorOwnedTables_TrailingOperatorTables(t *testing.T) {
-	want := []string{"adaptive_attribution", "trigger_watermark", "ae_reconcile"}
+	want := []string{"adaptive_attribution", "trigger_watermark", "ae_reconcile", "dx_attack_graph"}
 	got := OperatorOwnedTables[len(OperatorOwnedTables)-len(want):]
 	for i, w := range want {
 		if got[i] != w {

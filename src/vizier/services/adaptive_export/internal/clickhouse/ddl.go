@@ -64,6 +64,9 @@ var KnownTables = []string{
 	// operator-owned per-pull write-fidelity instrument (ADAPTIVE_RECONCILE).
 	// NOT a pixie table — absent from PixieTables().
 	"ae_reconcile",
+	// operator-owned dx evidence-graph edge list (read by the Pixie
+	// dx_evidence_graph UI via clickhouse_dsn). NOT a pixie table.
+	"dx_attack_graph",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

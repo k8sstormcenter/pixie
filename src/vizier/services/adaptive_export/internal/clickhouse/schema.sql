@@ -483,3 +483,37 @@ CREATE TABLE IF NOT EXISTS forensic_db.ae_reconcile (
 ) ENGINE = MergeTree
   PARTITION BY toYYYYMMDD(ts)
   ORDER BY (table_name, ts);
+
+-- dx_attack_graph — dx evidence-graph edge list: one row per directed hop of an
+-- investigation (delivery/egress/execution/exfil/pivot), read by the Pixie
+-- dx_evidence_graph UI via px.DataFrame(clickhouse_dsn=...). Operator-owned
+-- (dx emits the edges, AE persists them); NOT a pixie socket_tracer table.
+--
+-- event_time (unix NANOSECONDS) + hostname are REQUIRED: Pixie's clickhouse_dsn
+-- query template hardcodes `WHERE event_time >= ... AND hostname = ... ORDER BY
+-- event_time` — a table without those columns fails with "Unknown identifier
+-- event_time". Same convention as kubescape_logs. event_time is nanos, so the
+-- partition/TTL use fromUnixTimestamp64Nano (toDateTime would read ns as seconds
+-- → year ~58e9 → broken partitions; see the soc#225 fix).
+CREATE TABLE IF NOT EXISTS forensic_db.dx_attack_graph (
+    investigation_id  String,
+    event_time        UInt64,
+    hostname          String,
+    requestor_pod     String,
+    responder_pod     String,
+    requestor_service String,
+    responder_service String,
+    requestor_ip      String,
+    responder_ip      String,
+    weight            UInt16,
+    max_severity      UInt8,
+    confidence        Float32,
+    edge_kind         String,
+    `condition`       String,
+    criteria          String,
+    num_findings      UInt32
+) ENGINE = MergeTree()
+  ORDER BY (event_time, hostname)
+  PARTITION BY toYYYYMM(fromUnixTimestamp64Nano(event_time))
+  TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
+  SETTINGS index_granularity = 8192;

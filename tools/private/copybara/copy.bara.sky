@@ -20,9 +20,20 @@ dest_repo = "git@github.com:k8sstormcenter/pixie.git"
 # Directories with fork-specific customizations that will be upstreamed separately.
 ignored_dirs = [
     ".bazelrc",      # upstream + fork only changes
-    ".github/**",    # upstream + fork only changes
+    # Release jobs (cli/cloud/operator/vizier _release.yaml) and their
+    # supporting ci/ scripts are now converged with upstream and flow
+    # through copybara. The entries below are non-release .github and ci
+    # files that are still fork-customized.
+    ".github/workflows/cacher.yaml",               # runner name
+    ".github/workflows/codeql.yaml",               # runner names
+    ".github/workflows/pr_3p_deps.yaml",           # fork removed; preserve deletion
+    ".github/workflows/pr_genfiles.yml",           # minor fork divergence
+    ".github/workflows/pr_linter.yml",             # minor fork divergence
+    ".github/workflows/release_update_docs_px_dev.yaml",
+    ".github/workflows/trivy_fs.yaml",
+    ".github/workflows/trivy_images.yaml",
     "DEVELOPMENT.md", # Should be moved to a fork only file
-    "ci/**",          # upstream
+    "ci/github/bazelrc",                           # fork-specific bazelrc REPO_URL
     "k8s/**",                          # cert-manager support (upstream)
     "scripts/create_cloud_secrets.sh", # cert-manager support (upstream)
     "skaffold/**",
@@ -85,20 +96,35 @@ ignored_dirs = [
     "src/api/go/pxapi/vizier.go", # mutation support
     "src/vizier/services/query_broker/**", # mutation and clickhouse changes to upstream
     "src/pixie_cli/BUILD.bazel", # fork customizations, see if this can be parameterized
-    "tools/**",
     "WORKSPACE", # upstream misspelling
+    # Many of these changes will be upstreamed, but it will be easier to keep this
+    # whole tree is frozen in the meantime.
+    "src/e2e_test/perf_tool/**",
+    "src/e2e_test/protocol_loadtest/skaffold_client.yaml",   # --config=x86_64_sysroot
+    "src/e2e_test/protocol_loadtest/skaffold_loadtest.yaml", # --config=x86_64_sysroot
+    "src/utils/shared/k8s/apply.go",  # perf_tool prerendered-deploy support
+    "src/utils/shared/k8s/delete.go", # perf_tool prerendered-deploy support
+    # Go module manifests carry fork-only deps (parquet-go) and version bumps
+    # required by perf_tool's parquet exporter. Upstream Go dep updates will
+    # need to be reconciled by hand.
+    "go.mod",
+    "go.sum",
+    "go_deps.bzl",
 ]
 
 # Files/dirs that exist only in the fork and must not be deleted by copybara.
 fork_only_files = [
+    ".github/workflows/copybara_pixie_oss.yaml",
+    ".github/workflows/perf_clickhouse.yaml",
+    ".github/workflows/perf_soc_attack.yaml",
     "PLATFORM.md",
-    "bazel/external/rules_docker_pusher_cfg.patch",
+    "ci/private/**",
     "k8s/vizier/bootstrap/adaptive_export_*",
     "k8s/vizier/bootstrap/kustomization.yaml",
     "src/carnot/planner/ir/clickhouse_*",
     "src/vizier/services/adaptive_export/**",
     "src/vizier/services/metadata/local/**",
-    "tools/licenses/BUILD.bazel",
+    "tools/private/**",
 ]
 
 core.workflow(

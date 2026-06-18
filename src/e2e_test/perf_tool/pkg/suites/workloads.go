@@ -30,6 +30,32 @@ import (
 	pb "px.dev/pixie/src/e2e_test/perf_tool/experimentpb"
 )
 
+// VizierReleaseWorkload returns the workload spec to deploy a released version of Vizier via `px deploy`.
+// This skips the skaffold build step, using pre-built images from the Pixie release.
+func VizierReleaseWorkload() *pb.WorkloadSpec {
+	return &pb.WorkloadSpec{
+		Name: "vizier",
+		DeploySteps: []*pb.DeployStep{
+			{
+				DeployType: &pb.DeployStep_Px{
+					Px: &pb.PxCLIDeploy{
+						Args: []string{
+							"deploy",
+						},
+						SetClusterID: true,
+						Namespaces: []string{
+							"pl",
+							"px-operator",
+							"olm",
+						},
+					},
+				},
+			},
+		},
+		Healthchecks: VizierHealthChecks(),
+	}
+}
+
 // VizierWorkload returns the workload spec to deploy Vizier.
 func VizierWorkload() *pb.WorkloadSpec {
 	return &pb.WorkloadSpec{

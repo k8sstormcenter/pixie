@@ -43,10 +43,11 @@ import (
 )
 
 type prometheusRecorderImpl struct {
-	clusterCtx *cluster.Context
-	spec       *experimentpb.PrometheusScrapeSpec
-	eg         *errgroup.Group
-	resultCh   chan<- *ResultRow
+	clusterCtx    *cluster.Context
+	ownsClusterCtx bool
+	spec          *experimentpb.PrometheusScrapeSpec
+	eg            *errgroup.Group
+	resultCh      chan<- *ResultRow
 
 	wg     sync.WaitGroup
 	stopCh chan struct{}
@@ -78,6 +79,9 @@ func (r *prometheusRecorderImpl) Close() {
 	}
 	for _, fw := range r.fws {
 		fw.Close()
+	}
+	if r.ownsClusterCtx {
+		r.clusterCtx.Close()
 	}
 }
 

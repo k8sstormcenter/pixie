@@ -30,6 +30,7 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+	"k8s.io/apimachinery/pkg/api/meta"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -235,8 +236,15 @@ func ApplyResources(clientset kubernetes.Interface, config *rest.Config, resourc
 		}
 		nsRes := res.Namespace(objNS)
 
+		// Use the rest mapping's scope to decide between cluster- and
+		// namespace-scoped client paths. The previous implementation kept a
+		// hardcoded allowlist of cluster-scoped kinds and tried to namespace-
+		// qualify everything else, which produced "the server could not find
+		// the requested resource" 404s for any cluster-scoped resource not
+		// in the list (e.g. APIService, PriorityClass, or cluster-scoped CRs
+		// like RuntimeRuleAlertBinding).
 		createRes := nsRes
-		if k8sRes == "validatingwebhookconfigurations" || k8sRes == "mutatingwebhookconfigurations" || k8sRes == "namespaces" || k8sRes == "configmap" || k8sRes == "clusterrolebindings" || k8sRes == "clusterroles" || k8sRes == "customresourcedefinitions" {
+		if mapping.Scope != nil && mapping.Scope.Name() == meta.RESTScopeNameRoot {
 			createRes = res
 		}
 

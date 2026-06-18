@@ -35,6 +35,9 @@ namespace px {
 namespace carnot {
 namespace exec {
 
+// TODO(ddelnano): Defend against columns that don't exist. These should be
+// ignored by the Node.
+
 using table_store::schema::RowBatch;
 using table_store::schema::RowDescriptor;
 
@@ -148,12 +151,12 @@ Status ClickHouseExportSinkNode::ConsumeNextImpl(ExecState* /*exec_state*/, cons
         break;
       }
       case types::UINT128: {
-        // UINT128 is exported as STRING (UUID format)
+        // UINT128 is exported as STRING in "high:low" format to match
+        // the ClickHouseSourceNode's parsing in clickhouse_source_node.cc
         auto col = std::make_shared<clickhouse::ColumnString>();
         for (int64_t i = 0; i < num_rows; ++i) {
           auto val = types::GetValueFromArrowArray<types::UINT128>(arrow_col.get(), i);
-          std::string uuid_str = sole::rebuild(absl::Uint128High64(val), absl::Uint128Low64(val)).str();
-          col->Append(uuid_str);
+          col->Append(absl::Substitute("$0:$1", absl::Uint128High64(val), absl::Uint128Low64(val)));
         }
         block.AppendColumn(mapping.clickhouse_column_name(), col);
         break;
@@ -162,6 +165,34 @@ Status ClickHouseExportSinkNode::ConsumeNextImpl(ExecState* /*exec_state*/, cons
         return error::InvalidArgument("Unsupported data type for ClickHouse export: $0",
                                       types::ToString(mapping.column_type()));
     }
+  }
+
+  // Auto-derive event_time from time_ if time_ is present but event_time is not.
+  // The ClickHouse table schema uses event_time (DateTime64(3), milliseconds) for
+  // partitioning and ordering, but the Pixie table has time_ (TIME64NS, nanoseconds).
+  bool has_time_ = false;
+  bool has_event_time = false;
+  int time_col_index = -1;
+  for (const auto& mapping : plan_node_->column_mappings()) {
+    if (mapping.clickhouse_column_name() == "time_") {
+      has_time_ = true;
+      time_col_index = mapping.input_column_index();
+    }
+    if (mapping.clickhouse_column_name() == "event_time") {
+      has_event_time = true;
+    }
+  }
+
+  if (has_time_ && !has_event_time && time_col_index >= 0) {
+    auto arrow_col = rb.ColumnAt(time_col_index);
+    int64_t num_rows = arrow_col->length();
+    auto event_time_col = std::make_shared<clickhouse::ColumnDateTime64>(3);
+    for (int64_t i = 0; i < num_rows; ++i) {
+      int64_t ns_val = types::GetValueFromArrowArray<types::TIME64NS>(arrow_col.get(), i);
+      // Convert nanoseconds to milliseconds for DateTime64(3)
+      event_time_col->Append(ns_val / 1000000LL);
+    }
+    block.AppendColumn("event_time", event_time_col);
   }
 
   // Insert the block into ClickHouse

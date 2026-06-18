@@ -28,19 +28,17 @@ def linux_headers():
     http_file(
         name = "linux_headers_merged_x86_64_tar_gz",
         urls = [
-            "https://github.com/pixie-io/dev-artifacts/releases/download/linux-headers%2Fpl7/linux-headers-merged-x86_64-pl7.tar.gz",
-            "https://storage.googleapis.com/pixie-dev-public/linux-headers/pl7/linux-headers-merged-x86_64-pl7.tar.gz",
+            "https://github.com/pixie-io/dev-artifacts/releases/download/linux-headers%2Fpl8/linux-headers-merged-x86_64-pl8.tar.gz",
         ],
-        sha256 = "e4635db60d7f4139a8fea1b0490a0d0159e1edb9f3272ba2bcf40f8ea933bf93",
+        sha256 = "07d0393aca727faadd41146585f92e3d9df239d91e2fa985ec55e50dc8526594",
         downloaded_file_path = "linux-headers-merged-x86_64.tar.gz",
     )
     http_file(
         name = "linux_headers_merged_arm64_tar_gz",
         urls = [
-            "https://github.com/pixie-io/dev-artifacts/releases/download/linux-headers%2Fpl7/linux-headers-merged-arm64-pl7.tar.gz",
-            "https://storage.googleapis.com/pixie-dev-public/linux-headers/pl7/linux-headers-merged-arm64-pl7.tar.gz",
+            "https://github.com/pixie-io/dev-artifacts/releases/download/linux-headers%2Fpl8/linux-headers-merged-arm64-pl8.tar.gz",
         ],
-        sha256 = "c2a99ad6462dd1211c4e2f54f7279b7cf526e73918148350ccba988b95ca6115",
+        sha256 = "75a05de508a7e83204e023ecdbdc2322b42fc812037a253de29c178871db7012",
         downloaded_file_path = "linux-headers-merged-arm64.tar.gz",
     )
 

@@ -76,16 +76,19 @@ chq "SELECT pod, count() FROM forensic_db.adaptive_attribution WHERE t_end>now()
 echo "  marshalsec_fires=$(kubectl -n attacker-ns logs deploy/attacker --since=10m 2>/dev/null | grep -c 'Send LDAP reference')" | tee -a "$OUT"
 echo "  live_log4j_pods:" | tee -a "$OUT"; kubectl -n $NS get pods --no-headers 2>/dev/null | awk '{print "    "$1,$3}' | tee -a "$OUT"
 
-echo "=== REDUCTION (1 - DX/ALL) per table ===" | tee -a "$OUT"
-printf "  %-14s %12s %12s %10s\n" table all_bytes dx_bytes reduction | tee -a "$OUT"
+echo "=== REDUCTION (1 - DX/ALL) — ROWS primary (compaction-noise-free); bytes secondary ===" | tee -a "$OUT"
+printf "  %-13s %9s %9s %8s | %10s %10s %8s\n" table all_rows dx_rows red_row all_bytes dx_bytes red_byt | tee -a "$OUT"
 for t in $TABLES; do
+  ar=$(awk -v T="$t" '$1==T{print $2}' /tmp/arm_ALL.tsv); ar=${ar:-0}
+  dr=$(awk -v T="$t" '$1==T{print $2}' /tmp/arm_DX.tsv);  dr=${dr:-0}
   ab=$(awk -v T="$t" '$1==T{print $3}' /tmp/arm_ALL.tsv); ab=${ab:-0}
   db=$(awk -v T="$t" '$1==T{print $3}' /tmp/arm_DX.tsv);  db=${db:-0}
-  red=$(awk -v a="$ab" -v d="$db" 'BEGIN{ if(a>0) printf "%.1f%%", (1-d/a)*100; else print "n/a" }')
-  printf "  %-14s %12d %12d %10s\n" "$t" "$ab" "$db" "$red" | tee -a "$OUT"
+  rr=$(awk -v a="$ar" -v d="$dr" 'BEGIN{ if(a>0) printf "%.1f%%", (1-d/a)*100; else print "n/a" }')
+  rb=$(awk -v a="$ab" -v d="$db" 'BEGIN{ if(a>0) printf "%.1f%%", (1-d/a)*100; else print "n/a" }')
+  printf "  %-13s %9d %9d %8s | %10d %10d %8s\n" "$t" "$ar" "$dr" "$rr" "$ab" "$db" "$rb" | tee -a "$OUT"
 done
-ta=$(awk '{s+=$3} END{print s+0}' /tmp/arm_ALL.tsv); td=$(awk '{s+=$3} END{print s+0}' /tmp/arm_DX.tsv)
-awk -v a="$ta" -v d="$td" 'BEGIN{ printf "  TOTAL bytes ALL=%d DX=%d reduction=%.1f%%\n", a, d, (a>0?(1-d/a)*100:0) }' | tee -a "$OUT"
+tar=$(awk '{s+=$2} END{print s+0}' /tmp/arm_ALL.tsv); tdr=$(awk '{s+=$2} END{print s+0}' /tmp/arm_DX.tsv)
+awk -v a="$tar" -v d="$tdr" 'BEGIN{ printf "  TOTAL rows ALL=%d DX=%d reduction=%.1f%%\n", a, d, (a>0?(1-d/a)*100:0) }' | tee -a "$OUT"
 
 for i in $(seq 1 6); do kubectl -n $NS delete pod cl-$i --ignore-not-found --wait=false >/dev/null 2>&1; done
 echo "DONE $(date -u +%H:%M:%S)" | tee -a "$OUT"

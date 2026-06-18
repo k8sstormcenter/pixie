@@ -81,8 +81,14 @@ def _pl_webpack_library_impl(ctx):
         # and apply it to the environment here. Hopefully,
         # no special characters/spaces/quotes in the results ...
         env_cmds = [
-            '$(sed -E "s/^([A-Za-z_]+)\\s*(.*)/export \\1=\\2/g" "{}")'.format(ctx.info_file.path),
-            '$(sed -E "s/^([A-Za-z_]+)\\s*(.*)/export \\1=\\2/g" "{}")'.format(ctx.version_file.path),
+            # Quote the value: workspace_status_command outputs entries
+            # like `FORMATTED_DATE 2026 Jun 18 ...` whose unquoted value
+            # would be word-split by bash into `export FORMATTED_DATE=2026
+            # Jun 18 ...` and fail with "export: `18': not a valid
+            # identifier". The single quotes also survive embedded
+            # spaces; values cannot contain a literal single quote.
+            '$(sed -E "s/^([A-Za-z_]+)\\s*(.*)/export \\1=\'\\2\'/g" "{}")'.format(ctx.info_file.path),
+            '$(sed -E "s/^([A-Za-z_]+)\\s*(.*)/export \\1=\'\\2\'/g" "{}")'.format(ctx.version_file.path),
         ]
         all_files.append(ctx.info_file)
         all_files.append(ctx.version_file)

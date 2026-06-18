@@ -156,8 +156,8 @@ def pl_go_dependencies():
         name = "com_github_andybalholm_brotli",
         build_directives = ["gazelle:map_kind go_binary pl_go_binary @px//bazel:pl_build_system.bzl", "gazelle:map_kind go_test pl_go_test @px//bazel:pl_build_system.bzl"],
         importpath = "github.com/andybalholm/brotli",
-        sum = "h1:8uQZIdzKmjc/iuPu7O2ioW48L81FgatrcpfFmiq/cCs=",
-        version = "v1.0.5",
+        sum = "h1:eLKJA0d02Lf0mVpIDgYnqXcUn0GqVmEFny3VuID1U3M=",
+        version = "v1.1.0",
     )
     go_repository(
         name = "com_github_andybalholm_cascadia",
@@ -1628,8 +1628,8 @@ def pl_go_dependencies():
         name = "com_github_google_uuid",
         build_directives = ["gazelle:map_kind go_binary pl_go_binary @px//bazel:pl_build_system.bzl", "gazelle:map_kind go_test pl_go_test @px//bazel:pl_build_system.bzl"],
         importpath = "github.com/google/uuid",
-        sum = "h1:t6JiXgmwXMjEs8VusXIJk2BXHsn+wx8BZdTaoZ5fu7I=",
-        version = "v1.3.0",
+        sum = "h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=",
+        version = "v1.6.0",
     )
     go_repository(
         name = "com_github_googleapis_enterprise_certificate_proxy",
@@ -2282,8 +2282,8 @@ def pl_go_dependencies():
         name = "com_github_klauspost_compress",
         build_directives = ["gazelle:map_kind go_binary pl_go_binary @px//bazel:pl_build_system.bzl", "gazelle:map_kind go_test pl_go_test @px//bazel:pl_build_system.bzl"],
         importpath = "github.com/klauspost/compress",
-        sum = "h1:RlWWUY/Dr4fL8qk9YG7DTZ7PDgME2V4csBXA8L/ixi4=",
-        version = "v1.17.2",
+        sum = "h1:6KIumPrER1LHsvBVuDa0r5xaG0Es51mhhB9BQB2qeMA=",
+        version = "v1.17.9",
     )
     go_repository(
         name = "com_github_klauspost_cpuid",
@@ -2993,6 +2993,13 @@ def pl_go_dependencies():
         version = "v1.3.0",
     )
     go_repository(
+        name = "com_github_parquet_go_parquet_go",
+        build_directives = ["gazelle:map_kind go_binary pl_go_binary @px//bazel:pl_build_system.bzl", "gazelle:map_kind go_test pl_go_test @px//bazel:pl_build_system.bzl"],
+        importpath = "github.com/parquet-go/parquet-go",
+        sum = "h1:l7jJwNM0xrk0cnIIptWMtnSnuxRkwq53S+Po3KG8Xgo=",
+        version = "v0.25.1",
+    )
+    go_repository(
         name = "com_github_pascaldekloe_goe",
         build_directives = ["gazelle:map_kind go_binary pl_go_binary @px//bazel:pl_build_system.bzl", "gazelle:map_kind go_test pl_go_test @px//bazel:pl_build_system.bzl"],
         importpath = "github.com/pascaldekloe/goe",
@@ -3040,6 +3047,13 @@ def pl_go_dependencies():
         importpath = "github.com/phayes/freeport",
         sum = "h1:rZQtoozkfsiNs36c7Tdv/gyGNzD1X1XWKO8rptVNZuM=",
         version = "v0.0.0-20171002181615-b8543db493a5",
+    )
+    go_repository(
+        name = "com_github_pierrec_lz4_v4",
+        build_directives = ["gazelle:map_kind go_binary pl_go_binary @px//bazel:pl_build_system.bzl", "gazelle:map_kind go_test pl_go_test @px//bazel:pl_build_system.bzl"],
+        importpath = "github.com/pierrec/lz4/v4",
+        sum = "h1:yOVMLb6qSIDP67pl/5F7RepeKYu/VmTyEXvuMI5d9mQ=",
+        version = "v4.1.21",
     )
     go_repository(
         name = "com_github_pingcap_errors",
@@ -4427,6 +4441,7 @@ def pl_go_dependencies():
         name = "org_golang_google_protobuf",
         build_directives = ["gazelle:map_kind go_binary pl_go_binary @px//bazel:pl_build_system.bzl", "gazelle:map_kind go_test pl_go_test @px//bazel:pl_build_system.bzl"],
         importpath = "google.golang.org/protobuf",
+        replace = "google.golang.org/protobuf",
         sum = "h1:7QBf+IK2gx70Ap/hDsOmam3GE0v9HicjfEdAxE62UoM=",
         version = "v1.29.1",
     )

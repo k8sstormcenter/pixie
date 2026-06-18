@@ -75,6 +75,9 @@ func (p *prerenderedDeployImpl) Deploy(clusterCtx *cluster.Context) ([]string, e
 	if err := p.r.deploy(clusterCtx); err != nil {
 		return nil, err
 	}
+	if p.spec.SkipNamespaceDelete {
+		return nil, nil
+	}
 	ns, err := p.r.getNamespace()
 	if err != nil {
 		return nil, err

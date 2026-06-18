@@ -23,9 +23,9 @@ default['owner'] = 'root'
 default['group'] = 'root'
 
 default['docker-buildx']['download_path'] =
-  'https://github.com/docker/buildx/releases/download/v0.31.1/buildx-v0.31.1.linux-amd64'
+  'https://github.com/docker/buildx/releases/download/v0.33.0/buildx-v0.33.0.linux-amd64'
 default['docker-buildx']['sha256'] =
-  'dc8eaffbf29138123b4874d852522b12303c61246a5073fa0f025e4220317b1e'
+  '9426a15411f35f635afef3f5d3bae53155c3e30d26dee430cc968e13d34be49f'
 
 default['faq']['download_path'] =
   'https://github.com/jzelinskie/faq/releases/download/0.0.7/faq-linux-amd64'
@@ -83,9 +83,9 @@ default['sops']['sha256'] =
   '79b0f844237bd4b0446e4dc884dbc1765fc7dedc3968f743d5949c6f2e701739'
 
 default['trivy']['download_path'] =
-  'https://github.com/aquasecurity/trivy/releases/download/v0.64.1/trivy_0.64.1_Linux-64bit.tar.gz'
+  'https://github.com/aquasecurity/trivy/releases/download/v0.69.3/trivy_0.69.3_Linux-64bit.tar.gz'
 default['trivy']['sha256'] =
-  '1a09d86667b3885a8783d1877c9abc8061b2b4e9b403941b22cbd82f10d275a8'
+  '1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75'
 
 default['yq']['download_path'] =
   'https://github.com/mikefarah/yq/releases/download/v4.30.8/yq_linux_amd64'

@@ -16,8 +16,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-git_committer_name='Copybara'
-git_committer_email='copybara@pixielabs.ai'
+git_committer_name='k8sstormcenter-buildbot'
+git_committer_email='info@fusioncore.ai'
 
 sky_file_path=$1
 if [[ -z "$sky_file_path" ]]
@@ -26,21 +26,23 @@ then
   echo "Usage: $0 <sky_file>"
   exit 1
 fi
+shift
 
 # Copybara needs this configured, otherwise it's unhappy.
 git config --global user.name ${git_committer_name}
 git config --global user.email ${git_committer_email}
 
-echo "${COPYBARA_GPG_KEY}" | gpg --no-tty --batch --import
+echo "${COPYBARA_GPG_KEY}" | base64 -d | gpg --no-tty --batch --import
 git config --global user.signingkey "${COPYBARA_GPG_KEY_ID}"
 git config --global commit.gpgsign true
 
-copybara_args="--ignore-noop --git-committer-name ${git_committer_name} \
-  --git-committer-email ${git_committer_email}"
+copybara_args=(
+  "$@"
+)
 
 sky_file_dir=$(dirname "$sky_file_path")
 pushd "${sky_file_dir}" || exit
-copybara copy.bara.sky "${copybara_args}"
+copybara migrate copy.bara.sky "${copybara_args[@]}"
 retval=$?
 if [[ $retval -ne 0 && $retval -ne 4 ]]
 then

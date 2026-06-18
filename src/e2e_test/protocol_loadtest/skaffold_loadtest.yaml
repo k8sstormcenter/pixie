@@ -7,6 +7,8 @@ build:
     context: .
     bazel:
       target: //src/e2e_test/protocol_loadtest:protocol_loadtest_server_image.tar
+      args:
+      - --config=x86_64_sysroot
   tagPolicy:
     dateTime: {}
   local:

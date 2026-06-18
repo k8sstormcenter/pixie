@@ -15,7 +15,7 @@ jobs:
       image-base-name: "dev_image_with_extras"
   build-release:
     name: Build Release
-    runs-on: oracle-vm-16cpu-64gb-x86-64
+    runs-on: oracle-16cpu-64gb-x86-64
     needs: get-dev-image
     permissions:
       contents: read
@@ -39,7 +39,11 @@ jobs:
       run: |
         echo "${BUILDBOT_GPG_KEY_B64}" | base64 --decode | gpg --no-tty --batch --import
     - name: Login to GHCR
-      run: echo "${{ github.token }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
     - name: Build & Push Artifacts
       env:
         REF: ${{ github.event.ref }}
@@ -49,6 +53,8 @@ jobs:
         COSIGN_PASSWORD: ${{secrets.COSIGN_PASSWORD}}
         COSIGN_PRIVATE_KEY: ${{secrets.COSIGN_PRIVATE_KEY}}
         BUILDBOT_GPG_KEY_ID: ${{ secrets.BUILDBOT_GPG_KEY_ID }}
+        IMAGE_REPO: ${{ vars.IMAGE_REPO || 'ghcr.io/pixie-io' }}
+        GH_REPO: ${{ github.repository }}
       shell: bash
       run: |
         export TAG_NAME="${REF#*/tags/}"
@@ -76,8 +82,7 @@ jobs:
       env:
         REF: ${{ github.event.ref }}
         GH_TOKEN: ${{ secrets.BUILDBOT_GH_API_TOKEN }}
-        OWNER: pixie-io
-        REPO: pixie
+        GH_REPO: ${{ github.repository }}
       shell: bash
       run: |
         export TAG_NAME="${REF#*/tags/}"

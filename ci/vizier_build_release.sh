@@ -35,7 +35,7 @@ echo "The release tag is: ${release_tag}"
 bazel run -c opt //src/utils/artifacts/versions_gen:versions_gen -- \
       --repo_path "${repo_path}" --artifact_name vizier --versions_file "${versions_file}"
 
-image_repo="ghcr.io/k8sstormcenter"
+image_repo="${IMAGE_REPO:-ghcr.io/pixie-io}"
 
 push_all_multiarch_images "//k8s/vizier:vizier_images_push" "//k8s/vizier:list_image_bundle" "${release_tag}" "${image_repo}"
 

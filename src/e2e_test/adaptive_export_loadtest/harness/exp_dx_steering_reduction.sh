@@ -62,8 +62,19 @@ run_arm(){ local name="$1"; shift
 
 # ALL: save everything (passthrough firehose, no gate).
 run_arm ALL ADAPTIVE_PASSTHROUGH=true ADAPTIVE_WRITE_MODE= ADAPTIVE_PUSH_PIXIE_ROWS=false
+
+# Clear STALE steering before the DX arm: old adaptive_attribution windows rehydrate
+# into the activeSet and make AE stream DEAD pods (run-1 dead-arm bug → false 100%).
+chq "ALTER TABLE forensic_db.adaptive_attribution DELETE WHERE 1=1" >/dev/null 2>&1; sleep 3
+
 # DX: rev-3 streaming, DX steers activeSet over the control surface.
 run_arm DX  ADAPTIVE_PASSTHROUGH=false ADAPTIVE_WRITE_MODE=streaming ADAPTIVE_PUSH_PIXIE_ROWS=false
+
+# GUARD: the steered pods must be ALIVE + traffic-bearing (else the reduction is a dead arm).
+echo "=== DX steered pods (must be LIVE; backend = the attack target) ===" | tee -a "$OUT"
+chq "SELECT pod, count() FROM forensic_db.adaptive_attribution WHERE t_end>now() GROUP BY pod ORDER BY pod FORMAT TSV" | tee -a "$OUT"
+echo "  marshalsec_fires=$(kubectl -n attacker-ns logs deploy/attacker --since=10m 2>/dev/null | grep -c 'Send LDAP reference')" | tee -a "$OUT"
+echo "  live_log4j_pods:" | tee -a "$OUT"; kubectl -n $NS get pods --no-headers 2>/dev/null | awk '{print "    "$1,$3}' | tee -a "$OUT"
 
 echo "=== REDUCTION (1 - DX/ALL) per table ===" | tee -a "$OUT"
 printf "  %-14s %12s %12s %10s\n" table all_bytes dx_bytes reduction | tee -a "$OUT"

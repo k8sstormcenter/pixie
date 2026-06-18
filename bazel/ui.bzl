@@ -18,7 +18,15 @@
 
 ui_shared_cmds_start = [
     'export BASE_PATH="$(pwd)"',
-    "export PATH=/usr/local/bin:/opt/px_dev/tools/node/bin:$PATH",
+    # `--incompatible_strict_action_env` (.bazelrc) forces PATH to a
+    # static `/bin:/usr/bin:/usr/local/bin` in actions and overrides
+    # use_default_shell_env, so a bare `yarn` doesn't resolve. The dev
+    # image installs yarn+node under /opt/px_dev/tools/node/bin (chef:
+    # tools/chef/cookbooks/px_dev/recipes/nodejs.rb:32); make sure it's
+    # FIRST so its yarn is the one we hit. Mirrored by tools/chef/
+    # cookbooks/px_dev/templates/pxenv.inc.erb.
+    "export PATH=/opt/px_dev/tools/node/bin:/usr/local/bin:$PATH",
+    "hash -r",  # flush bash's command cache so the new PATH wins.
     'export HOME="$(mktemp -d)"',  # This makes node-gyp happy.
     'export TMPPATH="$(mktemp -d)"',
 ]
@@ -38,7 +46,7 @@ def _pl_webpack_deps_impl(ctx):
 
     cmd = ui_shared_cmds_start + cp_cmds + [
         'pushd "$TMPPATH/src/ui" &> /dev/null',
-        "yarn install --immutable &> build.log",
+        "/opt/px_dev/tools/node/bin/yarn install --immutable &> build.log",
         # Pick a deterministic mtime so that the output is not volatile.
         # This helps ensure that bazel can cache the ui builds as expected.
         'tar --mtime="2018-01-01 00:00:00 UTC" -czf "$BASE_PATH/{}" .'.format(out.path),
@@ -89,9 +97,11 @@ def _pl_webpack_library_impl(ctx):
         'tar -xzf "$BASE_PATH/{}"'.format(ctx.file.deps.path),
         'mv -f "$BASE_PATH/{}" src/pages/credits/licenses.json'.format(ctx.file.licenses.path),
         # Stream yarn output directly so failures surface a usable stderr
-        # in CI logs. (The original capture-into-$output + unquoted-echo
-        # pattern produced empty failure messages.)
-        "yarn build_prod",
+        # in CI logs. Absolute path because --incompatible_strict_action_env
+        # makes bazel ignore our `export PATH` despite the dev image
+        # having yarn at this path. Children (webpack -> node) need PATH
+        # too so we don't strip the export above.
+        "/opt/px_dev/tools/node/bin/yarn build_prod",
         'cp dist/bundle.tar.gz "$BASE_PATH/{}"'.format(out.path),
     ] + ui_shared_cmds_finish
 
@@ -170,8 +180,8 @@ def _pl_deps_licenses_impl(ctx):
         'pushd "$TMPPATH/src/ui" &> /dev/null',
         'export LIC_TMPPATH="$(mktemp -d)"',
         'tar -xzf "$BASE_PATH/{}"'.format(ctx.file.deps.path),
-        "yarn license_check --excludePrivatePackages --production --json --out $LIC_TMPPATH/checker.json",
-        'yarn pnpify node ./tools/licenses/yarn_license_extractor.js --input=$LIC_TMPPATH/checker.json --output="$BASE_PATH/{}"'.format(out.path),
+        "/opt/px_dev/tools/node/bin/yarn license_check --excludePrivatePackages --production --json --out $LIC_TMPPATH/checker.json",
+        '/opt/px_dev/tools/node/bin/yarn pnpify node ./tools/licenses/yarn_license_extractor.js --input=$LIC_TMPPATH/checker.json --output="$BASE_PATH/{}"'.format(out.path),
     ] + ui_shared_cmds_finish
 
     ctx.actions.run_shell(

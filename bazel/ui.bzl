@@ -17,17 +17,14 @@
 # This file contains rules for for our UI builds.
 
 ui_shared_cmds_start = [
+    # set -x: trace every command so CI failure logs surface the actual
+    # failing step. Without this the action shell silently aborts with
+    # exit 1 and no indication which sub-command failed.
+    "set -x",
     'export BASE_PATH="$(pwd)"',
-    # `--incompatible_strict_action_env` (.bazelrc) forces PATH to a
-    # static `/bin:/usr/bin:/usr/local/bin` in actions and overrides
-    # use_default_shell_env, so a bare `yarn` doesn't resolve. The dev
-    # image installs yarn+node under /opt/px_dev/tools/node/bin (chef:
-    # tools/chef/cookbooks/px_dev/recipes/nodejs.rb:32); make sure it's
-    # FIRST so its yarn is the one we hit. Mirrored by tools/chef/
-    # cookbooks/px_dev/templates/pxenv.inc.erb.
     "export PATH=/opt/px_dev/tools/node/bin:/usr/local/bin:$PATH",
-    "hash -r",  # flush bash's command cache so the new PATH wins.
-    'export HOME="$(mktemp -d)"',  # This makes node-gyp happy.
+    "hash -r",
+    'export HOME="$(mktemp -d)"',
     'export TMPPATH="$(mktemp -d)"',
 ]
 

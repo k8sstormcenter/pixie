@@ -8,10 +8,6 @@ terraform {
       source  = "kbst/kustomization"
       version = "0.9.7"
     }
-    sops = {
-      source  = "carlpett/sops"
-      version = "~> 1.0"
-    }
   }
 }
 

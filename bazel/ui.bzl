@@ -81,14 +81,15 @@ def _pl_webpack_library_impl(ctx):
         # and apply it to the environment here. Hopefully,
         # no special characters/spaces/quotes in the results ...
         env_cmds = [
-            # Quote the value: workspace_status_command outputs entries
-            # like `FORMATTED_DATE 2026 Jun 18 ...` whose unquoted value
-            # would be word-split by bash into `export FORMATTED_DATE=2026
-            # Jun 18 ...` and fail with "export: `18': not a valid
-            # identifier". The single quotes also survive embedded
-            # spaces; values cannot contain a literal single quote.
-            '$(sed -E "s/^([A-Za-z_]+)\\s*(.*)/export \\1=\'\\2\'/g" "{}")'.format(ctx.info_file.path),
-            '$(sed -E "s/^([A-Za-z_]+)\\s*(.*)/export \\1=\'\\2\'/g" "{}")'.format(ctx.version_file.path),
+            # Whitelist the stamp vars the action actually uses
+            # (webpack.config.js' EnvironmentPlugin reads STABLE_BUILD_TAG
+            # and BUILD_TIMESTAMP). The previous wildcard sed slurped
+            # FORMATTED_DATE too — its space-separated value
+            # ("2026 Jun 18 ...") word-split in $(...) command
+            # substitution and broke every action with
+            # "export: `18': not a valid identifier".
+            '$(sed -E -n "s/^(STABLE_BUILD_TAG|BUILD_TIMESTAMP)\\s+(.*)/export \\1=\\2/p" "{}")'.format(ctx.info_file.path),
+            '$(sed -E -n "s/^(STABLE_BUILD_TAG|BUILD_TIMESTAMP)\\s+(.*)/export \\1=\\2/p" "{}")'.format(ctx.version_file.path),
         ]
         all_files.append(ctx.info_file)
         all_files.append(ctx.version_file)

@@ -96,6 +96,9 @@ func TestScanner_BuildsPxLWithAllowlistOR(t *testing.T) {
 		},
 	}
 	pxl := s.buildPxL(f)
+	if !strings.HasPrefix(pxl, "#px:set max_output_rows_per_table=1000000\n") {
+		t.Fatalf("pxl missing the #px:set cap flag (10k-cap fix); got:\n%s", pxl)
+	}
 	if !strings.Contains(pxl, "table='pgsql_events'") {
 		t.Fatalf("pxl missing table: %s", pxl)
 	}

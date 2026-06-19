@@ -17,9 +17,14 @@
 # This file contains rules for for our UI builds.
 
 ui_shared_cmds_start = [
+    # set -x: trace every command so CI failure logs surface the actual
+    # failing step. Without this the action shell silently aborts with
+    # exit 1 and no indication which sub-command failed.
+    "set -x",
     'export BASE_PATH="$(pwd)"',
-    "export PATH=/usr/local/bin:/opt/px_dev/tools/node/bin:$PATH",
-    'export HOME="$(mktemp -d)"',  # This makes node-gyp happy.
+    "export PATH=/opt/px_dev/tools/node/bin:/usr/local/bin:$PATH",
+    "hash -r",
+    'export HOME="$(mktemp -d)"',
     'export TMPPATH="$(mktemp -d)"',
 ]
 
@@ -38,7 +43,7 @@ def _pl_webpack_deps_impl(ctx):
 
     cmd = ui_shared_cmds_start + cp_cmds + [
         'pushd "$TMPPATH/src/ui" &> /dev/null',
-        "yarn install --immutable &> build.log",
+        "/opt/px_dev/tools/node/bin/yarn install --immutable &> build.log",
         # Pick a deterministic mtime so that the output is not volatile.
         # This helps ensure that bazel can cache the ui builds as expected.
         'tar --mtime="2018-01-01 00:00:00 UTC" -czf "$BASE_PATH/{}" .'.format(out.path),
@@ -49,6 +54,10 @@ def _pl_webpack_deps_impl(ctx):
         execution_requirements = {tag: "" for tag in ctx.attr.tags},
         outputs = [out],
         command = " && ".join(cmd),
+        # `--incompatible_strict_action_env` (.bazelrc) strips host PATH
+        # from actions, so yarn/node at /opt/px_dev/tools/node/bin aren't
+        # resolvable. Match how licenses.bzl + proto_compile.bzl handle it.
+        use_default_shell_env = True,
         progress_message =
             "Generating webpack deps %s" % out.short_path,
     )
@@ -72,8 +81,15 @@ def _pl_webpack_library_impl(ctx):
         # and apply it to the environment here. Hopefully,
         # no special characters/spaces/quotes in the results ...
         env_cmds = [
-            '$(sed -E "s/^([A-Za-z_]+)\\s*(.*)/export \\1=\\2/g" "{}")'.format(ctx.info_file.path),
-            '$(sed -E "s/^([A-Za-z_]+)\\s*(.*)/export \\1=\\2/g" "{}")'.format(ctx.version_file.path),
+            # Whitelist the stamp vars the action actually uses
+            # (webpack.config.js' EnvironmentPlugin reads STABLE_BUILD_TAG
+            # and BUILD_TIMESTAMP). The previous wildcard sed slurped
+            # FORMATTED_DATE too — its space-separated value
+            # ("2026 Jun 18 ...") word-split in $(...) command
+            # substitution and broke every action with
+            # "export: `18': not a valid identifier".
+            '$(sed -E -n "s/^(STABLE_BUILD_TAG|BUILD_TIMESTAMP)\\s+(.*)/export \\1=\\2/p" "{}")'.format(ctx.info_file.path),
+            '$(sed -E -n "s/^(STABLE_BUILD_TAG|BUILD_TIMESTAMP)\\s+(.*)/export \\1=\\2/p" "{}")'.format(ctx.version_file.path),
         ]
         all_files.append(ctx.info_file)
         all_files.append(ctx.version_file)
@@ -84,9 +100,12 @@ def _pl_webpack_library_impl(ctx):
         'pushd "$TMPPATH/src/ui" &> /dev/null',
         'tar -xzf "$BASE_PATH/{}"'.format(ctx.file.deps.path),
         'mv -f "$BASE_PATH/{}" src/pages/credits/licenses.json'.format(ctx.file.licenses.path),
-        "retval=0",
-        "output=`yarn build_prod 2>&1` || retval=$?",
-        '[ "$retval" -eq 0 ] || (echo $output; echo "Build Failed with Code: $retval"; exit $retval)',
+        # Stream yarn output directly so failures surface a usable stderr
+        # in CI logs. Absolute path because --incompatible_strict_action_env
+        # makes bazel ignore our `export PATH` despite the dev image
+        # having yarn at this path. Children (webpack -> node) need PATH
+        # too so we don't strip the export above.
+        "/opt/px_dev/tools/node/bin/yarn build_prod",
         'cp dist/bundle.tar.gz "$BASE_PATH/{}"'.format(out.path),
     ] + ui_shared_cmds_finish
 
@@ -95,6 +114,10 @@ def _pl_webpack_library_impl(ctx):
         execution_requirements = {tag: "" for tag in ctx.attr.tags},
         outputs = [out],
         command = " && ".join(cmd),
+        # `--incompatible_strict_action_env` (.bazelrc) strips host PATH
+        # from actions, so yarn/node at /opt/px_dev/tools/node/bin aren't
+        # resolvable. Match how licenses.bzl + proto_compile.bzl handle it.
+        use_default_shell_env = True,
         progress_message =
             "Generating webpack bundle %s" % out.short_path,
     )
@@ -161,8 +184,8 @@ def _pl_deps_licenses_impl(ctx):
         'pushd "$TMPPATH/src/ui" &> /dev/null',
         'export LIC_TMPPATH="$(mktemp -d)"',
         'tar -xzf "$BASE_PATH/{}"'.format(ctx.file.deps.path),
-        "yarn license_check --excludePrivatePackages --production --json --out $LIC_TMPPATH/checker.json",
-        'yarn pnpify node ./tools/licenses/yarn_license_extractor.js --input=$LIC_TMPPATH/checker.json --output="$BASE_PATH/{}"'.format(out.path),
+        "/opt/px_dev/tools/node/bin/yarn license_check --excludePrivatePackages --production --json --out $LIC_TMPPATH/checker.json",
+        '/opt/px_dev/tools/node/bin/yarn pnpify node ./tools/licenses/yarn_license_extractor.js --input=$LIC_TMPPATH/checker.json --output="$BASE_PATH/{}"'.format(out.path),
     ] + ui_shared_cmds_finish
 
     ctx.actions.run_shell(
@@ -170,6 +193,10 @@ def _pl_deps_licenses_impl(ctx):
         execution_requirements = {tag: "" for tag in ctx.attr.tags},
         outputs = [out],
         command = " && ".join(cmd),
+        # `--incompatible_strict_action_env` strips host PATH from
+        # actions; yarn lives at /opt/px_dev/tools/node/bin in the
+        # dev image.
+        use_default_shell_env = True,
         progress_message =
             "Generating licenses %s" % out.short_path,
     )

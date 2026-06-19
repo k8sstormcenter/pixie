@@ -20,6 +20,7 @@ import * as React from 'react';
 
 import { Button } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
+import { createPortal } from 'react-dom';
 import { useHistory } from 'react-router-dom';
 import {
   data as visData,
@@ -164,23 +165,9 @@ export const Graph = React.memo<GraphProps>(({
   const [hierarchyEnabled, setHierarchyEnabled] = React.useState<boolean>(enableDefaultHierarchy);
   const [network, setNetwork] = React.useState<Network>(null);
   const [graph, setGraph] = React.useState<GraphData>(null);
-
-  // Movable edge-label overlay state.
-  //  edgeLabels: per-edge label text (built from edgeLabelColumn).
-  //  selfLoopAngles: starting angle around the node for each self-loop's
-  //    label so multiple loops on the same pod don't stack on top of
-  //    each other before any user dragging.
-  //  labelOffsets: persistent drag-offset per edge id, in DOM px.
-  //  labelLayout: most-recent DOM-space label positions for rendering.
-  const [edgeLabels, setEdgeLabels] = React.useState<Map<string, string>>(() => new Map());
-  const [edgeSelfLoopAngles, setEdgeSelfLoopAngles] = React.useState<Map<string, number>>(() => new Map());
-  const [labelOffsets, setLabelOffsets] = React.useState<Map<string, { dx: number, dy: number }>>(() => new Map());
-  const [labelLayout, setLabelLayout] = React.useState<Array<{
-    id: string,
-    text: string,
-    x: number,
-    y: number,
-  }>>([]);
+  const [pinned, setPinned] = React.useState<{
+    label: string, title: string, x: number, y: number,
+  } | null>(null);
 
   const { embedState } = React.useContext(LiveRouteContext);
 
@@ -213,13 +200,6 @@ export const Graph = React.memo<GraphProps>(({
     const edges = new visData.DataSet<Edge>();
     const nodes = new visData.DataSet<Node>();
     const idToSemType = {};
-    // Per-edge label text — rendered as a draggable HTML overlay in
-    // the JSX below so users can pull stacked labels (esp. on self-
-    // loops) apart and read what's underneath. vis-network's native
-    // edge label is suppressed for any edge that lands here.
-    const labelMap = new Map<string, string>();
-    const selfLoopCounts = new Map<string, number>();
-    const selfLoopAngles = new Map<string, number>();
 
     const upsertNode = (label: string, st: SemanticType, weight: number) => {
       if (!idToSemType[label]) {
@@ -237,7 +217,7 @@ export const Graph = React.memo<GraphProps>(({
         idToSemType[label] = st;
       }
     };
-    data.forEach((d, idx) => {
+    data.forEach((d) => {
       const nt = d[toCol.name];
       const nf = d[fromCol.name];
 
@@ -249,11 +229,7 @@ export const Graph = React.memo<GraphProps>(({
       upsertNode(nt, toCol?.semType, nodeWeight);
       upsertNode(nf, fromCol?.semType, nodeWeight);
 
-      // Stable per-row id so the overlay can keep its drag offset
-      // attached even when the underlying network re-stabilises.
-      const edgeId = `e${idx}`;
       const edge = {
-        id: edgeId,
         from: nf,
         to: nt,
       } as Edge;
@@ -268,16 +244,7 @@ export const Graph = React.memo<GraphProps>(({
       }
 
       if (edgeLabelColumn) {
-        // DON'T set edge.label — the overlay renders it. Track text +
-        // (for self-loops) a per-edge angle so labels around the same
-        // pod start at distinct positions before the user drags them.
-        labelMap.set(edgeId, String(d[edgeLabelColumn.name]));
-        if (nf === nt) {
-          const seen = selfLoopCounts.get(nf) || 0;
-          selfLoopCounts.set(nf, seen + 1);
-          // Fan out around the node: 60° apart, starting at 30°.
-          selfLoopAngles.set(edgeId, ((seen * Math.PI) / 3) + (Math.PI / 6));
-        }
+        edge.label = String(d[edgeLabelColumn.name]);
       }
 
       if (edgeHoverInfo && edgeHoverInfo.length > 0) {
@@ -303,8 +270,6 @@ export const Graph = React.memo<GraphProps>(({
     setGraph({
       nodes, edges, idToSemType,
     });
-    setEdgeLabels(labelMap);
-    setEdgeSelfLoopAngles(selfLoopAngles);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dot, data, toCol, fromCol]);
 
@@ -329,6 +294,21 @@ export const Graph = React.memo<GraphProps>(({
     const n = new Network(ref.current, graph, opts);
     n.on('doubleClick', doubleClickCallback);
 
+    n.on('click', (params: any) => {
+      if (params.edges.length > 0 && params.nodes.length === 0) {
+        const edgeData: any = graph.edges.get(params.edges[0]);
+        const rect = ref.current.getBoundingClientRect();
+        setPinned({
+          label: String(edgeData?.label ?? ''),
+          title: String(edgeData?.title ?? ''),
+          x: rect.left + params.pointer.DOM.x,
+          y: rect.top + params.pointer.DOM.y,
+        });
+      } else {
+        setPinned(null);
+      }
+    });
+
     n.on('stabilizationIterationsDone', () => {
       n.setOptions({ physics: false });
     });
@@ -336,82 +316,6 @@ export const Graph = React.memo<GraphProps>(({
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, doubleClickCallback, hierarchyEnabled]);
-
-  // Recompute label DOM positions whenever the network repaints
-  // (drag, zoom, physics tick). canvasToDOM gives us the on-screen
-  // pixel for the canvas-space midpoint of each edge.
-  React.useEffect(() => {
-    if (!network || edgeLabels.size === 0) {
-      setLabelLayout([]);
-      return undefined;
-    }
-    let raf = 0;
-    const recompute = () => {
-      if (raf) cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const next: Array<{ id: string, text: string, x: number, y: number }> = [];
-        edgeLabels.forEach((text, edgeId) => {
-          // getConnectedNodes(edgeId) returns [from, to] for a normal
-          // edge and [self] for a self-loop. Used instead of reaching
-          // into network.body (which the public typings don't expose).
-          const ends = network.getConnectedNodes(edgeId) as Array<string | number>;
-          if (!ends || ends.length === 0) return;
-          const fromId = String(ends[0]);
-          const toId = String(ends.length > 1 ? ends[1] : ends[0]);
-          const fromPos = network.getPositions([fromId])[fromId];
-          const toPos = network.getPositions([toId])[toId];
-          if (!fromPos || !toPos) return;
-          let cx: number;
-          let cy: number;
-          if (fromId === toId) {
-            // Self-loop: pin label to a per-edge angle around the node
-            // so two loops on the same pod don't start in the same spot.
-            const angle = edgeSelfLoopAngles.get(edgeId) || 0;
-            const radius = 55;
-            cx = fromPos.x + Math.cos(angle) * radius;
-            cy = fromPos.y + Math.sin(angle) * radius;
-          } else {
-            cx = (fromPos.x + toPos.x) / 2;
-            cy = (fromPos.y + toPos.y) / 2;
-          }
-          const dom = network.canvasToDOM({ x: cx, y: cy });
-          const off = labelOffsets.get(edgeId) || { dx: 0, dy: 0 };
-          next.push({ id: edgeId, text, x: dom.x + off.dx, y: dom.y + off.dy });
-        });
-        setLabelLayout(next);
-      });
-    };
-    network.on('afterDrawing', recompute);
-    recompute();
-    return () => {
-      network.off('afterDrawing', recompute);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, [network, edgeLabels, edgeSelfLoopAngles, labelOffsets]);
-
-  const onLabelPointerDown = React.useCallback((edgeId: string) => (e: React.PointerEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const initial = labelOffsets.get(edgeId) || { dx: 0, dy: 0 };
-    const move = (ev: PointerEvent) => {
-      setLabelOffsets((prev) => {
-        const nextMap = new Map(prev);
-        nextMap.set(edgeId, {
-          dx: initial.dx + ev.clientX - startX,
-          dy: initial.dy + ev.clientY - startY,
-        });
-        return nextMap;
-      });
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }, [labelOffsets]);
 
   const controls = React.useMemo(() => (
     <Button
@@ -423,7 +327,7 @@ export const Graph = React.memo<GraphProps>(({
   ), [hierarchyEnabled, toggleHierarchy]);
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <>
       <GraphBase
         network={network}
         visRootRef={ref}
@@ -431,42 +335,39 @@ export const Graph = React.memo<GraphProps>(({
         setExternalControls={setExternalControls}
         additionalButtons={controls}
       />
-      <div style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        pointerEvents: 'none',
-        overflow: 'hidden',
-      }}>
-        {labelLayout.map(({ id, text, x, y }) => (
-          <div
-            key={id}
-            onPointerDown={onLabelPointerDown(id)}
-            style={{
-              position: 'absolute',
-              left: `${x}px`,
-              top: `${y}px`,
-              transform: 'translate(-50%, -50%)',
-              padding: '1px 6px',
-              background: 'rgba(38, 38, 42, 0.85)',
-              color: '#ffffff',
-              fontSize: '11px',
-              fontFamily: 'Roboto, sans-serif',
-              borderRadius: '3px',
-              cursor: 'grab',
-              pointerEvents: 'auto',
-              userSelect: 'none',
-              whiteSpace: 'nowrap',
-              touchAction: 'none',
-            }}
-          >
-            {text}
+      {pinned && createPortal(
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            left: `${pinned.x + 12}px`,
+            top: `${pinned.y + 12}px`,
+            background: 'rgba(38,38,42,0.95)',
+            color: '#fff',
+            padding: '8px 12px',
+            borderRadius: '4px',
+            fontFamily: 'Roboto, sans-serif',
+            fontSize: '12px',
+            maxWidth: '320px',
+            zIndex: 9999,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+          }}
+        >
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', gap: '8px',
+            fontWeight: 'bold', marginBottom: '4px',
+          }}>
+            <span>{pinned.label}</span>
+            <span
+              onClick={() => setPinned(null)}
+              style={{ cursor: 'pointer', opacity: 0.7 }}
+            >×</span>
           </div>
-        ))}
-      </div>
-    </div>
+          <div dangerouslySetInnerHTML={{ __html: pinned.title }} />
+        </div>,
+        document.body,
+      )}
+    </>
   );
 });
 Graph.displayName = 'Graph';

@@ -41,15 +41,6 @@ genrule(
     cmd = """
         MAKEDIR=$$(dirname $(location //src/pxl_scripts:Makefile));
         PX_ABS=$$(pwd)/$(location //src/pixie_cli:px);
-        # Original genrule passed PATH_PREFIX=src/pxl_scripts/ which
-        # leaked into the `--base <PATH_PREFIX><dir>` arg to `px create-
-        # bundle`, producing script keys like `src/pxl_scripts/px/foo`
-        # — these then mismatched the gh-pages bundle (keys `px/foo`)
-        # and broke deep-links in the UI. Run make from inside MAKEDIR
-        # with PATH_PREFIX= empty so --search_path resolves to
-        # src/pxl_scripts/ (where the script dirs live) and --base
-        # entries are `px`, `bpftrace`, etc.: keys come out as `px/foo`,
-        # matching the gh-pages contract.
         ( cd $$MAKEDIR && EXECUTABLES=$$PX_ABS make PATH_PREFIX= bundle-oss.json );
         cp $$MAKEDIR/bundle-oss.json $(@D)/bundle-oss.json
     """,

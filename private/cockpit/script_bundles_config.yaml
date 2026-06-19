@@ -1,17 +1,4 @@
 ---
-# SCRIPT_BUNDLE_URLS is read by openresty (cloud-proxy_server_image) and
-# injected into the UI's `window.__PIXIE_FLAGS__` (see
-# k8s/cloud/base/proxy_nginx_config.yaml's sub_filter + set_by_lua_block).
-# The UI's fetch resolves relative URLs against document.baseURI, which is
-# always the cloud-proxy itself, so a relative `/bundle-oss.json` URL hits
-# the bundle that the cloud-release pipeline bakes into the proxy image as
-# a container layer (src/cloud/proxy/BUILD.bazel `script_bundle` ->
-# /bundle/bundle-oss.json). nginx serves it at the path `/bundle-oss.json`
-# from both server blocks (bare + work.* subdomain,
-# k8s/cloud/base/proxy_nginx_config.yaml lines 270 + 342).
-#
-# Bottom line: every cloud-release tag's bundle now ships with the
-# deployment, no separate update-script-bundle workflow needed.
 apiVersion: v1
 kind: ConfigMap
 metadata:

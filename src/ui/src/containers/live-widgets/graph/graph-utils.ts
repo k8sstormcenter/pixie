@@ -63,13 +63,8 @@ export function getGraphOptions(theme: Theme, edgeLength: number): Options {
       smooth: false,
       scaling: {
         max: 5,
-        // Don't resize the label with edge weight/severity — labels
-        // are categorical (edge_kind), not magnitudes.
         label: false,
       },
-      // Native vis-network label is suppressed in graph.tsx because the
-      // GraphWidget renders a movable HTML overlay instead; this is the
-      // fallback style for any edge that escapes the overlay.
       font: {
         strokeWidth: 0,
         color: theme.palette.text.primary,

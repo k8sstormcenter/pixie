@@ -45,12 +45,6 @@ pl_go_binary(
 fetch_licenses(
     name = "go_licenses",
     src = "//:pl_3p_go_sum",
-    # Missing licenses are surfaced in go_licenses_missing.json but no
-    # longer fail the release build. The release pipeline kept tripping
-    # on this because manual_licenses.json drifts behind go.sum every
-    # time main pulls in new transitive deps; curating the full set is
-    # tracked separately. See go_licenses_missing.json for what's still
-    # outstanding.
     disallow_missing = False,
     fetch_tool = ":fetch_licenses",
     manual_licenses = "manual_licenses.json",

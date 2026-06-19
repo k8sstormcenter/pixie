@@ -5,7 +5,8 @@ metadata:
   name: cloud-ingress
   namespace: plc
   annotations:
-    external-dns.alpha.kubernetes.io/hostname: test.austrianopencloudcommunity.org,work.test.austrianopencloudcommunity.org
+    external-dns.alpha.kubernetes.io/hostname: >-
+      test.austrianopencloudcommunity.org,work.test.austrianopencloudcommunity.org
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
   tls:

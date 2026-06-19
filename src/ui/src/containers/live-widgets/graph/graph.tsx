@@ -165,9 +165,16 @@ export const Graph = React.memo<GraphProps>(({
   const [hierarchyEnabled, setHierarchyEnabled] = React.useState<boolean>(enableDefaultHierarchy);
   const [network, setNetwork] = React.useState<Network>(null);
   const [graph, setGraph] = React.useState<GraphData>(null);
-  const [pinned, setPinned] = React.useState<{
-    label: string, title: string, x: number, y: number,
-  } | null>(null);
+  const [pinned, setPinned] = React.useState<Array<{
+    key: number, label: string, title: string, x: number, y: number,
+  }>>([]);
+  const pinSeq = React.useRef(0);
+
+  const [edgeLabels, setEdgeLabels] = React.useState<Map<string, string>>(() => new Map());
+  const [labelOffsets, setLabelOffsets] = React.useState<Map<string, { dx: number, dy: number }>>(() => new Map());
+  const [labelLayout, setLabelLayout] = React.useState<Array<{
+    id: string, text: string, x: number, y: number,
+  }>>([]);
 
   const { embedState } = React.useContext(LiveRouteContext);
 
@@ -200,6 +207,9 @@ export const Graph = React.memo<GraphProps>(({
     const edges = new visData.DataSet<Edge>();
     const nodes = new visData.DataSet<Node>();
     const idToSemType = {};
+    const labelMap = new Map<string, string>();
+    const selfLoopCounts = new Map<string, number>();
+    const selfLoopRank = new Map<string, number>();
 
     const upsertNode = (label: string, st: SemanticType, weight: number) => {
       if (!idToSemType[label]) {
@@ -217,7 +227,7 @@ export const Graph = React.memo<GraphProps>(({
         idToSemType[label] = st;
       }
     };
-    data.forEach((d) => {
+    data.forEach((d, idx) => {
       const nt = d[toCol.name];
       const nf = d[fromCol.name];
 
@@ -229,7 +239,9 @@ export const Graph = React.memo<GraphProps>(({
       upsertNode(nt, toCol?.semType, nodeWeight);
       upsertNode(nf, fromCol?.semType, nodeWeight);
 
+      const edgeId = `e${idx}`;
       const edge = {
+        id: edgeId,
         from: nf,
         to: nt,
       } as Edge;
@@ -244,7 +256,13 @@ export const Graph = React.memo<GraphProps>(({
       }
 
       if (edgeLabelColumn) {
-        edge.label = String(d[edgeLabelColumn.name]);
+        labelMap.set(edgeId, String(d[edgeLabelColumn.name]));
+        edge.label = '';
+        if (nf === nt) {
+          const rank = selfLoopCounts.get(nf) || 0;
+          selfLoopCounts.set(nf, rank + 1);
+          selfLoopRank.set(edgeId, rank);
+        }
       }
 
       if (edgeHoverInfo && edgeHoverInfo.length > 0) {
@@ -270,6 +288,17 @@ export const Graph = React.memo<GraphProps>(({
     setGraph({
       nodes, edges, idToSemType,
     });
+    setEdgeLabels(labelMap);
+    setLabelOffsets((prev) => {
+      const next = new Map<string, { dx: number, dy: number }>();
+      selfLoopRank.forEach((rank, edgeId) => {
+        next.set(edgeId, prev.get(edgeId) || { dx: 0, dy: -28 - rank * 22 });
+      });
+      labelMap.forEach((_, edgeId) => {
+        if (!next.has(edgeId)) next.set(edgeId, prev.get(edgeId) || { dx: 0, dy: 0 });
+      });
+      return next;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dot, data, toCol, fromCol]);
 
@@ -291,21 +320,28 @@ export const Graph = React.memo<GraphProps>(({
       };
     }
 
+    if (ref.current) {
+      ref.current.style.position = 'relative';
+    }
+
     const n = new Network(ref.current, graph, opts);
     n.on('doubleClick', doubleClickCallback);
 
     n.on('click', (params: any) => {
       if (params.edges.length > 0 && params.nodes.length === 0) {
-        const edgeData: any = graph.edges.get(params.edges[0]);
+        const edgeId = params.edges[0];
+        const edgeData: any = graph.edges.get(edgeId);
         const rect = ref.current.getBoundingClientRect();
-        setPinned({
-          label: String(edgeData?.label ?? ''),
+        const text = edgeLabels.get(edgeId) || String(edgeData?.label ?? '');
+        pinSeq.current += 1;
+        const key = pinSeq.current;
+        setPinned((prev) => [...prev, {
+          key,
+          label: text,
           title: String(edgeData?.title ?? ''),
           x: rect.left + params.pointer.DOM.x,
           y: rect.top + params.pointer.DOM.y,
-        });
-      } else {
-        setPinned(null);
+        }]);
       }
     });
 
@@ -316,6 +352,81 @@ export const Graph = React.memo<GraphProps>(({
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, doubleClickCallback, hierarchyEnabled]);
+
+  React.useEffect(() => {
+    if (!network || edgeLabels.size === 0) {
+      setLabelLayout([]);
+      return undefined;
+    }
+    let raf = 0;
+    const recompute = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const next: Array<{ id: string, text: string, x: number, y: number }> = [];
+        edgeLabels.forEach((text, edgeId) => {
+          const ends = network.getConnectedNodes(edgeId) as Array<string | number>;
+          if (!ends || ends.length === 0) return;
+          const fromId = String(ends[0]);
+          const toId = String(ends.length > 1 ? ends[1] : ends[0]);
+          const fromPos = network.getPositions([fromId])[fromId];
+          const toPos = network.getPositions([toId])[toId];
+          if (!fromPos || !toPos) return;
+          const cx = (fromPos.x + toPos.x) / 2;
+          const cy = (fromPos.y + toPos.y) / 2;
+          const dom = network.canvasToDOM({ x: cx, y: cy });
+          const off = labelOffsets.get(edgeId) || { dx: 0, dy: 0 };
+          next.push({ id: edgeId, text, x: dom.x + off.dx, y: dom.y + off.dy });
+        });
+        setLabelLayout(next);
+      });
+    };
+    network.on('afterDrawing', recompute);
+    recompute();
+    return () => {
+      network.off('afterDrawing', recompute);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [network, edgeLabels, labelOffsets]);
+
+  const onLabelPointerDown = React.useCallback((edgeId: string) => (e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const initial = labelOffsets.get(edgeId) || { dx: 0, dy: 0 };
+    const move = (ev: PointerEvent) => {
+      setLabelOffsets((prev) => {
+        const m = new Map(prev);
+        m.set(edgeId, { dx: initial.dx + ev.clientX - startX, dy: initial.dy + ev.clientY - startY });
+        return m;
+      });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }, [labelOffsets]);
+
+  const onPinPointerDown = React.useCallback((key: number, initialX: number, initialY: number) =>
+    (e: React.PointerEvent) => {
+      if ((e.target as HTMLElement).closest('[data-pin-close]')) return;
+      e.stopPropagation();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const move = (ev: PointerEvent) => {
+        setPinned((prev) => prev.map((p) => (p.key === key
+          ? { ...p, x: initialX + ev.clientX - startX, y: initialY + ev.clientY - startY }
+          : p)));
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    }, []);
 
   const controls = React.useMemo(() => (
     <Button
@@ -335,36 +446,75 @@ export const Graph = React.memo<GraphProps>(({
         setExternalControls={setExternalControls}
         additionalButtons={controls}
       />
-      {pinned && createPortal(
-        <div
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: 'fixed',
-            left: `${pinned.x + 12}px`,
-            top: `${pinned.y + 12}px`,
-            background: 'rgba(38,38,42,0.95)',
-            color: '#fff',
-            padding: '8px 12px',
-            borderRadius: '4px',
-            fontFamily: 'Roboto, sans-serif',
-            fontSize: '12px',
-            maxWidth: '320px',
-            zIndex: 9999,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-          }}
-        >
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', gap: '8px',
-            fontWeight: 'bold', marginBottom: '4px',
-          }}>
-            <span>{pinned.label}</span>
-            <span
-              onClick={() => setPinned(null)}
-              style={{ cursor: 'pointer', opacity: 0.7 }}
-            >×</span>
-          </div>
-          <div dangerouslySetInnerHTML={{ __html: pinned.title }} />
-        </div>,
+      {ref.current && labelLayout.length > 0 && createPortal(
+        <>
+          {labelLayout.map(({ id, text, x, y }) => (
+            <div
+              key={id}
+              onPointerDown={onLabelPointerDown(id)}
+              style={{
+                position: 'absolute',
+                left: `${x}px`,
+                top: `${y}px`,
+                transform: 'translate(-50%, -50%)',
+                padding: '1px 6px',
+                background: 'rgba(38,38,42,0.85)',
+                color: '#fff',
+                fontSize: '11px',
+                fontFamily: 'Roboto, sans-serif',
+                borderRadius: '3px',
+                cursor: 'grab',
+                userSelect: 'none',
+                whiteSpace: 'nowrap',
+                touchAction: 'none',
+                zIndex: 2,
+              }}
+            >
+              {text}
+            </div>
+          ))}
+        </>,
+        ref.current,
+      )}
+      {pinned.length > 0 && createPortal(
+        <>
+          {pinned.map((p) => (
+            <div
+              key={p.key}
+              onPointerDown={onPinPointerDown(p.key, p.x, p.y)}
+              style={{
+                position: 'fixed',
+                left: `${p.x + 12}px`,
+                top: `${p.y + 12}px`,
+                background: 'rgba(38,38,42,0.95)',
+                color: '#fff',
+                padding: '8px 12px',
+                borderRadius: '4px',
+                fontFamily: 'Roboto, sans-serif',
+                fontSize: '12px',
+                maxWidth: '320px',
+                zIndex: 9999,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+                cursor: 'grab',
+                userSelect: 'none',
+                touchAction: 'none',
+              }}
+            >
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', gap: '8px',
+                fontWeight: 'bold', marginBottom: '4px',
+              }}>
+                <span>{p.label}</span>
+                <span
+                  data-pin-close
+                  onClick={() => setPinned((prev) => prev.filter((q) => q.key !== p.key))}
+                  style={{ cursor: 'pointer', opacity: 0.7 }}
+                >×</span>
+              </div>
+              <div dangerouslySetInnerHTML={{ __html: p.title }} />
+            </div>
+          ))}
+        </>,
         document.body,
       )}
     </>

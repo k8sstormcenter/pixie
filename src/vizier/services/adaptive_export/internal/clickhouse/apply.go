@@ -125,6 +125,17 @@ func (a *Applier) Apply(ctx context.Context) error {
 	return nil
 }
 
+// WriteAttackGraph inserts dx evidence-graph edges into
+// forensic_db.dx_attack_graph. jsonEachRow is newline-delimited JSON objects
+// whose keys are the column names (JSONEachRow; unknown keys are skipped,
+// missing columns default). No-op on empty input.
+func (a *Applier) WriteAttackGraph(ctx context.Context, jsonEachRow []byte) error {
+	if len(jsonEachRow) == 0 {
+		return nil
+	}
+	return a.execute(ctx, "INSERT INTO forensic_db.dx_attack_graph FORMAT JSONEachRow\n"+string(jsonEachRow))
+}
+
 // execute POSTs a single DDL statement to ClickHouse via the HTTP
 // query endpoint. Non-2xx responses surface as Go errors.
 func (a *Applier) execute(ctx context.Context, sql string) error {

@@ -72,9 +72,12 @@ Status ClickHouseSourceIR::ToProto(planpb::Operator* op) const {
   // Set batch size
   pb->set_batch_size(1024);
 
-  // Set timestamp and partition columns from stored values
+  // Set timestamp and partition columns from stored values. partition_column is
+  // empty by default: the node-local "hostname = gethostname()" push is wrong for
+  // a central forensic_db read (it filters by the query executor's host, silently
+  // dropping rows). Only the timestamp window is pushed down.
   pb->set_timestamp_column(timestamp_column_);
-  pb->set_partition_column("hostname");
+  pb->set_partition_column("");
 
   return Status::OK();
 }

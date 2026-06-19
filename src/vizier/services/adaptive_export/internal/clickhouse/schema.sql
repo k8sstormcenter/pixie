@@ -527,3 +527,11 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_attack_graph (
 -- dx_evidence_graph UI reads by default so benign rows stay in ClickHouse.
 CREATE VIEW IF NOT EXISTS forensic_db.dx_attack_graph_malicious AS
   SELECT * FROM forensic_db.dx_attack_graph WHERE `condition` != '';
+
+-- dx_evidence_* — non-colliding views over the Pixie observation tables. px
+-- resolves http_events/conn_stats/dns_events to Pixie's NATIVE relation (no
+-- namespace/pod), so the dx evidence drill-down reads these aliases to get the
+-- forensic schema (incl pod) inferred from ClickHouse.
+CREATE VIEW IF NOT EXISTS forensic_db.dx_evidence_http AS SELECT * FROM forensic_db.http_events;
+CREATE VIEW IF NOT EXISTS forensic_db.dx_evidence_conn AS SELECT * FROM forensic_db.conn_stats;
+CREATE VIEW IF NOT EXISTS forensic_db.dx_evidence_dns AS SELECT * FROM forensic_db.dns_events;

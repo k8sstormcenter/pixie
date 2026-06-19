@@ -71,6 +71,11 @@ var KnownTables = []string{
 	// dx_evidence_graph UI reads this by default so benign rows are filtered
 	// in ClickHouse, not pulled. Must follow dx_attack_graph (depends on it).
 	"dx_attack_graph_malicious",
+	// non-colliding views over the pixie tables so the evidence drill sees the
+	// forensic schema (incl pod). Created after their base tables.
+	"dx_evidence_http",
+	"dx_evidence_conn",
+	"dx_evidence_dns",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

@@ -67,6 +67,10 @@ var KnownTables = []string{
 	// operator-owned dx evidence-graph edge list (read by the Pixie
 	// dx_evidence_graph UI via clickhouse_dsn). NOT a pixie table.
 	"dx_attack_graph",
+	// rule-ins-only VIEW over dx_attack_graph (condition != ''); the
+	// dx_evidence_graph UI reads this by default so benign rows are filtered
+	// in ClickHouse, not pulled. Must follow dx_attack_graph (depends on it).
+	"dx_attack_graph_malicious",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table
@@ -85,8 +89,12 @@ func DDL(table string) (string, error) {
 	if strings.Contains(table, ".") {
 		identifier = "`" + table + "`"
 	}
-	header := "CREATE TABLE IF NOT EXISTS forensic_db." + identifier
-	start := strings.Index(canonicalSchema, header)
+	start := -1
+	for _, kw := range []string{"CREATE TABLE IF NOT EXISTS forensic_db.", "CREATE VIEW IF NOT EXISTS forensic_db."} {
+		if start = strings.Index(canonicalSchema, kw+identifier); start >= 0 {
+			break
+		}
+	}
 	if start < 0 {
 		return "", fmt.Errorf("%w: %q registered in KnownTables but not present in embedded schema.sql", ErrUnknownTable, table)
 	}

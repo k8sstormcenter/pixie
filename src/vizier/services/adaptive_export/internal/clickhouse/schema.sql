@@ -522,3 +522,8 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_attack_graph (
   PARTITION BY toYYYYMM(fromUnixTimestamp64Nano(event_time))
   TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
   SETTINGS index_granularity = 8192;
+
+-- dx_attack_graph_malicious — rule-ins-only view (condition != '') the
+-- dx_evidence_graph UI reads by default so benign rows stay in ClickHouse.
+CREATE VIEW IF NOT EXISTS forensic_db.dx_attack_graph_malicious AS
+  SELECT * FROM forensic_db.dx_attack_graph WHERE `condition` != '';

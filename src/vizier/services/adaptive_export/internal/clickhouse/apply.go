@@ -70,6 +70,8 @@ var OperatorOwnedTables = []string{
 	// globally-registered table to read. dx emits edges, AE persists.
 	// Not a pixie socket_tracer table → not in PixieTables().
 	"dx_attack_graph",
+	// rule-ins-only VIEW over dx_attack_graph; created AFTER it (depends on it).
+	"dx_attack_graph_malicious",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the

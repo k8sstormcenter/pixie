@@ -18,26 +18,17 @@
 import px
 
 
-def dx_attack_graph(start_time: str, clickhouse_dsn: str, include_benign: str):
+def dx_attack_graph(start_time: str, clickhouse_dsn: str, table: str):
     ''' Read the dx evidence-graph edge list from ClickHouse.
 
     Args:
     @start_time: e.g. "-15m".
     @clickhouse_dsn: user:pass@host:port/db.
-    @include_benign: OFF ("false") by DEFAULT. When off we read the
-        forensic_db.dx_attack_graph_malicious VIEW, so the WHERE condition != ''
-        runs INSIDE ClickHouse and the benign firehose is never pulled across the
-        wire. Set "true" to ALSO pull the benign / ruled-out investigations from
-        the full table (heavier — opt in deliberately).
-
-    The malicious/benign split keys on `condition` (dx sets it only on a rule-in),
-    NOT on severity — severity is a per-edge CRS weight and does not encode the
-    per-investigation verdict. The filter is PUSHED DOWN to ClickHouse via the
-    view; the ClickHouse source (clickhouse_source_ir) projects only the selected
-    columns but does not take a row predicate, so the view is what keeps benign
-    rows from ever leaving CH.
+    @table: which relation to read. Default "dx_attack_graph_malicious" is a
+        ClickHouse VIEW (WHERE condition != '') so only dx rule-ins are pulled —
+        the benign firehose never leaves CH. Set "dx_attack_graph" to read the
+        full table (includes benign / ruled-out investigations; heavier).
     '''
-    table = 'dx_attack_graph' if include_benign == 'true' else 'dx_attack_graph_malicious'
     df = px.DataFrame(table,
                       clickhouse_dsn=clickhouse_dsn,
                       start_time=start_time)

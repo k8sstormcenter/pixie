@@ -14,32 +14,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-''' DX Attack Graph
-
-Severity-weighted, all-protocol pod-to-pod attack graph from dx-agent
-evidence. Reads `dx_attack_graph` from the forensic ClickHouse via
-this fork's `clickhouse_dsn` kwarg on `px.DataFrame`
-(`src/carnot/planner/objects/dataframe.cc:43`). Schema matches the
-`attackgraph.Edge` contract dx-agent locked in via entlein/dx#68
-(see README.md in this directory).
-
-2-arg signature (start_time, clickhouse_dsn) matches the
-`globalFuncs` entry in vis.json. Per-investigation filtering is a
-follow-up — PxL has no `if` statement and Pixie's convention for
-optional filters is to omit them rather than gate at script level.
-'''
+''' DX Attack Graph: pod-to-pod hops weighted by dx evidence severity. '''
 import px
 
 
 def dx_attack_graph(start_time: str, clickhouse_dsn: str):
-    ''' Pod-to-pod attack graph for dx investigations in the window.
+    ''' Read forensic_db.dx_attack_graph and return the edge columns.
     Args:
-    @start_time: relative start, e.g. "-15m".
-    @clickhouse_dsn: ClickHouse DSN — `user:pass@host:port/db`. The
-        forensic_db.dx_attack_graph table is read with this. The
-        bundled vis.json defaults this to empty; operators paste the
-        per-rig DSN via the UI script-args panel. README.md documents
-        the soc rig DSN.
+    @start_time: e.g. "-15m".
+    @clickhouse_dsn: user:pass@host:port/db.
     '''
     df = px.DataFrame('dx_attack_graph',
                       clickhouse_dsn=clickhouse_dsn,

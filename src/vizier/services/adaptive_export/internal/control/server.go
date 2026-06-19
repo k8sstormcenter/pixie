@@ -27,6 +27,8 @@
 package control
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -49,10 +51,17 @@ type queryRunner interface {
 	OrderQuery(target anomaly.Target, table string, start, end time.Time, queryID string) error
 }
 
+// graphWriter persists dx evidence-graph edges (newline-delimited JSON,
+// JSONEachRow) to forensic_db.dx_attack_graph. nil → /dx/attack_graph 501s.
+type graphWriter interface {
+	WriteAttackGraph(ctx context.Context, jsonEachRow []byte) error
+}
+
 // Server is the control HTTP surface.
 type Server struct {
 	set    exporter
 	runner queryRunner // may be nil; /query then returns 501
+	graph  graphWriter // may be nil; /dx/attack_graph then returns 501
 	mux    *http.ServeMux
 }
 
@@ -64,11 +73,47 @@ func New(set exporter, runner queryRunner) *Server {
 	s.mux.HandleFunc("/export/start", s.handleStart)
 	s.mux.HandleFunc("/export/stop", s.handleStop)
 	s.mux.HandleFunc("/query", s.handleQuery)
+	s.mux.HandleFunc("/dx/attack_graph", s.handleDXAttackGraph)
 	return s
 }
 
+// SetGraphWriter wires the dx_attack_graph sink.
+func (s *Server) SetGraphWriter(g graphWriter) { s.graph = g }
+
 // Handler exposes the mux (for httptest + main.go wiring).
 func (s *Server) Handler() http.Handler { return s.mux }
+
+// handleDXAttackGraph ingests a JSON array of dx evidence-graph edges and writes
+// them to forensic_db.dx_attack_graph (as JSONEachRow).
+func (s *Server) handleDXAttackGraph(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if s.graph == nil {
+		w.WriteHeader(http.StatusNotImplemented)
+		return
+	}
+	var edges []json.RawMessage
+	if !decode(r, &edges) {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if len(edges) == 0 {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	var buf bytes.Buffer
+	for _, e := range edges {
+		buf.Write(e)
+		buf.WriteByte('\n')
+	}
+	if err := s.graph.WriteAttackGraph(r.Context(), buf.Bytes()); err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
 
 // ── wire types ────────────────────────────────────────────────────────
 type targetReq struct {

@@ -14,24 +14,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-''' DX Attack Graph: pod-to-pod hops weighted by dx evidence severity. '''
 import px
 
 
 def dx_attack_graph(start_time: str, clickhouse_dsn: str, table: str):
-    ''' Read the dx evidence-graph edge list from ClickHouse.
-
-    Args:
-    @start_time: e.g. "-15m".
-    @clickhouse_dsn: user:pass@host:port/db.
-    @table: which relation to read. Default "dx_attack_graph_malicious" is a
-        ClickHouse VIEW (WHERE condition != '') so only dx rule-ins are pulled —
-        the benign firehose never leaves CH. Set "dx_attack_graph" to read the
-        full table (includes benign / ruled-out investigations; heavier).
-    '''
-    df = px.DataFrame(table,
-                      clickhouse_dsn=clickhouse_dsn,
-                      start_time=start_time)
+    df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     return df[['requestor_pod', 'responder_pod',
                'requestor_service', 'responder_service',
                'requestor_ip', 'responder_ip',

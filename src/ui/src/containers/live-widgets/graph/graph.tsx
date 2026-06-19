@@ -339,12 +339,23 @@ export const GraphWidget = React.memo<GraphWidgetProps>(({
     }
     const colorColInfo = colInfoFromName(relation, display.edgeColorColumn);
     const labelColInfo = colInfoFromName(relation, display.edgeLabelColumn);
+    const nodeLabelColInfo = colInfoFromName(relation, display.nodeLabelColumn);
+    const nodeColorColInfo = colInfoFromName(relation, display.nodeColorColumn);
     const edgeHoverInfo = [];
     if (display.edgeHoverInfo && display.edgeHoverInfo.length > 0) {
       for (const e of display.edgeHoverInfo) {
         const info = colInfoFromName(relation, e);
         if (info) { // Only push valid column infos. The user may pass in an invalid column name in the vis spec.
           edgeHoverInfo.push(info);
+        }
+      }
+    }
+    const nodeHoverInfo = [];
+    if (display.nodeHoverInfo && display.nodeHoverInfo.length > 0) {
+      for (const n of display.nodeHoverInfo) {
+        const info = colInfoFromName(relation, n);
+        if (info) {
+          nodeHoverInfo.push(info);
         }
       }
     }
@@ -357,8 +368,11 @@ export const GraphWidget = React.memo<GraphWidgetProps>(({
           fromCol={fromColInfo}
           edgeColorColumn={colorColInfo}
           edgeLabelColumn={labelColInfo}
+          nodeLabelColumn={nodeLabelColInfo}
+          nodeColorColumn={nodeColorColInfo}
           propagatedArgs={propagatedArgs}
           edgeHoverInfo={edgeHoverInfo}
+          nodeHoverInfo={nodeHoverInfo}
           setExternalControls={setExternalControls}
         />
       );

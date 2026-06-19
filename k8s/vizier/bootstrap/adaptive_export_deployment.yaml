@@ -31,6 +31,17 @@ spec:
       containers:
       - name: adaptive-export
         image: vizier-adaptive_export_image:latest
+        # Bounded so AE can never memory-pressure a node (measured: AE uses
+        # only ~16-38Mi steady; passthrough with the raised 1M-row cap can
+        # spike, so 1Gi caps the worst case). CPU was pinned at the old 300m
+        # limit under concurrent passthrough → raised to 1 core.
+        resources:
+          requests:
+            cpu: 200m
+            memory: 128Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
         env:
         - name: PL_NAMESPACE
           valueFrom:

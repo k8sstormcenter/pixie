@@ -65,6 +65,11 @@ var OperatorOwnedTables = []string{
 	// boot so a reconcile run has a target without manual DDL. Not a pixie
 	// table → not in PixieTables(), so VerifyPixieSchema ignores it.
 	"ae_reconcile",
+	// dx evidence-graph edge list — created on boot so the Pixie
+	// dx_evidence_graph UI (px.DataFrame clickhouse_dsn) has a real,
+	// globally-registered table to read. dx emits edges, AE persists.
+	// Not a pixie socket_tracer table → not in PixieTables().
+	"dx_attack_graph",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the

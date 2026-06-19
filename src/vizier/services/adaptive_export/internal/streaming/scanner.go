@@ -93,7 +93,7 @@ func (c ScannerConfig) defaulted() ScannerConfig {
 }
 
 // TableScanner runs ONE PxL submission per refresh cycle for ONE
-// pixie table, with a pod whitelist drawn from an upstream Filter
+// pixie table, with a pod allowlist drawn from an upstream Filter
 // channel. Output goes to a per-table BatchWriter.
 //
 // This is the rev-3 replacement for pushPixieRows' per-hash×per-table
@@ -128,8 +128,8 @@ func NewScanner(cfg ScannerConfig, querier Querier, writer *BatchWriter, filters
 //
 //  1. Wait for filter (initial) — block until first one arrives.
 //  2. Loop:
-//     - If filter has no pods AND mode == Whitelist: skip query
-//     entirely (the whole purpose: empty whitelist = no work).
+//     - If filter has no pods AND mode == Allowlist: skip query
+//     entirely (the whole purpose: empty allowlist = no work).
 //     - Else: build PxL, query, push rows to writer.
 //     - Sleep RefreshInterval OR until filter changes.
 //  3. Backoff on Querier errors.
@@ -159,9 +159,19 @@ func (s *TableScanner) Run(ctx context.Context) {
 			return
 		}
 
-		// Empty whitelist short-circuit: nothing to query.
-		if s.currentFilter.Mode == FilterModeWhitelist && len(s.currentFilter.Pods) == 0 {
+		// Empty allowlist short-circuit: nothing to query.
+		if s.currentFilter.Mode == FilterModeAllowlist && len(s.currentFilter.Pods) == 0 {
 			s.skipped.Add(1)
+			// Diagnostic: an empty allowlist means the ActiveSet has no
+			// members — i.e. nothing has been steered into this AE yet.
+			// Logged so an operator can tell "empty ActiveSet → skipping"
+			// apart from "queried but the broker returned 0 rows" (the
+			// latter logs "query completed rows=0"). Naturally rate-limited:
+			// we block on the next filter immediately after.
+			log.WithFields(log.Fields{
+				"table":   s.cfg.Table,
+				"version": s.currentFilter.Version,
+			}).Info("streaming.TableScanner: empty allowlist (ActiveSet has no steered pods) — skipping query until a filter with pods arrives")
 			// Wait for either: a new filter arrives, or ctx done.
 			select {
 			case <-ctx.Done():
@@ -251,15 +261,24 @@ func (s *TableScanner) Run(ctx context.Context) {
 }
 
 // buildPxL renders the script for one query.
+// pxSetMaxRows raises Pixie's per-table result cap (default 10000) via the
+// query-broker's `#px:set` query flag, mirroring internal/pxl (queryfor.go /
+// compile.go). Without it the streaming/DX arm silently caps each pull at 10k
+// rows while the passthrough/ALL arm (which already emits this) does not — which
+// would UNDER-count DX and OVERSTATE the DX-vs-ALL volume reduction. Must be the
+// first line of the script (before `import px`).
+const pxSetMaxRows = "#px:set max_output_rows_per_table=1000000\n"
+
 func (s *TableScanner) buildPxL(f Filter) string {
 	relStart := "-" + strconv.FormatInt(int64(s.cfg.QueryWindow/time.Second), 10) + "s"
 	var b strings.Builder
+	b.WriteString(pxSetMaxRows)
 	b.WriteString("import px\n")
 	b.WriteString("df = px.DataFrame(table='" + s.cfg.Table + "', start_time='" + relStart + "')\n")
 	b.WriteString("df.namespace = px.upid_to_namespace(df.upid)\n")
 	b.WriteString("df.pod = px.upid_to_pod_name(df.upid)\n")
-	if f.Mode == FilterModeWhitelist && len(f.Pods) > 0 {
-		// Whitelist clause. PxL syntax exploration (2026-05-17):
+	if f.Mode == FilterModeAllowlist && len(f.Pods) > 0 {
+		// Allowlist clause. PxL syntax exploration (2026-05-17):
 		//  - `or` between equalities → "Expected two arguments to 'or'"
 		//  - `|` between equalities → "Operator '|' not handled"
 		//  - `px.contains(s, p)` → SUBSTRING (not regex)

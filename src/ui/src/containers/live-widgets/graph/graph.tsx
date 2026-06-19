@@ -56,6 +56,11 @@ interface EdgeThresholds {
   highThreshold: number;
 }
 
+interface NodeThresholds {
+  mediumThreshold: number;
+  highThreshold: number;
+}
+
 export interface GraphDisplay extends WidgetDisplay {
   readonly dotColumn?: string;
   readonly adjacencyList?: AdjacencyList;
@@ -67,6 +72,11 @@ export interface GraphDisplay extends WidgetDisplay {
   readonly edgeHoverInfo?: string[];
   readonly edgeLength?: number;
   readonly enableDefaultHierarchy?: boolean;
+  readonly edgeLabelColumn?: string;
+  readonly nodeLabelColumn?: string;
+  readonly nodeColorColumn?: string;
+  readonly nodeThresholds?: NodeThresholds;
+  readonly nodeHoverInfo?: string[];
 }
 
 interface GraphProps {
@@ -82,6 +92,11 @@ interface GraphProps {
   edgeHoverInfo?: ColInfo[];
   edgeLength?: number;
   enableDefaultHierarchy?: boolean;
+  edgeLabelColumn?: ColInfo;
+  nodeLabelColumn?: ColInfo;
+  nodeColorColumn?: ColInfo;
+  nodeThresholds?: NodeThresholds;
+  nodeHoverInfo?: ColInfo[];
   setExternalControls?: React.RefCallback<React.ReactNode>;
 }
 
@@ -125,9 +140,20 @@ function getColorForEdge(col: ColInfo, val: number, thresholds: EdgeThresholds):
   return val > highThreshold ? 'high' : 'med';
 }
 
+function getColorForNode(val: number, thresholds: NodeThresholds): GaugeLevel {
+  const medThreshold = thresholds ? thresholds.mediumThreshold : 100;
+  const highThreshold = thresholds ? thresholds.highThreshold : 200;
+
+  if (val < medThreshold) {
+    return 'low';
+  }
+  return val > highThreshold ? 'high' : 'med';
+}
+
 export const Graph = React.memo<GraphProps>(({
   dot, toCol, fromCol, data, propagatedArgs, edgeWeightColumn,
   nodeWeightColumn, edgeColorColumn, edgeThresholds, edgeHoverInfo, edgeLength, enableDefaultHierarchy,
+  edgeLabelColumn, nodeLabelColumn, nodeColorColumn, nodeThresholds, nodeHoverInfo,
   setExternalControls,
 }) => {
   const theme = useTheme();
@@ -211,6 +237,10 @@ export const Graph = React.memo<GraphProps>(({
       if (edgeColorColumn) {
         const level = getColorForEdge(edgeColorColumn, d[edgeColorColumn.name], edgeThresholds);
         edge.color = getColor(level, theme);
+      }
+
+      if (edgeLabelColumn) {
+        edge.label = String(d[edgeLabelColumn.name]);
       }
 
       if (edgeHoverInfo && edgeHoverInfo.length > 0) {
@@ -308,6 +338,7 @@ export const GraphWidget = React.memo<GraphWidgetProps>(({
       errorMsg = `${display.adjacencyList.fromColumn} cannot be used as the destination column`;
     }
     const colorColInfo = colInfoFromName(relation, display.edgeColorColumn);
+    const labelColInfo = colInfoFromName(relation, display.edgeLabelColumn);
     const edgeHoverInfo = [];
     if (display.edgeHoverInfo && display.edgeHoverInfo.length > 0) {
       for (const e of display.edgeHoverInfo) {
@@ -325,6 +356,7 @@ export const GraphWidget = React.memo<GraphWidgetProps>(({
           toCol={toColInfo}
           fromCol={fromColInfo}
           edgeColorColumn={colorColInfo}
+          edgeLabelColumn={labelColInfo}
           propagatedArgs={propagatedArgs}
           edgeHoverInfo={edgeHoverInfo}
           setExternalControls={setExternalControls}

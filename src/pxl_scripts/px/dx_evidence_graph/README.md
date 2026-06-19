@@ -62,31 +62,6 @@ forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.clus
 credential the existing `soc/analysis/px_clickhouse/kubescape/observe.pxl`
 script uses for `kubescape_logs`. Override in the UI for other rigs.
 
-## Manual-load prototype
-
-`tools/load_prototype/` is a Go helper that renders the `Edge`
-schema from a JSON fixture into a standalone HTML page using
-cytoscape.js. Same column→visual mapping the production
-`vispb.Graph` spec uses. Useful when ClickHouse isn't reachable
-from the UI (offline review, fixture validation).
-
-```bash
-go run ./tools/load_prototype \
-    -fixture fixtures/sample.json \
-    -investigation_id log4shell-6a32ea57 \
-    -out /tmp/dx_log4shell.html
-```
-
-The fixture in `fixtures/sample.json` is dx-agent's real
-log4shell + argocd verdicts from the rig run that locked the
-schema. `fixtures/screenshots/dx_log4shell.html` and
-`fixtures/screenshots/dx_argocd.html` are the pre-rendered pages
-for review without running the tool.
-
-The tool retires once the AE live-write (`WriteAttackGraph` →
-`forensic_db.dx_attack_graph`) is on every cluster running this
-bundle.
-
 ## Deploy
 
 Bundle build path:

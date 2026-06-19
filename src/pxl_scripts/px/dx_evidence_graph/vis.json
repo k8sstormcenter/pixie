@@ -11,6 +11,12 @@
       "type": "PX_STRING",
       "description": "ClickHouse DSN: user:pass@host:port/db.",
       "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+    },
+    {
+      "name": "include_benign",
+      "type": "PX_STRING",
+      "description": "OFF by default ('false'): reads the malicious-only view so the benign firehose is NEVER pulled from ClickHouse. Set 'true' to ALSO pull benign/ruled-out investigations (heavier).",
+      "defaultValue": "false"
     }
   ],
   "globalFuncs": [
@@ -20,7 +26,8 @@
         "name": "dx_attack_graph",
         "args": [
           {"name": "start_time", "variable": "start_time"},
-          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
+          {"name": "include_benign", "variable": "include_benign"}
         ]
       }
     }
@@ -38,14 +45,20 @@
         },
         "edgeWeightColumn": "weight",
         "edgeColorColumn": "max_severity",
+        "edgeLabelColumn": "edge_kind",
+        "edgeThresholds": {
+          "mediumThreshold": 3,
+          "highThreshold": 4
+        },
         "edgeHoverInfo": [
-          "weight",
-          "max_severity",
-          "confidence",
           "edge_kind",
           "condition",
           "criteria",
-          "num_findings"
+          "weight",
+          "max_severity",
+          "confidence",
+          "num_findings",
+          "investigation_id"
         ],
         "edgeLength": 500
       }

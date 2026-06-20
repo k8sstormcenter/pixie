@@ -18,7 +18,7 @@ package script
 
 type Script struct {
 	ScriptDefinition
-	ScriptId   string
+	ScriptID   string
 	ClusterIds string
 }
 

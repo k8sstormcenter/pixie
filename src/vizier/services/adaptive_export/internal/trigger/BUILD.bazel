@@ -35,6 +35,7 @@ go_library(
 pl_go_test(
     name = "trigger_test",
     srcs = [
+        "clickhouse_internal_test.go",
         "clickhouse_test.go",
         "fingerprint_bench_test.go",
         "watermark_test.go",

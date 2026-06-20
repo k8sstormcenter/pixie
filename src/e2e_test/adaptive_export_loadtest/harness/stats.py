@@ -71,7 +71,9 @@ def report(path):
         print(f"  {c:16s}  n={len(vals):4d} distinct={len(distinct):3d} "
               f"mean={mean:.3f} std={sd:.3f} cv={cv:.4f}% "
               f"min={min(vals):.0f} max={max(vals):.0f}  {flag}")
-    print(f"  VERDICT: {'EXACTLY REPRODUCIBLE (all metrics std=0)' if repro_ok else 'NOT exactly reproducible (see VARIES above)'}")
+    verdict = ("EXACTLY REPRODUCIBLE (all metrics std=0)" if repro_ok
+               else "NOT exactly reproducible (see VARIES above)")
+    print(f"  VERDICT: {verdict}")
     print()
 
 

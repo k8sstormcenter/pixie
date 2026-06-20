@@ -95,7 +95,7 @@ func TestQuery_PutsSQLInURLParam(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotQuery = r.URL.Query().Get("query")
-		w.Write([]byte(`{"hits":1}` + "\n"))
+		_, _ = w.Write([]byte(`{"hits":1}` + "\n"))
 	}))
 	defer srv.Close()
 
@@ -117,7 +117,7 @@ func TestQuery_PutsSQLInURLParam(t *testing.T) {
 
 func TestInsert_SetsContentTypeAndFailLoud(t *testing.T) {
 	var gotCT, gotQ string
-	var gotSettings = map[string]string{}
+	gotSettings := map[string]string{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotCT = r.Header.Get("Content-Type")
 		gotQ = r.URL.Query().Get("query")
@@ -156,7 +156,7 @@ func TestInsert_SetsContentTypeAndFailLoud(t *testing.T) {
 func TestExec_PropagatesNon2xx(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("syntax error near 'GROOT'"))
+		_, _ = w.Write([]byte("syntax error near 'GROOT'"))
 	}))
 	defer srv.Close()
 	c, _ := New(srv.URL, "", "", time.Second)

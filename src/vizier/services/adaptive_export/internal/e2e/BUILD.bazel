@@ -18,7 +18,10 @@ load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 pl_go_test(
     name = "e2e_test",
-    srcs = ["e2e_test.go"],
+    srcs = [
+        "e2e_test.go",
+        "loadtest_test.go",
+    ],
     deps = [
         "//src/vizier/services/adaptive_export/internal/anomaly",
         "//src/vizier/services/adaptive_export/internal/controller",

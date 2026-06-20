@@ -42,5 +42,6 @@ pl_go_test(
     deps = [
         "//src/vizier/services/adaptive_export/internal/clickhouse",
         "//src/vizier/services/adaptive_export/internal/reconcile",
+        "//src/vizier/services/adaptive_export/internal/sink",
     ],
 )

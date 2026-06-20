@@ -211,7 +211,9 @@ func TestQueryFor_EveryBuiltinTableEmits(t *testing.T) {
 	}
 }
 
-// TestEscapePxL_TableDriven — direct coverage of the escaper.
+// TestEscapePxL_TableDriven — direct coverage of the escaper. Every byte
+// that could break out of a single-quoted PxL string literal must come
+// back as a non-breaking escape sequence.
 func TestEscapePxL_TableDriven(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"", ""},
@@ -220,10 +222,121 @@ func TestEscapePxL_TableDriven(t *testing.T) {
 		{`back\slash`, `back\\slash`},
 		{`mix'and\back`, `mix\'and\\back`},
 		{"'; DROP TABLE alerts; --", `\'; DROP TABLE alerts; --`},
+		// Byte-level string-breaking attempts: a raw \n would terminate
+		// the PxL statement and inject a new one on the next line. The
+		// escaper turns these into Python-style escape sequences that
+		// PxL renders as inert backslash-letter pairs inside the string.
+		{"line1\nline2", `line1\nline2`},
+		{"line1\r\nline2", `line1\r\nline2`},
+		{"col1\tcol2", `col1\tcol2`},
+		{"trailing\x00", `trailing\0`},
+		// The full injection probe targeting Target.Pod/Target.Namespace:
+		// close the literal, inject a new statement, comment out the
+		// trailing fragment. The escaper neutralises the close + newline;
+		// the trailing # stays as a literal '#' inside the string.
+		{"redis-pod', exec('rm -rf /'), '\n#", `redis-pod\', exec(\'rm -rf /\'), \'\n#`},
 	}
 	for _, c := range cases {
 		if got := escapePxL(c.in); got != c.want {
 			t.Errorf("escapePxL(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// TestQueryFor_RejectsInjectionInTargetFields drives QueryFor with
+// adversarial Pod/Namespace values and asserts the resulting PxL has
+// EXACTLY the line count of a clean call — proving an injected newline
+// can't add a statement, and the embedded literal stays single-quoted.
+//
+// PxL line breakdown for a fully-populated Target (cf. QueryFor):
+//
+//	#px:set ...                               1
+//	import px                                 1
+//	df = px.DataFrame(...)                    1
+//	df = df[df.time_ >= ...]                  1
+//	df = df[df.time_ <  ...]                  1
+//	df.namespace = px.upid_to_namespace(...)  1
+//	df.pod = px.upid_to_pod_name(...)         1
+//	df = df[df.namespace == '...']            1
+//	df = df[df.pod == '...']                  1
+//	px.display(df, '...')                     1
+//	(trailing newline → empty 11th split)     1
+//
+// Total: 10 statements + trailing empty == strings.Split == 11 entries.
+func TestQueryFor_RejectsInjectionInTargetFields(t *testing.T) {
+	const wantLines = 11
+
+	cases := []struct {
+		name   string
+		target anomaly.Target
+	}{
+		{
+			name:   "newline-in-pod",
+			target: anomaly.Target{Pod: "p\n', exec('rm -rf /'), '", Namespace: "ns"},
+		},
+		{
+			name:   "newline-in-namespace",
+			target: anomaly.Target{Pod: "p", Namespace: "ns\n', exec('rm -rf /'), '"},
+		},
+		{
+			name:   "single-quote-only",
+			target: anomaly.Target{Pod: "p'); display('owned", Namespace: "ns"},
+		},
+		{
+			name:   "carriage-return",
+			target: anomaly.Target{Pod: "p\rexec('owned')", Namespace: "ns"},
+		},
+		{
+			name:   "backslash-escape-of-escape",
+			target: anomaly.Target{Pod: `p\', exec('owned'), \'`, Namespace: "ns"},
+		},
+		{
+			name:   "null-byte",
+			target: anomaly.Target{Pod: "p\x00bonus", Namespace: "ns"},
+		},
+		{
+			name:   "tab-bytes",
+			target: anomaly.Target{Pod: "p\texec('owned')", Namespace: "ns"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			q, err := QueryFor("http_events", c.target, fixedStart, fixedEnd, fixedNow)
+			if err != nil {
+				t.Fatalf("QueryFor: %v", err)
+			}
+			if got := strings.Count(q, "\n") + 1; got != wantLines {
+				t.Fatalf("got %d lines, want %d (injection succeeded?)\n%s", got, wantLines, q)
+			}
+			// The exact statement count: each line must start with
+			// either #px:, import, df, or px.display — anything else is
+			// a smuggled call.
+			for i, line := range strings.Split(q, "\n") {
+				if line == "" {
+					continue
+				}
+				if !(strings.HasPrefix(line, "#px:") ||
+					strings.HasPrefix(line, "import ") ||
+					strings.HasPrefix(line, "df") ||
+					strings.HasPrefix(line, "px.display")) {
+					t.Fatalf("line %d looks injected: %q\nfull script:\n%s", i, line, q)
+				}
+			}
+		})
+	}
+}
+
+// TestQueryFor_PodOnlyRegexEscapesQuoteMetaInjection — the bare-pod
+// fallback uses regexp.QuoteMeta + escapePxL; verify a pod name carrying
+// regex meta chars + a single quote both survive without breaking out
+// of the px.regex_match literal.
+func TestQueryFor_PodOnlyRegexEscapesQuoteMetaInjection(t *testing.T) {
+	tgt := anomaly.Target{Pod: "p.*'; exec('owned')"}
+	q, err := QueryFor("http_events", tgt, fixedStart, fixedEnd, fixedNow)
+	if err != nil {
+		t.Fatalf("QueryFor: %v", err)
+	}
+	if strings.Contains(q, "exec(") || strings.Count(q, "\n") > 9 {
+		t.Fatalf("pod-only path injection succeeded:\n%s", q)
 	}
 }

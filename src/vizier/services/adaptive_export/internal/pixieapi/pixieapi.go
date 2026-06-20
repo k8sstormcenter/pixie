@@ -25,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 
 	"px.dev/pixie/src/api/go/pxapi"
@@ -76,16 +75,17 @@ func New(client *pxapi.Client, clusterID string) *Adapter {
 // connects directly to the in-cluster vizier-query-broker. Each Query
 // call rebuilds the gRPC client with a fresh service JWT.
 //
-// Returns an error if VizierAddr targets cluster.local but PX_DISABLE_TLS
-// is unset — pxapi.WithDisableTLSVerification log.Fatal's on that
-// combination at Query time, which would crash the operator mid-request
-// long after construction. Catch it here instead.
+// TLS: direct dial uses pxapi.WithDirectTLSSkipVerify() (added in
+// PR #49 b523ce362 for the same node-IP-dial scenario PEM
+// direct-query needs). That option skips InsecureSkipVerify gating on
+// PX_DISABLE_TLS and on addr containing "cluster.local" — the AE
+// operator always targets cluster-internal vizier with a self-signed
+// CA we don't have a clean way to mount, so the always-skip semantics
+// match the deployment shape and remove the brittle env coupling.
+// CodeRabbit r3379377607.
 func NewDirect(clusterID string, opts DirectOptions) (*Adapter, error) {
 	if opts.ServiceID == "" {
 		opts.ServiceID = "adaptive_export"
-	}
-	if strings.Contains(opts.VizierAddr, "cluster.local") && os.Getenv("PX_DISABLE_TLS") != "1" {
-		return nil, errors.New("pixieapi: PX_DISABLE_TLS=1 required for direct cluster.local connections (pxapi's TLS-skip is gated on that env)")
 	}
 	return &Adapter{clusterID: clusterID, directOpts: &opts}, nil
 }
@@ -94,13 +94,6 @@ func NewDirect(clusterID string, opts DirectOptions) (*Adapter, error) {
 // Reads ADAPTIVE_VIZIER_DIRECT_ADDR for the broker addr and
 // PL_JWT_SIGNING_KEY for the signing key (matching kelvin/metadata
 // pod env conventions). Returns an error if either is missing.
-//
-// The caller MUST also set PX_DISABLE_TLS=1 in the operator pod —
-// pxapi's WithDisableTLSVerification only sets InsecureSkipVerify when
-// that env is "1" AND the addr contains "cluster.local"; without it,
-// pxapi log.Fatal's at NewClient time. We accept skip-verify because
-// query-broker's TLS uses a self-signed in-cluster CA we don't have a
-// clean way to mount here.
 func NewDirectFromEnv(clusterID string) (*Adapter, error) {
 	addr := os.Getenv("ADAPTIVE_VIZIER_DIRECT_ADDR")
 	if addr == "" {
@@ -139,7 +132,7 @@ func (a *Adapter) Query(ctx context.Context, pxl string) ([]Row, error) {
 		// a long-lived client + JWT-refresh ticker instead.
 		c, err := pxapi.NewClient(ctx,
 			pxapi.WithCloudAddr(a.directOpts.VizierAddr),
-			pxapi.WithDisableTLSVerification(a.directOpts.VizierAddr),
+			pxapi.WithDirectTLSSkipVerify(),
 			pxapi.WithBearerAuth(jwt),
 		)
 		if err != nil {

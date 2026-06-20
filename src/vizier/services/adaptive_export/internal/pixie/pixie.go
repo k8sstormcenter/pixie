@@ -55,6 +55,27 @@ type Client struct {
 
 // NewClient dials the Pixie cloud and authenticates with apiKey via
 // the per-call metadata header.
+//
+// Auth choice — why API key here, not a service JWT.
+// Two different gRPC perimeters are talked to from AE:
+//  1. This package (pixie.Client) targets the Pixie CLOUD (cloudpb's
+//     PluginService): enabling the ClickHouse retention plugin, syncing
+//     preset retention scripts. The cloud's auth interceptor accepts the
+//     `pixie-api-key` header for external clients and resolves it to an
+//     org. JWT service tokens minted with PL_JWT_SIGNING_KEY are only
+//     trusted by INSIDE-cluster vizier services (kelvin, metadata,
+//     query_broker); cloud rejects them. See
+//     src/cloud/api/controllers/auth_grpc.go:62 for the cloud-side
+//     "pixie-api-key" handler and src/api/go/pxapi/client.go:117 for
+//     pixie's own SDK using the same header.
+//  2. pixieapi.Adapter (internal/pixieapi) targets vizier DIRECTLY
+//     (vizierpb.VizierService at query-broker / PEM direct-query) and
+//     correctly uses JWT via jwtutils.GenerateJWTForService — the same
+//     pattern as cloud_connector/vizhealth/checker.go:111 and
+//     query_broker/script_runner/script_runner.go:248.
+//
+// So: this NewClient must take an API key; flipping it to JWT would
+// break cloud auth, not improve it.
 func NewClient(ctx context.Context, apiKey string, cloudAddr string) (*Client, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("pixie: empty API key")

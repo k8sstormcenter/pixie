@@ -73,6 +73,8 @@ namespace {
 constexpr char kBearerPrefixLower[] = "bearer ";
 constexpr size_t kBearerPrefixLen = sizeof(kBearerPrefixLower) - 1;
 constexpr char kExpectedAudience[] = "vizier";
+constexpr char kExpectedIssuer[] = "PL";
+constexpr char kExpectedSubject[] = "service";
 
 // We don't link cpp_jwt's HMAC verifier here because its impl calls
 // BIO_f_base64() which lives in BoringSSL's decrepit/ tree — not exposed as a
@@ -210,6 +212,16 @@ std::string hmacSha256(absl::string_view key, absl::string_view data) {
   if (!aud_ok) {
     return ::grpc::Status(::grpc::StatusCode::UNAUTHENTICATED,
                           "direct-query: wrong audience (expected vizier)");
+  }
+  if (!payload.HasMember("iss") || !payload["iss"].IsString() ||
+      std::strcmp(payload["iss"].GetString(), kExpectedIssuer) != 0) {
+    return ::grpc::Status(::grpc::StatusCode::UNAUTHENTICATED,
+                          "direct-query: wrong iss (expected PL)");
+  }
+  if (!payload.HasMember("sub") || !payload["sub"].IsString() ||
+      std::strcmp(payload["sub"].GetString(), kExpectedSubject) != 0) {
+    return ::grpc::Status(::grpc::StatusCode::UNAUTHENTICATED,
+                          "direct-query: wrong sub (expected service)");
   }
   if (!payload.HasMember("exp")) {
     return ::grpc::Status(::grpc::StatusCode::UNAUTHENTICATED, "direct-query: missing exp claim");

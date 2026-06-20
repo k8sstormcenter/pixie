@@ -15,7 +15,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
-load("//bazel:pl_build_system.bzl", "pl_go_binary")
+load("@px//bazel:pl_build_system.bzl", "pl_go_binary")
 
 go_library(
     name = "cmd_lib",

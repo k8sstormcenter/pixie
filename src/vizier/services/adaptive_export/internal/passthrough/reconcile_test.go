@@ -116,7 +116,7 @@ func TestTick_ReconcileRecordsReadVsWrote(t *testing.T) {
 
 	// conn_stats must show read>wrote — the exact shape a sink-drop bug
 	// produces, which a count-only check would miss.
-	if r := got["conn_stats"]; !(r[0] > r[1]) {
+	if r := got["conn_stats"]; r[0] <= r[1] {
 		t.Errorf("conn_stats read(%d) must exceed wrote(%d) on sink failure", r[0], r[1])
 	}
 }

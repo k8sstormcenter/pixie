@@ -185,7 +185,7 @@ func (c *Client) GetClusterScripts(clusterID, clusterName string) ([]*script.Scr
 			}
 			l = append(l, &script.Script{
 				ScriptDefinition: *sd,
-				ScriptId:         utils.ProtoToUUIDStr(s.ScriptID),
+				ScriptID:         utils.ProtoToUUIDStr(s.ScriptID),
 				ClusterIds:       strings.Join(clusterIDs, ","),
 			})
 		}

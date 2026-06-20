@@ -1,3 +1,4 @@
+---
 # Shared, long-lived data-plane sinks for the AE load-tests. These are the PEER
 # side of cleanloadgen's traffic; AE filters to the client (gen) pod so the
 # sinks' own rows are excluded — but they carry NO probes/sidecars regardless so
@@ -20,20 +21,20 @@ metadata:
 spec:
   replicas: 1
   selector:
-    matchLabels: { app: http-sink }
+    matchLabels: {app: http-sink}
   template:
     metadata:
-      labels: { app: http-sink }
+      labels: {app: http-sink}
     spec:
       # No probes anywhere: probe traffic would be captured by Pixie.
       containers:
-        - name: httpsink
-          image: __IMAGE__
-          command: ["/usr/local/bin/httpsink"]
-          env:
-            - { name: LISTEN_ADDR, value: ":8080" }
-          ports:
-            - containerPort: 8080
+      - name: httpsink
+        image: __IMAGE__
+        command: ["/usr/local/bin/httpsink"]
+        env:
+        - {name: LISTEN_ADDR, value: ":8080"}
+        ports:
+        - containerPort: 8080
 ---
 apiVersion: v1
 kind: Service
@@ -41,10 +42,10 @@ metadata:
   name: http-sink
   namespace: aeload
 spec:
-  selector: { app: http-sink }
+  selector: {app: http-sink}
   ports:
-    - port: 8080
-      targetPort: 8080
+  - port: 8080
+    targetPort: 8080
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -54,20 +55,20 @@ metadata:
 spec:
   replicas: 1
   selector:
-    matchLabels: { app: pg-sink }
+    matchLabels: {app: pg-sink}
   template:
     metadata:
-      labels: { app: pg-sink }
+      labels: {app: pg-sink}
     spec:
       containers:
-        - name: postgres
-          image: postgres:16-alpine
-          # trust auth keeps the gen simple; no probes.
-          env:
-            - { name: POSTGRES_PASSWORD, value: postgres }
-            - { name: POSTGRES_HOST_AUTH_METHOD, value: trust }
-          ports:
-            - containerPort: 5432
+      - name: postgres
+        image: postgres:16-alpine
+        # trust auth keeps the gen simple; no probes.
+        env:
+        - {name: POSTGRES_PASSWORD, value: postgres}
+        - {name: POSTGRES_HOST_AUTH_METHOD, value: trust}
+        ports:
+        - containerPort: 5432
 ---
 apiVersion: v1
 kind: Service
@@ -75,7 +76,7 @@ metadata:
   name: pg-sink
   namespace: aeload
 spec:
-  selector: { app: pg-sink }
+  selector: {app: pg-sink}
   ports:
-    - port: 5432
-      targetPort: 5432
+  - port: 5432
+    targetPort: 5432

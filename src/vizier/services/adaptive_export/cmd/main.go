@@ -782,7 +782,7 @@ func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (
 				Debug("preset install — leaving user-authored script alone")
 			continue
 		}
-		if err := client.DeleteDataRetentionScript(s.ScriptId); err != nil {
+		if err := client.DeleteDataRetentionScript(s.ScriptID); err != nil {
 			log.WithError(err).WithField("script", s.Name).Warn("failed to delete stale script")
 			continue
 		}

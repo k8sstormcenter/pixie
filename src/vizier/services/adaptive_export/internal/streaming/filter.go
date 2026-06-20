@@ -193,6 +193,10 @@ func (u *FilterUpdater) Run(ctx context.Context) {
 
 		case _, ok := <-u.deltaCh:
 			if !ok {
+				// ActiveSet shutdown: disarm any pending timer so its
+				// goroutine doesn't outlive Run trying to send on
+				// pendingC (CodeRabbit r3379377645).
+				disarm()
 				return
 			}
 			arm()

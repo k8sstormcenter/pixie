@@ -19,11 +19,15 @@ package passthrough
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/reconcile"
+	sinkpkg "px.dev/pixie/src/vizier/services/adaptive_export/internal/sink"
 )
 
 // capRec captures every reconcile.Row for assertions.
@@ -128,4 +132,116 @@ func TestNew_DefaultsRecorderToNop(t *testing.T) {
 		Config{Window: time.Second, Tables: []string{"http_events"}})
 	// Must not panic with Rec unset.
 	loop.tick(context.Background())
+}
+
+// TestTick_ReconcileCatchesCHSilentDrop — the production-meaningful
+// counterpart to TestTick_ReconcileRecordsReadVsWrote: replaces the
+// in-process fake sink with a real sink.ClickHouseHTTP pointed at an
+// httptest server that mimics CH's X-ClickHouse-Summary silent-drop
+// shape (200 OK + written_rows=0 in the header). The loop must see
+// the silent drop as an error (sink.summaryWroteFewerThan returns
+// non-nil) and record WroteCount=0, ReadCount=N. This is the EXACT
+// regression an R6 (sink-layer loss) reconcile run must detect; the
+// fake-sink test only proves the wiring, this test proves the chain
+// works end-to-end.
+func TestTick_ReconcileCatchesCHSilentDrop(t *testing.T) {
+	const (
+		table = "http_events"
+		nRows = 5
+	)
+	// Counter so we can assert the loop actually called the sink once
+	// (one tick × one table = one POST).
+	var posts atomic.Int32
+	ch := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		posts.Add(1)
+		// Emulate CH's silent-drop response: 200 OK with summary that
+		// says "0 rows written" despite a non-empty body. AE's sink
+		// turns this into a Go error via summaryWroteFewerThan.
+		w.Header().Set("X-ClickHouse-Summary", `{"written_rows":"0"}`)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ch.Close()
+
+	s, err := sinkpkg.New(sinkpkg.Config{Endpoint: ch.URL, Database: "forensic_db"})
+	if err != nil {
+		t.Fatalf("sink.New: %v", err)
+	}
+	rec := &capRec{}
+	loop := New(
+		tableQuerier{n: map[string]int{table: nRows}},
+		s,
+		Config{
+			Window:   60 * time.Second,
+			Tables:   []string{table},
+			Rec:      rec,
+			Hostname: "node-test",
+		},
+	)
+	loop.tick(context.Background())
+
+	if posts.Load() != 1 {
+		t.Fatalf("CH endpoint hit %d times, want 1", posts.Load())
+	}
+	if len(rec.rows) != 1 {
+		t.Fatalf("recorded %d reconcile rows, want 1", len(rec.rows))
+	}
+	row := rec.rows[0]
+	if row.Table != table {
+		t.Fatalf("Table=%q want %q", row.Table, table)
+	}
+	if row.ReadCount != int64(nRows) {
+		t.Fatalf("ReadCount=%d, want %d (read from querier)", row.ReadCount, nRows)
+	}
+	if row.WroteCount != 0 {
+		t.Fatalf("WroteCount=%d, want 0 (CH silent-drop must land here, not at %d)", row.WroteCount, nRows)
+	}
+	if !strings.Contains(row.WriteErr, "silent drop") && !strings.Contains(row.WriteErr, "written_rows") {
+		t.Fatalf("WriteErr=%q, want CH silent-drop attribution", row.WriteErr)
+	}
+}
+
+// TestTick_ReconcileAttributesCHFailureCorrectly — the dual to
+// CHSilentDrop: when CH returns an actual 5xx, the loop must record
+// the same (read=N, wrote=0) shape with a different WriteErr. Proves
+// the loop's read-count vs wrote-count split is sink-error-agnostic
+// (it's the COUNT that matters for R6 attribution, not the specific
+// failure mode).
+func TestTick_ReconcileAttributesCHFailureCorrectly(t *testing.T) {
+	const (
+		table = "dns_events"
+		nRows = 7
+	)
+	ch := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Memory limit exceeded"))
+	}))
+	defer ch.Close()
+
+	s, err := sinkpkg.New(sinkpkg.Config{Endpoint: ch.URL, Database: "forensic_db"})
+	if err != nil {
+		t.Fatalf("sink.New: %v", err)
+	}
+	rec := &capRec{}
+	loop := New(
+		tableQuerier{n: map[string]int{table: nRows}},
+		s,
+		Config{
+			Window:   60 * time.Second,
+			Tables:   []string{table},
+			Rec:      rec,
+			Hostname: "node-test",
+		},
+	)
+	loop.tick(context.Background())
+
+	if len(rec.rows) != 1 {
+		t.Fatalf("recorded %d reconcile rows, want 1", len(rec.rows))
+	}
+	row := rec.rows[0]
+	if row.ReadCount != int64(nRows) || row.WroteCount != 0 {
+		t.Fatalf("got (read,wrote)=(%d,%d) want (%d,0)", row.ReadCount, row.WroteCount, nRows)
+	}
+	if !strings.Contains(row.WriteErr, "500") && !strings.Contains(row.WriteErr, "Memory") {
+		t.Fatalf("WriteErr=%q, want 500/Memory attribution", row.WriteErr)
+	}
 }

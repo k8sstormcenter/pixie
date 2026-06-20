@@ -49,42 +49,29 @@ func TestNewDirectFromEnv_MissingSigningKey(t *testing.T) {
 	}
 }
 
-func TestNewDirect_ClusterLocalRequiresDisableTLS(t *testing.T) {
-	clearDirectEnv(t) // PX_DISABLE_TLS unset
-	_, err := NewDirect("cid", DirectOptions{
-		VizierAddr: "vizier-query-broker-svc.pl.svc.cluster.local:50300",
-		SigningKey: "k",
-	})
-	if err == nil {
-		t.Fatal("cluster.local addr without PX_DISABLE_TLS=1 must error (pxapi would log.Fatal at Query)")
-	}
-}
-
-func TestNewDirect_ClusterLocalWithDisableTLS_OK(t *testing.T) {
+// TestNewDirect_NoEnvGate — direct dial now uses pxapi.WithDirectTLSSkipVerify
+// (PR #49 b523ce362), which doesn't read PX_DISABLE_TLS at all. NewDirect
+// must therefore accept any addr regardless of env.
+func TestNewDirect_NoEnvGate(t *testing.T) {
 	clearDirectEnv(t)
-	t.Setenv("PX_DISABLE_TLS", "1")
-	a, err := NewDirect("cid", DirectOptions{
-		VizierAddr: "vizier-query-broker-svc.pl.svc.cluster.local:50300",
-		SigningKey: "k",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error with PX_DISABLE_TLS=1: %v", err)
-	}
-	if a.directOpts == nil {
-		t.Fatal("direct-mode Adapter must carry directOpts (so Query takes the broker path)")
-	}
-	if a.client != nil {
-		t.Error("direct-mode Adapter must NOT hold a cloud client (it dials per-query)")
-	}
-	if a.directOpts.ServiceID != "adaptive_export" {
-		t.Errorf("ServiceID should default to adaptive_export, got %q", a.directOpts.ServiceID)
-	}
-}
-
-func TestNewDirect_NonClusterLocalNeedsNoDisableTLS(t *testing.T) {
-	clearDirectEnv(t) // PX_DISABLE_TLS unset, but addr isn't cluster.local
-	if _, err := NewDirect("cid", DirectOptions{VizierAddr: "vizier.example:50300", SigningKey: "k"}); err != nil {
-		t.Fatalf("non-cluster.local addr should not require PX_DISABLE_TLS: %v", err)
+	for _, addr := range []string{
+		"vizier-query-broker-svc.pl.svc.cluster.local:50300",
+		"vizier.example:50300",
+		"10.42.0.5:50300",
+	} {
+		a, err := NewDirect("cid", DirectOptions{VizierAddr: addr, SigningKey: "k"})
+		if err != nil {
+			t.Fatalf("NewDirect(%q): %v", addr, err)
+		}
+		if a.directOpts == nil {
+			t.Fatalf("direct-mode Adapter must carry directOpts (so Query takes the broker path)")
+		}
+		if a.client != nil {
+			t.Error("direct-mode Adapter must NOT hold a cloud client (it dials per-query)")
+		}
+		if a.directOpts.ServiceID != "adaptive_export" {
+			t.Errorf("ServiceID should default to adaptive_export, got %q", a.directOpts.ServiceID)
+		}
 	}
 }
 

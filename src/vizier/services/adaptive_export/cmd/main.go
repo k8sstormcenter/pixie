@@ -575,9 +575,21 @@ func main() {
 	if addr := os.Getenv("CONTROL_ADDR"); addr != "" {
 		ctrlSrv := control.New(activeSet, nil) // OrderQuery runner wired later
 		ctrlSrv.SetGraphWriter(applier)        // dx_attack_graph ingest → ClickHouse
+		// Wrap in an http.Server with explicit timeouts so a slow client
+		// can't pin a goroutine on the control surface (CodeRabbit
+		// r3379377432). The control plane is small/idempotent JSON, so
+		// short read/write budgets are fine.
+		httpSrv := &http.Server{
+			Addr:              addr,
+			Handler:           ctrlSrv.Handler(),
+			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       15 * time.Second,
+			WriteTimeout:      30 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		}
 		go func() {
 			log.WithField("addr", addr).Info("control surface listening")
-			if err := http.ListenAndServe(addr, ctrlSrv.Handler()); err != nil &&
+			if err := httpSrv.ListenAndServe(); err != nil &&
 				err != http.ErrServerClosed {
 				log.WithError(err).Error("control surface stopped")
 			}

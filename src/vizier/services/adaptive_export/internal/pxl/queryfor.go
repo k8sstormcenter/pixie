@@ -89,7 +89,25 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	return b.String(), nil
 }
 
-var pxlEscaper = strings.NewReplacer(`\`, `\\`, `'`, `\'`)
+// pxlEscaper turns raw bytes that could break out of a PxL single-quoted
+// string into their Python-style escape sequences. The backslash MUST be
+// mapped FIRST so its own substitution doesn't get double-escaped when
+// processed alongside the rest.
+//
+// Why each entry: PxL is Python; a single-quoted literal closes on a bare
+// ' and a raw newline (0x0A) terminates the statement, letting an
+// attacker-controlled Target.Pod/Target.Namespace value inject a new
+// PxL statement after the close. ', \r, \n, \t, and NUL are the
+// byte-level shapes that can break the string boundary; everything
+// else is opaque to the PxL parser inside a string literal.
+var pxlEscaper = strings.NewReplacer(
+	`\`, `\\`,
+	`'`, `\'`,
+	"\n", `\n`,
+	"\r", `\r`,
+	"\t", `\t`,
+	"\x00", `\0`,
+)
 
 func escapePxL(s string) string {
 	return pxlEscaper.Replace(s)

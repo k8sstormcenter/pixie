@@ -315,12 +315,23 @@ func (s *ClickHouseHTTP) Record(ctx context.Context, r reconcile.Row) {
 		log.WithError(err).Warn("reconcile: marshal row")
 		return
 	}
-	if _, err := s.c.Insert(ctx,
+	// Cap Record at recordTimeout regardless of the caller's ctx —
+	// scanner/passthrough/controller call this inline on hot paths, so a
+	// stalled CH must not pin the pull loop on the shared 30s sink
+	// timeout (CodeRabbit r3426923299). 2s is well above CH's typical
+	// single-row INSERT roundtrip (~50ms in steady state) and below the
+	// pull loop's minimum tick interval.
+	rctx, cancel := context.WithTimeout(ctx, recordTimeout)
+	defer cancel()
+	if _, err := s.c.Insert(rctx,
 		fmt.Sprintf("INSERT INTO %s.ae_reconcile FORMAT JSONEachRow", s.cfg.Database),
 		body, chhttp.InsertOptions{}); err != nil {
 		log.WithError(err).Warn("reconcile: CH rejected ae_reconcile insert")
 	}
 }
+
+// recordTimeout caps how long Record can block the caller's hot path.
+const recordTimeout = 2 * time.Second
 
 // QueryActive fetches all attribution rows on this hostname whose t_end
 // is still in the future. Used by the operator at boot to rehydrate

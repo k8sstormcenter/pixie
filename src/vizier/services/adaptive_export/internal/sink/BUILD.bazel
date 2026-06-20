@@ -27,6 +27,7 @@ go_library(
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
     deps = [
         "//src/vizier/services/adaptive_export/internal/anomaly",
+        "//src/vizier/services/adaptive_export/internal/chhttp",
         "//src/vizier/services/adaptive_export/internal/clickhouse",
         "//src/vizier/services/adaptive_export/internal/reconcile",
         "@com_github_sirupsen_logrus//:logrus",

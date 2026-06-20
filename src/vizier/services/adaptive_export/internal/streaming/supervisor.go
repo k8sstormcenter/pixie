@@ -93,25 +93,3 @@ func (s *Supervisor) Run(ctx context.Context) {
 	}
 	s.wg.Wait()
 }
-
-// Stats aggregates per-table counters. Useful for /metrics endpoints
-// + diagnostic logging.
-type SupervisorStats struct {
-	PerTable map[string]TableStats
-}
-
-type TableStats struct {
-	Scanner ScannerStats
-	Writer  Stats
-}
-
-func (s *Supervisor) Stats() SupervisorStats {
-	out := SupervisorStats{PerTable: make(map[string]TableStats, len(s.tables))}
-	for i, t := range s.tables {
-		out.PerTable[t] = TableStats{
-			Scanner: s.scanners[i].Stats(),
-			Writer:  s.writers[i].Stats(),
-		}
-	}
-	return out
-}

@@ -53,6 +53,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"px.dev/pixie/src/api/go/pxapi"
+	"px.dev/pixie/src/shared/services"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/clickhouse"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/config"
@@ -163,6 +164,22 @@ const (
 )
 
 func main() {
+	// Wire AE into the shared pixie service scaffold:
+	//   - SetupService registers --version + ports.
+	//   - SetupSSLClientFlags adds the client TLS flags pxapi uses
+	//     when --disable_ssl=false (cluster TLS into vizier).
+	//   - PostFlagSetupAndParse runs pflag.Parse and binds viper to
+	//     PL_*-prefixed env vars (so PL_JWT_SIGNING_KEY etc. work
+	//     without any custom os.Getenv plumbing).
+	//   - SetupServiceLogging switches logrus to JSON for log shippers.
+	// AE doesn't run a gRPC server, so CheckServiceFlags is skipped —
+	// it panics on missing --server_tls_key/cert which AE has no use
+	// for.
+	services.SetupService("adaptive-export", 50900)
+	services.SetupSSLClientFlags()
+	services.PostFlagSetupAndParse()
+	services.SetupServiceLogging()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

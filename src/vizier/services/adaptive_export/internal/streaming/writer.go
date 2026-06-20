@@ -18,7 +18,6 @@ package streaming
 
 import (
 	"context"
-	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -48,12 +47,6 @@ type BatchWriter struct {
 	batchRows  int
 	batchEvery time.Duration
 	bufferCap  int
-
-	// Counters exposed via Stats — read-only after Run starts.
-	written atomic.Int64
-	dropped atomic.Int64
-	flushes atomic.Int64
-	errors  atomic.Int64
 }
 
 // WriterConfig tunes a BatchWriter. Zero → defaults.
@@ -101,7 +94,10 @@ func (w *BatchWriter) Submit(rows []map[string]any) bool {
 	case w.in <- rows:
 		return true
 	default:
-		w.dropped.Add(int64(len(rows)))
+		log.WithFields(log.Fields{
+			"table": w.table,
+			"rows":  len(rows),
+		}).Warn("streaming.BatchWriter: input chan full, dropping batch")
 		return false
 	}
 }
@@ -122,15 +118,12 @@ func (w *BatchWriter) Run(ctx context.Context) {
 		err := w.sink.WritePixieRows(fctx, w.table, buf)
 		cancel()
 		if err != nil {
-			w.errors.Add(1)
 			log.WithError(err).WithFields(log.Fields{
 				"table":  w.table,
 				"rows":   len(buf),
 				"reason": reason,
 			}).Warn("streaming.BatchWriter: flush failed")
 		} else {
-			w.written.Add(int64(len(buf)))
-			w.flushes.Add(1)
 			log.WithFields(log.Fields{
 				"table":  w.table,
 				"rows":   len(buf),
@@ -157,23 +150,5 @@ func (w *BatchWriter) Run(ctx context.Context) {
 		case <-ticker.C:
 			flush("timer")
 		}
-	}
-}
-
-// Stats snapshots the four counters.
-type Stats struct {
-	Written int64
-	Dropped int64
-	Flushes int64
-	Errors  int64
-}
-
-// Stats returns a Stats snapshot (atomic loads).
-func (w *BatchWriter) Stats() Stats {
-	return Stats{
-		Written: w.written.Load(),
-		Dropped: w.dropped.Load(),
-		Flushes: w.flushes.Load(),
-		Errors:  w.errors.Load(),
 	}
 }

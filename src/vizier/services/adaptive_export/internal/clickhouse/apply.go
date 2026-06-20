@@ -21,11 +21,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strings"
-	"time"
+
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/chhttp"
 )
 
 // OperatorOwnedTables is the subset of KnownTables the adaptive_export
@@ -77,31 +75,16 @@ var OperatorOwnedTables = []string{
 // Applier applies operator-owned DDL to a ClickHouse cluster over the
 // HTTP interface (default 8123). Used at boot.
 type Applier struct {
-	endpoint string
-	user     string
-	pass     string
-	client   *http.Client
+	c *chhttp.Client
 }
 
 // NewApplier validates the endpoint and returns a ready Applier.
 func NewApplier(endpoint, user, pass string) (*Applier, error) {
-	if endpoint == "" {
-		return nil, fmt.Errorf("clickhouse: empty endpoint")
+	c, err := chhttp.New(endpoint, user, pass, 0)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: %w", err)
 	}
-	// Reject anything that isn't an absolute http/https URL — net/http will
-	// otherwise interpret things like "localhost:8123" as a relative path
-	// and fail much later with a confusing "missing protocol scheme" deep
-	// inside the first request.
-	u, err := url.Parse(endpoint)
-	if err != nil || u.Scheme == "" || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-		return nil, fmt.Errorf("clickhouse: invalid endpoint %q (must be absolute http/https URL)", endpoint)
-	}
-	return &Applier{
-		endpoint: strings.TrimRight(endpoint, "/"),
-		user:     user,
-		pass:     pass,
-		client:   &http.Client{Timeout: 30 * time.Second},
-	}, nil
+	return &Applier{c: c}, nil
 }
 
 // Apply ensures forensic_db exists, then runs CREATE TABLE IF NOT
@@ -133,30 +116,15 @@ func (a *Applier) WriteAttackGraph(ctx context.Context, jsonEachRow []byte) erro
 	if len(jsonEachRow) == 0 {
 		return nil
 	}
-	return a.execute(ctx, "INSERT INTO forensic_db.dx_attack_graph FORMAT JSONEachRow\n"+string(jsonEachRow))
+	_, err := a.c.Insert(ctx, "INSERT INTO forensic_db.dx_attack_graph FORMAT JSONEachRow",
+		jsonEachRow, chhttp.InsertOptions{})
+	return err
 }
 
-// execute POSTs a single DDL statement to ClickHouse via the HTTP
-// query endpoint. Non-2xx responses surface as Go errors.
+// execute is the DDL primitive — used by Apply for CREATE statements.
 func (a *Applier) execute(ctx context.Context, sql string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		a.endpoint+"/", strings.NewReader(sql))
-	if err != nil {
-		return err
-	}
-	if a.user != "" {
-		req.SetBasicAuth(a.user, a.pass)
-	}
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-	return nil
+	_, err := a.c.Exec(ctx, sql)
+	return err
 }
 
 // SchemaDriftError is returned by VerifyPixieSchema when a pixie
@@ -245,27 +213,9 @@ func (a *Applier) VerifyPixieSchema(ctx context.Context) error {
 // tableColumns lists the column names of forensic_db.<table> as
 // reported by system.columns.
 func (a *Applier) tableColumns(ctx context.Context, table string) ([]string, error) {
-	q := url.Values{}
-	q.Set("query", fmt.Sprintf(
+	body, err := a.c.Query(ctx, fmt.Sprintf(
 		"SELECT name FROM system.columns WHERE database='forensic_db' AND table=%s FORMAT JSONEachRow",
 		quoteCH(table)))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.endpoint+"/?"+q.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
-	if a.user != "" {
-		req.SetBasicAuth(a.user, a.pass)
-	}
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}

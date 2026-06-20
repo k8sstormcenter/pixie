@@ -18,27 +18,14 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
-    name = "clickhouse",
-    srcs = [
-        "apply.go",
-        "ddl.go",
-        "insert.go",
-    ],
-    embedsrcs = ["schema.sql"],
-    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/clickhouse",
+    name = "chhttp",
+    srcs = ["chhttp.go"],
+    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/chhttp",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
-    deps = [
-        "//src/vizier/services/adaptive_export/internal/chhttp",
-    ],
 )
 
 pl_go_test(
-    name = "clickhouse_test",
-    srcs = [
-        "apply_test.go",
-        "columns_test.go",
-        "ddl_test.go",
-        "insert_test.go",
-    ],
-    embed = [":clickhouse"],
+    name = "chhttp_test",
+    srcs = ["chhttp_test.go"],
+    embed = [":chhttp"],
 )

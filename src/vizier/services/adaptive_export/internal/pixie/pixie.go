@@ -152,29 +152,6 @@ func (c *Client) EnableClickHousePlugin(config *ClickHousePluginConfig, version 
 	return err
 }
 
-// GetPresetScripts returns the ClickHouse-plugin preset retention scripts.
-// These are the canonical http_events / dns_events / … bulk-write PxL
-// scripts the plugin ships with. INSTALL_PRESET_SCRIPTS=true on the
-// adaptive_export operator boot path uses this to bootstrap a cluster
-// that has no user-defined retention scripts yet (DEMO PATH).
-func (c *Client) GetPresetScripts() ([]*script.ScriptDefinition, error) {
-	resp, err := c.pluginClient.GetRetentionScripts(c.ctx, &cloudpb.GetRetentionScriptsRequest{})
-	if err != nil {
-		return nil, err
-	}
-	var l []*script.ScriptDefinition
-	for _, s := range resp.Scripts {
-		if s.PluginId == clickhousePluginID && s.IsPreset {
-			sd, err := c.getScriptDefinition(s)
-			if err != nil {
-				return nil, err
-			}
-			l = append(l, sd)
-		}
-	}
-	return l, nil
-}
-
 // GetClusterScripts returns the retention scripts CURRENTLY installed on
 // clusterID. Caller diffs against GetPresetScripts to figure out what
 // to add / update / delete. Filters the cloud-returned ALL-clusters

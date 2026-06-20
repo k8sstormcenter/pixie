@@ -64,9 +64,11 @@ func (f *fakeSink) WritePixieRows(_ context.Context, table string, rows []map[st
 }
 
 // TestLoop_DefaultsTablesToPixieTables — when Config.Tables is unset, the
-// loop must walk every clickhouse.PixieTables() entry. This is the contract
-// the A/B measurement depends on (a missing table silently drops a column
-// from the capture-fraction matrix).
+// loop must walk every clickhouse.PixieTables() entry MINUS the passthrough
+// exclusions (see excludedTables in passthrough.go — tables that aren't
+// materialised on every cluster). This is the contract the A/B measurement
+// depends on (a missing table silently drops a column from the capture-
+// fraction matrix).
 func TestLoop_DefaultsTablesToPixieTables(t *testing.T) {
 	q := &fakeQuerier{row: map[string]any{"upid": "x", "time_": time.Now()}}
 	s := newFakeSink()
@@ -76,13 +78,19 @@ func TestLoop_DefaultsTablesToPixieTables(t *testing.T) {
 	defer cancel()
 	l.tick(ctx)
 
-	expected := clickhouse.PixieTables()
+	expected := filterExcluded(clickhouse.PixieTables())
 	if len(s.writes) != len(expected) {
 		t.Fatalf("wrote %d tables, want %d", len(s.writes), len(expected))
 	}
 	for _, want := range expected {
 		if s.writes[want] != 1 {
 			t.Fatalf("table %q: wrote %d rows, want 1", want, s.writes[want])
+		}
+	}
+	// And the excluded tables must NOT have been written.
+	for excl := range excludedTables {
+		if got, ok := s.writes[excl]; ok {
+			t.Fatalf("excluded table %q was written %d times — exclusion list out of sync with passthrough.New", excl, got)
 		}
 	}
 }
@@ -175,7 +183,8 @@ func TestLoop_RunFiresImmediately(t *testing.T) {
 }
 
 // TestNew_AppliesDefaults — Window/Refresh = 0 fall back to 30s, Tables
-// = nil falls back to clickhouse.PixieTables(). Production cmd/main.go
+// = nil falls back to clickhouse.PixieTables() with excludedTables
+// stripped (see passthrough.go for the rationale). Production cmd/main.go
 // reads optional env knobs into Config; an unset env yields a zero
 // duration and we must not crash with a zero ticker.
 func TestNew_AppliesDefaults(t *testing.T) {
@@ -186,7 +195,7 @@ func TestNew_AppliesDefaults(t *testing.T) {
 	if l.cfg.Refresh != 30*time.Second {
 		t.Fatalf("default Refresh = %v, want 30s", l.cfg.Refresh)
 	}
-	if got, want := len(l.cfg.Tables), len(clickhouse.PixieTables()); got != want {
+	if got, want := len(l.cfg.Tables), len(filterExcluded(clickhouse.PixieTables())); got != want {
 		t.Fatalf("default Tables count = %d, want %d", got, want)
 	}
 }

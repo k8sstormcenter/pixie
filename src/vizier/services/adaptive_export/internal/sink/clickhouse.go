@@ -37,8 +37,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -47,6 +45,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/anomaly"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/chhttp"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/clickhouse"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/reconcile"
 )
@@ -55,40 +54,6 @@ import (
 // extensions like `http2_messages.beta`. Used to gate `table` strings
 // before they're interpolated into the INSERT query.
 var pixieTableIdentRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
-
-// setFailLoudSettings pins ClickHouse's input-format settings on every
-// AE INSERT so an upstream schema-drift surfaces as an HTTP 4xx with a
-// real error body, not a silent written_rows=0 + 200 OK that AE's
-// summaryWroteFewerThan only catches AFTER the data is lost (entlein/
-// the rev-2 schema + the 2026-06-07 rig 6a25c85c regression that dropped
-// http_events + dns_events at 0 written_rows while the writer reported
-// 259 rows_sent and AE re-looped on the failure → 3.2-core CPU
-// runaway).
-//
-// Pinned defaults differ from the historical CH 22+ tolerant defaults:
-//
-//	input_format_skip_unknown_fields=0    fail on a column AE writes
-//	                                      that doesn't exist in CH.
-//	input_format_null_as_default=0        fail on a NULL where the
-//	                                      column is non-nullable.
-//	input_format_allow_errors_num=0       reject the whole batch on
-//	                                      the first parse error
-//	                                      (rather than silently
-//	                                      dropping bad rows up to the
-//	                                      CH default's tolerance).
-//	input_format_allow_errors_ratio=0     same, for the proportional
-//	                                      knob.
-//
-// Loud failures are the contract: AE then either restarts on the
-// fatal-path that wraps the write (controller / streaming both bubble
-// the error up) OR retries — but never advances its watermark over
-// data it didn't actually persist.
-func setFailLoudSettings(q url.Values) {
-	q.Set("input_format_skip_unknown_fields", "0")
-	q.Set("input_format_null_as_default", "0")
-	q.Set("input_format_allow_errors_num", "0")
-	q.Set("input_format_allow_errors_ratio", "0")
-}
 
 // chIdentRE — strict CH identifier (no dots). Used to gate Database
 // (and any future single-segment identifier) against SQL injection
@@ -129,33 +94,12 @@ type AttributionRow struct {
 
 // ClickHouseHTTP is the production sink.
 type ClickHouseHTTP struct {
-	cfg    Config
-	client *http.Client
+	cfg Config
+	c   *chhttp.Client
 }
 
 // New validates Config + returns a ready-to-use sink.
 func New(cfg Config) (*ClickHouseHTTP, error) {
-	if cfg.Endpoint == "" {
-		return nil, fmt.Errorf("sink: empty Endpoint")
-	}
-	u, err := url.Parse(cfg.Endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("sink: invalid Endpoint %q: %w", cfg.Endpoint, err)
-	}
-	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return nil, fmt.Errorf("sink: Endpoint must be an absolute http(s) URL: %q", cfg.Endpoint)
-	}
-	// We append "/?query=…" downstream via string concatenation; if
-	// the configured Endpoint already carries a query or fragment, the
-	// concatenated URL is malformed (a second '?' becomes path data,
-	// fragments swallow trailing characters). Forbid both up-front.
-	if u.RawQuery != "" || u.Fragment != "" {
-		return nil, fmt.Errorf("sink: Endpoint must not include query parameters or a fragment: %q", cfg.Endpoint)
-	}
-	// Strip a trailing "/" from the path so downstream concatenation
-	// (Endpoint + "/?query=…") doesn't produce a "//?query=…" — some
-	// proxies / ingress controllers reject double-slashes.
-	cfg.Endpoint = strings.TrimRight(cfg.Endpoint, "/")
 	if cfg.Database == "" {
 		cfg.Database = "forensic_db"
 	}
@@ -167,17 +111,16 @@ func New(cfg Config) (*ClickHouseHTTP, error) {
 	}
 	// http.Client.Timeout enforces only when >0; a negative value
 	// would silently disable the deadline. Reject explicitly so the
-	// "0 → 30s default" branch below is the only zero-handling path.
+	// "0 → chhttp default" branch is the only zero-handling path.
 	if cfg.Timeout < 0 {
 		return nil, fmt.Errorf("sink: Timeout must be >= 0 (got %s)", cfg.Timeout)
 	}
-	if cfg.Timeout == 0 {
-		cfg.Timeout = 30 * time.Second
+	c, err := chhttp.New(cfg.Endpoint, cfg.Username, cfg.Password, cfg.Timeout)
+	if err != nil {
+		return nil, fmt.Errorf("sink: %w", err)
 	}
-	return &ClickHouseHTTP{
-		cfg:    cfg,
-		client: &http.Client{Timeout: cfg.Timeout},
-	}, nil
+	cfg.Endpoint = c.Endpoint()
+	return &ClickHouseHTTP{cfg: cfg, c: c}, nil
 }
 
 // WritePixieRows POSTs a batch of arbitrary rows (one map per CH row,
@@ -238,34 +181,17 @@ func (s *ClickHouseHTTP) WritePixieRows(ctx context.Context, table string, rows 
 	if strings.Contains(table, ".") {
 		identifier = "`" + table + "`"
 	}
-	q := url.Values{}
-	q.Set("query", fmt.Sprintf("INSERT INTO %s.%s FORMAT JSONEachRow", s.cfg.Database, identifier))
-	setFailLoudSettings(q)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.Endpoint+"/?"+q.Encode(), bytes.NewReader(buf.Bytes()))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/x-ndjson")
-	if s.cfg.Username != "" {
-		req.SetBasicAuth(s.cfg.Username, s.cfg.Password)
-	}
-	resp, err := s.client.Do(req)
+	res, err := s.c.Insert(ctx,
+		fmt.Sprintf("INSERT INTO %s.%s FORMAT JSONEachRow", s.cfg.Database, identifier),
+		buf.Bytes(), chhttp.InsertOptions{FailLoud: true})
 	if err != nil {
 		return fmt.Errorf("sink: pixie POST %s: %w", table, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		// Echo CH's error body so we can see WHY it rejected. Truncated
-		// to 1KiB to bound log spam from large reject lists.
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("sink: pixie HTTP %d (%s): %s",
-			resp.StatusCode, table, strings.TrimSpace(string(body)))
 	}
 	// DEBUG: ALWAYS log what CH says it wrote — temporary while we
 	// chase the pgsql_events silent-drop mystery. Includes a snippet
 	// of the first row so we can compare what was sent vs what CH
 	// reported.
-	summary := resp.Header.Get("X-ClickHouse-Summary")
+	summary := res.Summary
 	var firstRowKeys []string
 	if len(rows) > 0 {
 		for k := range rows[0] {
@@ -350,27 +276,10 @@ func (s *ClickHouseHTTP) Write(ctx context.Context, rows []AttributionRow) error
 	if err != nil {
 		return fmt.Errorf("sink: encode %d attribution rows: %w", len(rows), err)
 	}
-	q := url.Values{}
-	q.Set("query", fmt.Sprintf(
-		"INSERT INTO %s.adaptive_attribution FORMAT JSONEachRow", s.cfg.Database))
-	setFailLoudSettings(q)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		s.cfg.Endpoint+"/?"+q.Encode(), bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("sink: new request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-ndjson")
-	if s.cfg.Username != "" {
-		req.SetBasicAuth(s.cfg.Username, s.cfg.Password)
-	}
-	resp, err := s.client.Do(req)
-	if err != nil {
+	if _, err := s.c.Insert(ctx,
+		fmt.Sprintf("INSERT INTO %s.adaptive_attribution FORMAT JSONEachRow", s.cfg.Database),
+		body, chhttp.InsertOptions{FailLoud: true}); err != nil {
 		return fmt.Errorf("sink: POST: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("sink: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
 	return nil
 }
@@ -406,30 +315,10 @@ func (s *ClickHouseHTTP) Record(ctx context.Context, r reconcile.Row) {
 		log.WithError(err).Warn("reconcile: marshal row")
 		return
 	}
-	q := url.Values{}
-	q.Set("query", fmt.Sprintf(
-		"INSERT INTO %s.ae_reconcile FORMAT JSONEachRow", s.cfg.Database))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		s.cfg.Endpoint+"/?"+q.Encode(), bytes.NewReader(body))
-	if err != nil {
-		log.WithError(err).Warn("reconcile: new request")
-		return
-	}
-	req.Header.Set("Content-Type", "application/x-ndjson")
-	if s.cfg.Username != "" {
-		req.SetBasicAuth(s.cfg.Username, s.cfg.Password)
-	}
-	resp, err := s.client.Do(req)
-	if err != nil {
-		log.WithError(err).Warn("reconcile: POST")
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		log.WithField("status", resp.StatusCode).
-			WithField("body", strings.TrimSpace(string(msg))).
-			Warn("reconcile: CH rejected ae_reconcile insert")
+	if _, err := s.c.Insert(ctx,
+		fmt.Sprintf("INSERT INTO %s.ae_reconcile FORMAT JSONEachRow", s.cfg.Database),
+		body, chhttp.InsertOptions{}); err != nil {
+		log.WithError(err).Warn("reconcile: CH rejected ae_reconcile insert")
 	}
 }
 
@@ -441,7 +330,6 @@ func (s *ClickHouseHTTP) QueryActive(ctx context.Context, hostname string) ([]At
 	if hostname == "" {
 		return nil, fmt.Errorf("sink: QueryActive requires hostname")
 	}
-	q := url.Values{}
 	// `FINAL` collapses ReplacingMergeTree to the row with the largest
 	// t_end (because the engine's version column is t_end).
 	// We escape hostname inside the SQL via simple ClickHouse-style
@@ -456,29 +344,14 @@ func (s *ClickHouseHTTP) QueryActive(ctx context.Context, hostname string) ([]At
 			"WHERE hostname = %s AND t_end > now64(9) "+
 			"ORDER BY anomaly_hash FORMAT JSONEachRow",
 		s.cfg.Database, quoteCH(hostname))
-	q.Set("query", sql)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		s.cfg.Endpoint+"/?"+q.Encode(), nil)
+	body, err := s.c.QueryStream(ctx, sql)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sink: QueryActive: %w", err)
 	}
-	if s.cfg.Username != "" {
-		req.SetBasicAuth(s.cfg.Username, s.cfg.Password)
-	}
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("sink: QueryActive GET: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		// Drain (don't echo) — body may carry attribution rows.
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("sink: QueryActive HTTP %d", resp.StatusCode)
-	}
+	defer body.Close()
 	// Stream the response line-by-line so the per-call buffer is
 	// bounded by max_line_length, not by the total active-set size.
-	return parseActiveRowsStream(resp.Body)
+	return parseActiveRowsStream(body)
 }
 
 // chLiteralEscaper escapes a string for ClickHouse single-quoted literals.

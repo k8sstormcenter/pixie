@@ -210,7 +210,7 @@ func TestSink_New_ValidationTable(t *testing.T) {
 			name:           "empty endpoint",
 			cfg:            Config{},
 			wantErr:        true,
-			wantErrSnippet: "empty Endpoint",
+			wantErrSnippet: "empty endpoint",
 		},
 		{
 			name:           "relative endpoint (no scheme)",

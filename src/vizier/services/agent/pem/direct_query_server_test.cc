@@ -56,12 +56,8 @@ constexpr char kTestSigningKey[] = "test-signing-key-do-not-use-in-prod";
 constexpr char kWrongSigningKey[] = "a-different-key";
 
 // TokenKind drives MakeBearerToken's claim shape. The verifier
-// (direct_query_server.cc:verifyHs256Jwt) checks: HS256 alg, signature, aud
-// (string or array containing "vizier"), exp (numeric, > now). So the kind
-// names below reflect what the verifier actually inspects — there are
-// deliberately no "kWrongIss" / "kWrongSub" / "kFutureNbf" variants because
-// the verifier ignores those claims; minting them differently doesn't
-// change auth outcomes and would produce misleading test names.
+// (direct_query_server.cc:verifyHs256Jwt) checks: HS256 alg, signature, iss=PL,
+// sub=service, aud (string or array containing "vizier"), exp (numeric, > now).
 enum class TokenKind {
   kValid,        // signed with `signing_key`, exp +60s, aud=["vizier"]
   kWrongKey,     // signed with caller's signing_key; caller passes the wrong key to MakeBearerToken
@@ -71,6 +67,10 @@ enum class TokenKind {
   kWrongAud,     // signed correctly, aud=["wrong-service"]
   kMissingExp,   // signed correctly, no exp claim (verifier requires exp)
   kAlgNone,      // alg=none header forgery (verifier must reject — refuses anything but HS256)
+  kWrongIss,     // signed correctly, iss="not-PL"
+  kMissingIss,   // signed correctly, no iss claim
+  kWrongSub,     // signed correctly, sub="user"
+  kMissingSub,   // signed correctly, no sub claim
 };
 
 // MakeBearerToken mints a JWT for the in-process call's `authorization` metadata,
@@ -105,7 +105,15 @@ std::string MakeBearerToken(const std::string& signing_key, TokenKind kind) {
   }
 
   jwt::jwt_object obj{jwt::params::algorithm("HS256")};
-  obj.add_claim("iss", "PL");
+  switch (kind) {
+    case TokenKind::kWrongIss:
+      obj.add_claim("iss", "not-PL");
+      break;
+    case TokenKind::kMissingIss:
+      break;
+    default:
+      obj.add_claim("iss", "PL");
+  }
   // RFC 7519 §4.1.3 + pixie's go mint convention (jwt.go:46
   // Audience([]string{...})) serialize aud as a JSON array. The verifier
   // (direct_query_server.cc) accepts both string and array forms.
@@ -128,7 +136,15 @@ std::string MakeBearerToken(const std::string& signing_key, TokenKind kind) {
   if (kind != TokenKind::kMissingExp) {
     obj.add_claim("exp", now + exp_offset);
   }
-  obj.add_claim("sub", "service");
+  switch (kind) {
+    case TokenKind::kWrongSub:
+      obj.add_claim("sub", "user");
+      break;
+    case TokenKind::kMissingSub:
+      break;
+    default:
+      obj.add_claim("sub", "service");
+  }
   obj.add_claim("Scopes", "service");
   obj.add_claim("ServiceID", "dx-test");
   obj.secret(signing_key);
@@ -251,6 +267,34 @@ TEST_F(DirectQueryServerTest, WrongAud_Unauthenticated) {
 // §4.1.3 doesn't mandate it, but our security model does).
 TEST_F(DirectQueryServerTest, MissingAud_Unauthenticated) {
   auto tok = MakeBearerToken(kTestSigningKey, TokenKind::kMissingAud);
+  EXPECT_EQ(::grpc::StatusCode::UNAUTHENTICATED, CallExecuteScript(tok).error_code());
+}
+
+// Wrong iss → UNAUTHENTICATED. The mint side (manager.cc::GenerateServiceToken)
+// always emits iss="PL"; rejecting other issuers stops cross-aud-class tokens
+// signed with the same key (e.g., a token an external system minted with
+// aud=vizier but iss=something-else) from authenticating here.
+TEST_F(DirectQueryServerTest, WrongIss_Unauthenticated) {
+  auto tok = MakeBearerToken(kTestSigningKey, TokenKind::kWrongIss);
+  EXPECT_EQ(::grpc::StatusCode::UNAUTHENTICATED, CallExecuteScript(tok).error_code());
+}
+
+// No iss claim → UNAUTHENTICATED.
+TEST_F(DirectQueryServerTest, MissingIss_Unauthenticated) {
+  auto tok = MakeBearerToken(kTestSigningKey, TokenKind::kMissingIss);
+  EXPECT_EQ(::grpc::StatusCode::UNAUTHENTICATED, CallExecuteScript(tok).error_code());
+}
+
+// Wrong sub → UNAUTHENTICATED. The mint side emits sub="service"; user-scoped
+// tokens (sub="user") must not authenticate against this service-only endpoint.
+TEST_F(DirectQueryServerTest, WrongSub_Unauthenticated) {
+  auto tok = MakeBearerToken(kTestSigningKey, TokenKind::kWrongSub);
+  EXPECT_EQ(::grpc::StatusCode::UNAUTHENTICATED, CallExecuteScript(tok).error_code());
+}
+
+// No sub claim → UNAUTHENTICATED.
+TEST_F(DirectQueryServerTest, MissingSub_Unauthenticated) {
+  auto tok = MakeBearerToken(kTestSigningKey, TokenKind::kMissingSub);
   EXPECT_EQ(::grpc::StatusCode::UNAUTHENTICATED, CallExecuteScript(tok).error_code());
 }
 

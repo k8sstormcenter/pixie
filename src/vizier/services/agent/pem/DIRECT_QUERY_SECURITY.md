@@ -15,7 +15,7 @@ covers the gRPC/PxL surface; this doc covers crypto + key handling only.
   `k8s/vizier/pem/base/pem_daemonset.yaml` `secretKeyRef`).
 - Used in both directions: the agent's outgoing service-token mint
   (`manager.cc:GenerateServiceToken`) AND direct-query's incoming
-  `verifyHs256Jwt` (`direct_query_server.cc:133`).
+  `verifyHs256Jwt` (`direct_query_server.cc:151`).
 - **Compromise of the key = compromise of every in-cluster service-to-service
   auth path.** Direct-query is no more or less protected than kelvin or
   query-broker.
@@ -36,7 +36,7 @@ covers the gRPC/PxL surface; this doc covers crypto + key handling only.
                   GenerateServiceToken                    direct-query verifier
                   (outgoing mint to                       (incoming token check
                    kelvin/MDS, manager.cc:434)            from dx_daemon,
-                                                          direct_query_server.cc:133)
+                                                          direct_query_server.cc:151)
 ```
 
 - **Single source of truth:** the `jwt-signing-key` data field in the
@@ -47,7 +47,7 @@ covers the gRPC/PxL surface; this doc covers crypto + key handling only.
     `src/vizier/services/agent/shared/manager/manager.cc:60`, owns outgoing
     mint.
   - `FLAGS_direct_query_jwt_signing_key` — DEFINEd in
-    `src/vizier/services/agent/pem/pem_manager.cc:39`, owns direct-query
+    `src/vizier/services/agent/pem/pem_manager.cc:47`, owns direct-query
     verification.
 - **Fallback:** when `FLAGS_direct_query_jwt_signing_key` is empty,
   `MaybeStartDirectQueryServer` falls back to `FLAGS_jwt_signing_key`. This
@@ -317,11 +317,11 @@ operational.
 
 ## Cross-references
 
-- `src/vizier/services/agent/pem/direct_query_server.cc:133` —
+- `src/vizier/services/agent/pem/direct_query_server.cc:151` —
   `verifyHs256Jwt` implementation.
-- `src/vizier/services/agent/pem/pem_manager.cc:39, :115` — flag DEFINE +
+- `src/vizier/services/agent/pem/pem_manager.cc:47, :132` — flag DEFINE +
   effective-key fallback.
-- `src/vizier/services/agent/shared/manager/manager.cc:60, :140, :423` —
+- `src/vizier/services/agent/shared/manager/manager.cc:60, :140, :440` —
   shared flag DEFINE + empty-key guard + outgoing-mint
   `GenerateServiceToken`.
 - `k8s/vizier/pem/base/pem_daemonset.yaml:98-102` — `PL_JWT_SIGNING_KEY`

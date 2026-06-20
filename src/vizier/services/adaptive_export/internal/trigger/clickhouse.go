@@ -273,6 +273,7 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 		// with the time-based throttle inside flushWatermark, this
 		// produces at most one persistent INSERT per WatermarkSaveInterval.
 		const saveEveryN = 256
+		skippedAtBoundary := 0
 		for i, row := range rows {
 			fp := rowFingerprint(row)
 			// Cursor comparisons are in NORMALIZED nanos (F8): the raw
@@ -280,6 +281,7 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 			// as the SQL filter (chNormEventTimeNanos) and maxSeen.
 			evn := normalizeEventTimeNanos(row.EventTime)
 			if evn == watermark && seenAtBoundary[fp] {
+				skippedAtBoundary++
 				continue // already pushed in a prior poll at this exact boundary
 			}
 			ev, err := kubescape.Extract(row)
@@ -313,6 +315,23 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 			// no progress this tick — preserve boundary set, optionally extend
 			for fp := range nextSeen {
 				seenAtBoundary[fp] = true
+			}
+			// Paging escape: if every row returned was a boundary-skip AND
+			// the response was at PollLimit capacity, there may be additional
+			// rows at the same normalized event_time that we will never reach
+			// (the SQL ORDER BY has no secondary key, so LIMIT always returns
+			// the same PollLimit rows from the boundary). Advance the watermark
+			// by 1 nanosecond to escape the boundary. In practice this means
+			// at most one nanosecond's worth of events are not re-delivered on
+			// the next poll, which is acceptable: the fingerprint dedup already
+			// tolerates boundary overlap, and we prefer forward progress over
+			// an infinite loop.
+			if skippedAtBoundary > 0 && len(nextSeen) == 0 && len(rows) >= t.cfg.PollLimit {
+				watermark++
+				seenAtBoundary = map[string]bool{}
+				dirty = true
+				log.WithField("watermark", watermark).
+					Warn("trigger: boundary paging escape — advanced watermark by 1ns to unblock poll")
 			}
 		}
 		// Final flush at end of pollOnce — also throttled.

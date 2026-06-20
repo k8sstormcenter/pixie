@@ -22,6 +22,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -61,9 +62,14 @@ func TestNormalizeEventTimeNanos(t *testing.T) {
 // stops a larger-unit row from poisoning the watermark (F8). It captures the
 // query the trigger sends to ClickHouse.
 func TestFetchSinceFiltersOnNormalizedEventTime(t *testing.T) {
-	var gotQuery string
+	var (
+		mu       sync.Mutex
+		gotQuery string
+	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		gotQuery = r.URL.Query().Get("query")
+		mu.Unlock()
 		w.WriteHeader(200) // empty body = 0 rows, valid JSONEachRow
 	}))
 	defer srv.Close()
@@ -80,16 +86,20 @@ func TestFetchSinceFiltersOnNormalizedEventTime(t *testing.T) {
 		t.Fatalf("fetchSince: %v", err)
 	}
 
-	if !strings.Contains(gotQuery, chNormEventTimeNanos) {
-		t.Errorf("query does not normalize event_time; want %q in:\n%s", chNormEventTimeNanos, gotQuery)
+	mu.Lock()
+	q := gotQuery
+	mu.Unlock()
+
+	if !strings.Contains(q, chNormEventTimeNanos) {
+		t.Errorf("query does not normalize event_time; want %q in:\n%s", chNormEventTimeNanos, q)
 	}
 	// The >= bound must compare the normalized expression against the nanos
 	// watermark, not the raw column.
 	wantPred := chNormEventTimeNanos + " >= " + strconv.FormatUint(wmNanos, 10)
-	if !strings.Contains(gotQuery, wantPred) {
-		t.Errorf("query filter is not normalized-vs-nanos-watermark; want %q in:\n%s", wantPred, gotQuery)
+	if !strings.Contains(q, wantPred) {
+		t.Errorf("query filter is not normalized-vs-nanos-watermark; want %q in:\n%s", wantPred, q)
 	}
-	if strings.Contains(gotQuery, "event_time >= ") {
-		t.Errorf("query still uses RAW event_time filter (poison-prone):\n%s", gotQuery)
+	if strings.Contains(q, "event_time >= ") {
+		t.Errorf("query still uses RAW event_time filter (poison-prone):\n%s", q)
 	}
 }

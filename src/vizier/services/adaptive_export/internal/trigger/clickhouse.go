@@ -250,6 +250,7 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 	}()
 
 	pollOnce := func() {
+		wmBefore := watermark
 		rows, maxSeen, err := t.fetchSince(ctx, watermark)
 		// Partial-read tolerance: when the body read is cut short by
 		// HTTP timeout / connection reset, fetchSince returns the rows
@@ -314,6 +315,21 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 			for fp := range nextSeen {
 				seenAtBoundary[fp] = true
 			}
+		}
+		// Paging safety: if a full LIMIT-sized batch returned and the watermark
+		// still has not advanced past its pre-poll value, every row in the batch
+		// shares the same normalized event_time and all were de-duplicated (or
+		// failed extraction). ClickHouse ORDER BY + LIMIT N cannot page forward
+		// within a single event_time value, so future polls would re-fetch the
+		// same batch in the same order and make no progress. Advance by 1 ns to
+		// escape the stuck boundary; the next poll picks up rows with strictly
+		// larger event_time.
+		if len(rows) == t.cfg.PollLimit && watermark == wmBefore && wmBefore > 0 {
+			watermark++
+			seenAtBoundary = map[string]bool{} // boundary changed; reset dedup set
+			dirty = true
+			log.WithField("watermark", watermark).
+				Debug("trigger: full batch at boundary — bumped watermark by 1 ns to page forward")
 		}
 		// Final flush at end of pollOnce — also throttled.
 		flushWatermark()

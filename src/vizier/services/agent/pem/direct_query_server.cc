@@ -74,7 +74,9 @@ constexpr char kBearerPrefixLower[] = "bearer ";
 constexpr size_t kBearerPrefixLen = sizeof(kBearerPrefixLower) - 1;
 constexpr char kExpectedAudience[] = "vizier";
 constexpr char kExpectedIssuer[] = "PL";
-constexpr char kExpectedSubject[] = "service";
+// Service tokens carry "service" in the Scopes claim (NOT the subject — sub is
+// the serviceID, e.g. "dx"). See GenerateJWTForService (claims.go) + jwt.go:56.
+constexpr char kServiceScope[] = "service";
 
 // We don't link cpp_jwt's HMAC verifier here because its impl calls
 // BIO_f_base64() which lives in BoringSSL's decrepit/ tree — not exposed as a
@@ -218,10 +220,27 @@ std::string hmacSha256(absl::string_view key, absl::string_view data) {
     return ::grpc::Status(::grpc::StatusCode::UNAUTHENTICATED,
                           "direct-query: wrong iss (expected PL)");
   }
-  if (!payload.HasMember("sub") || !payload["sub"].IsString() ||
-      std::strcmp(payload["sub"].GetString(), kExpectedSubject) != 0) {
+  // Require the "service" scope, NOT sub=="service". Pixie service tokens set
+  // sub=<serviceID> (e.g. "dx") and put "service" in the Scopes claim — a
+  // comma-joined string (GenerateJWTForService in claims.go + jwt.go:56). The
+  // canonical verifier (jwt.go ParseToken) authenticates on signature+audience
+  // and never asserts the subject; checking the scope rejects user/cluster
+  // tokens while accepting any serviceID subject. (Previously this rejected
+  // every real in-cluster caller with "wrong sub".)
+  if (!payload.HasMember("Scopes") || !payload["Scopes"].IsString()) {
     return ::grpc::Status(::grpc::StatusCode::UNAUTHENTICATED,
-                          "direct-query: wrong sub (expected service)");
+                          "direct-query: missing Scopes claim");
+  }
+  bool has_service_scope = false;
+  for (absl::string_view scope : absl::StrSplit(payload["Scopes"].GetString(), ',')) {
+    if (scope == kServiceScope) {
+      has_service_scope = true;
+      break;
+    }
+  }
+  if (!has_service_scope) {
+    return ::grpc::Status(::grpc::StatusCode::UNAUTHENTICATED,
+                          "direct-query: token lacks the service scope");
   }
   if (!payload.HasMember("exp")) {
     return ::grpc::Status(::grpc::StatusCode::UNAUTHENTICATED, "direct-query: missing exp claim");

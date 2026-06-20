@@ -69,8 +69,8 @@ enum class TokenKind {
   kAlgNone,      // alg=none header forgery (verifier must reject — refuses anything but HS256)
   kWrongIss,     // signed correctly, iss="not-PL"
   kMissingIss,   // signed correctly, no iss claim
-  kWrongSub,     // signed correctly, sub="user"
-  kMissingSub,   // signed correctly, no sub claim
+  kWrongScope,   // signed correctly, Scopes="user" (lacks the service scope)
+  kMissingScope, // signed correctly, no Scopes claim
 };
 
 // MakeBearerToken mints a JWT for the in-process call's `authorization` metadata,
@@ -136,16 +136,18 @@ std::string MakeBearerToken(const std::string& signing_key, TokenKind kind) {
   if (kind != TokenKind::kMissingExp) {
     obj.add_claim("exp", now + exp_offset);
   }
+  // sub is the serviceID (e.g. "dx"), NOT the literal "service" — the verifier
+  // no longer asserts sub; it requires the "service" scope instead.
+  obj.add_claim("sub", "dx");
   switch (kind) {
-    case TokenKind::kWrongSub:
-      obj.add_claim("sub", "user");
+    case TokenKind::kWrongScope:
+      obj.add_claim("Scopes", "user");
       break;
-    case TokenKind::kMissingSub:
+    case TokenKind::kMissingScope:
       break;
     default:
-      obj.add_claim("sub", "service");
+      obj.add_claim("Scopes", "service");
   }
-  obj.add_claim("Scopes", "service");
   obj.add_claim("ServiceID", "dx-test");
   obj.secret(signing_key);
   return obj.signature();
@@ -285,16 +287,17 @@ TEST_F(DirectQueryServerTest, MissingIss_Unauthenticated) {
   EXPECT_EQ(::grpc::StatusCode::UNAUTHENTICATED, CallExecuteScript(tok).error_code());
 }
 
-// Wrong sub → UNAUTHENTICATED. The mint side emits sub="service"; user-scoped
-// tokens (sub="user") must not authenticate against this service-only endpoint.
-TEST_F(DirectQueryServerTest, WrongSub_Unauthenticated) {
-  auto tok = MakeBearerToken(kTestSigningKey, TokenKind::kWrongSub);
+// Wrong scope → UNAUTHENTICATED. Real service tokens carry "service" in the
+// Scopes claim; user-scoped tokens (Scopes="user") must not authenticate against
+// this service-only endpoint. (sub is the serviceID and is not asserted.)
+TEST_F(DirectQueryServerTest, WrongScope_Unauthenticated) {
+  auto tok = MakeBearerToken(kTestSigningKey, TokenKind::kWrongScope);
   EXPECT_EQ(::grpc::StatusCode::UNAUTHENTICATED, CallExecuteScript(tok).error_code());
 }
 
-// No sub claim → UNAUTHENTICATED.
-TEST_F(DirectQueryServerTest, MissingSub_Unauthenticated) {
-  auto tok = MakeBearerToken(kTestSigningKey, TokenKind::kMissingSub);
+// No Scopes claim → UNAUTHENTICATED.
+TEST_F(DirectQueryServerTest, MissingScope_Unauthenticated) {
+  auto tok = MakeBearerToken(kTestSigningKey, TokenKind::kMissingScope);
   EXPECT_EQ(::grpc::StatusCode::UNAUTHENTICATED, CallExecuteScript(tok).error_code());
 }
 

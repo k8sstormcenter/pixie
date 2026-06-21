@@ -575,6 +575,17 @@ func main() {
 	if addr := os.Getenv("CONTROL_ADDR"); addr != "" {
 		ctrlSrv := control.New(activeSet, nil) // OrderQuery runner wired later
 		ctrlSrv.SetGraphWriter(applier)        // dx_attack_graph ingest → ClickHouse
+		// Bearer-JWT auth on the control surface (CodeRabbit: protect control
+		// endpoints). Same shared lib + signing key the broker/PEM use — dx
+		// attaches the service JWT it already mints. Default-OFF so this can
+		// merge before dx sends the bearer; flip CONTROL_REQUIRE_AUTH=true once
+		// dx is updated + PL_JWT_SIGNING_KEY is mounted. Safe incremental rollout.
+		if key := os.Getenv("PL_JWT_SIGNING_KEY"); key != "" && os.Getenv("CONTROL_REQUIRE_AUTH") == "true" {
+			ctrlSrv.SetAuth(key, "vizier")
+			log.Info("control surface: bearer-JWT auth ENABLED (audience=vizier)")
+		} else {
+			log.Warn("control surface: auth DISABLED (set CONTROL_REQUIRE_AUTH=true + PL_JWT_SIGNING_KEY)")
+		}
 		// Wrap in an http.Server with explicit timeouts so a slow client
 		// can't pin a goroutine on the control surface (CodeRabbit
 		// r3379377432). The control plane is small/idempotent JSON, so

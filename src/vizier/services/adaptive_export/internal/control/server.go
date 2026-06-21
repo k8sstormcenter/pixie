@@ -31,8 +31,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
+	jwtutils "px.dev/pixie/src/shared/services/utils"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/anomaly"
 )
@@ -63,6 +65,7 @@ type Server struct {
 	runner queryRunner // may be nil; /query then returns 501
 	graph  graphWriter // may be nil; /dx/attack_graph then returns 501
 	mux    *http.ServeMux
+	verify func(bearer string) error // nil → auth disabled; set via SetAuth
 }
 
 // New builds the control server. runner may be nil for deployments that
@@ -80,8 +83,37 @@ func New(set exporter, runner queryRunner) *Server {
 // SetGraphWriter wires the dx_attack_graph sink.
 func (s *Server) SetGraphWriter(g graphWriter) { s.graph = g }
 
-// Handler exposes the mux (for httptest + main.go wiring).
-func (s *Server) Handler() http.Handler { return s.mux }
+// SetAuth turns on bearer-JWT auth for the control surface, verified with the
+// SAME shared lib + signing key the vizier broker/PEM use (px.dev/pixie/src/
+// shared/services/utils). dx already mints a service JWT (GenerateJWTForService,
+// PL_JWT_SIGNING_KEY) for its broker/PEM queries — it attaches the same token
+// here. No new secret/crypto. /healthz stays open for k8s probes.
+// (CodeRabbit: protect control endpoints with auth — server.go.)
+func (s *Server) SetAuth(signingKey, audience string) {
+	s.verify = func(bearer string) error {
+		_, err := jwtutils.ParseToken(bearer, signingKey, audience)
+		return err
+	}
+}
+
+// Handler exposes the mux (for httptest + main.go wiring), wrapped in the auth
+// middleware when SetAuth was called.
+func (s *Server) Handler() http.Handler {
+	if s.verify == nil {
+		return s.mux
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" { // probes stay unauthenticated
+			const p = "Bearer "
+			h := r.Header.Get("Authorization")
+			if !strings.HasPrefix(h, p) || s.verify(strings.TrimPrefix(h, p)) != nil {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+		}
+		s.mux.ServeHTTP(w, r)
+	})
+}
 
 // handleDXAttackGraph ingests a JSON array of dx evidence-graph edges and writes
 // them to forensic_db.dx_attack_graph (as JSONEachRow).
@@ -158,7 +190,7 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req startReq
-	if !decode(r, &req) || req.Pod == "" {
+	if !decode(r, &req) || req.Pod == "" || req.TEnd <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -190,7 +222,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req queryReq
-	if !decode(r, &req) || req.Pod == "" || req.Table == "" || req.QueryID == "" {
+	if !decode(r, &req) || req.Pod == "" || req.Table == "" || req.QueryID == "" ||
+		req.Window[0] <= 0 || req.Window[1] <= 0 || req.Window[0] >= req.Window[1] {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}

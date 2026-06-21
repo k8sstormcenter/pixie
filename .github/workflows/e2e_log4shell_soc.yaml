@@ -1,0 +1,119 @@
+---
+# e2e-log4shell-soc — stand up a real SOC stack on k3s, fire log4shell end-to-end,
+# assert every canonical harness script actually runs, and profile dx in real life.
+#
+# Heavy: needs eBPF (Pixie PEM) + 16cpu/64gb → the oracle self-hosted runner, NOT
+# ubuntu-latest. Deploy mirrors the sovereignsocdemo lab recipe (k8sstormcenter/soc
+# make targets) — that kit is makefile-agent's; keep the deploy block in sync with it.
+#
+# Uses EXISTING k8sstormcenter/pixie repo secrets (no new ones): PX_DEPLOY_KEY,
+# PX_API_KEY (Pixie enroll), DX_ENTLEIN_PAT (private entlein/dx image pull),
+# CLICKHOUSE_*_PASSWORD, TAILSCALE_AUTH_KEY. Manual by default (it provisions a
+# whole cluster); flip the schedule on once it's green.
+name: e2e-log4shell-soc
+on:
+  workflow_dispatch:
+    inputs:
+      dx_image:
+        description: dx-daemon image to test (default = .image-tags pin)
+        required: false
+        default: ""
+      soc_ref:
+        description: k8sstormcenter/soc branch
+        required: false
+        default: "218-clickhouse-schema"
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: oracle-vm-16cpu-64gb-x86-64   # eBPF + 16cpu/64gb; ubuntu-latest cannot run Pixie
+    timeout-minutes: 90
+    env:
+      KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      HARNESS: src/e2e_test/adaptive_export_loadtest/harness
+    steps:
+      - name: Checkout pixie (harness scripts)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install k3s
+        run: |
+          curl -sfL https://get.k3s.io | sh -s - --write-kubeconfig-mode 644
+          for i in $(seq 1 60); do kubectl get nodes --no-headers 2>/dev/null | grep -q ' Ready' && break; sleep 5; done
+          kubectl get nodes
+
+      - name: Deploy the SOC stack (Pixie + kubescape + ClickHouse + AE + dx + log4j chain)
+        env:
+          PX_CLOUD_ADDR: pixie.austrianopencloudcommunity.org
+          PX_DEPLOY_KEY: ${{ secrets.PX_DEPLOY_KEY }}
+          PX_API_KEY: ${{ secrets.PX_API_KEY }}
+          TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+          DX_ENTLEIN_PAT: ${{ secrets.DX_ENTLEIN_PAT }}            # private entlein/dx image pull
+          CLICKHOUSE_ANALYST_PASSWORD: ${{ secrets.CLICKHOUSE_ANALYST_PASSWORD }}
+          CLICKHOUSE_INGEST_PASSWORD: ${{ secrets.CLICKHOUSE_INGEST_PASSWORD }}
+          CLICKHOUSE_PIXIE_PASSWORD: ${{ secrets.CLICKHOUSE_PIXIE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y python3-yaml
+          git clone --depth 1 -b "${{ inputs.soc_ref }}" https://github.com/k8sstormcenter/soc soc
+          cd soc
+          make pixie                              # vizier + AE
+          make kubescape || true                  # node-agent (netStreaming)
+          bash tree/clickhouse-lab/install.sh      # forensic_db
+          make log4j                               # vulnerable backend + attacker + dx + SBoBs (managed-by=User)
+          [ -n "${{ inputs.dx_image }}" ] && kubectl -n honey set image ds/dx-daemon dx-daemon="${{ inputs.dx_image }}" || true
+          # optimal config + enable pprof for the real-life profile (DX_TELEMETRY_CACHE/DX_BENCH
+          # are defaults in main, set here too in case the kit's manifest predates them)
+          kubectl -n honey set env ds/dx-daemon DX_PPROF_ADDR=0.0.0.0:6060 DX_TELEMETRY_CACHE=1 DX_BENCH=pemdirect
+          kubectl -n honey rollout status ds/dx-daemon --timeout=120s
+
+      - name: Wait for stack healthy
+        run: |
+          set -euo pipefail
+          kubectl wait --for=condition=Ready pod -l name=adaptive-export -n pl --timeout=300s
+          kubectl wait --for=condition=Ready pod -l app=dx-daemon -n honey --timeout=300s
+          kubectl -n pl get pods; kubectl -n honey get pods; kubectl -n log4j-poc get pods
+          # dx must be non-blind on pemdirect (the optimal default from #29/#33)
+          kubectl -n honey logs ds/dx-daemon | grep -E "bench=pemdirect|telemetry cache ENABLED" | head
+
+      - name: Run canonical harness scripts — assert each actually runs
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/evidence; fail=0
+          for s in log4shell_fire exp_matrix nfr exp_row_reconcile; do
+            echo "::group::$s"
+            if bash "$HARNESS/$s.sh" > "/tmp/evidence/$s.log" 2>&1; then
+              echo "PASS $s"; tail -5 "/tmp/evidence/$s.log"
+            else
+              echo "FAIL $s (exit $?)"; tail -30 "/tmp/evidence/$s.log"; fail=1
+            fi
+            echo "::endgroup::"
+          done
+          # detection gate: dx must rule in the log4shell chain (not just run the script)
+          kubectl -n honey logs ds/dx-daemon | grep -iE "RULE IN|ruled_in" | tee /tmp/evidence/dx_ruleins.txt
+          grep -qiE "log4shell|control-plane-credential-abuse|RULE IN" /tmp/evidence/dx_ruleins.txt || { echo "NO dx rule-in — detection failed"; fail=1; }
+          exit $fail
+
+      - name: Profile dx in real life (pprof + metrics)
+        if: always()
+        run: |
+          set -uo pipefail
+          POD=$(kubectl -n honey get pod -l app=dx-daemon -o jsonpath='{.items[0].metadata.name}')
+          kubectl -n honey port-forward "$POD" 6060:6060 9095:9095 & PF=$!; sleep 5
+          # 30s CPU profile under a fresh fire + heap, served by DX_PPROF_ADDR=:6060
+          ( bash "$HARNESS/log4shell_fire.sh" >/dev/null 2>&1 || true ) &
+          curl -s --max-time 40 "http://127.0.0.1:6060/debug/pprof/profile?seconds=30" -o /tmp/evidence/dx_cpu.pprof || true
+          curl -s "http://127.0.0.1:6060/debug/pprof/heap" -o /tmp/evidence/dx_heap.pprof || true
+          curl -s "http://127.0.0.1:9095/metrics" -o /tmp/evidence/dx_metrics.txt || true
+          go tool pprof -top -nodecount=25 /tmp/evidence/dx_cpu.pprof > /tmp/evidence/dx_cpu_top.txt 2>&1 || true
+          kill $PF 2>/dev/null || true
+          echo "=== dx CPU top ==="; head -30 /tmp/evidence/dx_cpu_top.txt
+          echo "=== verdict latency ==="; grep -E "dx_time_to_verdict_seconds_(sum|count)|dx_bench_query_duration_seconds_(sum|count)" /tmp/evidence/dx_metrics.txt || true
+
+      - name: Upload evidence + profiles
+        if: always()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+        with:
+          name: e2e-log4shell-evidence
+          path: /tmp/evidence/
+          retention-days: 14

@@ -482,7 +482,10 @@ CREATE TABLE IF NOT EXISTS forensic_db.ae_reconcile (
     hostname    String
 ) ENGINE = MergeTree
   PARTITION BY toYYYYMMDD(ts)
-  ORDER BY (table_name, ts);
+  ORDER BY (table_name, ts)
+  -- append-only debug log; cap growth so long reconcile runs don't accumulate
+  -- unbounded storage (CodeRabbit). 30d matches the pixie observation tables.
+  TTL toDateTime(ts) + INTERVAL 30 DAY DELETE;
 
 -- dx_attack_graph — dx evidence-graph edge list: one row per directed hop of an
 -- investigation (delivery/egress/execution/exfil/pivot), read by the Pixie

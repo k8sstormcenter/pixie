@@ -1,0 +1,38 @@
+---
+# Per-rep generator pod. The harness renders one of these per repetition with a
+# UNIQUE name (gen-<exp>-<rep>) — that uniqueness is the data-plane isolation:
+# AE's df.pod filter pulls only this rep's traffic even if windows overlap.
+#
+# Substituted by the harness: __NAME__, __IMAGE__, __HTTP_ADDR__ (sink ClusterIP
+# :8080 as a literal IP so it adds no DNS), __PG_ADDR__, __HTTP_N__, __DNS_N__,
+# __PGSQL_N__. The pod FIRES once then HOLDS (sleeps on SIGTERM) so its upid
+# stays resolvable while AE queries the window; the harness deletes it after the
+# rep is measured.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: __NAME__
+  namespace: aeload
+  labels:
+    app: aeload-gen
+spec:
+  restartPolicy: Never
+  containers:
+  - name: gen
+    image: __IMAGE__
+    command: ["/usr/local/bin/cleanloadgen"]
+    env:
+    - {name: HTTP_ADDR, value: "__HTTP_ADDR__"}
+    - {name: HTTP_PATH, value: "/ping"}
+    - {name: HTTP_N, value: "__HTTP_N__"}
+    - {name: DNS_N, value: "__DNS_N__"}
+    - {name: DNS_BASE, value: "t-%d.aeload.svc.cluster.local."}
+    - {name: PG_ADDR, value: "__PG_ADDR__"}
+    - {name: PGSQL_N, value: "__PGSQL_N__"}
+    - {name: PG_USER, value: "postgres"}
+    - {name: PG_PASSWORD, value: "postgres"}
+    - {name: SETTLE_PRE_MS, value: "__SETTLE_PRE_MS__"}
+    - {name: SUSTAIN_SEC, value: "__SUSTAIN_SEC__"}
+    - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+    - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
+    - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}

@@ -1,0 +1,25 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//bazel:pl_build_system.bzl", "pl_go_test")
+
+go_library(
+    name = "activeset",
+    srcs = ["activeset.go"],
+    importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset",
+    visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
+)
+
+pl_go_test(
+    name = "activeset_test",
+    srcs = ["activeset_test.go"],
+    embed = [":activeset"],
+)

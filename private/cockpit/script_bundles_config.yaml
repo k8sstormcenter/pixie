@@ -6,7 +6,7 @@ metadata:
 data:
   SCRIPT_BUNDLE_URLS: >-
     [
-    "https://k8sstormcenter.github.io/pixie/pxl_scripts/bundle.json"
+    "/bundle-oss.json"
     ]
   SCRIPT_BUNDLE_DEV: "false"
   PL_SCRIPT_MODIFICATION_DISABLED: "false"

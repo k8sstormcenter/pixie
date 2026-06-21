@@ -40,7 +40,7 @@ def _pl_webpack_deps_impl(ctx):
 
     cmd = ui_shared_cmds_start + cp_cmds + [
         'pushd "$TMPPATH/src/ui" &> /dev/null',
-        "yarn install --immutable &> build.log",
+        "/opt/px_dev/tools/node/bin/yarn install --immutable &> build.log",
         # Pick a deterministic mtime so that the output is not volatile.
         # This helps ensure that bazel can cache the ui builds as expected.
         'tar --mtime="2018-01-01 00:00:00 UTC" -czf "$BASE_PATH/{}" .'.format(out.path),
@@ -87,9 +87,7 @@ def _pl_webpack_library_impl(ctx):
         'pushd "$TMPPATH/src/ui" &> /dev/null',
         'tar -xzf "$BASE_PATH/{}"'.format(ctx.file.deps.path),
         'mv -f "$BASE_PATH/{}" src/pages/credits/licenses.json'.format(ctx.file.licenses.path),
-        "retval=0",
-        "output=`yarn build_prod 2>&1` || retval=$?",
-        '[ "$retval" -eq 0 ] || (echo $output; echo "Build Failed with Code: $retval"; exit $retval)',
+        "/opt/px_dev/tools/node/bin/yarn build_prod",
         'cp dist/bundle.tar.gz "$BASE_PATH/{}"'.format(out.path),
     ] + ui_shared_cmds_finish
 
@@ -165,8 +163,8 @@ def _pl_deps_licenses_impl(ctx):
         'pushd "$TMPPATH/src/ui" &> /dev/null',
         'export LIC_TMPPATH="$(mktemp -d)"',
         'tar -xzf "$BASE_PATH/{}"'.format(ctx.file.deps.path),
-        "yarn license_check --excludePrivatePackages --production --json --out $LIC_TMPPATH/checker.json",
-        'yarn pnpify node ./tools/licenses/yarn_license_extractor.js --input=$LIC_TMPPATH/checker.json --output="$BASE_PATH/{}"'.format(out.path),
+        "/opt/px_dev/tools/node/bin/yarn license_check --excludePrivatePackages --production --json --out $LIC_TMPPATH/checker.json",
+        '/opt/px_dev/tools/node/bin/yarn pnpify node ./tools/licenses/yarn_license_extractor.js --input=$LIC_TMPPATH/checker.json --output="$BASE_PATH/{}"'.format(out.path),
     ] + ui_shared_cmds_finish
 
     ctx.actions.run_shell(

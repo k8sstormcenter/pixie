@@ -63,6 +63,12 @@ export function getGraphOptions(theme: Theme, edgeLength: number): Options {
       smooth: false,
       scaling: {
         max: 5,
+        label: false,
+      },
+      font: {
+        strokeWidth: 0,
+        color: theme.palette.text.primary,
+        face: 'Roboto',
       },
       arrows: {
         to: {

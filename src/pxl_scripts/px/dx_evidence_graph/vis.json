@@ -1,0 +1,75 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "Start time of the window.",
+      "defaultValue": "-15m"
+    },
+    {
+      "name": "clickhouse_dsn",
+      "type": "PX_STRING",
+      "description": "ClickHouse DSN: user:pass@host:port/db.",
+      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+    },
+    {
+      "name": "table",
+      "type": "PX_STRING",
+      "description": "dx_attack_graph_malicious (default; rule-ins only — benign is NOT pulled from ClickHouse) or dx_attack_graph (full table, includes benign).",
+      "defaultValue": "dx_attack_graph_malicious"
+    }
+  ],
+  "globalFuncs": [
+    {
+      "outputName": "dx_graph",
+      "func": {
+        "name": "dx_attack_graph",
+        "args": [
+          {"name": "start_time", "variable": "start_time"},
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
+          {"name": "table", "variable": "table"}
+        ]
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "name": "DX Attack Graph",
+      "position": {"x": 0, "y": 0, "w": 12, "h": 5},
+      "globalFuncOutputName": "dx_graph",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Graph",
+        "adjacencyList": {
+          "fromColumn": "requestor_pod",
+          "toColumn": "responder_pod"
+        },
+        "edgeWeightColumn": "weight",
+        "edgeColorColumn": "max_severity",
+        "edgeLabelColumn": "edge_kind",
+        "edgeThresholds": {
+          "mediumThreshold": 3,
+          "highThreshold": 4
+        },
+        "edgeHoverInfo": [
+          "edge_kind",
+          "condition",
+          "criteria",
+          "weight",
+          "max_severity",
+          "confidence",
+          "num_findings",
+          "investigation_id"
+        ],
+        "edgeLength": 500
+      }
+    },
+    {
+      "name": "Edges",
+      "position": {"x": 0, "y": 5, "w": 12, "h": 4},
+      "globalFuncOutputName": "dx_graph",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    }
+  ]
+}

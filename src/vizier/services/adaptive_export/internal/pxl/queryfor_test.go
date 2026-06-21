@@ -315,10 +315,10 @@ func TestQueryFor_RejectsInjectionInTargetFields(t *testing.T) {
 				if line == "" {
 					continue
 				}
-				if !(strings.HasPrefix(line, "#px:") ||
-					strings.HasPrefix(line, "import ") ||
-					strings.HasPrefix(line, "df") ||
-					strings.HasPrefix(line, "px.display")) {
+				if !strings.HasPrefix(line, "#px:") &&
+					!strings.HasPrefix(line, "import ") &&
+					!strings.HasPrefix(line, "df") &&
+					!strings.HasPrefix(line, "px.display") {
 					t.Fatalf("line %d looks injected: %q\nfull script:\n%s", i, line, q)
 				}
 			}

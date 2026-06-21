@@ -56,7 +56,6 @@ GEN=""
 if [[ "$MODE" == "data" ]]; then
   apply_sinks
   GEN="$POD"   # the gen pod name == the fixture pod (df.pod filter isolates it)
-  hip="$(svc_ip http-sink)"; pip="$(svc_ip pg-sink)"
   # Long-lived gen that keeps firing: we re-fire by leaving it running and
   # re-injecting triggers; the gen's band is its startup burst, but the active
   # window re-queries the SAME pod each tick. (Continuous-traffic gen variant is

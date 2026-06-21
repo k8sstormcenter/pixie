@@ -34,7 +34,7 @@ TABLES=$(chq "SELECT name FROM system.tables WHERE database='forensic_db' AND en
 truncate_all(){ local t; for t in $TABLES; do chq "TRUNCATE TABLE IF EXISTS forensic_db.\`$t\`" >/dev/null 2>&1; done; }
 ensure_healthy(){ local p; p=$(kubectl -n pl get vizier -o jsonpath='{.items[*].status.vizierPhase}' 2>/dev/null)
   if [ "$p" != Healthy ]; then kubectl -n pl delete pod -l name=vizier-query-broker >/dev/null 2>&1
-    local i; for i in $(seq 1 20); do [ "$(kubectl -n pl get vizier -o jsonpath='{.items[*].status.vizierPhase}' 2>/dev/null)" = Healthy ] && break; sleep 4; done; fi
+    for _ in $(seq 1 20); do [ "$(kubectl -n pl get vizier -o jsonpath='{.items[*].status.vizierPhase}' 2>/dev/null)" = Healthy ] && break; sleep 4; done; fi
   kubectl -n pl get vizier -o jsonpath='{.items[*].status.vizierPhase}' 2>/dev/null; }
 ae_ok(){ local bad; bad=$(kubectl -n pl get pods -l name=adaptive-export --no-headers 2>/dev/null | awk '$3!="Running"{c++} END{print c+0}'); [ "${bad:-1}" -eq 0 ]; }
 

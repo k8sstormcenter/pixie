@@ -42,7 +42,7 @@ SETTLE=${SETTLE:-180}                       # > two passthrough sweeps (~80s eac
 O=/tmp/rowrec; mkdir -p "$O"
 chq(){ kubectl -n clickhouse exec "$CHPOD" -c clickhouse -- clickhouse-client -q "$1" 2>/dev/null; }
 # pxrun relies on the persisted `px auth login` session (auth.json); PX_CLOUD_ADDR is non-secret.
-pxrun(){ export PX_CLOUD_ADDR="$(grep -E '^PX_CLOUD_ADDR=' /tmp/pixie-keys.env 2>/dev/null | cut -d= -f2-)"
+pxrun(){ PX_CLOUD_ADDR="$(grep -E '^PX_CLOUD_ADDR=' /tmp/pixie-keys.env 2>/dev/null | cut -d= -f2-)"; export PX_CLOUD_ADDR
          px run -f "$1" -c "$CLUSTER" 2>&1 | grep -ivE "PX_|ENV VARS|^\*|Pixie CLI|Cloud|^$|resump"; }
 
 FE=$(kubectl -n "$NS" get svc "$SVC" -o jsonpath='{.spec.clusterIP}')
@@ -61,7 +61,7 @@ sleep 40   # AE reconnect warm
 kubectl -n "$NS" delete pod rowgen --ignore-not-found --wait=true >/dev/null 2>&1
 kubectl -n "$NS" run rowgen --image=busybox:1.36 --restart=Never --command -- \
   sh -c "for i in \$(seq 0 $((N-1))); do wget -qO- 'http://$FE/api/products?probe=$TAG-'\$i >/dev/null 2>&1; done; echo ROWGEN_DONE; sleep 3600"
-for t in $(seq 1 90); do kubectl -n "$NS" logs rowgen 2>/dev/null | grep -q ROWGEN_DONE && break; sleep 2; done
+for _ in $(seq 1 90); do kubectl -n "$NS" logs rowgen 2>/dev/null | grep -q ROWGEN_DONE && break; sleep 2; done
 echo "fired $N requests; settling ${SETTLE}s for AE to sweep+write" | tee -a "$O/meta.txt"
 sleep "$SETTLE"
 

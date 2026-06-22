@@ -88,6 +88,13 @@ spec:
         #   value: "changeme-ingest"
         # - name: CLICKHOUSE_DATABASE
         #   value: "forensic_db"
+        # TLS for the control surface (CONTROL_TLS=true). server.crt/key from the
+        # same service-tls-certs secret the broker/PEM use; without this the dx
+        # bearer JWT crosses the CNI in cleartext. Harmless when control is off.
+        volumeMounts:
+        - name: certs
+          mountPath: /certs
+          readOnly: true
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -95,6 +102,10 @@ spec:
             - ALL
           seccompProfile:
             type: RuntimeDefault
+      volumes:
+      - name: certs
+        secret:
+          secretName: service-tls-certs
       securityContext:
         runAsUser: 10100
         runAsGroup: 10100

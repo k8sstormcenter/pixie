@@ -138,23 +138,6 @@ Manager::Manager(sole::uuid agent_id, std::string_view pod_name, std::string_vie
 }
 
 Status Manager::Init() {
-  // Fail fast if PL_JWT_SIGNING_KEY is unset. GenerateServiceToken (below)
-  // calls cpp_jwt's obj.signature() which throws an uncaught
-  // jwt::SigningError("key not provided") when the secret is empty. That
-  // throw lands in the first outgoing gRPC AddServiceTokenToClientContext
-  // (typically the PEM's first query execution against Kelvin), so without
-  // this guard the agent runs for a while and then crashes mid-stream with
-  // libc++abi terminate — observed on the stock fork 0.14.17 PEM in
-  // CrashLoopBackOff for hours. Refuse to start instead. dx-agent flagged
-  // via entlein/dx#29 PR #49 soak.
-  if (FLAGS_jwt_signing_key.empty()) {
-    return error::InvalidArgument(
-        "PL_JWT_SIGNING_KEY is unset; refusing to start. The agent's outgoing "
-        "service-token mint (GenerateServiceToken) will throw "
-        "jwt::SigningError on the first call and crash the process. Set "
-        "PL_JWT_SIGNING_KEY via the pl-cluster-secrets/jwt-signing-key "
-        "secretKeyRef (already in k8s/vizier/pem/base/pem_daemonset.yaml).");
-  }
   PX_ASSIGN_OR_RETURN(
       agent_metadata_filter_,
       md::AgentMetadataFilter::Create(kMetadataFilterMaxEntries, kMetadataFilterMaxErrorRate,

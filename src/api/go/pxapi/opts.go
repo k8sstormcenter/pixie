@@ -82,17 +82,3 @@ func WithDirectCredsInsecure() ClientOption {
 		c.insecureDirect = true
 	}
 }
-
-// WithDirectTLSSkipVerify is the secure-by-default option for direct (standalone /
-// node-local PEM) connections: the transport IS TLS-encrypted, but the server cert
-// is not chain/hostname-verified. Use this instead of WithDirectCredsInsecure when
-// the direct endpoint serves TLS with a self-signed / service cert whose SAN does
-// not match the node IP (e.g. vizier-pem's direct-query port served with
-// service-tls-certs, dialed at HOST_IP). Unlike WithDisableTLSVerification it does
-// NOT require a "cluster.local" address, so it works for the node-IP direct dial.
-// Bearer creds (the minted JWT) therefore ride an encrypted channel, never plaintext.
-func WithDirectTLSSkipVerify() ClientOption {
-	return func(c *Client) {
-		c.disableTLSVerification = true
-	}
-}

@@ -19,6 +19,9 @@ load("//bazel:pl_build_system.bzl", "pl_cc_binary", "pl_cc_library", "pl_cc_test
 package(default_visibility = [
     "//src/carnot:__subpackages__",
     "//src/vizier/funcs:__subpackages__",
+    # entlein/dx#29 — PEM's direct_query_server_test builds a CarnotTest-style
+    # fixture with a udf::Registry, same pattern as //src/carnot:carnot_test.
+    "//src/vizier/services/agent/pem:__pkg__",
 ])
 
 pl_cc_library(

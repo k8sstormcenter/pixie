@@ -20,6 +20,23 @@ load("//bazel:pl_build_system.bzl", "pl_cc_binary", "pl_cc_library", "pl_cc_test
 
 package(default_visibility = ["//src/vizier:__subpackages__"])
 
+# entlein/dx#29 — compile-time kill switch for the direct-query endpoint.
+# Operators who do not want the feature available IN THE BINARY at all build
+# with `bazel build … --//src/vizier/services/agent/pem:direct_query=disabled`
+# (or equivalently `--define=PX_PEM_DIRECT_QUERY=disabled` if invoking via
+# bazel's legacy --define flag). When disabled, this propagates
+# `-DPX_PEM_DIRECT_QUERY_DISABLED` into every translation unit in cc_library;
+# direct_query_server.cc's body, pem_manager.cc's flag DEFINEs, and
+# MaybeStartDirectQueryServer's implementation are all `#ifndef`'d out, and
+# the stub class methods return UNIMPLEMENTED for any caller that still
+# routes through DirectQueryServer. The runtime flag --direct_query_enabled
+# is the soft, per-deploy toggle; this is the hard, per-build toggle. See
+# DIRECT_QUERY_SECURITY.md "Disabling the feature".
+config_setting(
+    name = "direct_query_disabled",
+    define_values = {"PX_PEM_DIRECT_QUERY": "disabled"},
+)
+
 pl_cc_library(
     name = "cc_library",
     srcs = glob(
@@ -30,7 +47,34 @@ pl_cc_library(
         ],
     ),
     hdrs = glob(["*.h"]),
+    defines = select({
+        ":direct_query_disabled": ["PX_PEM_DIRECT_QUERY_DISABLED"],
+        "//conditions:default": [],
+    }),
     deps = [
+        # entlein/dx#29 direct-query server deps (direct_query_server.{h,cc}):
+        "//src/api/proto/vizierpb:vizier_pl_cc_proto",
+        # Use //src/carnot:carnot (the public header target) for forward decls
+        # in direct_query_server.h. Step 2 (#29) needs concrete types — pull
+        # additional carnot sub-targets exposed via the fork's PEM visibility:
+        "//src/carnot",
+        "//src/carnot:cc_library",  # Carnot, EngineState concrete defs
+        "//src/carnot/carnotpb:carnot_pl_cc_proto",  # TransferResultChunkRequest
+        "//src/carnot/exec:cc_library",  # LocalGRPCResultSinkServer
+        "//src/carnot/funcs:cc_library",  # Step 9: funcs::RegisterFuncsOrDie
+        "//src/carnot/planner/compiler:cc_library",  # Compiler().Compile(...)
+        "//src/carnot/planpb:plan_pl_cc_proto",  # planpb::Plan, OperatorType
+        "//src/carnot/udf:cc_library",  # Step 9: udf::Registry
+        # Step 1 (#29): HS256 verify uses BoringSSL HMAC directly and parses
+        # claims via rapidjson. cpp_jwt's own HMAC verify path calls
+        # BIO_f_base64 which is in boringssl/decrepit/ — not exposed as a
+        # bazel target on this fork. Native HMAC is ~50 LoC vs. a boringssl
+        # patch; the mint side (test only, via cpp_jwt) still uses the lib.
+        "@boringssl//:crypto",
+        "@com_github_grpc_grpc//:grpc++",
+        "@com_github_rlyeh_sole//:sole",  # sole::uuid4 for query_id
+        "@com_github_tencent_rapidjson//:rapidjson",
+        # existing PEM deps:
         "//src/carnot/planner/dynamic_tracing/ir/logicalpb:logical_pl_cc_proto",
         "//src/integrations/grpc_clocksync:cc_library",
         "//src/shared/tracepoint_translation:cc_library",
@@ -48,6 +92,32 @@ pl_cc_test(
         "//src/common/testing/event:cc_library",
         "//src/stirling/testing:stirling_mock",
         "//src/vizier/services/agent/shared/manager:test_utils",
+    ],
+)
+
+# entlein/dx#29 — TDD contract for the PEM direct-query endpoint. dx-agent authored
+# the spec; pem-agent makes it pass (port the standalone_pem execution path + JWT
+# verify + Carnot fixture). See DIRECT_QUERY_CONTRACT.md.
+#
+# Note: pl_cc_test auto-injects //src/common/testing:cc_library for gtest/gmock,
+# so we must NOT list it explicitly here — same shape as tracepoint_manager_test
+# above (the dx-agent flagged this as a likely nit in the kickoff comment).
+pl_cc_test(
+    name = "direct_query_server_test",
+    srcs = ["direct_query_server_test.cc"],
+    deps = [
+        ":cc_library",
+        "//src/api/proto/vizierpb:vizier_pl_cc_proto",
+        # Step 2b (#29) — Carnot exec fixture for ValidToken_TrivialQuery_StreamsRows
+        "//src/carnot",
+        "//src/carnot:cc_library",
+        "//src/carnot/exec:cc_library",  # LocalGRPCResultSinkServer
+        "//src/carnot/funcs:cc_library",  # RegisterFuncsOrDie
+        "//src/carnot/udf:cc_library",  # udf::Registry
+        "//src/table_store:cc_library",
+        "@com_github_arun11299_cpp_jwt//:cpp_jwt",  # Step 1: MakeBearerToken mints HS256
+        "@com_github_grpc_grpc//:grpc++",
+        "@com_github_rlyeh_sole//:sole",
     ],
 )
 

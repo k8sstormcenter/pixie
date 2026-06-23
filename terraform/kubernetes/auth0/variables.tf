@@ -1,1 +1,0 @@
-variable "cloud_domain" {}

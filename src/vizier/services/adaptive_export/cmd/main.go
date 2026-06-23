@@ -600,8 +600,27 @@ func main() {
 		}
 		go func() {
 			log.WithField("addr", addr).Info("control surface listening")
-			if err := httpSrv.ListenAndServe(); err != nil &&
-				err != http.ErrServerClosed {
+			// CONTROL_TLS=true → serve TLS so the bearer JWT + control payloads
+			// don't cross the CNI in cleartext (auth without TLS leaks the token).
+			// Cert/key from the service-tls-certs secret the broker/PEM already use
+			// (mounted /certs); dx skip-verifies. Default-OFF for incremental rollout.
+			var err error
+			if os.Getenv("CONTROL_TLS") == "true" {
+				cert := os.Getenv("CONTROL_TLS_CERT")
+				if cert == "" {
+					cert = "/certs/server.crt"
+				}
+				key := os.Getenv("CONTROL_TLS_KEY")
+				if key == "" {
+					key = "/certs/server.key"
+				}
+				log.WithField("cert", cert).Info("control surface: TLS ENABLED")
+				err = httpSrv.ListenAndServeTLS(cert, key)
+			} else {
+				log.Warn("control surface: TLS DISABLED — bearer JWT crosses the CNI in cleartext (set CONTROL_TLS=true)")
+				err = httpSrv.ListenAndServe()
+			}
+			if err != nil && err != http.ErrServerClosed {
 				log.WithError(err).Error("control surface stopped")
 			}
 		}()

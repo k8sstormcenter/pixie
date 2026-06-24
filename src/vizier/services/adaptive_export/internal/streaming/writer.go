@@ -109,12 +109,16 @@ func (w *BatchWriter) Run(ctx context.Context) {
 	ticker := time.NewTicker(w.batchEvery)
 	defer ticker.Stop()
 
-	flush := func(reason string) {
+	flush := func(parent context.Context, reason string) {
 		if len(buf) == 0 {
 			return
 		}
-		// Bound the CH write so a stalled CH HTTP doesn't pin us.
-		fctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		// Bound the CH write so a stalled CH HTTP doesn't pin us. The
+		// parent ctx is the caller's choice — Run passes its own ctx
+		// for steady-state flushes (so a cancellation propagates) and
+		// context.Background() for the shutdown flush (so the final
+		// drain isn't fast-failed by an already-cancelled parent).
+		fctx, cancel := context.WithTimeout(parent, 60*time.Second)
 		err := w.sink.WritePixieRows(fctx, w.table, buf)
 		cancel()
 		if err != nil {
@@ -122,33 +126,39 @@ func (w *BatchWriter) Run(ctx context.Context) {
 				"table":  w.table,
 				"rows":   len(buf),
 				"reason": reason,
-			}).Warn("streaming.BatchWriter: flush failed")
-		} else {
-			log.WithFields(log.Fields{
-				"table":  w.table,
-				"rows":   len(buf),
-				"reason": reason,
-			}).Info("streaming.BatchWriter: flushed batch")
+			}).Warn("streaming.BatchWriter: flush failed — buffered rows retained for next attempt")
+			// Keep buf intact on failure so the next flush retries the
+			// same rows instead of silently dropping them
+			// (CodeRabbit r-#68/streaming/writer.go).
+			return
 		}
+		log.WithFields(log.Fields{
+			"table":  w.table,
+			"rows":   len(buf),
+			"reason": reason,
+		}).Info("streaming.BatchWriter: flushed batch")
 		buf = buf[:0]
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			flush("shutdown")
+			// Shutdown: use Background so the final flush isn't
+			// fast-failed by the already-cancelled parent ctx
+			// (CodeRabbit r-#68/streaming/writer.go).
+			flush(context.Background(), "shutdown")
 			return
 
 		case rows := <-w.in:
 			buf = append(buf, rows...)
 			if len(buf) >= w.batchRows {
-				flush("size")
+				flush(ctx, "size")
 				// Reset ticker so we don't get a redundant flush 100ms later
 				ticker.Reset(w.batchEvery)
 			}
 
 		case <-ticker.C:
-			flush("timer")
+			flush(ctx, "timer")
 		}
 	}
 }

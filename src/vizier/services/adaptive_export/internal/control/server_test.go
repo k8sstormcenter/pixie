@@ -166,6 +166,27 @@ func TestBadInputRejected(t *testing.T) {
 	if r := do(t, srv, http.MethodPost, "/query", `{"pod":"p","query_id":"x","window":[1,2]}`); r.StatusCode != http.StatusBadRequest {
 		t.Fatalf("query no-table = %d, want 400", r.StatusCode)
 	}
+	// /export/start with t_end <= 0 — pins the new contract (CodeRabbit
+	// r-#68/control/server_test.go). Without this assertion a regression
+	// that drops the `req.TEnd <= 0` gate would Upsert with a
+	// time.Unix(0,0) tEnd, immediately-expired.
+	if r := do(t, srv, http.MethodPost, "/export/start",
+		`{"pod":"p","namespace":"n","t_end":0}`); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("start t_end=0 = %d, want 400", r.StatusCode)
+	}
+	if r := do(t, srv, http.MethodPost, "/export/start",
+		`{"pod":"p","namespace":"n","t_end":-1}`); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("start t_end=-1 = %d, want 400", r.StatusCode)
+	}
+	// /query with inverted or zero window — same idea.
+	if r := do(t, srv, http.MethodPost, "/query",
+		`{"pod":"p","table":"http_events","query_id":"x","window":[10,5]}`); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("query inverted-window = %d, want 400", r.StatusCode)
+	}
+	if r := do(t, srv, http.MethodPost, "/query",
+		`{"pod":"p","table":"http_events","query_id":"x","window":[5,5]}`); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("query zero-window = %d, want 400", r.StatusCode)
+	}
 }
 
 func TestWrongMethodRejected(t *testing.T) {

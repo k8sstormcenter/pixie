@@ -315,6 +315,16 @@ func (c *Controller) handle(ctx context.Context, ev kubescape.Event) {
 
 	c.mu.Lock()
 	row, exists := c.active[hash]
+	// Save the pre-mutation snapshot so we can roll back if the sink
+	// write fails (CodeRabbit r-#68/controller/controller.go). Without
+	// this, on write error we'd keep the extended TEnd/NAnomalies/
+	// LastSeen in c.active and an already-running pushPixieRows would
+	// re-snapshot them and fan out data based on an attribution row
+	// that never actually landed in CH.
+	var prevRow sink.AttributionRow
+	if exists {
+		prevRow = *row
+	}
 	if !exists {
 		row = &sink.AttributionRow{
 			AnomalyHash: hash,
@@ -354,14 +364,21 @@ func (c *Controller) handle(ctx context.Context, ev kubescape.Event) {
 	if err := c.sink.Write(ctx, []sink.AttributionRow{snapshot}); err != nil {
 		// Attribution persistence failed → do NOT fan out, or we'd write Pixie
 		// rows with no persisted attribution anchor (orphaned rows, CodeRabbit).
-		// Non-fatal (system-stability rule): release the reserved in-flight slot
-		// and return; a later event for the same hash retries.
+		// Non-fatal (system-stability rule): release the reserved in-flight slot,
+		// ROLL BACK the in-memory mutation so an already-running pushPixieRows
+		// for this hash doesn't keep extending its window on a phantom
+		// attribution, and return; a later event for the same hash retries.
 		log.WithError(err).Warn("controller: sink write failed — skipping fan-out")
-		if spawn {
-			c.mu.Lock()
-			delete(c.inFlight, hash)
-			c.mu.Unlock()
+		c.mu.Lock()
+		if exists {
+			*c.active[hash] = prevRow
+		} else {
+			delete(c.active, hash)
 		}
+		if spawn {
+			delete(c.inFlight, hash)
+		}
+		c.mu.Unlock()
 		return
 	}
 	if c.cfg.OnAttribution != nil {

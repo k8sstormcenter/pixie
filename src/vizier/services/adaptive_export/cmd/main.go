@@ -856,8 +856,15 @@ func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (
 //
 // Any other script is assumed user-authored and left alone.
 func isOperatorManagedScript(name string) bool {
-	if strings.HasPrefix(name, "ch-") {
-		return true
+	// Match the EXACT names builtinPresetScripts emits — never a prefix.
+	// A user-authored script named "ch-something-custom" would otherwise
+	// be classified as operator-managed and deleted on the next
+	// installPresetScripts pass under INSTALL_PRESET_SCRIPTS=true
+	// (CodeRabbit r-#68/cmd/main.go).
+	for _, p := range builtinPresetScripts() {
+		if name == p.Name {
+			return true
+		}
 	}
 	switch name {
 	case "conn_stats export", "dc snoop export", "stack_traces export":

@@ -356,12 +356,16 @@ func TestOracle_PollLimitOverflow_DocumentsLossBound(t *testing.T) {
 	// anything less would mean the escape ate Rfollow too (a regression).
 	collected := []kubescape.Event{}
 	deadline := time.After(2 * time.Second)
+COLLECT:
 	for len(collected) < pollLimit+1 {
 		select {
 		case ev := <-ch:
 			collected = append(collected, ev)
 		case <-deadline:
-			break
+			// Labelled break — bare `break` only exits the `select`,
+			// leaving the `for` to busy-spin on the already-closed
+			// deadline channel. (CodeRabbit r-#68/oracle_test.go.)
+			break COLLECT
 		}
 	}
 	// Extra-drain pass to catch any late surplus emissions.

@@ -127,7 +127,7 @@ func (s *Server) handleDXAttackGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var edges []json.RawMessage
-	if !decode(r, &edges) {
+	if !decode(w, r, &edges) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -174,8 +174,17 @@ func (t targetReq) target() anomaly.Target {
 	return anomaly.Target{Comm: t.Comm, Pod: t.Pod, Namespace: t.Namespace}
 }
 
-func decode(r *http.Request, v any) bool {
+// maxControlBodyBytes caps a single control-surface request body. The
+// largest legitimate payload we accept is /dx/attack_graph which is a
+// JSON array of pre-marshalled JSONEachRow lines — measured live the
+// hottest dx rule-in pass fits in ~256 KiB. 4 MiB is well above that
+// and below the per-pod memory headroom an oversized POST could
+// exhaust on the operator (CodeRabbit r-#68/control/server.go).
+const maxControlBodyBytes = 4 << 20
+
+func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	defer r.Body.Close()
+	r.Body = http.MaxBytesReader(w, r.Body, maxControlBodyBytes)
 	return json.NewDecoder(r.Body).Decode(v) == nil
 }
 
@@ -190,7 +199,7 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req startReq
-	if !decode(r, &req) || req.Pod == "" || req.TEnd <= 0 {
+	if !decode(w, r, &req) || req.Pod == "" || req.TEnd <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -204,7 +213,7 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req targetReq
-	if !decode(r, &req) || req.Pod == "" {
+	if !decode(w, r, &req) || req.Pod == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -222,7 +231,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req queryReq
-	if !decode(r, &req) || req.Pod == "" || req.Table == "" || req.QueryID == "" ||
+	if !decode(w, r, &req) || req.Pod == "" || req.Table == "" || req.QueryID == "" ||
 		req.Window[0] <= 0 || req.Window[1] <= 0 || req.Window[0] >= req.Window[1] {
 		w.WriteHeader(http.StatusBadRequest)
 		return

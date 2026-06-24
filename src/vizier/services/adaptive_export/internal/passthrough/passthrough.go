@@ -234,7 +234,11 @@ func (l *Loop) tickConcurrent(ctx context.Context, sliceStart, sliceEnd time.Tim
 		}
 		tmpl, ok := l.tmpl[table]
 		if !ok {
-			// Non-builtin table skipped at precompile time.
+			// Non-builtin table skipped at precompile time. Record the
+			// failure so the reconcile row count matches the legacy
+			// (non-compiled) path, which records one row per table per
+			// tick unconditionally (CodeRabbit r-#68/passthrough.go).
+			l.rec(ctx, table, sliceStart, sliceEnd, 0, 0, "pxl: precompile skipped (non-builtin table)")
 			continue
 		}
 		src := pxl.Render(tmpl, sliceStart, sliceEnd)

@@ -130,6 +130,13 @@ func (a *Adapter) Query(ctx context.Context, pxl string) ([]Row, error) {
 		// bounded and matched by goroutine + JWT expiry every ~10min.
 		// If we ever build a high-throughput direct-mode path, swap to
 		// a long-lived client + JWT-refresh ticker instead.
+		//
+		// TODO(pem-direct, CR r-#68/pixieapi.go): track a follow-up to
+		// replace per-Query dial with a long-lived pxapi.Client +
+		// background JWT refresh once direct-mode throughput crosses
+		// 1 query/sec sustained. Existing tests in pixieapi_test.go
+		// pin the per-query JWT mint path; an upgrade has to preserve
+		// that without leaking connections.
 		c, err := pxapi.NewClient(ctx,
 			pxapi.WithCloudAddr(a.directOpts.VizierAddr),
 			pxapi.WithDirectTLSSkipVerify(),

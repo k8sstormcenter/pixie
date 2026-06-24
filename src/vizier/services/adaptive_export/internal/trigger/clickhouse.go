@@ -73,8 +73,11 @@ type Config struct {
 	// PollLimit caps rows returned per poll. Bounds catch-up work
 	// after a restart so a 10h backlog doesn't translate into a
 	// single multi-GiB SELECT the HTTP client times out on; instead
-	// it drains in N polls of PollLimit rows. Default 10000.
-	// 0 → unlimited (legacy behavior — NOT recommended in prod).
+	// it drains in N polls of PollLimit rows.
+	// Default: 10000 (also used when caller passes 0). Set explicitly
+	// if the default doesn't match your backlog/throughput; "unlimited"
+	// is NOT a supported value — every poll always carries a LIMIT.
+	// (CodeRabbit r-#68/trigger/clickhouse.go.)
 	PollLimit int
 
 	// HTTPTimeout bounds each individual poll. Default 30s; previously

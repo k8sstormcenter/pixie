@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"sync"
 	"time"
@@ -182,8 +183,21 @@ func appendJSONValue(buf *bytes.Buffer, v any) error {
 	case uint64:
 		appendUint(buf, x)
 	case float32:
-		appendFloat(buf, float64(x))
+		f := float64(x)
+		// Reject NaN / +Inf / -Inf — strconv.AppendFloat emits them as
+		// "NaN" / "+Inf" / "-Inf" which are invalid JSON and would
+		// cause CH to reject the entire batch. errFastEncodeUnsupported
+		// triggers the encoding/json fallback path, which also fails
+		// on non-finite, but at the per-row granularity instead of
+		// poisoning the whole batch (CodeRabbit r-#68/fastencode.go).
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return errFastEncodeUnsupported
+		}
+		appendFloat(buf, f)
 	case float64:
+		if math.IsNaN(x) || math.IsInf(x, 0) {
+			return errFastEncodeUnsupported
+		}
 		appendFloat(buf, x)
 	case time.Time:
 		// Same format normalisePixieValue uses for the encoding/json

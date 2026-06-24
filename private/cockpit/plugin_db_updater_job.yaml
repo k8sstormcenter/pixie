@@ -1,0 +1,92 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: plugin-db-updater-job
+  labels:
+    jobgroup: plugin-db-updater
+spec:
+  ttlSecondsAfterFinished: 10
+  template:
+    metadata:
+      name: plugin-db-updater-job
+      labels:
+        jobgroup: plugin-db-updater
+    spec:
+      initContainers:
+      - name: postgres-wait
+        # TODO(ddelnano): This image was rebuilt from https://github.com/docker-library/postgres 14-alpine
+        # to remediate a critical vulnerability. Switch back to upstream once fixed.
+        # yamllint disable-line rule:line-length
+        image: ghcr.io/pixie-io/postgres:14-alpine-pl1@sha256:237c5fcf79b230979e12fe02f46e0ad29565b4ecb7cb15047197cbb9a6549e8d
+        command: ['sh', '-c',
+                  'until pg_isready -h ${PL_POSTGRES_HOSTNAME} -p ${PL_POSTGRES_PORT}; do
+                  echo "waiting for postgres";
+                  sleep 2;
+                  done;']
+        envFrom:
+        - configMapRef:
+            name: pl-db-config
+      containers:
+      - name: updater
+        image: cloud-plugin-load_db:latest
+        envFrom:
+        - configMapRef:
+            name: pl-db-config
+        - configMapRef:
+            name: pl-domain-config
+        - configMapRef:
+            name: pl-tls-config
+        volumeMounts:
+        - name: certs
+          mountPath: /certs
+        env:
+        - name: PL_POSTGRES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: pl-db-secrets
+              key: PL_POSTGRES_USERNAME
+        - name: PL_POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: pl-db-secrets
+              key: PL_POSTGRES_PASSWORD
+        - name: PL_JWT_SIGNING_KEY
+          valueFrom:
+            secretKeyRef:
+              name: cloud-auth-secrets
+              key: jwt-signing-key
+        - name: PL_PLUGIN_SERVICE
+          valueFrom:
+            configMapKeyRef:
+              name: pl-service-config
+              key: PL_PLUGIN_SERVICE
+        - name: PL_PLUGIN_REPO
+          value: "k8sstormcenter/pixie-plugin"
+      restartPolicy: Never
+      volumes:
+      - name: pl-db-secrets
+        secret:
+          secretName: pl-db-secrets
+      - name: certs
+        projected:
+          sources:
+          - secret:
+              name: service-tls-server-certs
+              items:
+              - key: tls.crt
+                path: server.crt
+              - key: tls.key
+                path: server.key
+              - key: ca.crt
+                path: ca.crt
+          - secret:
+              name: service-tls-client-certs
+              items:
+              - key: tls.crt
+                path: client.crt
+              - key: tls.key
+                path: client.key
+  backoffLimit: 1
+  parallelism: 1
+  completions: 1

@@ -2,7 +2,6 @@
 .common_bazel_args: &common_bazel_args
 - --compilation_mode=opt
 - --config=stamp
-- --action_env=GOOGLE_APPLICATION_CREDENTIALS
 - --config=x86_64_sysroot
 apiVersion: skaffold/v4beta1
 kind: Config
@@ -77,78 +76,9 @@ manifests:
     paths:
     - k8s/cloud/dev
 profiles:
-- name: minikube
-  activation:
-  - kubeContext: minikube
-  patches:
-  - op: replace
-    path: /build/local
-    value:
-      push: false
-- name: dev
-  activation:
-  - command: dev
-  patches:
-  - op: add
-    path: /build/artifacts/context=./bazel/args
-    value:
-    - --compilation_mode=dbg
-- name: ory_auth
+- name: cockpit
   patches:
   - op: replace
     path: /manifests/kustomize/paths
     value:
-    - k8s/cloud/dev
-    - k8s/cloud/dev/ory_auth
-  - op: add
-    path: /build/artifacts/context=./bazel/args
-    value:
-    - --compilation_mode=dbg
-- name: ory_auth_prod
-  patches:
-  - op: add
-    path: /manifests/kustomize/paths
-    value:
-    - k8s/cloud/base/ory_auth
-- name: staging
-  activation:
-  - env: PL_BUILD_TYPE=staging
-  patches:
-  - op: add
-    path: /build/artifacts/context=./bazel/args
-    value:
-      *common_bazel_args
-  - op: replace
-    path: /manifests/kustomize/paths
-    value:
-    - k8s/cloud/staging
-- name: testing
-  activation:
-  - env: PL_BUILD_TYPE=testing
-  patches:
-  - op: add
-    path: /build/artifacts/context=./bazel/args
-    value:
-      *common_bazel_args
-  - op: replace
-    path: /manifests/kustomize/paths
-    value:
-    - k8s/cloud/testing
-- name: prod
-  activation:
-  - env: PL_BUILD_TYPE=prod
-  patches:
-  - op: add
-    path: /build/artifacts/context=./bazel/args
-    value:
-      *common_bazel_args
-  - op: replace
-    path: /manifests/kustomize/paths
-    value:
-    - k8s/cloud/prod
-- name: public
-  patches:
-  - op: replace
-    path: /manifests/kustomize/paths
-    value:
-    - k8s/cloud/public/base
+    - cockpit

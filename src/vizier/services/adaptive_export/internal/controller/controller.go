@@ -31,6 +31,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -243,6 +244,66 @@ func New(trig Trigger, snk Sink, cfg Config, clk Clock) *Controller {
 func (c *Controller) WithPixieQuerier(q PixieQuerier) *Controller {
 	c.querier = q
 	return c
+}
+
+// OrderQuery runs ONE control-ordered (target, table, window) query and writes the
+// result through AE's normal sink — the dx→AE write⊇read path behind the control
+// surface's POST /query. Unlike pushPixieRows (one goroutine per kubescape-anomaly
+// window, driven by the Trigger), this is a single-shot forensic capture for a
+// table dx EXPLICITLY consulted to reach a verdict. It is how the evidence dx read
+// — e.g. the jndi-in-http the PEM bench found at triage — lands in forensic_db even
+// when no kubescape anomaly opened a window for that pod (entlein/dx#93). Reuses the
+// same QueryFor → querier.Query → sink.WritePixieRows path + globalSem + reconcile
+// accounting as the anomaly-driven push. Satisfies control.queryRunner.
+func (c *Controller) OrderQuery(target anomaly.Target, table string, start, end time.Time, queryID string) error {
+	if c.querier == nil {
+		return errors.New("controller: no pixie querier (operator-side push disabled)")
+	}
+	now := c.clock.Now()
+	q, err := pxl.QueryFor(table, target, start, end, now)
+	if err != nil {
+		return err
+	}
+	// Background ctx with per-op timeouts mirroring pushPixieRows: a control-ordered
+	// capture must complete independently of any anomaly window's lifecycle.
+	var readCount, wroteCount int
+	var recErr string
+	defer func() {
+		c.cfg.Rec.Record(context.Background(), reconcile.Row{
+			TS: now, Mode: "ordered", Table: table,
+			Namespace: target.Namespace, Pod: target.Pod,
+			WinStart: start, WinEnd: end,
+			ReadCount: int64(readCount), WroteCount: int64(wroteCount),
+			WriteErr: recErr, Hostname: c.cfg.Hostname,
+		})
+	}()
+	if c.globalSem != nil {
+		c.globalSem <- struct{}{}
+		defer func() { <-c.globalSem }()
+	}
+	qctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	rows, qerr := c.querier.Query(qctx, q)
+	cancel()
+	if qerr != nil {
+		recErr = qerr.Error()
+		return qerr
+	}
+	readCount = len(rows)
+	if len(rows) == 0 {
+		return nil // nothing to persist; the read/0-wrote reconcile row still records it
+	}
+	wctx, wcancel := context.WithTimeout(context.Background(), 60*time.Second)
+	werr := c.sink.WritePixieRows(wctx, table, rows)
+	wcancel()
+	if werr != nil {
+		recErr = werr.Error()
+		return werr
+	}
+	wroteCount = len(rows)
+	log.WithFields(log.Fields{
+		"table": table, "rows": len(rows), "pod": target.Pod, "query_id": queryID,
+	}).Info("ordered pixie rows written to forensic_db (dx→AE /query)")
+	return nil
 }
 
 // Rehydrate populates the in-memory active set from ClickHouse so a

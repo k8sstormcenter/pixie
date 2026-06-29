@@ -18,10 +18,16 @@ jobs:
     - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36  # v3.0.2
       id: changes
       with:
+        # Fork carve-out: private/cockpit/ is LEGITIMATE fork config for the
+        # pixie-cloud deployment. It predates upstream's filename_linter and
+        # was deleted upstream by the cert-manager migration (#2391); restoring
+        # it at its original path re-trips this guard, so negative-glob it while
+        # keeping the "no private/* leaks" intent for everything else.
         filters: |
           private:
           - '**/*private*/**'
           - '**/*private*'
+          - '!private/cockpit/**'
     - name: Fail on private
       if: ${{ steps.changes.outputs.private == 'true' }}
       run: echo "This repo disallows dirnames or filenames with 'private' in it." && exit 1

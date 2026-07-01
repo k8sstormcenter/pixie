@@ -38,6 +38,11 @@ DEFINE_string(clock_converter, gflags::StringFromEnv("PL_CLOCK_CONVERTER", "defa
               "Which ClockConverter to use for converting from mono to reference time. Current "
               "options are 'default' or 'grpc'");
 
+// entlein/dx#29 — direct-query gRPC flags (--direct_query_enabled / _port /
+// _jwt_signing_key, env PL_PEM_DIRECT_QUERY_* + PL_JWT_SIGNING_KEY) are
+// DEFINEd in pem_manager.cc so the test binary (which links cc_library but
+// not pem_main.cc) picks up the symbols. See DIRECT_QUERY_CONTRACT.md.
+
 using ::px::vizier::agent::DefaultDeathHandler;
 using ::px::vizier::agent::PEMManager;
 using ::px::vizier::agent::TerminationHandler;

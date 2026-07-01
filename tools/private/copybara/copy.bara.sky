@@ -19,6 +19,7 @@ dest_repo = "git@github.com:k8sstormcenter/pixie.git"
 
 # Directories with fork-specific customizations that will be upstreamed separately.
 ignored_dirs = [
+    ".arclint",      # fork lint exclusions (e.g. adaptive_export_loadtest nested go module)
     ".bazelrc",      # upstream + fork only changes
     # Release jobs (cli/cloud/operator/vizier _release.yaml) and their
     # supporting ci/ scripts are now converged with upstream and flow
@@ -48,6 +49,7 @@ ignored_dirs = [
     "src/carnot/exec/clickhouse_*",  # To be upstreamed
     "src/carnot/exec/exec_graph.cc", # To be upstreamed
     "src/carnot/funcs/builtins/BUILD.bazel", # To be upstreamed
+    "src/carnot/udf/BUILD.bazel", # fork grant: pem direct_query_server_test visibility (dx#29)
     "src/carnot/plan/operators.cc", # To be upstreamed
     "src/carnot/plan/operators.h",  # To be upstreamed
     "src/carnot/plan/plan_fragment.cc", # To be upstreamed
@@ -90,6 +92,15 @@ ignored_dirs = [
     "src/utils/shared/certs/**", # cert-manager support (upstream)
     "src/vizier/funcs/md_udtfs/**", # Clickhouse UDTF changes
     "src/vizier/services/agent/shared/manager/BUILD.bazel", # ASAN build changes. Likely to be upstreamed
+    # Fork direct-query endpoint (entlein/dx#29) — these upstream PEM files
+    # carry fork-only direct_query hunks (gflags, MaybeStartDirectQueryServer,
+    # member decls, BUILD wiring). The #2391 import stripped them once; freeze
+    # so the mirror leaves the hunks intact. direct_query_server.* +
+    # DIRECT_QUERY_* are fork-only and protected via fork_only_files.
+    "src/vizier/services/agent/pem/BUILD.bazel",
+    "src/vizier/services/agent/pem/pem_main.cc",
+    "src/vizier/services/agent/pem/pem_manager.cc",
+    "src/vizier/services/agent/pem/pem_manager.h",
     "src/vizier/services/cloud_connector/bridge/**", # should be made generic and upstreamed
     "src/vizier/services/metadata/metadatapb/BUILD.bazel",
     "src/vizier/services/metadata/local/**", # clickhouse testing changes, likely can be removed

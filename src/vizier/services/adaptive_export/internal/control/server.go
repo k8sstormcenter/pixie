@@ -52,16 +52,16 @@ type queryRunner interface {
 }
 
 // graphWriter persists dx evidence-graph edges (newline-delimited JSON,
-// JSONEachRow) to forensic_db.dx_attack_graph. nil → /dx/attack_graph 501s.
+// JSONEachRow) to forensic_db.dx_evidence_graph. nil → /dx/evidence_graph 501s.
 type graphWriter interface {
-	WriteAttackGraph(ctx context.Context, jsonEachRow []byte) error
+	WriteEvidenceGraph(ctx context.Context, jsonEachRow []byte) error
 }
 
 // Server is the control HTTP surface.
 type Server struct {
 	set    exporter
 	runner queryRunner // may be nil; /query then returns 501
-	graph  graphWriter // may be nil; /dx/attack_graph then returns 501
+	graph  graphWriter // may be nil; /dx/evidence_graph then returns 501
 	mux    *http.ServeMux
 }
 
@@ -73,19 +73,19 @@ func New(set exporter, runner queryRunner) *Server {
 	s.mux.HandleFunc("/export/start", s.handleStart)
 	s.mux.HandleFunc("/export/stop", s.handleStop)
 	s.mux.HandleFunc("/query", s.handleQuery)
-	s.mux.HandleFunc("/dx/attack_graph", s.handleDXAttackGraph)
+	s.mux.HandleFunc("/dx/evidence_graph", s.handleDXEvidenceGraph)
 	return s
 }
 
-// SetGraphWriter wires the dx_attack_graph sink.
+// SetGraphWriter wires the dx_evidence_graph sink.
 func (s *Server) SetGraphWriter(g graphWriter) { s.graph = g }
 
 // Handler exposes the mux (for httptest + main.go wiring).
 func (s *Server) Handler() http.Handler { return s.mux }
 
-// handleDXAttackGraph ingests a JSON array of dx evidence-graph edges and writes
-// them to forensic_db.dx_attack_graph (as JSONEachRow).
-func (s *Server) handleDXAttackGraph(w http.ResponseWriter, r *http.Request) {
+// handleDXEvidenceGraph ingests a JSON array of dx evidence-graph edges and writes
+// them to forensic_db.dx_evidence_graph (as JSONEachRow).
+func (s *Server) handleDXEvidenceGraph(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -108,7 +108,7 @@ func (s *Server) handleDXAttackGraph(w http.ResponseWriter, r *http.Request) {
 		buf.Write(e)
 		buf.WriteByte('\n')
 	}
-	if err := s.graph.WriteAttackGraph(r.Context(), buf.Bytes()); err != nil {
+	if err := s.graph.WriteEvidenceGraph(r.Context(), buf.Bytes()); err != nil {
 		w.WriteHeader(http.StatusBadGateway)
 		return
 	}

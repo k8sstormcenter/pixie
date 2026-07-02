@@ -557,7 +557,7 @@ func main() {
 	// the existing trigger→controller→activeSet flow is unchanged.
 	if addr := os.Getenv("CONTROL_ADDR"); addr != "" {
 		ctrlSrv := control.New(activeSet, nil) // OrderQuery runner wired later
-		ctrlSrv.SetGraphWriter(applier)        // dx_attack_graph ingest → ClickHouse
+		ctrlSrv.SetGraphWriter(applier)        // dx_evidence_graph ingest → ClickHouse
 		go func() {
 			log.WithField("addr", addr).Info("control surface listening")
 			if err := http.ListenAndServe(addr, ctrlSrv.Handler()); err != nil &&

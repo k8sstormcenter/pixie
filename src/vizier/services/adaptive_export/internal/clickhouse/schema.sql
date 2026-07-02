@@ -487,7 +487,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.ae_reconcile (
   -- unbounded storage (CodeRabbit). 30d matches the pixie observation tables.
   TTL toDateTime(ts) + INTERVAL 30 DAY DELETE;
 
--- dx_attack_graph — dx evidence-graph edge list: one row per directed hop of an
+-- dx_evidence_graph — dx evidence-graph edge list: one row per directed hop of an
 -- investigation (delivery/egress/execution/exfil/pivot), read by the Pixie
 -- dx_evidence_graph UI via px.DataFrame(clickhouse_dsn=...). Operator-owned
 -- (dx emits the edges, AE persists them); NOT a pixie socket_tracer table.
@@ -498,7 +498,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.ae_reconcile (
 -- event_time". Same convention as kubescape_logs. event_time is nanos, so the
 -- partition/TTL use fromUnixTimestamp64Nano (toDateTime would read ns as seconds
 -- → year ~58e9 → broken partitions; see the soc#225 fix).
-CREATE TABLE IF NOT EXISTS forensic_db.dx_attack_graph (
+CREATE TABLE IF NOT EXISTS forensic_db.dx_evidence_graph (
     investigation_id  String,
     event_time        UInt64,
     hostname          String,
@@ -526,7 +526,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_attack_graph (
   TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
   SETTINGS index_granularity = 8192;
 
--- dx_attack_graph_malicious — rule-ins-only view (condition != '') the
+-- dx_evidence_graph_malignant — rule-ins-only view (condition != '') the
 -- dx_evidence_graph UI reads by default so benign rows stay in ClickHouse.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_attack_graph_malicious AS
-  SELECT * FROM forensic_db.dx_attack_graph WHERE `condition` != '';
+CREATE VIEW IF NOT EXISTS forensic_db.dx_evidence_graph_malignant AS
+  SELECT * FROM forensic_db.dx_evidence_graph WHERE `condition` != '';

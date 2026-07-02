@@ -34,7 +34,10 @@ go_library(
 
 pl_go_test(
     name = "controller_test",
-    srcs = ["controller_test.go"],
+    srcs = [
+        "controller_test.go",
+        "order_query_test.go",
+    ],
     embed = [":controller"],
     deps = [
         "//src/vizier/services/adaptive_export/internal/anomaly",

@@ -66,11 +66,11 @@ var KnownTables = []string{
 	"ae_reconcile",
 	// operator-owned dx evidence-graph edge list (read by the Pixie
 	// dx_evidence_graph UI via clickhouse_dsn). NOT a pixie table.
-	"dx_attack_graph",
-	// rule-ins-only VIEW over dx_attack_graph (condition != ''); the
+	"dx_evidence_graph",
+	// rule-ins-only VIEW over dx_evidence_graph (condition != ''); the
 	// dx_evidence_graph UI reads this by default so benign rows are filtered
-	// in ClickHouse, not pulled. Must follow dx_attack_graph (depends on it).
-	"dx_attack_graph_malicious",
+	// in ClickHouse, not pulled. Must follow dx_evidence_graph (depends on it).
+	"dx_evidence_graph_malignant",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

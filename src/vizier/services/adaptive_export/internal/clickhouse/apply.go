@@ -67,9 +67,9 @@ var OperatorOwnedTables = []string{
 	// dx_evidence_graph UI (px.DataFrame clickhouse_dsn) has a real,
 	// globally-registered table to read. dx emits edges, AE persists.
 	// Not a pixie socket_tracer table → not in PixieTables().
-	"dx_attack_graph",
-	// rule-ins-only VIEW over dx_attack_graph; created AFTER it (depends on it).
-	"dx_attack_graph_malicious",
+	"dx_evidence_graph",
+	// rule-ins-only VIEW over dx_evidence_graph; created AFTER it (depends on it).
+	"dx_evidence_graph_malignant",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the
@@ -108,15 +108,15 @@ func (a *Applier) Apply(ctx context.Context) error {
 	return nil
 }
 
-// WriteAttackGraph inserts dx evidence-graph edges into
-// forensic_db.dx_attack_graph. jsonEachRow is newline-delimited JSON objects
+// WriteEvidenceGraph inserts dx evidence-graph edges into
+// forensic_db.dx_evidence_graph. jsonEachRow is newline-delimited JSON objects
 // whose keys are the column names (JSONEachRow; unknown keys are skipped,
 // missing columns default). No-op on empty input.
-func (a *Applier) WriteAttackGraph(ctx context.Context, jsonEachRow []byte) error {
+func (a *Applier) WriteEvidenceGraph(ctx context.Context, jsonEachRow []byte) error {
 	if len(jsonEachRow) == 0 {
 		return nil
 	}
-	_, err := a.c.Insert(ctx, "INSERT INTO forensic_db.dx_attack_graph FORMAT JSONEachRow",
+	_, err := a.c.Insert(ctx, "INSERT INTO forensic_db.dx_evidence_graph FORMAT JSONEachRow",
 		jsonEachRow, chhttp.InsertOptions{})
 	return err
 }

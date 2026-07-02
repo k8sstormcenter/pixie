@@ -71,6 +71,10 @@ var KnownTables = []string{
 	// dx_evidence_graph UI reads this by default so benign rows are filtered
 	// in ClickHouse, not pulled. Must follow dx_evidence_graph (depends on it).
 	"dx_evidence_graph_malignant",
+	// operator-owned dx §9 completeness manifest — one row per verdict naming
+	// the evidence rows dx consulted (POST /dx/evidence_manifest). NOT a pixie
+	// table. Independent of dx_evidence_graph.
+	"dx_evidence_manifest",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

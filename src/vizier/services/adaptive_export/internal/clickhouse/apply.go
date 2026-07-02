@@ -70,6 +70,10 @@ var OperatorOwnedTables = []string{
 	"dx_evidence_graph",
 	// rule-ins-only VIEW over dx_evidence_graph; created AFTER it (depends on it).
 	"dx_evidence_graph_malignant",
+	// dx §9 completeness manifest — one row per verdict naming the evidence rows
+	// dx consulted. Created on boot so POST /dx/evidence_manifest has a target.
+	// Independent of dx_evidence_graph. Not a pixie table → not in PixieTables().
+	"dx_evidence_manifest",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the
@@ -117,6 +121,20 @@ func (a *Applier) WriteEvidenceGraph(ctx context.Context, jsonEachRow []byte) er
 		return nil
 	}
 	_, err := a.c.Insert(ctx, "INSERT INTO forensic_db.dx_evidence_graph FORMAT JSONEachRow",
+		jsonEachRow, chhttp.InsertOptions{})
+	return err
+}
+
+// WriteEvidenceManifest inserts one dx §9 completeness manifest (per verdict)
+// into forensic_db.dx_evidence_manifest. jsonEachRow is a single JSONEachRow
+// object whose keys are the column names; the control handler pre-renders the
+// nested collections (case_window/findings/orders/seeds/chain) as JSON text so
+// the insert is ClickHouse-version independent. No-op on empty input.
+func (a *Applier) WriteEvidenceManifest(ctx context.Context, jsonEachRow []byte) error {
+	if len(jsonEachRow) == 0 {
+		return nil
+	}
+	_, err := a.c.Insert(ctx, "INSERT INTO forensic_db.dx_evidence_manifest FORMAT JSONEachRow",
 		jsonEachRow, chhttp.InsertOptions{})
 	return err
 }

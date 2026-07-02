@@ -578,7 +578,8 @@ func main() {
 		// operator-side querier is disabled (no PushPixieTables), OrderQuery returns
 		// an error and /query 502s — start/stop + dx_evidence_graph still work.
 		ctrlSrv := control.New(activeSet, ctl)
-		ctrlSrv.SetGraphWriter(applier) // dx_evidence_graph ingest → ClickHouse
+		ctrlSrv.SetGraphWriter(applier)    // dx_evidence_graph ingest → ClickHouse
+		ctrlSrv.SetManifestWriter(applier) // dx_evidence_manifest ingest → ClickHouse
 		// Bearer-JWT auth on the control surface (CodeRabbit: protect control
 		// endpoints). Same shared lib + signing key the broker/PEM use — dx
 		// attaches the service JWT it already mints. Default-OFF so this can

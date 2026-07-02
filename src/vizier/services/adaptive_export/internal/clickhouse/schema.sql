@@ -535,3 +535,34 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_evidence_graph (
 -- dx_evidence_graph UI reads by default so benign rows stay in ClickHouse.
 CREATE VIEW IF NOT EXISTS forensic_db.dx_evidence_graph_malignant AS
   SELECT * FROM forensic_db.dx_evidence_graph WHERE `condition` != '';
+
+-- dx_evidence_manifest — the §9 completeness contract: one row per verdict
+-- (ruled_in | metastasis), naming the evidence rows dx consulted so the
+-- validator can join them against what AE persisted (write⊇read, checkable).
+-- Operator-owned (dx emits the manifest via POST /dx/evidence_manifest, AE
+-- persists it); NOT a pixie table. Column names are the manifest.Manifest
+-- JSON tags (dx internal/manifest). Same event_time (unix NANOSECONDS) +
+-- hostname read-path convention as dx_evidence_graph so it is px-readable.
+-- The nested collections (case_window/findings/orders/seeds/chain) are stored
+-- as JSON text in String columns; the control handler pre-renders them so the
+-- JSONEachRow insert is ClickHouse-version independent.
+CREATE TABLE IF NOT EXISTS forensic_db.dx_evidence_manifest (
+    investigation_id  String,
+    event_time        UInt64,
+    hostname          String,
+    `condition`       String,
+    verdict           String,
+    confidence        Float64,
+    posterior         Float64,
+    catalog_version   String,
+    case_window       String,
+    findings          String,
+    orders            String,
+    seeds             String,
+    chain             String,
+    evidence_hash     String
+) ENGINE = MergeTree()
+  ORDER BY (event_time, hostname)
+  PARTITION BY toYYYYMM(fromUnixTimestamp64Nano(event_time))
+  TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
+  SETTINGS index_granularity = 8192;

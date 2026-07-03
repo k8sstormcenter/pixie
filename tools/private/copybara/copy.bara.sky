@@ -34,7 +34,13 @@ ignored_dirs = [
     ".github/workflows/trivy_images.yaml",
     "DEVELOPMENT.md", # Should be moved to a fork only file
     "ci/github/bazelrc",                           # fork-specific bazelrc REPO_URL
-    "k8s/**",                          # cert-manager support (upstream)
+    # The k8s cloud/vizier cert-manager changes are upstreamed, so the tree is no
+    # longer frozen. Only the files below keep intentional fork-only divergence and
+    # stay pinned; fork-only k8s additions are protected via fork_only_files below.
+    "k8s/cloud/dev/plugin_db_updater_job.yaml",      # fork PL_PLUGIN_REPO override
+    "k8s/cloud/overlays/plugin_job/plugin_job.yaml", # fork PL_PLUGIN_REPO override
+    "k8s/vizier/BUILD.bazel",                        # fork adaptive_export image entry
+    "k8s/cloud/overlays/exposed_services_traefik/**", # To be upstreamed
     "scripts/create_cloud_secrets.sh", # cert-manager support (upstream)
     "skaffold/**",
     "bazel/repositories.bzl", # to be upstreamed

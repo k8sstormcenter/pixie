@@ -28,7 +28,7 @@ set -euo pipefail
 scenario="${1:-argocd-render}"
 DX="${2:-http://127.0.0.1:9099}"
 now="$(date +%s)"
-ns="poc"
+ns="${NS-poc}"   # NS="" → no pod scope (VM-native; dx queries the PEM unscoped)
 pod="app-vm-0"
 
 # one enriched-kubescape row; RuntimeProcessDetails carries the process tree,

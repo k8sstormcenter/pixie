@@ -159,8 +159,25 @@ topology in the UI is a hard requirement.
   backpressure drops, and **RSS/CPU** (`process_resident_memory_bytes`,
   `process_cpu_seconds_total`) — the pure-Linux equivalent of the k8s report G1/G2.
 - The **PEM eBPF path** (real `conn_stats`/`http_events` pulls via pxdirect) needs
-  a privileged PEM on a CO-RE kernel — rig-gated; the harness exercises it when a
-  PEM is present and degrades to referral-only otherwise (never a silent pass).
+  a privileged PEM on a CO-RE kernel; the harness exercises it when a PEM is
+  present and degrades to referral-only otherwise (never a silent pass).
+
+### 5a. Validated on a CO-RE VM (2026-07-04, kernel 6.8, BTF present)
+Ran the **real** `standalone_pem` image + dx on this host, no k8s/cloud:
+- PEM: Stirling attached `socket_tracer` and registered `conn_stats`,
+  `http_events`, `dns_events` (+ mysql/redis/mongo/amqp/tls) — **only with
+  `/sys` mounted read-write** (read-only blocks kprobe attach:
+  `probe cleanup failed: /sys/kernel/debug/tracing/kprobe_events`). The compose +
+  `standalone-pem.service` mount `/sys:rw` for this reason.
+- dx `pxdirect` executed PxL against the PEM: `dx_bench_errors_total 0`,
+  `dx_bench_unavailable 0`, tables resolve (no "Table not found"), a triage pull
+  returned in ~12 ms (`"dur_ms":12,"err":false`). Referrals admitted, verdicts
+  produced (`generic=MALIGNANT`).
+- **The off-k8s caveat, observed directly:** a referral scoped to a synthetic pod
+  (`namespace=poc`) pulls **0 rows** because `upid_to_namespace` is empty off-k8s
+  and the `namespace=='poc'` filter matches nothing — exactly §4-meta. On a VM,
+  omit the pod scope (empty `RuntimeK8sDetails`) so dx queries the PEM unscoped, or
+  supply a static metadata map. This is a real behaviour, not a bug.
 
 See `test/README.md` for exact invocations + pass criteria.
 

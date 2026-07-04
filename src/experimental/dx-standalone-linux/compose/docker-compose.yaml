@@ -28,7 +28,7 @@ services:
       PL_HOST_PATH: /host
     volumes:
     - /:/host:ro
-    - /sys:/sys:ro
+    - /sys:/sys:rw
   dx-daemon:
     image: docker.io/entlein/dx-daemon:0.3.0-integration4
     network_mode: host

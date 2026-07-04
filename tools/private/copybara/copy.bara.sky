@@ -120,6 +120,8 @@ ignored_dirs = [
 
 # Files/dirs that exist only in the fork and must not be deleted by copybara.
 fork_only_files = [
+    # dx active-diagnosis PoC — pure-Linux standalone PEM-direct showcase (not upstream).
+    "src/experimental/dx-standalone-linux/**",
     ".github/workflows/copybara_pixie_oss.yaml",
     ".github/workflows/perf_clickhouse.yaml",
     ".github/workflows/perf_soc_attack.yaml",

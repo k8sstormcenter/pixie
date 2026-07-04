@@ -1,0 +1,23 @@
+[Unit]
+Description=dx active-diagnosis daemon (node-local, PEM-direct)
+After=standalone-pem.service network-online.target
+Wants=standalone-pem.service
+
+[Service]
+EnvironmentFile=/etc/dx/dx-standalone.env
+ExecStart=/usr/local/bin/dx-daemon
+# dx is unprivileged: it only talks gRPC to the local PEM and serves HTTP.
+DynamicUser=yes
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/dx
+MemoryMax=1G
+CPUQuota=200%          # the verdict-latency lever (report G2): 2000m→~120ms/verdict
+Restart=on-failure
+RestartSec=3
+# graceful drain (dx#8): dx flushes queued referrals on SIGTERM.
+TimeoutStopSec=35
+
+[Install]
+WantedBy=multi-user.target

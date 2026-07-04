@@ -5,15 +5,16 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-# The PEM does eBPF (Stirling): needs privilege, host PID, and host /sys + rootfs.
-# Ship the prebuilt binary (or run the container image via podman) as PX_PEM_BIN.
+# NATIVE binary (bazel runfiles tree extracted to /opt/pixie-pem — see the release
+# asset pixie-standalone-pem-*.tar.gz + deploy/INSTALL-VM.md). A native process
+# already sees the host /proc + /sys, so there is no mount/host-PID container dance
+# and no /sys:rw requirement — Stirling writes /sys/kernel/debug/tracing directly.
 Environment=PX_STANDALONE_PEM_PORT=12345
 Environment=PL_TABLE_STORE_DATA_LIMIT_MB=1024
 Environment=PL_HOST_PATH=/
-ExecStart=/usr/local/bin/standalone_pem
-AmbientCapabilities=CAP_SYS_ADMIN CAP_BPF CAP_SYS_PTRACE CAP_SYS_RESOURCE CAP_NET_ADMIN CAP_PERFMON
-# host PID visibility for process attribution; do NOT sandbox the mounts the PEM reads.
-PrivateMounts=no
+# /usr/local/bin/standalone-pem is the launcher that execs the runfiles binary.
+ExecStart=/usr/local/bin/standalone-pem
+AmbientCapabilities=CAP_SYS_ADMIN CAP_BPF CAP_SYS_PTRACE CAP_SYS_RESOURCE CAP_NET_ADMIN CAP_PERFMON CAP_DAC_READ_SEARCH
 # resource containment (the k8s DaemonSet's cgroup limits, as systemd):
 MemoryMax=2G
 CPUQuota=200%

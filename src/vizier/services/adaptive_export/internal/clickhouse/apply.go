@@ -56,6 +56,14 @@ var OperatorOwnedTables = []string{
 	// with "conn_stats schema drift, missing columns". Locked down by
 	// TestOperatorOwnedTables_CoversAllPixieTables in apply_test.go.
 	"conn_stats",
+	"dx_execve",
+	"dx_vfs_events",
+	"dx_unlink",
+	"dx_dlookup",
+	"dx_mprotect",
+	"dx_creds",
+	"dx_bpf",
+	"dx_ptrace",
 	// operator's write targets.
 	"adaptive_attribution",
 	"trigger_watermark",

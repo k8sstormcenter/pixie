@@ -57,6 +57,14 @@ var KnownTables = []string{
 	// conn_stats — re-added to rev-2 schema; counts per
 	// (remote_addr, remote_port, protocol) on each retention-script pull.
 	"conn_stats",
+	"dx_execve",
+	"dx_vfs_events",
+	"dx_unlink",
+	"dx_dlookup",
+	"dx_mprotect",
+	"dx_creds",
+	"dx_bpf",
+	"dx_ptrace",
 	// operator-owned attribution table
 	"adaptive_attribution",
 	// operator-owned persistent trigger cursor
@@ -128,6 +136,14 @@ func PixieTables() []string {
 		"mux_events",
 		"tls_events",
 		"conn_stats",
+		"dx_execve",
+		"dx_vfs_events",
+		"dx_unlink",
+		"dx_dlookup",
+		"dx_mprotect",
+		"dx_creds",
+		"dx_bpf",
+		"dx_ptrace",
 	}
 }
 

@@ -65,17 +65,19 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	b.WriteString("df = px.DataFrame(table='" + table + "', start_time='" + relStart + "')\n")
 	b.WriteString("df = df[df.time_ >= px.int64_to_time(" + strconv.FormatInt(sliceStart.UnixNano(), 10) + ")]\n")
 	b.WriteString("df = df[df.time_ <  px.int64_to_time(" + strconv.FormatInt(sliceEnd.UnixNano(), 10) + ")]\n")
-	b.WriteString("df.namespace = px.upid_to_namespace(df.upid)\n")
-	// px.upid_to_pod_name returns "<namespace>/<pod>" (carnot:
+	// Native tables: px.upid_to_pod_name returns "<namespace>/<pod>" (carnot:
 	// metadata_ops.h UPIDToPodNameUDF::Exec → absl::Substitute("$0/$1", ns, name)),
-	// not the bare pod name. Filtering against bare t.Pod would always
-	// miss; build the namespaced key when we have both fields.
-	b.WriteString("df.pod = px.upid_to_pod_name(df.upid)\n")
+	// not the bare pod name. Dark-vector tracepoint tables (pid-keyed) resolve pod
+	// via a process_stats pid-merge instead and yield a BARE pod name (dx#126).
+	b.WriteString(PodEnrichPxL(table))
 	if t.Namespace != "" {
 		b.WriteString("df = df[df.namespace == '" + escapePxL(t.Namespace) + "']\n")
 	}
 	if t.Pod != "" {
-		if t.Namespace != "" {
+		if IsDarkVector(table) {
+			// dark-vector df.pod is the bare pod name (proc.ctx['pod']).
+			b.WriteString("df = df[df.pod == '" + escapePxL(t.Pod) + "']\n")
+		} else if t.Namespace != "" {
 			// Both fields present — use exact equality on the namespaced key.
 			b.WriteString("df = df[df.pod == '" + escapePxL(t.Namespace+"/"+t.Pod) + "']\n")
 		} else {

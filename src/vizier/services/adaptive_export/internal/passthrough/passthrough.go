@@ -70,7 +70,14 @@ type sink interface {
 type Config struct {
 	Window  time.Duration
 	Refresh time.Duration
-	Tables  []string
+	// QueryTimeout bounds a single table's pixie query (entlein/dx#7). The
+	// firehose pull used to bound query+write by Refresh, which is far too tight
+	// for a heavy protocol: pgsql_events carries full SQL text and its
+	// socket_tracer parse is expensive, so the ExecuteScript deadline-exceeded and
+	// pgsql_events landed 0 rows in forensic_db. Decoupled from Refresh and
+	// defaulted generous (matches the OrderQuery path's 180s budget).
+	QueryTimeout time.Duration
+	Tables       []string
 	// Rec records per-pull read/wrote counts (ADAPTIVE_RECONCILE). nil →
 	// defaulted to reconcile.Nop{} in New (instrument off).
 	Rec reconcile.Recorder
@@ -105,6 +112,9 @@ func New(q querier, s sink, cfg Config) *Loop {
 	}
 	if cfg.Refresh <= 0 {
 		cfg.Refresh = 30 * time.Second
+	}
+	if cfg.QueryTimeout <= 0 {
+		cfg.QueryTimeout = 150 * time.Second // #7: heavy pgsql pull needs headroom
 	}
 	if len(cfg.Tables) == 0 {
 		cfg.Tables = clickhouse.PixieTables()
@@ -259,7 +269,7 @@ func (l *Loop) pull(ctx context.Context, table, src string, sliceStart, sliceEnd
 	// Bound this table's external query+write+record so a hung dependency can't
 	// stall the whole sweep or delay shutdown (CodeRabbit). Derived per-table
 	// from the parent ctx; covers both the serial and concurrent tick paths.
-	ctx, cancel := context.WithTimeout(ctx, l.cfg.Refresh)
+	ctx, cancel := context.WithTimeout(ctx, l.cfg.QueryTimeout)
 	defer cancel()
 	rows, err := l.q.Query(ctx, src)
 	if err != nil {

@@ -72,6 +72,14 @@ var builtinTables = []TableSpec{
 	{Name: "mux_events", Protocol: "Mux (Twitter Finagle)"},
 	{Name: "tls_events", Protocol: "TLS handshake"},
 	{Name: "conn_stats", Protocol: "Connection-level statistics"},
+	{Name: "dx_execve", Protocol: "tracepoint"},
+	{Name: "dx_vfs_events", Protocol: "tracepoint"},
+	{Name: "dx_unlink", Protocol: "tracepoint"},
+	{Name: "dx_dlookup", Protocol: "tracepoint"},
+	{Name: "dx_mprotect", Protocol: "tracepoint"},
+	{Name: "dx_creds", Protocol: "tracepoint"},
+	{Name: "dx_bpf", Protocol: "tracepoint"},
+	{Name: "dx_ptrace", Protocol: "tracepoint"},
 }
 
 // Registry is the extension surface for users to register their own

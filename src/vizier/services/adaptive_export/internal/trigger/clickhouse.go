@@ -425,6 +425,50 @@ func (t *ClickHouseHTTP) fetchSince(ctx context.Context, watermark uint64) ([]ku
 	return parseJSONEachRow(resp.Body)
 }
 
+// processTreeIndexLimit bounds the ProcessTreeIndex read. The most-recent N
+// kubescape process-tree rows cover the live process population for this host
+// generously; the read is cheap and runs only for DNS pulls.
+const processTreeIndexLimit = 5000
+
+// ProcessTreeIndex reads this host's most-recent kubescape process trees and
+// folds them into a pid -> "<namespace>/<pod>" index. The operator uses it to
+// reattribute pixie rows (DNS) whose short-lived resolver pid is unmappable at
+// query time but which kubescape captured at exec time. See kubescape.PIDIndex,
+// controller.enrichProcessTree, pixie#80. Ordering by the normalized event_time
+// DESC + LIMIT keeps the scan bounded without time-unit arithmetic.
+func (t *ClickHouseHTTP) ProcessTreeIndex(ctx context.Context) (kubescape.PIDIndex, error) {
+	q := url.Values{}
+	q.Set("query", fmt.Sprintf(
+		"SELECT RuleID, RuntimeK8sDetails, RuntimeProcessDetails, event_time, hostname "+
+			"FROM %s.%s "+
+			"WHERE hostname = %s AND RuntimeProcessDetails != '' "+
+			"ORDER BY %s DESC LIMIT %d FORMAT JSONEachRow",
+		t.cfg.Database, t.cfg.Table, quoteCH(t.cfg.Hostname),
+		chNormEventTimeNanos, processTreeIndexLimit))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		t.cfg.Endpoint+"/?"+q.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	if t.cfg.Username != "" {
+		req.SetBasicAuth(t.cfg.Username, t.cfg.Password)
+	}
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("ProcessTreeIndex HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	rows, _, err := parseJSONEachRow(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return kubescape.BuildPIDIndex(rows), nil
+}
+
 // parseJSONEachRow streams JSONEachRow output line-by-line from r.
 // Streaming (vs io.ReadAll into a []byte) bounds memory at one row
 // regardless of how large the ClickHouse result set is.

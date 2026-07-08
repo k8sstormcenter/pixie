@@ -363,6 +363,10 @@ func main() {
 		MaxInflightQueriesGlobal:  intEnvOrZero(envMaxInflightQueriesGlobal),
 		EmptyResultSkipAfterN:     intEnvOrZero(envEmptyResultSkipAfterN),
 		EmptyResultSkipTTL:        durEnvOrZero(envEmptyResultSkipTTLSec, time.Second),
+		// Source the kubescape process-tree index from the same ClickHouse the
+		// trigger reads, so the operator can reattribute DNS rows pixie leaves
+		// unattributed (short-lived resolver pids). See pixie#80.
+		ProcessTreeIndex: trg.ProcessTreeIndex,
 	}
 	if streamingMode {
 		// Route through the non-blocking notifier — handle() returns

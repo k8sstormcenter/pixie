@@ -71,23 +71,48 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	// not the bare pod name. Filtering against bare t.Pod would always
 	// miss; build the namespaced key when we have both fields.
 	b.WriteString("df.pod = px.upid_to_pod_name(df.upid)\n")
-	if t.Namespace != "" {
-		b.WriteString("df = df[df.namespace == '" + escapePxL(t.Namespace) + "']\n")
-	}
-	if t.Pod != "" {
+	// Expose the host PID so the operator can recover pod attribution that
+	// kubescape captured for short-lived processes (e.g. UDP DNS resolvers)
+	// which pixie leaves with an empty pod. See kubescape.PIDIndex.
+	b.WriteString("df.pid = px.upid_to_pid(df.upid)\n")
+	// Tables frequently emitted by short-lived, unattributable processes
+	// (DNS resolvers) SKIP the in-pixie pod filter: their empty-pod rows would
+	// be dropped here before the operator can reattribute them from kubescape's
+	// process tree. They are pulled window-scoped and filtered to the target
+	// pod AFTER enrichment (see controller). All other tables filter in-pixie.
+	if !ProcessTreeAttributed(table) {
 		if t.Namespace != "" {
-			// Both fields present — use exact equality on the namespaced key.
-			b.WriteString("df = df[df.pod == '" + escapePxL(t.Namespace+"/"+t.Pod) + "']\n")
-		} else {
-			// Pod-only fallback: df.pod is "<ns>/<pod>", so a bare-pod
-			// equality always misses. Regex-anchor "<any-ns>/<pod>" via
-			// px.regex_match so the defensive path stays functional.
-			b.WriteString("df = df[px.regex_match('^[^/]+/" + escapePxL(regexp.QuoteMeta(t.Pod)) + "$', df.pod)]\n")
+			b.WriteString("df = df[df.namespace == '" + escapePxL(t.Namespace) + "']\n")
+		}
+		if t.Pod != "" {
+			if t.Namespace != "" {
+				// Both fields present — use exact equality on the namespaced key.
+				b.WriteString("df = df[df.pod == '" + escapePxL(t.Namespace+"/"+t.Pod) + "']\n")
+			} else {
+				// Pod-only fallback: df.pod is "<ns>/<pod>", so a bare-pod
+				// equality always misses. Regex-anchor "<any-ns>/<pod>" via
+				// px.regex_match so the defensive path stays functional.
+				b.WriteString("df = df[px.regex_match('^[^/]+/" + escapePxL(regexp.QuoteMeta(t.Pod)) + "$', df.pod)]\n")
+			}
 		}
 	}
 	b.WriteString("px.display(df, '" + table + "')\n")
 	return b.String(), nil
 }
+
+// processTreeAttributedTables are pixie tables whose rows are commonly emitted
+// by short-lived processes pixie cannot attribute to a pod at query time (the
+// classic case is UDP DNS: the resolver forks, does one lookup, and exits, so
+// upid_to_pod_name yields ""). For these we skip the in-pixie pod filter and
+// reattribute downstream from kubescape's process tree (kubescape.PIDIndex).
+var processTreeAttributedTables = map[string]bool{
+	"dns_events": true,
+}
+
+// ProcessTreeAttributed reports whether `table` should be pulled window-scoped
+// (unfiltered by pod in pixie) and reattributed from the kubescape process
+// tree by the operator, rather than filtered on pixie's own pod attribution.
+func ProcessTreeAttributed(table string) bool { return processTreeAttributedTables[table] }
 
 // pxlEscaper turns raw bytes that could break out of a PxL single-quoted
 // string into their Python-style escape sequences. The backslash MUST be

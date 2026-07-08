@@ -264,7 +264,9 @@ func TestEscapePxL_TableDriven(t *testing.T) {
 //
 // Total: 10 statements + trailing empty == strings.Split == 11 entries.
 func TestQueryFor_RejectsInjectionInTargetFields(t *testing.T) {
-	const wantLines = 11
+	// 12 = the fixed 8-line projection preamble (incl. df.pid) + namespace
+	// filter + pod filter + display. An injected newline would add lines.
+	const wantLines = 12
 
 	cases := []struct {
 		name   string
@@ -336,7 +338,7 @@ func TestQueryFor_PodOnlyRegexEscapesQuoteMetaInjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryFor: %v", err)
 	}
-	if strings.Contains(q, "exec(") || strings.Count(q, "\n") > 9 {
+	if strings.Contains(q, "exec(") || strings.Count(q, "\n") > 10 {
 		t.Fatalf("pod-only path injection succeeded:\n%s", q)
 	}
 }

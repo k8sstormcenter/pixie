@@ -160,6 +160,14 @@ type Config struct {
 	// Used by the rev-3 streaming path to shrink its ActiveSet.
 	// Same contract as OnAttribution: synchronous, non-blocking.
 	OnPrune func(namespace, pod string)
+
+	// ProcessTreeIndex, when non-nil, supplies a pid -> "<ns>/<pod>" index
+	// built from kubescape's recent process trees. It is used to reattribute
+	// rows of ProcessTreeAttributed tables (dns_events) that pixie left with an
+	// empty pod — the short-lived DNS resolver whose pid is unmappable at query
+	// time but which kubescape captured. Nil disables enrichment (rows keep
+	// pixie's own attribution). See kubescape.PIDIndex and pixie#80.
+	ProcessTreeIndex func(context.Context) (kubescape.PIDIndex, error)
 }
 
 func (c *Config) defaulted() Config {
@@ -255,6 +263,30 @@ func (c *Controller) WithPixieQuerier(q PixieQuerier) *Controller {
 // when no kubescape anomaly opened a window for that pod (entlein/dx#93). Reuses the
 // same QueryFor → querier.Query → sink.WritePixieRows path + globalSem + reconcile
 // accounting as the anomaly-driven push. Satisfies control.queryRunner.
+// enrichProcessTree reattributes rows of a ProcessTreeAttributed table (DNS)
+// that pixie left with an empty pod, using kubescape's process-tree index, and
+// keeps only the target pod's rows. For non-attributed tables it is a no-op.
+//
+// It ALWAYS filters attributed tables to the target: those tables are pulled
+// unfiltered from pixie (queryfor skips the in-pixie pod filter), so with no
+// index available (ProcessTreeIndex unset or erroring) the still-unattributed
+// rows are simply dropped here — a pulled-unfiltered DNS window can never flood
+// forensic_db. With an index, the empty-pod rows are reattributed first.
+func (c *Controller) enrichProcessTree(table string, target anomaly.Target, rows []map[string]any) []map[string]any {
+	if !pxl.ProcessTreeAttributed(table) {
+		return rows
+	}
+	var idx kubescape.PIDIndex
+	if c.cfg.ProcessTreeIndex != nil {
+		ictx, icancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if got, ierr := c.cfg.ProcessTreeIndex(ictx); ierr == nil {
+			idx = got
+		}
+		icancel()
+	}
+	return kubescape.EnrichRows(rows, idx, target.Namespace, target.Pod)
+}
+
 func (c *Controller) OrderQuery(target anomaly.Target, table string, start, end time.Time, queryID string) error {
 	if c.querier == nil {
 		return errors.New("controller: no pixie querier (operator-side push disabled)")
@@ -289,6 +321,7 @@ func (c *Controller) OrderQuery(target anomaly.Target, table string, start, end 
 		return qerr
 	}
 	readCount = len(rows)
+	rows = c.enrichProcessTree(table, target, rows)
 	if len(rows) == 0 {
 		return nil // nothing to persist; the read/0-wrote reconcile row still records it
 	}
@@ -635,6 +668,9 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 				c.noteQueryResult(initial.Namespace, initial.Pod, table, len(rows))
 				nrows := len(rows)
 				readCount = nrows
+				// Reattribute + target-filter DNS pulled unfiltered from pixie.
+				rows = c.enrichProcessTree(table, target, rows)
+				nrows = len(rows)
 				if nrows > 0 {
 					// Bound the sink write with its own timeout. Without
 					// this, a stalled CH HTTP write would hold the table

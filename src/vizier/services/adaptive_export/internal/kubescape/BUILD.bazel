@@ -19,7 +19,11 @@ load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
     name = "kubescape",
-    srcs = ["extract.go"],
+    srcs = [
+        "enrich.go",
+        "extract.go",
+        "pidindex.go",
+    ],
     importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/kubescape",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
     deps = [
@@ -29,7 +33,11 @@ go_library(
 
 pl_go_test(
     name = "kubescape_test",
-    srcs = ["extract_test.go"],
+    srcs = [
+        "enrich_test.go",
+        "extract_test.go",
+        "pidindex_test.go",
+    ],
     embed = [":kubescape"],
     deps = [
         "//src/vizier/services/adaptive_export/internal/anomaly",

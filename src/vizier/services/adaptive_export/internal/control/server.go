@@ -54,18 +54,25 @@ type queryRunner interface {
 }
 
 // graphWriter persists dx evidence-graph edges (newline-delimited JSON,
-// JSONEachRow) to forensic_db.dx_attack_graph. nil → /dx/attack_graph 501s.
+// JSONEachRow) to forensic_db.dx_evidence_graph. nil → /dx/evidence_graph 501s.
 type graphWriter interface {
-	WriteAttackGraph(ctx context.Context, jsonEachRow []byte) error
+	WriteEvidenceGraph(ctx context.Context, jsonEachRow []byte) error
+}
+
+// manifestWriter persists one dx §9 completeness manifest per verdict
+// (JSONEachRow) to forensic_db.dx_evidence_manifest. nil → /dx/evidence_manifest 501s.
+type manifestWriter interface {
+	WriteEvidenceManifest(ctx context.Context, jsonEachRow []byte) error
 }
 
 // Server is the control HTTP surface.
 type Server struct {
-	set    exporter
-	runner queryRunner // may be nil; /query then returns 501
-	graph  graphWriter // may be nil; /dx/attack_graph then returns 501
-	mux    *http.ServeMux
-	verify func(bearer string) error // nil → auth disabled; set via SetAuth
+	set      exporter
+	runner   queryRunner    // may be nil; /query then returns 501
+	graph    graphWriter    // may be nil; /dx/evidence_graph then returns 501
+	manifest manifestWriter // may be nil; /dx/evidence_manifest then returns 501
+	mux      *http.ServeMux
+	verify   func(bearer string) error // nil → auth disabled; set via SetAuth
 }
 
 // New builds the control server. runner may be nil for deployments that
@@ -76,12 +83,16 @@ func New(set exporter, runner queryRunner) *Server {
 	s.mux.HandleFunc("/export/start", s.handleStart)
 	s.mux.HandleFunc("/export/stop", s.handleStop)
 	s.mux.HandleFunc("/query", s.handleQuery)
-	s.mux.HandleFunc("/dx/attack_graph", s.handleDXAttackGraph)
+	s.mux.HandleFunc("/dx/evidence_graph", s.handleDXEvidenceGraph)
+	s.mux.HandleFunc("/dx/evidence_manifest", s.handleDXEvidenceManifest)
 	return s
 }
 
-// SetGraphWriter wires the dx_attack_graph sink.
+// SetGraphWriter wires the dx_evidence_graph sink.
 func (s *Server) SetGraphWriter(g graphWriter) { s.graph = g }
+
+// SetManifestWriter wires the dx_evidence_manifest sink.
+func (s *Server) SetManifestWriter(m manifestWriter) { s.manifest = m }
 
 // SetAuth turns on bearer-JWT auth for the control surface, verified with the
 // SAME shared lib + signing key the vizier broker/PEM use (px.dev/pixie/src/
@@ -115,9 +126,9 @@ func (s *Server) Handler() http.Handler {
 	})
 }
 
-// handleDXAttackGraph ingests a JSON array of dx evidence-graph edges and writes
-// them to forensic_db.dx_attack_graph (as JSONEachRow).
-func (s *Server) handleDXAttackGraph(w http.ResponseWriter, r *http.Request) {
+// handleDXEvidenceGraph ingests a JSON array of dx evidence-graph edges and writes
+// them to forensic_db.dx_evidence_graph (as JSONEachRow).
+func (s *Server) handleDXEvidenceGraph(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -140,11 +151,86 @@ func (s *Server) handleDXAttackGraph(w http.ResponseWriter, r *http.Request) {
 		buf.Write(e)
 		buf.WriteByte('\n')
 	}
-	if err := s.graph.WriteAttackGraph(r.Context(), buf.Bytes()); err != nil {
+	if err := s.graph.WriteEvidenceGraph(r.Context(), buf.Bytes()); err != nil {
 		w.WriteHeader(http.StatusBadGateway)
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// dxManifest mirrors the wire shape of dx's manifest.Manifest (internal/manifest).
+// Scalars map to typed forensic_db.dx_evidence_manifest columns; the nested
+// collections are held as raw JSON and persisted as JSON text in String columns
+// so the JSONEachRow insert is ClickHouse-version independent.
+type dxManifest struct {
+	InvestigationID string          `json:"investigation_id"`
+	EventTime       int64           `json:"event_time"`
+	Hostname        string          `json:"hostname"`
+	Condition       string          `json:"condition"`
+	Verdict         string          `json:"verdict"`
+	Confidence      float64         `json:"confidence"`
+	Posterior       float64         `json:"posterior"`
+	CatalogVersion  string          `json:"catalog_version"`
+	CaseWindow      json.RawMessage `json:"case_window"`
+	Findings        json.RawMessage `json:"findings"`
+	Orders          json.RawMessage `json:"orders"`
+	Seeds           json.RawMessage `json:"seeds"`
+	Chain           json.RawMessage `json:"chain"`
+	EvidenceHash    string          `json:"evidence_hash"`
+}
+
+// handleDXEvidenceManifest ingests ONE dx completeness manifest (per verdict)
+// and writes it to forensic_db.dx_evidence_manifest as a single JSONEachRow
+// row, with the nested collections rendered as JSON text.
+func (s *Server) handleDXEvidenceManifest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if s.manifest == nil {
+		w.WriteHeader(http.StatusNotImplemented)
+		return
+	}
+	var m dxManifest
+	if !decode(w, r, &m) {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	row := map[string]any{
+		"investigation_id": m.InvestigationID,
+		"event_time":       m.EventTime,
+		"hostname":         m.Hostname,
+		"condition":        m.Condition,
+		"verdict":          m.Verdict,
+		"confidence":       m.Confidence,
+		"posterior":        m.Posterior,
+		"catalog_version":  m.CatalogVersion,
+		"case_window":      jsonText(m.CaseWindow),
+		"findings":         jsonText(m.Findings),
+		"orders":           jsonText(m.Orders),
+		"seeds":            jsonText(m.Seeds),
+		"chain":            jsonText(m.Chain),
+		"evidence_hash":    m.EvidenceHash,
+	}
+	line, err := json.Marshal(row)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if err := s.manifest.WriteEvidenceManifest(r.Context(), append(line, '\n')); err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// jsonText renders a nested JSON value as compact text for a String column;
+// nil/absent/null → "" so the column holds an empty string rather than "null".
+func jsonText(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	return string(raw)
 }
 
 // ── wire types ────────────────────────────────────────────────────────
@@ -175,7 +261,7 @@ func (t targetReq) target() anomaly.Target {
 }
 
 // maxControlBodyBytes caps a single control-surface request body. The
-// largest legitimate payload we accept is /dx/attack_graph which is a
+// largest legitimate payload we accept is /dx/evidence_graph which is a
 // JSON array of pre-marshalled JSONEachRow lines — measured live the
 // hottest dx rule-in pass fits in ~256 KiB. 4 MiB is well above that
 // and below the per-pod memory headroom an oversized POST could

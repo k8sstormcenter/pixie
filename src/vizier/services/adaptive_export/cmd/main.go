@@ -363,6 +363,10 @@ func main() {
 		MaxInflightQueriesGlobal:  intEnvOrZero(envMaxInflightQueriesGlobal),
 		EmptyResultSkipAfterN:     intEnvOrZero(envEmptyResultSkipAfterN),
 		EmptyResultSkipTTL:        durEnvOrZero(envEmptyResultSkipTTLSec, time.Second),
+		// Source the kubescape process-tree index from the same ClickHouse the
+		// trigger reads, so the operator can reattribute DNS rows pixie leaves
+		// unattributed (short-lived resolver pids). See pixie#80.
+		ProcessTreeIndex: trg.ProcessTreeIndex,
 	}
 	if streamingMode {
 		// Route through the non-blocking notifier — handle() returns
@@ -576,9 +580,10 @@ func main() {
 		// Wire the controller as the /query runner: dx OrderQuery → one-shot pixie
 		// capture written to forensic_db (write⊇read; entlein/dx#93). When the
 		// operator-side querier is disabled (no PushPixieTables), OrderQuery returns
-		// an error and /query 502s — start/stop + dx_attack_graph still work.
+		// an error and /query 502s — start/stop + dx_evidence_graph still work.
 		ctrlSrv := control.New(activeSet, ctl)
-		ctrlSrv.SetGraphWriter(applier) // dx_attack_graph ingest → ClickHouse
+		ctrlSrv.SetGraphWriter(applier)    // dx_evidence_graph ingest → ClickHouse
+		ctrlSrv.SetManifestWriter(applier) // dx_evidence_manifest ingest → ClickHouse
 		// Bearer-JWT auth on the control surface (CodeRabbit: protect control
 		// endpoints). Same shared lib + signing key the broker/PEM use — dx
 		// attaches the service JWT it already mints. Default-OFF so this can

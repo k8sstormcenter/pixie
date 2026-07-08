@@ -63,6 +63,10 @@ func CompilePassthrough(table string, window time.Duration) (string, error) {
 	b.WriteString("df = df[df.time_ <  px.int64_to_time(%d)]\n")
 	b.WriteString("df.namespace = px.upid_to_namespace(df.upid)\n")
 	b.WriteString("df.pod = px.upid_to_pod_name(df.upid)\n")
+	// Carry the host PID so downstream enrichment can reattribute rows from
+	// short-lived processes (DNS resolvers) via kubescape's process tree —
+	// keeps the firehose column shape identical to QueryFor. See kubescape.PIDIndex.
+	b.WriteString("df.pid = px.upid_to_pid(df.upid)\n")
 	b.WriteString("px.display(df, '" + table + "')\n")
 	return b.String(), nil
 }

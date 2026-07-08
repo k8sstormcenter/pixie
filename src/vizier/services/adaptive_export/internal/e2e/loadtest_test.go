@@ -88,9 +88,13 @@ func (q *cannedQuerier) Query(_ context.Context, pxl string) ([]map[string]any, 
 		// Deterministic, fully-specified row. encoding/json sorts map keys,
 		// so the serialized bytes are byte-identical every rep.
 		rows = append(rows, map[string]any{
+			// Attributed to the same pod as the stub's kubescape anomaly
+			// (redis/redis-578d5dc9bd-kjj78), so process-tree-attributed tables
+			// (dns_events), which are now target-filtered in the operator rather
+			// than in pixie, survive the pull. Non-attributed tables ignore it.
 			"time_":     1744477360303026359 + int64(i),
-			"namespace": "aeload",
-			"pod":       "aeload/gen-l1",
+			"namespace": "redis",
+			"pod":       "redis/redis-578d5dc9bd-kjj78",
 			"req_path":  fmt.Sprintf("/ping/%d", i),
 			"table":     m[1],
 		})

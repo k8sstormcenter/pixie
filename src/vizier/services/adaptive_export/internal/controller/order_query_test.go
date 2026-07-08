@@ -46,6 +46,7 @@ func (s *recordingSink) Write(context.Context, []sink.AttributionRow) error { re
 func (s *recordingSink) QueryActive(context.Context, string) ([]sink.AttributionRow, error) {
 	return nil, nil
 }
+
 func (s *recordingSink) WritePixieRows(_ context.Context, table string, rows []map[string]any) error {
 	if s.werr != nil {
 		return s.werr
@@ -55,6 +56,7 @@ func (s *recordingSink) WritePixieRows(_ context.Context, table string, rows []m
 	s.written[table] += len(rows)
 	return nil
 }
+
 func (s *recordingSink) count(table string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -104,7 +106,7 @@ func TestOrderQueryWritesRows(t *testing.T) {
 }
 
 // With the operator-side querier disabled, OrderQuery errors (so /query 502s) —
-// start/stop + dx_attack_graph remain usable.
+// start/stop + dx_evidence_graph remain usable.
 func TestOrderQueryNoQuerierErrors(t *testing.T) {
 	snk := newRecordingSink()
 	lo, hi := oqWindow()

@@ -27,6 +27,10 @@ jobs:
           private:
           - '**/*private*/**'
           - '**/*private*'
+          # Fork infra intentionally lives under these roots (copybara-excluded);
+          # exclude them so the guard still catches accidental new "private" paths.
+          - '!private/**'
+          - '!tools/private/**'
           - '!private/cockpit/**'
     - name: Fail on private
       if: ${{ steps.changes.outputs.private == 'true' }}

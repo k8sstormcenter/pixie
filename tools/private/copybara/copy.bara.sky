@@ -101,6 +101,7 @@ ignored_dirs = [
     "src/vizier/services/agent/pem/pem_main.cc",
     "src/vizier/services/agent/pem/pem_manager.cc",
     "src/vizier/services/agent/pem/pem_manager.h",
+    "src/vizier/funcs/md_udtfs/**", # Clickhouse UDTF changes "src/vizier/services/agent/shared/manager/BUILD.bazel", # ASAN build changes. Likely to be upstreamed
     "src/vizier/services/cloud_connector/bridge/**", # should be made generic and upstreamed
     "src/vizier/services/metadata/metadatapb/BUILD.bazel",
     "src/vizier/services/metadata/local/**", # clickhouse testing changes, likely can be removed
@@ -121,6 +122,8 @@ ignored_dirs = [
     "go.mod",
     "go.sum",
     "go_deps.bzl",
+    # Must be upstreamed. This change fixes the gen files checker github workflow
+    "src/stirling/source_connectors/socket_tracer/testing/container_images/BUILD.bazel",
 ]
 
 # Files/dirs that exist only in the fork and must not be deleted by copybara.

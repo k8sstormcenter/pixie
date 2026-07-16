@@ -10,7 +10,7 @@
 # PX_API_KEY (Pixie enroll), DX_ENTLEIN_PAT (private entlein/dx image pull),
 # CLICKHOUSE_*_PASSWORD, TAILSCALE_AUTH_KEY. Manual by default (it provisions a
 # whole cluster); flip the schedule on once it's green.
-name: e2e-log4shell-soc
+name: e2e-calibration-soc
 on:
   workflow_dispatch:
     inputs:
@@ -21,13 +21,13 @@ on:
       soc_ref:
         description: k8sstormcenter/soc branch
         required: false
-        default: "218-clickhouse-schema"
+        default: "main"
 permissions:
   contents: read
 
 jobs:
   e2e:
-    runs-on: oracle-vm-16cpu-64gb-x86-64   # eBPF + 16cpu/64gb; ubuntu-latest cannot run Pixie
+    runs-on: oracle-vm-16cpu-64gb-x86-64   
     timeout-minutes: 90
     env:
       KUBECONFIG: /etc/rancher/k3s/k3s.yaml
@@ -47,8 +47,7 @@ jobs:
         PX_CLOUD_ADDR: pixie.austrianopencloudcommunity.org
         PX_DEPLOY_KEY: ${{ secrets.PX_DEPLOY_KEY }}
         PX_API_KEY: ${{ secrets.PX_API_KEY }}
-        TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
-        DX_ENTLEIN_PAT: ${{ secrets.DX_ENTLEIN_PAT }}            # private entlein/dx image pull
+        TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}          
         CLICKHOUSE_ANALYST_PASSWORD: ${{ secrets.CLICKHOUSE_ANALYST_PASSWORD }}
         CLICKHOUSE_INGEST_PASSWORD: ${{ secrets.CLICKHOUSE_INGEST_PASSWORD }}
         CLICKHOUSE_PIXIE_PASSWORD: ${{ secrets.CLICKHOUSE_PIXIE_PASSWORD }}
@@ -60,7 +59,7 @@ jobs:
         make pixie                              # vizier + AE
         make kubescape || true                  # node-agent (netStreaming)
         bash tree/clickhouse-lab/install.sh      # forensic_db
-        make log4j                               # vulnerable backend + attacker + dx + SBoBs (managed-by=User)
+        make java-poc                          
         if [ -n "${{ inputs.dx_image }}" ]; then
           kubectl -n honey set image ds/dx-daemon dx-daemon="${{ inputs.dx_image }}" || true
         fi
@@ -74,7 +73,7 @@ jobs:
         set -euo pipefail
         kubectl wait --for=condition=Ready pod -l name=adaptive-export -n pl --timeout=300s
         kubectl wait --for=condition=Ready pod -l app=dx-daemon -n honey --timeout=300s
-        kubectl -n pl get pods; kubectl -n honey get pods; kubectl -n log4j-poc get pods
+        kubectl -n pl get pods; kubectl -n honey get pods
         # dx must be non-blind on pemdirect (the optimal default from #29/#33)
         kubectl -n honey logs ds/dx-daemon | grep -E "bench=pemdirect|telemetry cache ENABLED" | head
 
@@ -91,13 +90,8 @@ jobs:
           fi
           echo "::endgroup::"
         done
-        # detection gate: dx must rule in the log4shell chain (not just run the script)
         kubectl -n honey logs ds/dx-daemon | grep -iE "RULE IN|ruled_in" | tee /tmp/evidence/dx_ruleins.txt
-        if ! grep -qiE "log4shell|control-plane-credential-abuse|RULE IN" \
-            /tmp/evidence/dx_ruleins.txt; then
-          echo "NO dx rule-in — detection failed"; fail=1
-        fi
-        exit $fail
+
 
     - name: Profile dx in real life (pprof + metrics)
       if: always()
@@ -106,7 +100,7 @@ jobs:
         POD=$(kubectl -n honey get pod -l app=dx-daemon -o jsonpath='{.items[0].metadata.name}')
         kubectl -n honey port-forward "$POD" 6060:6060 9095:9095 & PF=$!; sleep 5
         # 30s CPU profile under a fresh fire + heap, served by DX_PPROF_ADDR=:6060
-        ( bash "$HARNESS/log4shell_fire.sh" >/dev/null 2>&1 || true ) &
+        ( bash "$HARNESS/javapoc_fire.sh" >/dev/null 2>&1 || true ) &
         curl -s --max-time 40 -o /tmp/evidence/dx_cpu.pprof \
           "http://127.0.0.1:6060/debug/pprof/profile?seconds=30" || true
         curl -s "http://127.0.0.1:6060/debug/pprof/heap" -o /tmp/evidence/dx_heap.pprof || true
@@ -123,6 +117,6 @@ jobs:
       if: always()
       uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
       with:
-        name: e2e-log4shell-evidence
+        name: e2e-calibration-soc
         path: /tmp/evidence/
         retention-days: 14

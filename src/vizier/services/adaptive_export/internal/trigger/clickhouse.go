@@ -119,7 +119,7 @@ func New(cfg Config) (*ClickHouseHTTP, error) {
 	}
 	// Validate Database / Table as plain ClickHouse identifiers
 	// (alphanumeric + underscore, not starting with a digit) so the
-	// SELECT in fetchSince cannot be subverted by an attacker-controlled
+	// SELECT in fetchSince cannot be subverted by an adversary-controlled
 	// Config. Hostname is value-quoted via quoteCH; identifiers cannot
 	// be parameterised, hence validation here.
 	if !validIdentifier(cfg.Database) {

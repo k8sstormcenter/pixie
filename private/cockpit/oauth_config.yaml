@@ -1,0 +1,10 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pl-oauth-config
+data:
+  PL_OAUTH_PROVIDER: auth0
+  PL_AUTH_URI: dev-ylinrwd1tckmhm03.us.auth0.com
+  PL_AUTH_CLIENT_ID: rDOrqnuIaTsXiya5I41b1FkNzXOQfWbW
+  PL_AUTH_EMAIL_PASSWORD_CONN: Username-Password-Authentication

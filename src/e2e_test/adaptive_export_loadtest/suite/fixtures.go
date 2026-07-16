@@ -101,10 +101,12 @@ func (f controlFixture) runRep(t *testing.T, e Env, node string, rep int) measur
 	if len(rules) == 0 {
 		rules = []string{"R0001"}
 	}
-	// event_time = real current second: the trigger watermark is a strict
-	// high-water-mark, so now-based stamps keep it tracking wall-clock and
-	// monotone across reps sharing this node (contract C3).
-	base := time.Now().Unix()
+	// event_time = real current time in unix NANOSECONDS — the canonical unit
+	// end-to-end (Vector kubescape_enrich emits ns; the forensic_db DDL converts
+	// with fromUnixTimestamp64Nano). The trigger watermark is a strict high-water
+	// mark, so now-based stamps keep it tracking wall-clock and monotone across
+	// reps sharing this node (contract C3).
+	base := time.Now().UnixNano()
 	podPrefix := fmt.Sprintf("cp-%s-%03d", f.name, rep)
 
 	for j := 0; j < fanout; j++ {
@@ -117,7 +119,8 @@ func (f controlFixture) runRep(t *testing.T, e Env, node string, rep int) measur
 			for i := 0; i < count; i++ {
 				et := base
 				if !f.same {
-					et = base + int64(i)*dt
+					// dtSec is a logical step in seconds; stamps are nanoseconds.
+					et = base + int64(i)*dt*int64(time.Second)
 				}
 				rows = append(rows, AnomalyRow{
 					Namespace: "aeload", Pod: pod, RuleID: rule,

@@ -164,11 +164,12 @@ func digitsOnly(s string) string {
 
 // ---- kubescape_logs injection (Vector-shaped rows; port of inject.sh) ----
 
-// AnomalyRow is one kubescape_logs trigger row. event_time is unix SECONDS —
-// the unit the SOC Vector kubescape sink emits and the unit the forensic_db DDL
-// TTL/PARTITION assume (contract C1). RuleID values (R0001, R0010, …) are
-// kubescape external wire and stay literal. anomaly_hash is computed by AE, not
-// here, so per-rep isolation comes from a unique Pod (+ unique Hostname).
+// AnomalyRow is one kubescape_logs trigger row. event_time is unix NANOSECONDS —
+// the canonical unit end-to-end: the SOC Vector kubescape_enrich sink emits ns
+// and the forensic_db DDL converts with fromUnixTimestamp64Nano (contract C1).
+// RuleID values (R0001, R0010, …) are kubescape external wire and stay literal.
+// anomaly_hash is computed by AE, not here, so per-rep isolation comes from a
+// unique Pod (+ unique Hostname).
 type AnomalyRow struct {
 	Namespace string
 	Pod       string
@@ -298,7 +299,7 @@ func (e Env) Warmup(t *testing.T, node string) {
 	t.Helper()
 	e.Inject(t, AnomalyRow{
 		Namespace: "aeload", Pod: fmt.Sprintf("warmup-%d", time.Now().UnixNano()),
-		RuleID: "R0001", PID: 999, Comm: "warmup", EventTime: time.Now().Unix(), Hostname: node,
+		RuleID: "R0001", PID: 999, Comm: "warmup", EventTime: time.Now().UnixNano(), Hostname: node,
 	})
 	time.Sleep(6 * time.Second)
 }

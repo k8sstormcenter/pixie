@@ -63,13 +63,13 @@ func TestStartExportUpserts(t *testing.T) {
 	ex := &fakeExporter{}
 	srv := New(ex, nil)
 	resp := do(t, srv, http.MethodPost, "/export/start",
-		`{"namespace":"log4j-poc","pod":"chain-backend-abc","comm":"sh","t_end":1717200600}`)
+		`{"namespace":"svc-poc","pod":"chain-backend-abc","comm":"sh","t_end":1717200600}`)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202", resp.StatusCode)
 	}
 	if len(ex.upserts) != 1 || ex.upserts[0].Pod != "chain-backend-abc" ||
-		ex.upserts[0].Namespace != "log4j-poc" {
-		t.Fatalf("upsert = %+v, want one for log4j-poc/chain-backend-abc", ex.upserts)
+		ex.upserts[0].Namespace != "svc-poc" {
+		t.Fatalf("upsert = %+v, want one for svc-poc/chain-backend-abc", ex.upserts)
 	}
 	if ex.lastEnd != time.Unix(1717200600, 0) {
 		t.Fatalf("tEnd = %v, want 1717200600", ex.lastEnd)
@@ -80,7 +80,7 @@ func TestStopExportRemoves(t *testing.T) {
 	ex := &fakeExporter{}
 	srv := New(ex, nil)
 	resp := do(t, srv, http.MethodPost, "/export/stop",
-		`{"namespace":"log4j-poc","pod":"chain-backend-abc"}`)
+		`{"namespace":"svc-poc","pod":"chain-backend-abc"}`)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202", resp.StatusCode)
 	}
@@ -94,11 +94,11 @@ func TestOrderQueryRunsAndCarriesID(t *testing.T) {
 	rn := &fakeRunner{}
 	srv := New(ex, rn)
 	resp := do(t, srv, http.MethodPost, "/query",
-		`{"namespace":"log4j-poc","pod":"p","comm":"sh","table":"conn_stats","window":[100,200],"query_id":"log4j-poc:p:conn_stats:100-200"}`)
+		`{"namespace":"svc-poc","pod":"p","comm":"sh","table":"conn_stats","window":[100,200],"query_id":"svc-poc:p:conn_stats:100-200"}`)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202", resp.StatusCode)
 	}
-	if len(rn.calls) != 1 || rn.calls[0] != "conn_stats|log4j-poc/p|log4j-poc:p:conn_stats:100-200" {
+	if len(rn.calls) != 1 || rn.calls[0] != "conn_stats|svc-poc/p|svc-poc:p:conn_stats:100-200" {
 		t.Fatalf("calls = %v", rn.calls)
 	}
 }

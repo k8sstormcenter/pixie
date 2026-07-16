@@ -521,7 +521,7 @@ class DirectQueryServerExecTest : public ::testing::Test {
   }
 
   // dns_events — matches the routine query path the dx pemdirect uses to
-  // cross-check DNS lookups against http_events in the log4shell chain.
+  // cross-check DNS lookups against http_events in the poc chain.
   // Same UTC time/upid skeleton + a couple of DNS-specific columns; rows
   // empty (schema-only query in tests).
   std::shared_ptr<::px::table_store::Table> MakeDNSEventsTable() {

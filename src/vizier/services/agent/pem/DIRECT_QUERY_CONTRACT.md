@@ -85,4 +85,4 @@ broker. dx-agent adds this once #29's endpoint is live; no PEM-side work needed 
 
 `direct_query_server_test.cc` green under `bazel test`, PEM image builds via the
 vizier-release workflow, and a live PG shows dx (`DX_BENCH=pemdirect`) ruling in the
-log4shell e2e off the node-local PEM with the same verdict it gets via the broker.
+poc e2e off the node-local PEM with the same verdict it gets via the broker.

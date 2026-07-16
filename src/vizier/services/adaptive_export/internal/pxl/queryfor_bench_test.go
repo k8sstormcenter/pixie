@@ -38,7 +38,7 @@ func BenchmarkQueryFor_http_events(b *testing.B) {
 		PID:       12345,
 		Comm:      "java",
 		Pod:       "backend-vulnerable-779cd9d765-mxr8t",
-		Namespace: "log4j-poc",
+		Namespace: "svc-poc",
 	}
 	now := time.Now()
 	start := now.Add(-30 * time.Second)
@@ -56,7 +56,7 @@ func BenchmarkQueryFor_AllTables(b *testing.B) {
 		PID:       12345,
 		Comm:      "java",
 		Pod:       "backend-vulnerable-779cd9d765-mxr8t",
-		Namespace: "log4j-poc",
+		Namespace: "svc-poc",
 	}
 	now := time.Now()
 	start := now.Add(-30 * time.Second)

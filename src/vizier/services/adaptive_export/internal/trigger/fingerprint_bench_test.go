@@ -43,8 +43,8 @@ import (
 func benchKubescapeRow(i int) kubescape.Row {
 	// K8sDetails / ProcessDetails are JSON blobs in production —
 	// kubescape emits them at ~500 bytes typical, ~2KB upper.
-	const k8sDetails = `{"podNamespace":"log4j-poc","podName":"backend-vulnerable-779cd9d765-mxr8t","containerName":"backend","workloadName":"backend-vulnerable","workloadKind":"Deployment","image":"ghcr.io/k8sstormcenter/log4j-chain-backend-vulnerable:latest","clusterName":"soc-demo-pg","nodeName":"node-1"}`
-	const procDetails = `{"comm":"java","pid":1234,"ppid":1,"path":"/usr/lib/jvm/java-11/bin/java","argv":["java","-cp","/app/log4j-vuln-1.0.jar","com.example.App"],"user":"appuser","cwd":"/app","spawn_time":"2026-06-07T18:00:00Z"}`
+	const k8sDetails = `{"podNamespace":"svc-poc","podName":"backend-vulnerable-779cd9d765-mxr8t","containerName":"backend","workloadName":"backend-vulnerable","workloadKind":"Deployment","image":"ghcr.io/k8sstormcenter/chain-backend-vuln:latest","clusterName":"soc-demo-pg","nodeName":"node-1"}`
+	const procDetails = `{"comm":"java","pid":1234,"ppid":1,"path":"/usr/lib/jvm/java-11/bin/java","argv":["java","-cp","/app/app-vuln-1.0.jar","com.example.App"],"user":"appuser","cwd":"/app","spawn_time":"2026-06-07T18:00:00Z"}`
 	return kubescape.Row{
 		EventTime:      uint64(1_700_000_000_000_000_000 + i),
 		RuleID:         "R1100",

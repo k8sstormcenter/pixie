@@ -96,7 +96,7 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 //
 // Why each entry: PxL is Python; a single-quoted literal closes on a bare
 // ' and a raw newline (0x0A) terminates the statement, letting an
-// attacker-controlled Target.Pod/Target.Namespace value inject a new
+// adversary-controlled Target.Pod/Target.Namespace value inject a new
 // PxL statement after the close. ', \r, \n, \t, and NUL are the
 // byte-level shapes that can break the string boundary; everything
 // else is opaque to the PxL parser inside a string literal.

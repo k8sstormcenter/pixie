@@ -140,7 +140,6 @@ ignored_dirs = [
 # exactly that reason.
 fork_only_files = [
     ".github/workflows/copybara_pixie_oss.yaml",
-    ".github/workflows/e2e_log4shell_soc.yaml",  # fork SOC/log4shell e2e workflow
     ".github/workflows/perf_clickhouse.yaml",
     ".github/workflows/perf_soc_attack.yaml",
     ".sops.yaml",                     # fork SOPS encryption config

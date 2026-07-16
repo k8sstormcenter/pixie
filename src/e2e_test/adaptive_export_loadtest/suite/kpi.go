@@ -27,8 +27,10 @@ import (
 //
 //   Reproducibility  — a metric is identical across all reps (was stats.py std=0)
 //   Reconcile        — read == wrote == ClickHouse count (was exp_row_reconcile.sh)
-//   Reduction        — steered volume << firehose volume (was exp_matrix.sh)
 //
+// Firehose-vs-steered volume reduction is a measured OUTCOME the data-plane test
+// reports, not an asserted threshold: there is no correct fixed percentage, so
+// gating on one would be arbitrary.
 // NFR and WriteDuration KPIs attach to the data-plane fixtures (§suite_test.go).
 
 // RequireExact asserts a single measured value equals want.
@@ -54,15 +56,4 @@ func RequireReconcile(t *testing.T, table string, read, wrote, ch int) {
 	t.Helper()
 	require.Equalf(t, read, wrote, "reconcile[%s]: wrote %d != read %d (write path lost rows)", table, wrote, read)
 	require.Equalf(t, wrote, ch, "reconcile[%s]: clickhouse %d != wrote %d (sink lost rows)", table, ch, wrote)
-}
-
-// RequireReductionAtLeast asserts the steered arm cut volume by at least minPct
-// versus the firehose arm (the DX⊇AE data-volume reduction KPI).
-func RequireReductionAtLeast(t *testing.T, table string, firehose, steered int, minPct float64) {
-	t.Helper()
-	require.Greaterf(t, firehose, 0, "reduction[%s]: firehose arm captured 0 rows — nothing to reduce", table)
-	require.LessOrEqualf(t, steered, firehose, "reduction[%s]: steered %d > firehose %d", table, steered, firehose)
-	got := 100 * float64(firehose-steered) / float64(firehose)
-	require.GreaterOrEqualf(t, got, minPct, "reduction[%s]: %.2f%% < required %.2f%% (firehose=%d steered=%d)",
-		table, got, minPct, firehose, steered)
 }

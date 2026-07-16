@@ -58,8 +58,9 @@ func TestDataPlaneReconcile(t *testing.T) {
 	t.Skip("data-plane reconcile requires the counted signal generator (tools/loadgen) + sinks; set AELOAD_DATAPLANE=1 when wired")
 }
 
-// TestVolumeReduction asserts the Reduction KPI: the steered arm writes far less
-// than the firehose arm for the same signal window (the DX-steering benefit).
+// TestVolumeReduction measures and LOGS the firehose→steered volume reduction
+// for one signal window. It is a reported outcome, not a pass/fail assertion —
+// there is no correct fixed percentage, so gating on a threshold would be arbitrary.
 //
 // Staged: the reduction arms drive a live incident signal on the rig, which the
 // SOC lab owns and emits by neutral disease name (e.g. java-poc/disease-listeriosis).

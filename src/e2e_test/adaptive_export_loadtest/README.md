@@ -14,7 +14,7 @@ Go fixtures, KPI helpers, and asserts under `suite/`.
 |------|------|
 | `suite/harness.go` | primitives: ClickHouse-over-HTTP client, kubescape-row injector, control-surface reads, kubectl helpers |
 | `suite/fixtures.go` | the experiment table (control-plane reproducibility cases) + the per-rep runner |
-| `suite/kpi.go` | KPI asserts: `RequireReproducible`, `RequireReconcile`, `RequireReductionAtLeast`, `RequireExact` |
+| `suite/kpi.go` | KPI asserts: `RequireReproducible`, `RequireReconcile`, `RequireExact` |
 | `suite/suite_test.go` | the tests: control-plane reproducibility (live), data-plane reconcile + volume reduction (staged) |
 | `tools/loadgen/` | the counted signal generator (nested Go module) for the data-plane KPIs |
 | `k8s/` | sinks + generator pod templates |
@@ -28,7 +28,7 @@ Go fixtures, KPI helpers, and asserts under `suite/`.
 |-----|---------|-----|
 | **Reproducibility** | a metric is one distinct value across all reps (std = 0) | `stats.py` |
 | **Reconcile** | read == wrote == ClickHouse, per protocol table (no loss) | `exp_row_reconcile.sh` |
-| **Reduction** | steered volume ≪ firehose volume for one signal window | `exp_matrix.sh` |
+| **Reduction** | firehose→steered volume delta — measured & logged, not gated | `exp_matrix.sh` |
 | **NFR / WriteDuration** | throughput/mem/latency; window stays open until `t_end` (C15) | `nfr.sh` / `exp_e8.sh` |
 
 ## Running

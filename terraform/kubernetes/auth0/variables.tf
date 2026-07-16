@@ -1,0 +1,1 @@
+variable "cloud_domain" {}

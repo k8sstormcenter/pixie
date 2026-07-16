@@ -36,7 +36,7 @@ func benchTarget(i int) Target {
 		PID:       uint64(1000 + i),
 		Comm:      "java",
 		Pod:       "backend-vulnerable-779cd9d765-mxr8t-replica-shard-9",
-		Namespace: "log4j-poc-production",
+		Namespace: "svc-poc-production",
 	}
 }
 

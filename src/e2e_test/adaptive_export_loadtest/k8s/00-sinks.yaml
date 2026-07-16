@@ -1,0 +1,82 @@
+---
+# Shared, long-lived data-plane sinks for the AE load-tests. These are the PEER
+# side of cleanloadgen's traffic; AE filters to the client (gen) pod so the
+# sinks' own rows are excluded — but they carry NO probes/sidecars regardless so
+# the namespace stays free of uncounted traffic.
+#
+# IMAGE is substituted by the harness (ttl.sh/aeload-<ts>:24h, built on the PG
+# dev-machine). pg-sink uses the public postgres image.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aeload
+  labels:
+    app.kubernetes.io/part-of: ae-loadtest
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http-sink
+  namespace: aeload
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: http-sink}
+  template:
+    metadata:
+      labels: {app: http-sink}
+    spec:
+      # No probes anywhere: probe traffic would be captured by Pixie.
+      containers:
+      - name: httpsink
+        image: __IMAGE__
+        command: ["/usr/local/bin/httpsink"]
+        env:
+        - {name: LISTEN_ADDR, value: ":8080"}
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-sink
+  namespace: aeload
+spec:
+  selector: {app: http-sink}
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg-sink
+  namespace: aeload
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: pg-sink}
+  template:
+    metadata:
+      labels: {app: pg-sink}
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        # trust auth keeps the gen simple; no probes.
+        env:
+        - {name: POSTGRES_PASSWORD, value: postgres}
+        - {name: POSTGRES_HOST_AUTH_METHOD, value: trust}
+        ports:
+        - containerPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-sink
+  namespace: aeload
+spec:
+  selector: {app: pg-sink}
+  ports:
+  - port: 5432
+    targetPort: 5432

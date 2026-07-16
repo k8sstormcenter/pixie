@@ -1,15 +1,4 @@
 ---
-# e2e-log4shell-soc — stand up a real SOC stack on k3s, fire log4shell end-to-end,
-# assert every canonical harness script actually runs, and profile dx in real life.
-#
-# Heavy: needs eBPF (Pixie PEM) + 16cpu/64gb → the oracle self-hosted runner, NOT
-# ubuntu-latest. Deploy mirrors the sovereignsocdemo lab recipe (k8sstormcenter/soc
-# make targets) — that kit is makefile-agent's; keep the deploy block in sync with it.
-#
-# Uses EXISTING k8sstormcenter/pixie repo secrets (no new ones): PX_DEPLOY_KEY,
-# PX_API_KEY (Pixie enroll), DX_ENTLEIN_PAT (private entlein/dx image pull),
-# CLICKHOUSE_*_PASSWORD, TAILSCALE_AUTH_KEY. Manual by default (it provisions a
-# whole cluster); flip the schedule on once it's green.
 name: e2e-calibration-soc
 on:
   workflow_dispatch:

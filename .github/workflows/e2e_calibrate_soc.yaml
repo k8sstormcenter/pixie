@@ -42,7 +42,7 @@ jobs:
         for i in $(seq 1 60); do kubectl get nodes --no-headers 2>/dev/null | grep -q ' Ready' && break; sleep 5; done
         kubectl get nodes
 
-    - name: Deploy the SOC stack (Pixie + kubescape + ClickHouse + AE + dx + log4j chain)
+    - name: Deploy the SOC stack (Pixie + kubescape + ClickHouse + AE + dx + chain)
       env:
         PX_CLOUD_ADDR: pixie.austrianopencloudcommunity.org
         PX_DEPLOY_KEY: ${{ secrets.PX_DEPLOY_KEY }}

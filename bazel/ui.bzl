@@ -17,11 +17,9 @@
 # This file contains rules for for our UI builds.
 
 ui_shared_cmds_start = [
-    "set -x",
     'export BASE_PATH="$(pwd)"',
-    "export PATH=/opt/px_dev/tools/node/bin:/usr/local/bin:$PATH",
-    "hash -r",
-    'export HOME="$(mktemp -d)"',
+    "export PATH=/usr/local/bin:/opt/px_dev/tools/node/bin:$PATH",
+    'export HOME="$(mktemp -d)"',  # This makes node-gyp happy.
     'export TMPPATH="$(mktemp -d)"',
 ]
 
@@ -51,7 +49,6 @@ def _pl_webpack_deps_impl(ctx):
         execution_requirements = {tag: "" for tag in ctx.attr.tags},
         outputs = [out],
         command = " && ".join(cmd),
-        use_default_shell_env = True,
         progress_message =
             "Generating webpack deps %s" % out.short_path,
     )
@@ -75,8 +72,8 @@ def _pl_webpack_library_impl(ctx):
         # and apply it to the environment here. Hopefully,
         # no special characters/spaces/quotes in the results ...
         env_cmds = [
-            '$(sed -E -n "s/^(STABLE_BUILD_TAG|BUILD_TIMESTAMP)\\s+(.*)/export \\1=\\2/p" "{}")'.format(ctx.info_file.path),
-            '$(sed -E -n "s/^(STABLE_BUILD_TAG|BUILD_TIMESTAMP)\\s+(.*)/export \\1=\\2/p" "{}")'.format(ctx.version_file.path),
+            '$(sed -E "s/^([A-Za-z_]+)\\s*(.*)/export \\1=\\2/g" "{}")'.format(ctx.info_file.path),
+            '$(sed -E "s/^([A-Za-z_]+)\\s*(.*)/export \\1=\\2/g" "{}")'.format(ctx.version_file.path),
         ]
         all_files.append(ctx.info_file)
         all_files.append(ctx.version_file)
@@ -98,7 +95,6 @@ def _pl_webpack_library_impl(ctx):
         execution_requirements = {tag: "" for tag in ctx.attr.tags},
         outputs = [out],
         command = " && ".join(cmd),
-        use_default_shell_env = True,
         progress_message =
             "Generating webpack bundle %s" % out.short_path,
     )
@@ -174,7 +170,6 @@ def _pl_deps_licenses_impl(ctx):
         execution_requirements = {tag: "" for tag in ctx.attr.tags},
         outputs = [out],
         command = " && ".join(cmd),
-        use_default_shell_env = True,
         progress_message =
             "Generating licenses %s" % out.short_path,
     )

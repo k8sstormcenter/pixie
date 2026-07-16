@@ -104,7 +104,7 @@ if [ "${AELOAD_RUN_SUITE:-0}" = "1" ] && [ -x "${SUITE_BIN:-/tmp/aeloadsuite.tes
     AELOAD_LIVE=1 AELOAD_CH_URL=http://127.0.0.1:8123 \
     AELOAD_CH_WUSER="${AELOAD_CH_WUSER:-ingest_writer}" AELOAD_CH_WPASS="${AELOAD_CH_WPASS:-changeme-ingest}" \
     AELOAD_REPS="${AELOAD_REPS:-10}" \
-    "${SUITE_BIN:-/tmp/aeloadsuite.test}" -test.v -test.run "${SUITE_RUN:-TestControlPlaneReproducibility/single-anomaly}" -test.timeout 20m 2>&1 | tee "$EVID/loadtest.txt"
+    "${SUITE_BIN:-/tmp/aeloadsuite.test}" -test.v -test.run "${SUITE_RUN:-TestEveryTimestampIsNanoseconds|TestNoCoarserTimestamps|TestControlPlaneReproducibility/single-anomaly}" -test.timeout 20m 2>&1 | tee "$EVID/loadtest.txt"
     grep -q -- '--- PASS' "$EVID/loadtest.txt" && ok "loadtest PASS (see $EVID/loadtest.txt)" || no "loadtest did not pass"
   else no "could not port-forward ClickHouse for the loadtest"; fi
   kill $PF 2>/dev/null || true

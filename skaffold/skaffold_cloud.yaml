@@ -152,3 +152,13 @@ profiles:
     path: /manifests/kustomize/paths
     value:
     - k8s/cloud/public/base
+# Fork profile: deploy the k8sstormcenter cloud overlay (cockpit). Additive —
+# it does not alter the upstream profiles above, mirroring the `public`
+# pattern. Invoke with `-p cockpit`. The kustomize dir is restored by PR #72
+# at private/cockpit/.
+- name: cockpit
+  patches:
+  - op: replace
+    path: /manifests/kustomize/paths
+    value:
+    - private/cockpit

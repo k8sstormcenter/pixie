@@ -70,7 +70,7 @@ jobs:
       run: |
         set -uo pipefail
         mkdir -p /tmp/evidence; fail=0
-        for s in log4shell_fire exp_matrix nfr exp_row_reconcile; do
+        for s in javapoc_fire exp_matrix nfr exp_row_reconcile; do
           echo "::group::$s"
           if bash "$HARNESS/$s.sh" > "/tmp/evidence/$s.log" 2>&1; then
             echo "PASS $s"; tail -5 "/tmp/evidence/$s.log"

@@ -17,6 +17,8 @@
 package aeloadsuite
 
 import (
+	"os"
+	"strconv"
 	"testing"
 )
 
@@ -30,19 +32,25 @@ func TestControlPlaneReproducibility(t *testing.T) {
 	for _, f := range controlFixtures {
 		f := f
 		t.Run(f.name, func(t *testing.T) {
-			t.Logf("%s: %s (reps=%d, node=%s)", f.name, f.desc, f.reps, e.Node)
+			reps := f.reps
+			if v := os.Getenv("AELOAD_REPS"); v != "" {
+				if n, err := strconv.Atoi(v); err == nil && n > 0 {
+					reps = n
+				}
+			}
+			t.Logf("%s: %s (reps=%d, node=%s)", f.name, f.desc, reps, e.Node)
 			e.Warmup(t, e.Node)
 
-			hashes := make([]int, 0, f.reps)
-			attrib := make([]int, 0, f.reps)
-			for rep := 1; rep <= f.reps; rep++ {
+			hashes := make([]int, 0, reps)
+			attrib := make([]int, 0, reps)
+			for rep := 1; rep <= reps; rep++ {
 				m := f.runRep(t, e, e.Node, rep)
 				hashes = append(hashes, m.hashes)
 				attrib = append(attrib, m.attrib)
 			}
 			RequireReproducible(t, f.name+"/anomaly_hash", hashes, f.wantHashes)
 			RequireReproducible(t, f.name+"/adaptive_attribution", attrib, f.wantAttrib)
-			t.Logf("%s PASS: hashes=%d attrib=%d across %d reps (std=0)", f.name, f.wantHashes, f.wantAttrib, f.reps)
+			t.Logf("%s PASS: hashes=%d attrib=%d across %d reps (std=0)", f.name, f.wantHashes, f.wantAttrib, reps)
 		})
 	}
 }

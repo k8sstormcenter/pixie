@@ -22,15 +22,15 @@ kind: Config
 metadata:
   name: e2e-nonpixie
 requires:
-  - git:
-      repo: https://github.com/k8sstormcenter/soc
-      path: skaffold.yaml
-      ref: main
-    configs:
-      - soc-stack
-  - git:
-      repo: https://github.com/k8sstormcenter/bob
-      path: example/java-poc/skaffold.yaml
-      ref: main
-    configs:
-      - java-poc-apps
+- git:
+    repo: https://github.com/k8sstormcenter/soc
+    path: skaffold.yaml
+    ref: main
+  configs:
+  - soc-stack
+- git:
+    repo: https://github.com/k8sstormcenter/bob
+    path: example/java-poc/skaffold.yaml
+    ref: main
+  configs:
+  - java-poc-apps

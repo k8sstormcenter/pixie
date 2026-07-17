@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   e2e:
-    runs-on: oracle-vm-16cpu-64gb-x86-64   
+    runs-on: oracle-vm-16cpu-64gb-x86-64
     timeout-minutes: 90
     env:
       KUBECONFIG: /etc/rancher/k3s/k3s.yaml
@@ -36,7 +36,7 @@ jobs:
         PX_CLOUD_ADDR: pixie.austrianopencloudcommunity.org
         PX_DEPLOY_KEY: ${{ secrets.PX_DEPLOY_KEY }}
         PX_API_KEY: ${{ secrets.PX_API_KEY }}
-        TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}          
+        TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
         CLICKHOUSE_ANALYST_PASSWORD: ${{ secrets.CLICKHOUSE_ANALYST_PASSWORD }}
         CLICKHOUSE_INGEST_PASSWORD: ${{ secrets.CLICKHOUSE_INGEST_PASSWORD }}
         CLICKHOUSE_PIXIE_PASSWORD: ${{ secrets.CLICKHOUSE_PIXIE_PASSWORD }}
@@ -48,7 +48,7 @@ jobs:
         make pixie                              # vizier + AE
         make kubescape || true                  # node-agent (netStreaming)
         bash tree/clickhouse-lab/install.sh      # forensic_db
-        make java-poc                          
+        make java-poc
         if [ -n "${{ inputs.dx_image }}" ]; then
           kubectl -n honey set image ds/dx-daemon dx-daemon="${{ inputs.dx_image }}" || true
         fi

@@ -96,33 +96,51 @@ func envOr(k, def string) string {
 // chReq posts a query with the given credentials and returns the trimmed body.
 func (e Env) chReq(user, pass, sql string, body []byte) (string, error) {
 	url := strings.TrimRight(e.CHURL, "/") + "/"
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return "", err
+	var lastErr error
+	// Retry transient transport errors (e.g. a kubectl port-forward EOF) and 5xx;
+	// a fresh request is built each attempt so the body reader is re-readable.
+	for attempt := 0; attempt < 4; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+		}
+		var req *http.Request
+		var err error
+		if body == nil {
+			req, err = http.NewRequest(http.MethodPost, url, strings.NewReader(sql))
+		} else {
+			req, err = http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+			if err == nil {
+				q := req.URL.Query()
+				q.Set("query", sql)
+				req.URL.RawQuery = q.Encode()
+				req.Header.Set("Content-Type", "application/x-ndjson")
+			}
+		}
+		if err != nil {
+			return "", err
+		}
+		if user != "" {
+			req.SetBasicAuth(user, pass)
+		}
+		resp, err := e.http.Do(req)
+		if err != nil {
+			lastErr = err // transient (port-forward blip) — retry
+			continue
+		}
+		buf := new(bytes.Buffer)
+		_, _ = buf.ReadFrom(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode/100 != 2 {
+			err := fmt.Errorf("clickhouse HTTP %d: %s", resp.StatusCode, strings.TrimSpace(buf.String()))
+			if resp.StatusCode/100 == 5 {
+				lastErr = err // server-side transient — retry
+				continue
+			}
+			return "", err // 4xx is a real error — do not retry
+		}
+		return strings.TrimSpace(buf.String()), nil
 	}
-	if body == nil {
-		req.Body = nil
-		req, _ = http.NewRequest(http.MethodPost, url, strings.NewReader(sql))
-	} else {
-		q := req.URL.Query()
-		q.Set("query", sql)
-		req.URL.RawQuery = q.Encode()
-		req.Header.Set("Content-Type", "application/x-ndjson")
-	}
-	if user != "" {
-		req.SetBasicAuth(user, pass)
-	}
-	resp, err := e.http.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	buf := new(bytes.Buffer)
-	_, _ = buf.ReadFrom(resp.Body)
-	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("clickhouse HTTP %d: %s", resp.StatusCode, strings.TrimSpace(buf.String()))
-	}
-	return strings.TrimSpace(buf.String()), nil
+	return "", lastErr
 }
 
 // Query runs a read query with the read-side credentials.

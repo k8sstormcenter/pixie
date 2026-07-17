@@ -103,11 +103,19 @@ func TestJavaPocCalibration(t *testing.T) {
 			"adaptive_attribution did not grow for %s — AE did not capture/steer the disease", c.backend)
 	})
 	t.Run("stage4/dx-rules-in", func(t *testing.T) {
-		if dxBlind(t, e, c) {
-			t.Fatalf("dx is BLIND (bench unavailable) — it cannot rule in; deploy a working dx (non-blind broker/pemdirect) to calibrate this stage")
+		// Assert the CURRENT (fresh) backend pod gets a ruled_in verdict. A cumulative
+		// count delta is unreliable — the log tail saturates with prior rule-ins and
+		// dx's workup (referral->triage->workup->verdict) lags the fire by up to ~2min.
+		// Poll the specific pod instead.
+		pod := currentPod(c.appNS, "app="+c.backend)
+		require.NotEmptyf(t, pod, "no %s pod found to check for a dx verdict", c.backend)
+		if waitUntil(150*time.Second, func() bool { return dxRuledInPod(c, pod) }) {
+			return
 		}
-		require.Greaterf(t, after.dxRuleins, base.dxRuleins,
-			"dx produced no new ruled_in verdict after the fire — the incident was not diagnosed")
+		if dxBlind(t, e, c) {
+			t.Fatalf("dx is BLIND on all nodes (bench unavailable) — it cannot rule in; deploy a working dx (non-blind broker/pemdirect) to calibrate this stage")
+		}
+		t.Fatalf("dx produced no ruled_in verdict for %s within 150s — the incident was not diagnosed", pod)
 	})
 }
 
@@ -147,9 +155,30 @@ func calibSnapshot(t *testing.T, e Env, c calibConfig) calibCounts {
 	}
 }
 
-// dxRuleinCount counts ruled_in verdicts for the app in the dx-daemon log.
+// currentPod returns the first pod name matching selector in ns (or "").
+func currentPod(ns, sel string) string {
+	out, _ := exec.Command("kubectl", "-n", ns, "get", "pod", "-l", sel,
+		"-o", "jsonpath={.items[0].metadata.name}").CombinedOutput()
+	return strings.TrimSpace(string(out))
+}
+
+// dxRuledInPod reports whether any dx-daemon pod logged a ruled_in verdict for the
+// exact pod (any playbook). Reads all dx pods (dx is a per-node DaemonSet).
+func dxRuledInPod(c calibConfig, pod string) bool {
+	out, _ := exec.Command("kubectl", "-n", c.dxNS, "logs", "ds/"+c.dxDS, "--tail=8000", "--all-pods=true").CombinedOutput()
+	for _, ln := range strings.Split(string(out), "\n") {
+		if strings.Contains(ln, "ruled_in") && strings.Contains(ln, pod) {
+			return true
+		}
+	}
+	return false
+}
+
+// dxRuleinCount counts ruled_in verdicts for the app across ALL dx-daemon pods
+// (dx is a per-node DaemonSet; the backend can reschedule to any node, so we must
+// read every pod's log, not just one).
 func dxRuleinCount(t *testing.T, e Env, c calibConfig) int {
-	out, _ := exec.Command("kubectl", "-n", c.dxNS, "logs", "ds/"+c.dxDS, "--tail=4000").CombinedOutput()
+	out, _ := exec.Command("kubectl", "-n", c.dxNS, "logs", "ds/"+c.dxDS, "--tail=4000", "--all-pods=true").CombinedOutput()
 	n := 0
 	for _, ln := range strings.Split(string(out), "\n") {
 		if strings.Contains(ln, "ruled_in") && strings.Contains(ln, c.appNS) {
@@ -159,8 +188,14 @@ func dxRuleinCount(t *testing.T, e Env, c calibConfig) int {
 	return n
 }
 
+// dxBlind is true only if EVERY dx pod is blind (bench unavailable) — if any node's
+// dx is serving evidence, dx is not blind for the workload on that node.
 func dxBlind(t *testing.T, e Env, c calibConfig) bool {
-	out, _ := exec.Command("kubectl", "-n", c.dxNS, "logs", "ds/"+c.dxDS, "--tail=200").CombinedOutput()
+	out, _ := exec.Command("kubectl", "-n", c.dxNS, "logs", "ds/"+c.dxDS, "--tail=200", "--all-pods=true").CombinedOutput()
+	// Not blind if any pod recently RECOVERED or produced a verdict for the app.
+	if strings.Contains(string(out), "RECOVERED") || strings.Contains(string(out), "verdict "+c.appNS) {
+		return false
+	}
 	return strings.Contains(string(out), "BLIND")
 }
 
@@ -211,12 +246,15 @@ func requireRunning(t *testing.T, e Env, ns, sub string) {
 
 func kubeTry(args ...string) { _ = exec.Command("kubectl", args...).Run() }
 
-func waitUntil(d time.Duration, cond func() bool) {
+// waitUntil polls cond every 3s until it is true or d elapses. Returns whether
+// cond was met (callers that don't care may ignore the result).
+func waitUntil(d time.Duration, cond func() bool) bool {
 	deadline := time.Now().Add(d)
 	for time.Now().Before(deadline) {
 		if cond() {
-			return
+			return true
 		}
 		time.Sleep(3 * time.Second)
 	}
+	return cond()
 }

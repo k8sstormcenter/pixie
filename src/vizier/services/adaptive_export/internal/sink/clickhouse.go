@@ -198,13 +198,19 @@ func (s *ClickHouseHTTP) WritePixieRows(ctx context.Context, table string, rows 
 			firstRowKeys = append(firstRowKeys, k)
 		}
 	}
+	// Demoted from Info to Debug: one log per Pixie batch in the
+	// fan-out/streaming hot paths produces avoidable log-volume
+	// pressure. The original Info was temporary scaffolding while we
+	// chased the pgsql_events silent-drop mystery; the silent-drop
+	// guard below is what actually catches that class of bug now.
+	// (CodeRabbit r-#68/sink/clickhouse.go.)
 	log.WithFields(log.Fields{
 		"table":          table,
 		"rows_sent":      len(rows),
 		"body_bytes":     buf.Len(),
 		"ch_summary":     summary,
 		"first_row_keys": strings.Join(firstRowKeys, ","),
-	}).Info("sink: pixie write completed")
+	}).Debug("sink: pixie write completed")
 	// Detect the silent-drop class: CH returns 2xx but
 	// X-ClickHouse-Summary.written_rows < len(rows). Observed live on
 	// 2026-05-23T20:58Z (redis_events: rows_sent=1658, written_rows=0)

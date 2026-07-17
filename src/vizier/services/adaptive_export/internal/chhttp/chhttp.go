@@ -43,6 +43,12 @@ type Client struct {
 	user     string
 	pass     string
 	hc       *http.Client
+	// streamHC is a parallel client with NO Timeout — Go's
+	// http.Client.Timeout covers body reads, so reusing hc for
+	// QueryStream would silently truncate a multi-MB active-set
+	// rehydrate at DefaultTimeout. Stream callers must bound their
+	// own ctx deadline (CodeRabbit r-#68/chhttp.go).
+	streamHC *http.Client
 }
 
 // New validates the endpoint and returns a ready client. timeout<=0 →
@@ -71,6 +77,7 @@ func New(endpoint, user, pass string, timeout time.Duration) (*Client, error) {
 		user:     user,
 		pass:     pass,
 		hc:       &http.Client{Timeout: timeout},
+		streamHC: &http.Client{}, // no Timeout — see streamHC docstring above
 	}, nil
 }
 
@@ -97,7 +104,11 @@ func (c *Client) Query(ctx context.Context, sql string) ([]byte, error) {
 // QueryStream GETs sql like Query, but returns the response body as an
 // io.ReadCloser the caller drains incrementally. Use for SELECTs whose
 // result set is unbounded (e.g. an active-set rehydrate that may be
-// multi-MB). Caller MUST Close the returned body, even on error.
+// multi-MB). Caller MUST Close the returned body, even on error, and
+// MUST bound the request via ctx.Deadline — the underlying transport
+// here has NO http.Client.Timeout because that timeout would cover
+// body reads and silently truncate a long stream
+// (CodeRabbit r-#68/chhttp.go).
 func (c *Client) QueryStream(ctx context.Context, sql string) (io.ReadCloser, error) {
 	q := url.Values{}
 	q.Set("query", sql)
@@ -108,7 +119,7 @@ func (c *Client) QueryStream(ctx context.Context, sql string) (io.ReadCloser, er
 	if c.user != "" {
 		req.SetBasicAuth(c.user, c.pass)
 	}
-	resp, err := c.hc.Do(req)
+	resp, err := c.streamHC.Do(req)
 	if err != nil {
 		return nil, err
 	}

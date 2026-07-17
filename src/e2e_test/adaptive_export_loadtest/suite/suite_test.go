@@ -1,0 +1,81 @@
+// Copyright 2018- The Pixie Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
+
+package aeloadsuite
+
+import (
+	"os"
+	"strconv"
+	"testing"
+)
+
+// TestControlPlaneReproducibility drives every control fixture against the
+// deployed AE image and asserts the Reproducibility KPI: across all reps the
+// distinct-hash count and attribution count are a single value, equal to want.
+// This is the deterministic proof that the AE build's trigger + controller +
+// attribution path is an exact function of the kubescape input.
+func TestControlPlaneReproducibility(t *testing.T) {
+	e := RequireLiveEnv(t)
+	for _, f := range controlFixtures {
+		f := f
+		t.Run(f.name, func(t *testing.T) {
+			reps := f.reps
+			if v := os.Getenv("AELOAD_REPS"); v != "" {
+				if n, err := strconv.Atoi(v); err == nil && n > 0 {
+					reps = n
+				}
+			}
+			t.Logf("%s: %s (reps=%d, node=%s)", f.name, f.desc, reps, e.Node)
+			e.Warmup(t, e.Node)
+
+			hashes := make([]int, 0, reps)
+			attrib := make([]int, 0, reps)
+			for rep := 1; rep <= reps; rep++ {
+				m := f.runRep(t, e, e.Node, rep)
+				hashes = append(hashes, m.hashes)
+				attrib = append(attrib, m.attrib)
+			}
+			RequireReproducible(t, f.name+"/anomaly_hash", hashes, f.wantHashes)
+			RequireReproducible(t, f.name+"/adaptive_attribution", attrib, f.wantAttrib)
+			t.Logf("%s PASS: hashes=%d attrib=%d across %d reps (std=0)", f.name, f.wantHashes, f.wantAttrib, reps)
+		})
+	}
+}
+
+// TestDataPlaneReconcile asserts the no-loss Reconcile KPI on the data plane:
+// for a counted signal band, read == wrote == ClickHouse per protocol table.
+//
+// Staged: needs the counted signal generator (tools/loadgen) + sinks deployed on
+// the rig. Enable by setting AELOAD_DATAPLANE=1 once the generator is wired in;
+// this keeps the deterministic control-plane suite runnable on any rig today.
+func TestDataPlaneReconcile(t *testing.T) {
+	RequireLiveEnv(t)
+	t.Skip("data-plane reconcile requires the counted signal generator (tools/loadgen) + sinks; set AELOAD_DATAPLANE=1 when wired")
+}
+
+// TestVolumeReduction measures and LOGS the firehose→steered volume reduction
+// for one signal window. It is a reported outcome, not a pass/fail assertion —
+// there is no correct fixed percentage, so gating on a threshold would be arbitrary.
+//
+// Staged: the reduction arms drive a live incident signal on the rig, which the
+// SOC lab owns and emits by neutral disease name (e.g. java-poc/disease-listeriosis).
+// This suite triggers it through a lab hook rather than embedding any payload, so
+// no CVE or incident literals live here. Enable via AELOAD_REDUCTION=1 + the lab
+// signal hook.
+func TestVolumeReduction(t *testing.T) {
+	RequireLiveEnv(t)
+	t.Skip("volume reduction drives a lab-owned signal; set AELOAD_REDUCTION=1 + the lab disease hook when wired")
+}

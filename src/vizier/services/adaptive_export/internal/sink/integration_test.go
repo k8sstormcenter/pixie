@@ -155,13 +155,17 @@ func TestSinkWritePixieRows_Live(t *testing.T) {
 
 	tag := fmt.Sprintf("aw-pix-%d", time.Now().UnixNano())
 	now := time.Now().UTC()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
 
 	for _, table := range chpkg.PixieTables() {
+		// Per-table timeout so a slow early table can't starve later
+		// ones — a shared budget across the whole loop makes this live
+		// test unnecessarily flaky on a loaded CH (CodeRabbit
+		// r-#68/sink/integration_test.go).
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		row := minimalRowFor(table, tag, now)
 		if err := s.WritePixieRows(ctx, table, []map[string]any{row}); err != nil {
 			t.Errorf("WritePixieRows(%s): %v", table, err)
+			cancel()
 			continue
 		}
 		ident := table
@@ -173,6 +177,7 @@ func TestSinkWritePixieRows_Live(t *testing.T) {
 		if got < 1 {
 			t.Errorf("table %s after WritePixieRows: count=%d, want >=1", table, got)
 		}
+		cancel()
 	}
 }
 

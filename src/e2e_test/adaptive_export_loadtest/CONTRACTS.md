@@ -29,7 +29,7 @@ flowchart TD
       PROT["http/dns/pgsql/conn_stats/...<br/>plain MergeTree (NO dedup)"]
     end
 
-    VEC -->|"C1 ⚠️ event_time UNIT = seconds<br/>C2 ⚠️ hostname = k8s node name"| KL
+    VEC -->|"C1 ✅ event_time UNIT = nanoseconds<br/>C2 ⚠️ hostname = k8s node name"| KL
     KL -->|"C3 🔴 event_time monotone ≥ watermark<br/>C4 ⚠️ boundary dedup by content fp"| TRG
     TRG --> CTL
     CTL -->|"C5 ⚠️ anomaly_hash = f(pid,comm,pod,ns) only"| ATTR
@@ -56,7 +56,7 @@ flowchart LR
 
 | # | Contract (implied) | Enforced? | Status / fix |
 |---|---|---|---|
-| C1 | `kubescape_logs.event_time` is unix **seconds** (one unit end-to-end) | ❌ trigger auto-detects s/ms/ns; DDL `toDateTime()` assumes seconds | 🔴 **F8 root** — see C3; AE-2 standardize+normalize |
+| C1 | `kubescape_logs.event_time` is unix **nanoseconds** (one unit end-to-end) | ✅ DDL converts with `fromUnixTimestamp64Nano`; trigger keeps magnitude-normalization as a defensive net | Vector emits ns; DDL + harness aligned to ns (was the F1/F8 seconds-vs-ns root) |
 | C2 | `hostname` = the k8s **node** name (AE polls `WHERE hostname=node`) | ❌ convention only | ⚠️ fixtures must use a real node, else no AE ever reads them |
 | C3 | every new anomaly's `event_time` ≥ current watermark (monotone) | ❌ strict HWM filter | 🔴 **F8** — a larger-unit / out-of-order / future row poisons the HWM → all later rows silently dropped. **Fix (PR #53):** normalize cursor to nanos (`chNormEventTimeNanos`); AE-9: ingest-order cursor / bounded-lookback+dedup + below-watermark metric |
 | C4 | rows sharing `event_time` at the boundary are deduped by content fingerprint | ✅ `seenAtBoundary` | ok |

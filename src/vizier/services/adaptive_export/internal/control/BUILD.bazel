@@ -23,6 +23,7 @@ go_library(
     importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/control",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
     deps = [
+        "//src/shared/services/utils",
         "//src/vizier/services/adaptive_export/internal/activeset",
         "//src/vizier/services/adaptive_export/internal/anomaly",
     ],
@@ -33,6 +34,7 @@ pl_go_test(
     srcs = ["server_test.go"],
     embed = [":control"],
     deps = [
+        "//src/shared/services/utils",
         "//src/vizier/services/adaptive_export/internal/activeset",
         "//src/vizier/services/adaptive_export/internal/anomaly",
     ],

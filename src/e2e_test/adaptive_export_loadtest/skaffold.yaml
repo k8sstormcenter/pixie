@@ -1,0 +1,36 @@
+# Single pixie-native command to stand up the whole NON-Pixie e2e environment:
+#
+#   skaffold deploy -m e2e-nonpixie
+#
+# It pulls each component's Skaffold from that component's golden-source repo, so
+# there is exactly ONE source of truth per component — no manifests duplicated
+# into the pixie tree:
+#
+#   - k8sstormcenter/soc  (skaffold.yaml, module soc-stack)  = the stack:
+#         ClickHouse -> kubescape -> vector  (+ forensic_db schema, dx delivery)
+#   - k8sstormcenter/bob  (example/java-poc/skaffold.yaml, module java-poc-apps) =
+#         the sample apps: SBoBs -> workloads (java-poc chain + pathogen)
+#
+# Deploy order is: SOC stack first, then the bob apps (SBoBs before workloads).
+# Pixie itself (the `pl` namespace: vizier + adaptive_export) is deployed by
+# Pixie's OWN native Skaffold and overlaid on top — it is intentionally NOT here.
+#
+# k3s only for now. The suite's EnsureE2EStack() helper (suite/deploy.go) invokes
+# this, and can point at local checkouts via AELOAD_SOC_DIR / AELOAD_BOB_DIR.
+apiVersion: skaffold/v4beta11
+kind: Config
+metadata:
+  name: e2e-nonpixie
+requires:
+  - git:
+      repo: https://github.com/k8sstormcenter/soc
+      path: skaffold.yaml
+      ref: main
+    configs:
+      - soc-stack
+  - git:
+      repo: https://github.com/k8sstormcenter/bob
+      path: example/java-poc/skaffold.yaml
+      ref: main
+    configs:
+      - java-poc-apps

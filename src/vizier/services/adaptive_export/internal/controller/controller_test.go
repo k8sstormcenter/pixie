@@ -48,11 +48,12 @@ func (f *fakeTrigger) push(ev kubescape.Event) { f.ch <- ev }
 func (f *fakeTrigger) close()                  { close(f.ch) }
 
 type fakeSink struct {
-	mu      sync.Mutex
-	writes  []sink.AttributionRow
-	preload []sink.AttributionRow
-	werr    error
-	qerr    error
+	mu       sync.Mutex
+	writes   []sink.AttributionRow
+	preload  []sink.AttributionRow
+	werr     error
+	qerr     error
+	attempts int // every Write call increments, even when werr fires
 }
 
 func (f *fakeSink) WritePixieRows(_ context.Context, _ string, _ []map[string]any) error {
@@ -62,11 +63,18 @@ func (f *fakeSink) WritePixieRows(_ context.Context, _ string, _ []map[string]an
 func (f *fakeSink) Write(_ context.Context, rows []sink.AttributionRow) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.attempts++
 	if f.werr != nil {
 		return f.werr
 	}
 	f.writes = append(f.writes, rows...)
 	return nil
+}
+
+func (f *fakeSink) writeAttempts() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.attempts
 }
 
 func (f *fakeSink) QueryActive(_ context.Context, hostname string) ([]sink.AttributionRow, error) {
@@ -316,7 +324,12 @@ func TestController_PruneExpired(t *testing.T) {
 	}
 }
 
-// TestController_SinkErrorNonFatal — controller does not crash on Sink.Write error.
+// TestController_SinkErrorNonFatal — controller does not crash on
+// Sink.Write error AND rolls back the in-memory attribution row so a
+// failed persist doesn't leave a phantom anchor that pushPixieRows
+// could fan out against (CodeRabbit r-#68/controller/controller.go).
+// The rollback contract is: on first event for a hash with write
+// failure → c.active[hash] is NOT added.
 func TestController_SinkErrorNonFatal(t *testing.T) {
 	trig := newFakeTrigger()
 	snk := &fakeSink{werr: errors.New("ch unreachable")}
@@ -326,8 +339,13 @@ func TestController_SinkErrorNonFatal(t *testing.T) {
 	defer stop()
 
 	trig.push(canonicalEvent())
-	// Wait for the handler to process the event (no fixed sleep).
-	waitFor(t, "active=1 despite sink error", 200*time.Millisecond, func() bool { return c.Active() == 1 })
+	// Wait until the handler has actually called Write (and got the
+	// error). Then assert rollback: active stays at 0.
+	waitFor(t, "handler processed sink error", 200*time.Millisecond,
+		func() bool { return snk.writeAttempts() >= 1 })
+	if got := c.Active(); got != 0 {
+		t.Fatalf("Active()=%d after sink error; want 0 (rollback contract)", got)
+	}
 }
 
 // TestController_RestartMidStream_Aborts — context cancel terminates Run.

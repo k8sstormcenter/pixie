@@ -575,6 +575,17 @@ func main() {
 	if addr := os.Getenv("CONTROL_ADDR"); addr != "" {
 		ctrlSrv := control.New(activeSet, nil) // OrderQuery runner wired later
 		ctrlSrv.SetGraphWriter(applier)        // dx_attack_graph ingest → ClickHouse
+		// Bearer-JWT auth on the control surface (CodeRabbit: protect control
+		// endpoints). Same shared lib + signing key the broker/PEM use — dx
+		// attaches the service JWT it already mints. Default-OFF so this can
+		// merge before dx sends the bearer; flip CONTROL_REQUIRE_AUTH=true once
+		// dx is updated + PL_JWT_SIGNING_KEY is mounted. Safe incremental rollout.
+		if key := os.Getenv("PL_JWT_SIGNING_KEY"); key != "" && os.Getenv("CONTROL_REQUIRE_AUTH") == "true" {
+			ctrlSrv.SetAuth(key, "vizier")
+			log.Info("control surface: bearer-JWT auth ENABLED (audience=vizier)")
+		} else {
+			log.Warn("control surface: auth DISABLED (set CONTROL_REQUIRE_AUTH=true + PL_JWT_SIGNING_KEY)")
+		}
 		// Wrap in an http.Server with explicit timeouts so a slow client
 		// can't pin a goroutine on the control surface (CodeRabbit
 		// r3379377432). The control plane is small/idempotent JSON, so
@@ -589,8 +600,27 @@ func main() {
 		}
 		go func() {
 			log.WithField("addr", addr).Info("control surface listening")
-			if err := httpSrv.ListenAndServe(); err != nil &&
-				err != http.ErrServerClosed {
+			// CONTROL_TLS=true → serve TLS so the bearer JWT + control payloads
+			// don't cross the CNI in cleartext (auth without TLS leaks the token).
+			// Cert/key from the service-tls-certs secret the broker/PEM already use
+			// (mounted /certs); dx skip-verifies. Default-OFF for incremental rollout.
+			var err error
+			if os.Getenv("CONTROL_TLS") == "true" {
+				cert := os.Getenv("CONTROL_TLS_CERT")
+				if cert == "" {
+					cert = "/certs/server.crt"
+				}
+				key := os.Getenv("CONTROL_TLS_KEY")
+				if key == "" {
+					key = "/certs/server.key"
+				}
+				log.WithField("cert", cert).Info("control surface: TLS ENABLED")
+				err = httpSrv.ListenAndServeTLS(cert, key)
+			} else {
+				log.Warn("control surface: TLS DISABLED — bearer JWT crosses the CNI in cleartext (set CONTROL_TLS=true)")
+				err = httpSrv.ListenAndServe()
+			}
+			if err != nil && err != http.ErrServerClosed {
 				log.WithError(err).Error("control surface stopped")
 			}
 		}()
@@ -826,8 +856,15 @@ func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (
 //
 // Any other script is assumed user-authored and left alone.
 func isOperatorManagedScript(name string) bool {
-	if strings.HasPrefix(name, "ch-") {
-		return true
+	// Match the EXACT names builtinPresetScripts emits — never a prefix.
+	// A user-authored script named "ch-something-custom" would otherwise
+	// be classified as operator-managed and deleted on the next
+	// installPresetScripts pass under INSTALL_PRESET_SCRIPTS=true
+	// (CodeRabbit r-#68/cmd/main.go).
+	for _, p := range builtinPresetScripts() {
+		if name == p.Name {
+			return true
+		}
 	}
 	switch name {
 	case "conn_stats export", "dc snoop export", "stack_traces export":

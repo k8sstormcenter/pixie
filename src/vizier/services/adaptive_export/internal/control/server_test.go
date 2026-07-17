@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	jwtutils "px.dev/pixie/src/shared/services/utils"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/anomaly"
 )
@@ -57,6 +58,45 @@ func do(t *testing.T, srv *Server, method, path, body string) *http.Response {
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 	return w.Result()
+}
+
+// TestControlAuth: with SetAuth on, every endpoint except /healthz requires a
+// valid bearer JWT minted by the shared lib (the same one dx uses); missing/bad
+// tokens get 401. (CodeRabbit: protect control endpoints with auth.)
+func TestControlAuth(t *testing.T) {
+	const key = "0123456789abcdef0123456789abcdef" // HS256 test key
+	srv := New(&fakeExporter{}, nil)
+	srv.SetAuth(key, "vizier")
+	h := srv.Handler()
+
+	good, err := jwtutils.SignJWTClaims(jwtutils.GenerateJWTForService("dx", "vizier"), key)
+	if err != nil {
+		t.Fatalf("mint token: %v", err)
+	}
+	call := func(path, auth string) int {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"pod":"p","t_end":1}`))
+		if auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w.Result().StatusCode
+	}
+	if got := call("/export/start", ""); got != http.StatusUnauthorized {
+		t.Fatalf("no bearer: want 401, got %d", got)
+	}
+	if got := call("/export/start", "Bearer not-a-jwt"); got != http.StatusUnauthorized {
+		t.Fatalf("bad bearer: want 401, got %d", got)
+	}
+	if got := call("/export/start", "Bearer "+good); got == http.StatusUnauthorized {
+		t.Fatalf("valid bearer wrongly rejected (401)")
+	}
+	reqH := httptest.NewRequest(http.MethodGet, "/healthz", nil) // probes stay open
+	wH := httptest.NewRecorder()
+	h.ServeHTTP(wH, reqH)
+	if wH.Result().StatusCode == http.StatusUnauthorized {
+		t.Fatal("/healthz must not require auth")
+	}
 }
 
 func TestStartExportUpserts(t *testing.T) {
@@ -125,6 +165,27 @@ func TestBadInputRejected(t *testing.T) {
 	// query missing table
 	if r := do(t, srv, http.MethodPost, "/query", `{"pod":"p","query_id":"x","window":[1,2]}`); r.StatusCode != http.StatusBadRequest {
 		t.Fatalf("query no-table = %d, want 400", r.StatusCode)
+	}
+	// /export/start with t_end <= 0 — pins the new contract (CodeRabbit
+	// r-#68/control/server_test.go). Without this assertion a regression
+	// that drops the `req.TEnd <= 0` gate would Upsert with a
+	// time.Unix(0,0) tEnd, immediately-expired.
+	if r := do(t, srv, http.MethodPost, "/export/start",
+		`{"pod":"p","namespace":"n","t_end":0}`); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("start t_end=0 = %d, want 400", r.StatusCode)
+	}
+	if r := do(t, srv, http.MethodPost, "/export/start",
+		`{"pod":"p","namespace":"n","t_end":-1}`); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("start t_end=-1 = %d, want 400", r.StatusCode)
+	}
+	// /query with inverted or zero window — same idea.
+	if r := do(t, srv, http.MethodPost, "/query",
+		`{"pod":"p","table":"http_events","query_id":"x","window":[10,5]}`); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("query inverted-window = %d, want 400", r.StatusCode)
+	}
+	if r := do(t, srv, http.MethodPost, "/query",
+		`{"pod":"p","table":"http_events","query_id":"x","window":[5,5]}`); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("query zero-window = %d, want 400", r.StatusCode)
 	}
 }
 

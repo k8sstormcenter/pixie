@@ -234,7 +234,11 @@ func (l *Loop) tickConcurrent(ctx context.Context, sliceStart, sliceEnd time.Tim
 		}
 		tmpl, ok := l.tmpl[table]
 		if !ok {
-			// Non-builtin table skipped at precompile time.
+			// Non-builtin table skipped at precompile time. Record the
+			// failure so the reconcile row count matches the legacy
+			// (non-compiled) path, which records one row per table per
+			// tick unconditionally (CodeRabbit r-#68/passthrough.go).
+			l.rec(ctx, table, sliceStart, sliceEnd, 0, 0, "pxl: precompile skipped (non-builtin table)")
 			continue
 		}
 		src := pxl.Render(tmpl, sliceStart, sliceEnd)
@@ -252,6 +256,11 @@ func (l *Loop) tickConcurrent(ctx context.Context, sliceStart, sliceEnd time.Tim
 // sink, and recorder are all pool/HTTP-backed and concurrency-safe, and
 // each call touches a different forensic_db.<table>.
 func (l *Loop) pull(ctx context.Context, table, src string, sliceStart, sliceEnd time.Time) {
+	// Bound this table's external query+write+record so a hung dependency can't
+	// stall the whole sweep or delay shutdown (CodeRabbit). Derived per-table
+	// from the parent ctx; covers both the serial and concurrent tick paths.
+	ctx, cancel := context.WithTimeout(ctx, l.cfg.Refresh)
+	defer cancel()
 	rows, err := l.q.Query(ctx, src)
 	if err != nil {
 		log.WithError(err).WithField("table", table).Warn("ADAPTIVE_PASSTHROUGH: pixie query failed")

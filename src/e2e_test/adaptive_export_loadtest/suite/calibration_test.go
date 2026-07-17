@@ -51,7 +51,13 @@ func TestJavaPocCalibration(t *testing.T) {
 	t.Logf("calibration: app=%s/%s  pathogen=%s/%s (LDAP :%s)  dx=%s/%s",
 		c.appNS, c.backend, c.pathogenNS, c.pathogen, c.ldapPort, c.dxNS, c.dxDS)
 
-	// -------- preconditions: the stack is up (this test does not deploy it) --------
+	// -------- deploy the non-Pixie stack with one command (opt-in) --------
+	// AELOAD_DEPLOY=1 stands the whole environment up (soc stack -> bob sbobs+apps)
+	// via skaffold; otherwise this is a no-op and the precondition below asserts a
+	// pre-deployed rig.
+	EnsureE2EStack(t)
+
+	// -------- preconditions: the stack is up --------
 	t.Run("precondition/stack-present", func(t *testing.T) {
 		requireRunning(t, e, c.dxNS, c.dxDS)
 		requireRunning(t, e, "honey", "kubescape")
@@ -89,8 +95,12 @@ func TestJavaPocCalibration(t *testing.T) {
 		require.Equalf(t, "1", fresh, "kubescape_logs for %s is not fresh — vector→ClickHouse not carrying the signal", c.appNS)
 	})
 	t.Run("stage3/adaptive_export-captures", func(t *testing.T) {
-		require.Greaterf(t, after.ldapEgress, base.ldapEgress,
-			"no new backend→:%s LDAP egress in conn_stats — AE/Pixie did not capture the incident forensics", c.ldapPort)
+		// AE captured/steered the disease: adaptive_attribution gained rows for the
+		// affected workload. (conn_stats.remote_port is not populated by Pixie here,
+		// so port-based egress matching is unreliable — attribution growth is the
+		// authoritative AE-capture signal.)
+		require.Greaterf(t, after.attribution, base.attribution,
+			"adaptive_attribution did not grow for %s — AE did not capture/steer the disease", c.backend)
 	})
 	t.Run("stage4/dx-rules-in", func(t *testing.T) {
 		if dxBlind(t, e, c) {

@@ -10,3 +10,4 @@ src/datagen/pii/privy
 # adaptive_export_loadtest generator is a docker-built test tool (see its README);
 # build-agent to replace with a bazel target. Until then, keep it out of gazelle.
 src/e2e_test/adaptive_export_loadtest/tools/loadgen
+src/e2e_test/adaptive_export_loadtest/suite

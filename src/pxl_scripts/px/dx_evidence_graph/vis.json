@@ -16,7 +16,7 @@
       "name": "table",
       "type": "PX_STRING",
       "description": "dx_evidence_graph",
-      "defaultValue": "dx_evidence_graph_malicious"
+      "defaultValue": "dx_evidence_graph_malignant"
     }
   ],
   "globalFuncs": [

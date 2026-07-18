@@ -1,9 +1,6 @@
 ---
-short: DX Attack Graph
+short: DX Evidence Graph
 long: >
-  Severity-weighted, all-protocol pod-to-pod attack graph for one
-  dx-agent investigation. Renders attackgraph.Edge records emitted by
+  Severity-weighted, all-protocol pod-to-pod graph for one investigation. Edge records emitted by
   dx with weight (sum of CRS evidence severity) on the edges and
-  max_severity colouring the heat. v0 manual-load only — wires up to
-  the dx_attack_graph ClickHouse / Pixie ingest in v1. See README.md
-  in this directory.
+  max_severity colouring the heat. 

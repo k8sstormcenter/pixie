@@ -17,13 +17,8 @@
 import px
 
 
-def dx_attack_graph(start_time: str, clickhouse_dsn: str, table: str):
+def dx_evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
     df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    # Node identity: pod, else service, else IP. Edges whose peer is an IP or a
-    # non-pod entity (the k8s API server, an external endpoint, a consulted
-    # socket) have an empty *_pod; keying the graph on *_pod alone collapses ALL
-    # of them into one bogus "" node. Coalesce so each distinct peer is its own
-    # node — same idiom Pixie's net_flow_graph uses (px.select(src=='', src_ip, src)).
     df.requestor = px.select(df.requestor_pod == '',
                              px.select(df.requestor_service == '', df.requestor_ip, df.requestor_service),
                              df.requestor_pod)

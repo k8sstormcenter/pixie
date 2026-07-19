@@ -2224,6 +2224,21 @@ export namespace px {
 
             /** Graph enableDefaultHierarchy */
             enableDefaultHierarchy?: (boolean|null);
+
+            /** Graph edgeLabelColumn */
+            edgeLabelColumn?: (string|null);
+
+            /** Graph nodeLabelColumn */
+            nodeLabelColumn?: (string|null);
+
+            /** Graph nodeColorColumn */
+            nodeColorColumn?: (string|null);
+
+            /** Graph nodeThresholds */
+            nodeThresholds?: (px.vispb.Graph.INodeThresholds|null);
+
+            /** Graph nodeHoverInfo */
+            nodeHoverInfo?: (string[]|null);
         }
 
         /** Represents a Graph. */
@@ -2261,6 +2276,21 @@ export namespace px {
 
             /** Graph enableDefaultHierarchy. */
             public enableDefaultHierarchy: boolean;
+
+            /** Graph edgeLabelColumn. */
+            public edgeLabelColumn: string;
+
+            /** Graph nodeLabelColumn. */
+            public nodeLabelColumn: string;
+
+            /** Graph nodeColorColumn. */
+            public nodeColorColumn: string;
+
+            /** Graph nodeThresholds. */
+            public nodeThresholds?: (px.vispb.Graph.INodeThresholds|null);
+
+            /** Graph nodeHoverInfo. */
+            public nodeHoverInfo: string[];
 
             /** Graph input. */
             public input?: ("dotColumn"|"adjacencyList");
@@ -2525,6 +2555,102 @@ export namespace px {
 
                 /**
                  * Converts this EdgeThresholds to JSON.
+                 * @returns JSON object
+                 */
+                public toJSON(): { [k: string]: any };
+            }
+
+            /** Properties of a NodeThresholds. */
+            interface INodeThresholds {
+
+                /** NodeThresholds mediumThreshold */
+                mediumThreshold?: (number|Long|null);
+
+                /** NodeThresholds highThreshold */
+                highThreshold?: (number|Long|null);
+            }
+
+            /** Represents a NodeThresholds. */
+            class NodeThresholds implements INodeThresholds {
+
+                /**
+                 * Constructs a new NodeThresholds.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: px.vispb.Graph.INodeThresholds);
+
+                /** NodeThresholds mediumThreshold. */
+                public mediumThreshold: (number|Long);
+
+                /** NodeThresholds highThreshold. */
+                public highThreshold: (number|Long);
+
+                /**
+                 * Creates a new NodeThresholds instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns NodeThresholds instance
+                 */
+                public static create(properties?: px.vispb.Graph.INodeThresholds): px.vispb.Graph.NodeThresholds;
+
+                /**
+                 * Encodes the specified NodeThresholds message. Does not implicitly {@link px.vispb.Graph.NodeThresholds.verify|verify} messages.
+                 * @param message NodeThresholds message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                public static encode(message: px.vispb.Graph.INodeThresholds, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified NodeThresholds message, length delimited. Does not implicitly {@link px.vispb.Graph.NodeThresholds.verify|verify} messages.
+                 * @param message NodeThresholds message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                public static encodeDelimited(message: px.vispb.Graph.INodeThresholds, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a NodeThresholds message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns NodeThresholds
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                public static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): px.vispb.Graph.NodeThresholds;
+
+                /**
+                 * Decodes a NodeThresholds message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns NodeThresholds
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                public static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): px.vispb.Graph.NodeThresholds;
+
+                /**
+                 * Verifies a NodeThresholds message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                public static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a NodeThresholds message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns NodeThresholds
+                 */
+                public static fromObject(object: { [k: string]: any }): px.vispb.Graph.NodeThresholds;
+
+                /**
+                 * Creates a plain object from a NodeThresholds message. Also converts values to other types if specified.
+                 * @param message NodeThresholds
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                public static toObject(message: px.vispb.Graph.NodeThresholds, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this NodeThresholds to JSON.
                  * @returns JSON object
                  */
                 public toJSON(): { [k: string]: any };

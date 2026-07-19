@@ -379,6 +379,12 @@ message Graph {
     // The value at which the edge should be considered 'HIGH'.
     int64 high_threshold = 2;
   }
+  message NodeThresholds {
+    // The value at which the node should be considered 'MEDIUM'.
+    int64 medium_threshold = 1;
+    // The value at which the node should be considered 'HIGH'.
+    int64 high_threshold = 2;
+  }
   oneof input {
     // The column which contains the dot-formatted graph file to render.
     string dot_column = 1;
@@ -399,6 +405,21 @@ message Graph {
   int64 edge_length = 8;
   // Whether the graph should start in hierarchy mode as a default.
   bool enable_default_hierarchy = 9;
+  // The column whose value is rendered as a persistent label on the edge. Optional.
+  // When unset, edges have no label (current behaviour).
+  string edge_label_column = 10;
+  // The column whose value overrides the default node id label. Optional.
+  // When unset, the node id is used as the label (current behaviour).
+  string node_label_column = 11;
+  // The column to use to determine what the color (fill) of the node should be. Optional.
+  // Interpreted via NodeThresholds when set; falls back to the SemanticType-derived shape
+  // color when unset.
+  string node_color_column = 12;
+  // The threshold at which node values are classified as a 'LOW'/'MEDIUM'/'HIGH' color.
+  // Optional, but must have a NodeColorColumn specified.
+  NodeThresholds node_thresholds = 13;
+  // The columns to display when hovering over a node. Optional.
+  repeated string node_hover_info = 14;
 }
 
 // Display traffic between pods or services as a graph.

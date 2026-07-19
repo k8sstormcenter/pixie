@@ -1,0 +1,6 @@
+---
+short: DX Evidence Graph
+long: >
+  Severity-weighted, all-protocol pod-to-pod graph for one investigation. Edge records emitted by
+  dx with weight (sum of CRS evidence severity) on the edges and
+  max_severity colouring the heat.

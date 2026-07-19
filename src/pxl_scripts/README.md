@@ -27,6 +27,7 @@ To update this README, run `make update_readme` in this directory.
 - px/[dns_data](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/dns_data): Show a sample of DNS traffic in the cluster.
 - px/[dns_flow_graph](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/dns_flow_graph): Overview of DNS requests in the cluster, with latency stats.
 - px/[dns_query_summary](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/dns_query_summary): Overview of DNS queries from pods in a namespace, grouped by the name being resolved and the rates of success.
+- px/[dx_evidence_graph](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/dx_evidence_graph): Severity-weighted, all-protocol pod-to-pod graph for one investigation. Edge records emitted by dx with weight (sum of CRS evidence severity) on the edges and max_severity colouring the heat.
 - px/[funcs](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/funcs): Gets a list all of the funcs available in Pixie.
 - px/[http_data](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/http_data): Shows most recent HTTP messages in the cluster.
 - px/[http_data_filtered](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/http_data_filtered): Show a sample of HTTP requests in the Cluster filtered by service, pod, request path & response status code.

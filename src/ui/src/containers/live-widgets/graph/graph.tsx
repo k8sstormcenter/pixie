@@ -141,20 +141,10 @@ function getColorForEdge(col: ColInfo, val: number, thresholds: EdgeThresholds):
   return val > highThreshold ? 'high' : 'med';
 }
 
-function getColorForNode(val: number, thresholds: NodeThresholds): GaugeLevel {
-  const medThreshold = thresholds ? thresholds.mediumThreshold : 100;
-  const highThreshold = thresholds ? thresholds.highThreshold : 200;
-
-  if (val < medThreshold) {
-    return 'low';
-  }
-  return val > highThreshold ? 'high' : 'med';
-}
-
 export const Graph = React.memo<GraphProps>(({
   dot, toCol, fromCol, data, propagatedArgs, edgeWeightColumn,
   nodeWeightColumn, edgeColorColumn, edgeThresholds, edgeHoverInfo, edgeLength, enableDefaultHierarchy,
-  edgeLabelColumn, nodeLabelColumn, nodeColorColumn, nodeThresholds, nodeHoverInfo,
+  edgeLabelColumn,
   setExternalControls,
 }) => {
   const theme = useTheme();

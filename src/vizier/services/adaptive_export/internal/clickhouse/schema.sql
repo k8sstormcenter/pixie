@@ -492,7 +492,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.ae_reconcile (
   -- unbounded storage (CodeRabbit). 30d matches the pixie observation tables.
   TTL toDateTime(ts) + INTERVAL 30 DAY DELETE;
 
--- dx_attack_graph — dx evidence-graph edge list: one row per directed hop of an
+-- dx_evidence_graph — dx evidence-graph edge list: one row per directed hop of an
 -- investigation (delivery/egress/execution/exfil/pivot), read by the Pixie
 -- dx_evidence_graph UI via px.DataFrame(clickhouse_dsn=...). Operator-owned
 -- (dx emits the edges, AE persists them); NOT a pixie socket_tracer table.
@@ -503,7 +503,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.ae_reconcile (
 -- event_time". Same convention as kubescape_logs. event_time is nanos, so the
 -- partition/TTL use fromUnixTimestamp64Nano (toDateTime would read ns as seconds
 -- → year ~58e9 → broken partitions; see the soc#225 fix).
-CREATE TABLE IF NOT EXISTS forensic_db.dx_attack_graph (
+CREATE TABLE IF NOT EXISTS forensic_db.dx_evidence_graph (
     investigation_id  String,
     event_time        UInt64,
     hostname          String,
@@ -531,7 +531,38 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_attack_graph (
   TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
   SETTINGS index_granularity = 8192;
 
--- dx_attack_graph_malicious — rule-ins-only view (condition != '') the
+-- dx_evidence_graph_malignant — rule-ins-only view (condition != '') the
 -- dx_evidence_graph UI reads by default so benign rows stay in ClickHouse.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_attack_graph_malicious AS
-  SELECT * FROM forensic_db.dx_attack_graph WHERE `condition` != '';
+CREATE VIEW IF NOT EXISTS forensic_db.dx_evidence_graph_malignant AS
+  SELECT * FROM forensic_db.dx_evidence_graph WHERE `condition` != '';
+
+-- dx_evidence_manifest — the §9 completeness contract: one row per verdict
+-- (ruled_in | metastasis), naming the evidence rows dx consulted so the
+-- validator can join them against what AE persisted (write⊇read, checkable).
+-- Operator-owned (dx emits the manifest via POST /dx/evidence_manifest, AE
+-- persists it); NOT a pixie table. Column names are the manifest.Manifest
+-- JSON tags (dx internal/manifest). Same event_time (unix NANOSECONDS) +
+-- hostname read-path convention as dx_evidence_graph so it is px-readable.
+-- The nested collections (case_window/findings/orders/seeds/chain) are stored
+-- as JSON text in String columns; the control handler pre-renders them so the
+-- JSONEachRow insert is ClickHouse-version independent.
+CREATE TABLE IF NOT EXISTS forensic_db.dx_evidence_manifest (
+    investigation_id  String,
+    event_time        UInt64,
+    hostname          String,
+    `condition`       String,
+    verdict           String,
+    confidence        Float64,
+    posterior         Float64,
+    catalog_version   String,
+    case_window       String,
+    findings          String,
+    orders            String,
+    seeds             String,
+    chain             String,
+    evidence_hash     String
+) ENGINE = MergeTree()
+  ORDER BY (event_time, hostname)
+  PARTITION BY toYYYYMM(fromUnixTimestamp64Nano(event_time))
+  TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
+  SETTINGS index_granularity = 8192;

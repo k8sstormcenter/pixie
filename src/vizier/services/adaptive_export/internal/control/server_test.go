@@ -17,6 +17,8 @@
 package control
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -218,3 +220,60 @@ type fakeErr struct{}
 func (fakeErr) Error() string { return "boom" }
 
 var errFake = fakeErr{}
+
+type fakeManifest struct {
+	got string
+	err error
+}
+
+func (f *fakeManifest) WriteEvidenceManifest(_ context.Context, jsonEachRow []byte) error {
+	f.got = string(jsonEachRow)
+	return f.err
+}
+
+// TestEvidenceManifest: /dx/evidence_manifest is 501 without a writer; with one it
+// persists ONE JSONEachRow row per verdict, scalars as typed columns and the nested
+// collections (findings/case_window/...) rendered as JSON *text* so the insert is
+// ClickHouse-version independent.
+func TestEvidenceManifest(t *testing.T) {
+	srv := New(&fakeExporter{}, nil)
+	if r := do(t, srv, http.MethodPost, "/dx/evidence_manifest", `{"investigation_id":"i1"}`); r.StatusCode != http.StatusNotImplemented {
+		t.Fatalf("no writer: got %d, want 501", r.StatusCode)
+	}
+
+	fm := &fakeManifest{}
+	srv.SetManifestWriter(fm)
+	body := `{"investigation_id":"i1","event_time":1730000000000000000,"hostname":"n1",` +
+		`"verdict":"ruled_in","confidence":0.9,"case_window":[1.0,2.0],` +
+		`"findings":[{"vector":"process"}],"evidence_hash":"h"}`
+	if r := do(t, srv, http.MethodPost, "/dx/evidence_manifest", body); r.StatusCode != http.StatusAccepted {
+		t.Fatalf("got %d, want 202", r.StatusCode)
+	}
+	if !strings.HasSuffix(fm.got, "\n") {
+		t.Fatalf("missing JSONEachRow newline terminator: %q", fm.got)
+	}
+	var row map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(fm.got)), &row); err != nil {
+		t.Fatalf("row not valid JSON: %v (%s)", err, fm.got)
+	}
+	if row["investigation_id"] != "i1" || row["hostname"] != "n1" || row["verdict"] != "ruled_in" {
+		t.Fatalf("scalar columns wrong: %#v", row)
+	}
+	// event_time is a large nanos int; it must round-trip as an integer, not a float in sci notation.
+	if !strings.Contains(fm.got, `"event_time":1730000000000000000`) {
+		t.Fatalf("event_time not an integer literal: %s", fm.got)
+	}
+	// nested collections persisted as JSON text strings, not raw arrays.
+	if row["findings"] != `[{"vector":"process"}]` {
+		t.Fatalf("findings should be JSON text, got %#v", row["findings"])
+	}
+	if row["case_window"] != `[1.0,2.0]` {
+		t.Fatalf("case_window should be JSON text, got %#v", row["case_window"])
+	}
+
+	// writer failure surfaces as 502.
+	fm.err = errFake
+	if r := do(t, srv, http.MethodPost, "/dx/evidence_manifest", body); r.StatusCode != http.StatusBadGateway {
+		t.Fatalf("writer error: got %d, want 502", r.StatusCode)
+	}
+}

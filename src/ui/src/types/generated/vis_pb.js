@@ -5280,6 +5280,11 @@ export const px = $root.px = (() => {
              * @property {Array.<string>|null} [edgeHoverInfo] Graph edgeHoverInfo
              * @property {number|Long|null} [edgeLength] Graph edgeLength
              * @property {boolean|null} [enableDefaultHierarchy] Graph enableDefaultHierarchy
+             * @property {string|null} [edgeLabelColumn] Graph edgeLabelColumn
+             * @property {string|null} [nodeLabelColumn] Graph nodeLabelColumn
+             * @property {string|null} [nodeColorColumn] Graph nodeColorColumn
+             * @property {px.vispb.Graph.INodeThresholds|null} [nodeThresholds] Graph nodeThresholds
+             * @property {Array.<string>|null} [nodeHoverInfo] Graph nodeHoverInfo
              */
 
             /**
@@ -5292,6 +5297,7 @@ export const px = $root.px = (() => {
              */
             function Graph(properties) {
                 this.edgeHoverInfo = [];
+                this.nodeHoverInfo = [];
                 if (properties)
                     for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
                         if (properties[keys[i]] != null)
@@ -5370,6 +5376,46 @@ export const px = $root.px = (() => {
              */
             Graph.prototype.enableDefaultHierarchy = false;
 
+            /**
+             * Graph edgeLabelColumn.
+             * @member {string} edgeLabelColumn
+             * @memberof px.vispb.Graph
+             * @instance
+             */
+            Graph.prototype.edgeLabelColumn = "";
+
+            /**
+             * Graph nodeLabelColumn.
+             * @member {string} nodeLabelColumn
+             * @memberof px.vispb.Graph
+             * @instance
+             */
+            Graph.prototype.nodeLabelColumn = "";
+
+            /**
+             * Graph nodeColorColumn.
+             * @member {string} nodeColorColumn
+             * @memberof px.vispb.Graph
+             * @instance
+             */
+            Graph.prototype.nodeColorColumn = "";
+
+            /**
+             * Graph nodeThresholds.
+             * @member {px.vispb.Graph.INodeThresholds|null|undefined} nodeThresholds
+             * @memberof px.vispb.Graph
+             * @instance
+             */
+            Graph.prototype.nodeThresholds = null;
+
+            /**
+             * Graph nodeHoverInfo.
+             * @member {Array.<string>} nodeHoverInfo
+             * @memberof px.vispb.Graph
+             * @instance
+             */
+            Graph.prototype.nodeHoverInfo = $util.emptyArray;
+
             // OneOf field names bound to virtual getters and setters
             let $oneOfFields;
 
@@ -5427,6 +5473,17 @@ export const px = $root.px = (() => {
                     writer.uint32(/* id 8, wireType 0 =*/64).int64(message.edgeLength);
                 if (message.enableDefaultHierarchy != null && Object.hasOwnProperty.call(message, "enableDefaultHierarchy"))
                     writer.uint32(/* id 9, wireType 0 =*/72).bool(message.enableDefaultHierarchy);
+                if (message.edgeLabelColumn != null && Object.hasOwnProperty.call(message, "edgeLabelColumn"))
+                    writer.uint32(/* id 10, wireType 2 =*/82).string(message.edgeLabelColumn);
+                if (message.nodeLabelColumn != null && Object.hasOwnProperty.call(message, "nodeLabelColumn"))
+                    writer.uint32(/* id 11, wireType 2 =*/90).string(message.nodeLabelColumn);
+                if (message.nodeColorColumn != null && Object.hasOwnProperty.call(message, "nodeColorColumn"))
+                    writer.uint32(/* id 12, wireType 2 =*/98).string(message.nodeColorColumn);
+                if (message.nodeThresholds != null && Object.hasOwnProperty.call(message, "nodeThresholds"))
+                    $root.px.vispb.Graph.NodeThresholds.encode(message.nodeThresholds, writer.uint32(/* id 13, wireType 2 =*/106).fork()).ldelim();
+                if (message.nodeHoverInfo != null && message.nodeHoverInfo.length)
+                    for (let i = 0; i < message.nodeHoverInfo.length; ++i)
+                        writer.uint32(/* id 14, wireType 2 =*/114).string(message.nodeHoverInfo[i]);
                 return writer;
             };
 
@@ -5489,6 +5546,23 @@ export const px = $root.px = (() => {
                         break;
                     case 9:
                         message.enableDefaultHierarchy = reader.bool();
+                        break;
+                    case 10:
+                        message.edgeLabelColumn = reader.string();
+                        break;
+                    case 11:
+                        message.nodeLabelColumn = reader.string();
+                        break;
+                    case 12:
+                        message.nodeColorColumn = reader.string();
+                        break;
+                    case 13:
+                        message.nodeThresholds = $root.px.vispb.Graph.NodeThresholds.decode(reader, reader.uint32());
+                        break;
+                    case 14:
+                        if (!(message.nodeHoverInfo && message.nodeHoverInfo.length))
+                            message.nodeHoverInfo = [];
+                        message.nodeHoverInfo.push(reader.string());
                         break;
                     default:
                         reader.skipType(tag & 7);
@@ -5568,6 +5642,27 @@ export const px = $root.px = (() => {
                 if (message.enableDefaultHierarchy != null && message.hasOwnProperty("enableDefaultHierarchy"))
                     if (typeof message.enableDefaultHierarchy !== "boolean")
                         return "enableDefaultHierarchy: boolean expected";
+                if (message.edgeLabelColumn != null && message.hasOwnProperty("edgeLabelColumn"))
+                    if (!$util.isString(message.edgeLabelColumn))
+                        return "edgeLabelColumn: string expected";
+                if (message.nodeLabelColumn != null && message.hasOwnProperty("nodeLabelColumn"))
+                    if (!$util.isString(message.nodeLabelColumn))
+                        return "nodeLabelColumn: string expected";
+                if (message.nodeColorColumn != null && message.hasOwnProperty("nodeColorColumn"))
+                    if (!$util.isString(message.nodeColorColumn))
+                        return "nodeColorColumn: string expected";
+                if (message.nodeThresholds != null && message.hasOwnProperty("nodeThresholds")) {
+                    let error = $root.px.vispb.Graph.NodeThresholds.verify(message.nodeThresholds);
+                    if (error)
+                        return "nodeThresholds." + error;
+                }
+                if (message.nodeHoverInfo != null && message.hasOwnProperty("nodeHoverInfo")) {
+                    if (!Array.isArray(message.nodeHoverInfo))
+                        return "nodeHoverInfo: array expected";
+                    for (let i = 0; i < message.nodeHoverInfo.length; ++i)
+                        if (!$util.isString(message.nodeHoverInfo[i]))
+                            return "nodeHoverInfo: string[] expected";
+                }
                 return null;
             };
 
@@ -5619,6 +5714,24 @@ export const px = $root.px = (() => {
                         message.edgeLength = new $util.LongBits(object.edgeLength.low >>> 0, object.edgeLength.high >>> 0).toNumber();
                 if (object.enableDefaultHierarchy != null)
                     message.enableDefaultHierarchy = Boolean(object.enableDefaultHierarchy);
+                if (object.edgeLabelColumn != null)
+                    message.edgeLabelColumn = String(object.edgeLabelColumn);
+                if (object.nodeLabelColumn != null)
+                    message.nodeLabelColumn = String(object.nodeLabelColumn);
+                if (object.nodeColorColumn != null)
+                    message.nodeColorColumn = String(object.nodeColorColumn);
+                if (object.nodeThresholds != null) {
+                    if (typeof object.nodeThresholds !== "object")
+                        throw TypeError(".px.vispb.Graph.nodeThresholds: object expected");
+                    message.nodeThresholds = $root.px.vispb.Graph.NodeThresholds.fromObject(object.nodeThresholds);
+                }
+                if (object.nodeHoverInfo) {
+                    if (!Array.isArray(object.nodeHoverInfo))
+                        throw TypeError(".px.vispb.Graph.nodeHoverInfo: array expected");
+                    message.nodeHoverInfo = [];
+                    for (let i = 0; i < object.nodeHoverInfo.length; ++i)
+                        message.nodeHoverInfo[i] = String(object.nodeHoverInfo[i]);
+                }
                 return message;
             };
 
@@ -5635,8 +5748,10 @@ export const px = $root.px = (() => {
                 if (!options)
                     options = {};
                 let object = {};
-                if (options.arrays || options.defaults)
+                if (options.arrays || options.defaults) {
                     object.edgeHoverInfo = [];
+                    object.nodeHoverInfo = [];
+                }
                 if (options.defaults) {
                     object.edgeWeightColumn = "";
                     object.nodeWeightColumn = "";
@@ -5648,6 +5763,10 @@ export const px = $root.px = (() => {
                     } else
                         object.edgeLength = options.longs === String ? "0" : 0;
                     object.enableDefaultHierarchy = false;
+                    object.edgeLabelColumn = "";
+                    object.nodeLabelColumn = "";
+                    object.nodeColorColumn = "";
+                    object.nodeThresholds = null;
                 }
                 if (message.dotColumn != null && message.hasOwnProperty("dotColumn")) {
                     object.dotColumn = message.dotColumn;
@@ -5679,6 +5798,19 @@ export const px = $root.px = (() => {
                         object.edgeLength = options.longs === String ? $util.Long.prototype.toString.call(message.edgeLength) : options.longs === Number ? new $util.LongBits(message.edgeLength.low >>> 0, message.edgeLength.high >>> 0).toNumber() : message.edgeLength;
                 if (message.enableDefaultHierarchy != null && message.hasOwnProperty("enableDefaultHierarchy"))
                     object.enableDefaultHierarchy = message.enableDefaultHierarchy;
+                if (message.edgeLabelColumn != null && message.hasOwnProperty("edgeLabelColumn"))
+                    object.edgeLabelColumn = message.edgeLabelColumn;
+                if (message.nodeLabelColumn != null && message.hasOwnProperty("nodeLabelColumn"))
+                    object.nodeLabelColumn = message.nodeLabelColumn;
+                if (message.nodeColorColumn != null && message.hasOwnProperty("nodeColorColumn"))
+                    object.nodeColorColumn = message.nodeColorColumn;
+                if (message.nodeThresholds != null && message.hasOwnProperty("nodeThresholds"))
+                    object.nodeThresholds = $root.px.vispb.Graph.NodeThresholds.toObject(message.nodeThresholds, options);
+                if (message.nodeHoverInfo && message.nodeHoverInfo.length) {
+                    object.nodeHoverInfo = [];
+                    for (let j = 0; j < message.nodeHoverInfo.length; ++j)
+                        object.nodeHoverInfo[j] = message.nodeHoverInfo[j];
+                }
                 return object;
             };
 
@@ -6139,6 +6271,244 @@ export const px = $root.px = (() => {
                 };
 
                 return EdgeThresholds;
+            })();
+
+            Graph.NodeThresholds = (function() {
+
+                /**
+                 * Properties of a NodeThresholds.
+                 * @memberof px.vispb.Graph
+                 * @interface INodeThresholds
+                 * @property {number|Long|null} [mediumThreshold] NodeThresholds mediumThreshold
+                 * @property {number|Long|null} [highThreshold] NodeThresholds highThreshold
+                 */
+
+                /**
+                 * Constructs a new NodeThresholds.
+                 * @memberof px.vispb.Graph
+                 * @classdesc Represents a NodeThresholds.
+                 * @implements INodeThresholds
+                 * @constructor
+                 * @param {px.vispb.Graph.INodeThresholds=} [properties] Properties to set
+                 */
+                function NodeThresholds(properties) {
+                    if (properties)
+                        for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null)
+                                this[keys[i]] = properties[keys[i]];
+                }
+
+                /**
+                 * NodeThresholds mediumThreshold.
+                 * @member {number|Long} mediumThreshold
+                 * @memberof px.vispb.Graph.NodeThresholds
+                 * @instance
+                 */
+                NodeThresholds.prototype.mediumThreshold = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * NodeThresholds highThreshold.
+                 * @member {number|Long} highThreshold
+                 * @memberof px.vispb.Graph.NodeThresholds
+                 * @instance
+                 */
+                NodeThresholds.prototype.highThreshold = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * Creates a new NodeThresholds instance using the specified properties.
+                 * @function create
+                 * @memberof px.vispb.Graph.NodeThresholds
+                 * @static
+                 * @param {px.vispb.Graph.INodeThresholds=} [properties] Properties to set
+                 * @returns {px.vispb.Graph.NodeThresholds} NodeThresholds instance
+                 */
+                NodeThresholds.create = function create(properties) {
+                    return new NodeThresholds(properties);
+                };
+
+                /**
+                 * Encodes the specified NodeThresholds message. Does not implicitly {@link px.vispb.Graph.NodeThresholds.verify|verify} messages.
+                 * @function encode
+                 * @memberof px.vispb.Graph.NodeThresholds
+                 * @static
+                 * @param {px.vispb.Graph.INodeThresholds} message NodeThresholds message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                NodeThresholds.encode = function encode(message, writer) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (message.mediumThreshold != null && Object.hasOwnProperty.call(message, "mediumThreshold"))
+                        writer.uint32(/* id 1, wireType 0 =*/8).int64(message.mediumThreshold);
+                    if (message.highThreshold != null && Object.hasOwnProperty.call(message, "highThreshold"))
+                        writer.uint32(/* id 2, wireType 0 =*/16).int64(message.highThreshold);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified NodeThresholds message, length delimited. Does not implicitly {@link px.vispb.Graph.NodeThresholds.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof px.vispb.Graph.NodeThresholds
+                 * @static
+                 * @param {px.vispb.Graph.INodeThresholds} message NodeThresholds message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                NodeThresholds.encodeDelimited = function encodeDelimited(message, writer) {
+                    return this.encode(message, writer).ldelim();
+                };
+
+                /**
+                 * Decodes a NodeThresholds message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof px.vispb.Graph.NodeThresholds
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {px.vispb.Graph.NodeThresholds} NodeThresholds
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                NodeThresholds.decode = function decode(reader, length) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    let end = length === undefined ? reader.len : reader.pos + length, message = new $root.px.vispb.Graph.NodeThresholds();
+                    while (reader.pos < end) {
+                        let tag = reader.uint32();
+                        switch (tag >>> 3) {
+                        case 1:
+                            message.mediumThreshold = reader.int64();
+                            break;
+                        case 2:
+                            message.highThreshold = reader.int64();
+                            break;
+                        default:
+                            reader.skipType(tag & 7);
+                            break;
+                        }
+                    }
+                    return message;
+                };
+
+                /**
+                 * Decodes a NodeThresholds message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof px.vispb.Graph.NodeThresholds
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {px.vispb.Graph.NodeThresholds} NodeThresholds
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                NodeThresholds.decodeDelimited = function decodeDelimited(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a NodeThresholds message.
+                 * @function verify
+                 * @memberof px.vispb.Graph.NodeThresholds
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                NodeThresholds.verify = function verify(message) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (message.mediumThreshold != null && message.hasOwnProperty("mediumThreshold"))
+                        if (!$util.isInteger(message.mediumThreshold) && !(message.mediumThreshold && $util.isInteger(message.mediumThreshold.low) && $util.isInteger(message.mediumThreshold.high)))
+                            return "mediumThreshold: integer|Long expected";
+                    if (message.highThreshold != null && message.hasOwnProperty("highThreshold"))
+                        if (!$util.isInteger(message.highThreshold) && !(message.highThreshold && $util.isInteger(message.highThreshold.low) && $util.isInteger(message.highThreshold.high)))
+                            return "highThreshold: integer|Long expected";
+                    return null;
+                };
+
+                /**
+                 * Creates a NodeThresholds message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof px.vispb.Graph.NodeThresholds
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {px.vispb.Graph.NodeThresholds} NodeThresholds
+                 */
+                NodeThresholds.fromObject = function fromObject(object) {
+                    if (object instanceof $root.px.vispb.Graph.NodeThresholds)
+                        return object;
+                    let message = new $root.px.vispb.Graph.NodeThresholds();
+                    if (object.mediumThreshold != null)
+                        if ($util.Long)
+                            (message.mediumThreshold = $util.Long.fromValue(object.mediumThreshold)).unsigned = false;
+                        else if (typeof object.mediumThreshold === "string")
+                            message.mediumThreshold = parseInt(object.mediumThreshold, 10);
+                        else if (typeof object.mediumThreshold === "number")
+                            message.mediumThreshold = object.mediumThreshold;
+                        else if (typeof object.mediumThreshold === "object")
+                            message.mediumThreshold = new $util.LongBits(object.mediumThreshold.low >>> 0, object.mediumThreshold.high >>> 0).toNumber();
+                    if (object.highThreshold != null)
+                        if ($util.Long)
+                            (message.highThreshold = $util.Long.fromValue(object.highThreshold)).unsigned = false;
+                        else if (typeof object.highThreshold === "string")
+                            message.highThreshold = parseInt(object.highThreshold, 10);
+                        else if (typeof object.highThreshold === "number")
+                            message.highThreshold = object.highThreshold;
+                        else if (typeof object.highThreshold === "object")
+                            message.highThreshold = new $util.LongBits(object.highThreshold.low >>> 0, object.highThreshold.high >>> 0).toNumber();
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a NodeThresholds message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof px.vispb.Graph.NodeThresholds
+                 * @static
+                 * @param {px.vispb.Graph.NodeThresholds} message NodeThresholds
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                NodeThresholds.toObject = function toObject(message, options) {
+                    if (!options)
+                        options = {};
+                    let object = {};
+                    if (options.defaults) {
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.mediumThreshold = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+                        } else
+                            object.mediumThreshold = options.longs === String ? "0" : 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.highThreshold = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+                        } else
+                            object.highThreshold = options.longs === String ? "0" : 0;
+                    }
+                    if (message.mediumThreshold != null && message.hasOwnProperty("mediumThreshold"))
+                        if (typeof message.mediumThreshold === "number")
+                            object.mediumThreshold = options.longs === String ? String(message.mediumThreshold) : message.mediumThreshold;
+                        else
+                            object.mediumThreshold = options.longs === String ? $util.Long.prototype.toString.call(message.mediumThreshold) : options.longs === Number ? new $util.LongBits(message.mediumThreshold.low >>> 0, message.mediumThreshold.high >>> 0).toNumber() : message.mediumThreshold;
+                    if (message.highThreshold != null && message.hasOwnProperty("highThreshold"))
+                        if (typeof message.highThreshold === "number")
+                            object.highThreshold = options.longs === String ? String(message.highThreshold) : message.highThreshold;
+                        else
+                            object.highThreshold = options.longs === String ? $util.Long.prototype.toString.call(message.highThreshold) : options.longs === Number ? new $util.LongBits(message.highThreshold.low >>> 0, message.highThreshold.high >>> 0).toNumber() : message.highThreshold;
+                    return object;
+                };
+
+                /**
+                 * Converts this NodeThresholds to JSON.
+                 * @function toJSON
+                 * @memberof px.vispb.Graph.NodeThresholds
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                NodeThresholds.prototype.toJSON = function toJSON() {
+                    return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                return NodeThresholds;
             })();
 
             return Graph;

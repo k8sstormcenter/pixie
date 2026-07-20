@@ -38,11 +38,16 @@ The two differences for the real PEM:
 
 | flag / env                          | default | meaning                                            |
 |-------------------------------------|---------|----------------------------------------------------|
-| `--direct_query_enabled` / `PL_PEM_DIRECT_QUERY_ENABLED` | `false` | master switch; when false the port is never opened |
+| `--direct_query_enabled` / `PL_PEM_DIRECT_QUERY_ENABLED` | `true` (fork) | master switch; when false the port is never opened |
 | `--direct_query_port` / `PL_PEM_DIRECT_QUERY_PORT`       | `50305` | gRPC listen port for the direct-query service      |
 | `--direct_query_jwt_signing_key` / `PL_JWT_SIGNING_KEY`  | `""`    | HMAC key the bearer JWT must verify against         |
 
-Default-off so existing PEM deployments are byte-for-byte unchanged until opted in.
+Default-**on** in this k8sstormcenter fork: dx queries the node-local direct-query
+server (`DX_BENCH=pemdirect`, :50305) and the vizier deploy templates do not reliably
+set `PL_PEM_DIRECT_QUERY_ENABLED` (the `customPEMFlags` Helm path is often left unset),
+so a `false` default silently leaves :50305 unbound and dx's pemdirect gets
+`connection refused`. Opt out at runtime with `PL_PEM_DIRECT_QUERY_ENABLED=false`, or
+compile it out with `--//src/vizier/services/agent/pem:direct_query=disabled`.
 
 ## Auth contract
 

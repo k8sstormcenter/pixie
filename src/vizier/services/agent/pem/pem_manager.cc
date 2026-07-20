@@ -38,9 +38,14 @@
 // entirely. Operators who do not want direct-query available even as a
 // disabled-by-default option get a binary with zero direct-query bytes.
 #ifndef PX_PEM_DIRECT_QUERY_DISABLED
-DEFINE_bool(direct_query_enabled, gflags::BoolFromEnv("PL_PEM_DIRECT_QUERY_ENABLED", false),
+DEFINE_bool(direct_query_enabled, gflags::BoolFromEnv("PL_PEM_DIRECT_QUERY_ENABLED", true),
             "If true, expose VizierService::ExecuteScript directly from this PEM. "
-            "Default false; existing PEM deploys see no behavior change.");
+            "Default true in this fork: dx queries the node-local direct-query server "
+            "at :50305 (DX_BENCH=pemdirect), and the deploy templates do not reliably "
+            "set PL_PEM_DIRECT_QUERY_ENABLED (the customPEMFlags path is often unset), "
+            "so a false default silently leaves :50305 unbound. Set "
+            "PL_PEM_DIRECT_QUERY_ENABLED=false to opt out at runtime, or build with "
+            "--//src/vizier/services/agent/pem:direct_query=disabled to compile it out.");
 DEFINE_int32(direct_query_port, gflags::Int32FromEnv("PL_PEM_DIRECT_QUERY_PORT", 50305),
              "gRPC listen port for the direct-query service when "
              "--direct_query_enabled=true.");

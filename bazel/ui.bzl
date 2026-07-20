@@ -69,11 +69,12 @@ def _pl_webpack_library_impl(ctx):
     if ctx.attr.stamp:
         # This is some truly shady stuff. The stamping on genrules just makes this file
         # available, but does not apply it to the environment. We parse out the file
-        # and apply it to the environment here. Hopefully,
-        # no special characters/spaces/quotes in the results ...
+        # and apply it to the environment here. Only the keys the UI actually reads are
+        # exported: other status values may contain spaces, which the shell would split
+        # into bare words and `export` would then reject as invalid identifiers.
         env_cmds = [
-            '$(sed -E "s/^([A-Za-z_]+)\\s*(.*)/export \\1=\\2/g" "{}")'.format(ctx.info_file.path),
-            '$(sed -E "s/^([A-Za-z_]+)\\s*(.*)/export \\1=\\2/g" "{}")'.format(ctx.version_file.path),
+            '$(sed -E -n "s/^(STABLE_BUILD_TAG|BUILD_TIMESTAMP)\\s+(.*)/export \\1=\\2/p" "{}")'.format(ctx.info_file.path),
+            '$(sed -E -n "s/^(STABLE_BUILD_TAG|BUILD_TIMESTAMP)\\s+(.*)/export \\1=\\2/p" "{}")'.format(ctx.version_file.path),
         ]
         all_files.append(ctx.info_file)
         all_files.append(ctx.version_file)

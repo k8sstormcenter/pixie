@@ -72,7 +72,7 @@ var builtinTables = []TableSpec{
 	{Name: "mux_events", Protocol: "Mux (Twitter Finagle)"},
 	{Name: "tls_events", Protocol: "TLS handshake"},
 	{Name: "conn_stats", Protocol: "Connection-level statistics"},
-	{Name: "dx_execve", Protocol: "tracepoint"},
+	{Name: "dx_dcsnoop", Protocol: "tracepoint"},
 	{Name: "dx_vfs_events", Protocol: "tracepoint"},
 	{Name: "dx_unlink", Protocol: "tracepoint"},
 	{Name: "dx_dlookup", Protocol: "tracepoint"},

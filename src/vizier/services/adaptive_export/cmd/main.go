@@ -916,5 +916,9 @@ func builtinPresetScripts() []*script.ScriptDefinition {
 			IsPreset:    false,
 		})
 	}
-	return out
+	// Dark-vector + profiler tracepoint/profiler export scripts (dc_snoop,
+	// stack_trace, creds_change) — permanent tracepoints (876000h) + OTel→
+	// ClickHouse export; registered if-not-present at boot alongside the
+	// protocol presets.
+	return append(out, script.DarkVectorPresets()...)
 }

@@ -75,8 +75,15 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	}
 	if t.Pod != "" {
 		if IsDarkVector(table) {
-			// dark-vector df.pod is the bare pod name (proc.ctx['pod']).
-			b.WriteString("df = df[df.pod == '" + escapePxL(t.Pod) + "']\n")
+			// proc.ctx['pod'] yields the NAMESPACED pod name (ns/pod) on Pixie
+			// v0.14.20+ (verified live, rig 6a5f6bc0: df.pod=='ns/pod' matches,
+			// bare pod matches 0), NOT the bare name — so match the namespaced key
+			// exactly as the native branch does.
+			if t.Namespace != "" {
+				b.WriteString("df = df[df.pod == '" + escapePxL(t.Namespace+"/"+t.Pod) + "']\n")
+			} else {
+				b.WriteString("df = df[df.pod == '" + escapePxL(t.Pod) + "']\n")
+			}
 		} else if t.Namespace != "" {
 			// Both fields present — use exact equality on the namespaced key.
 			b.WriteString("df = df[df.pod == '" + escapePxL(t.Namespace+"/"+t.Pod) + "']\n")

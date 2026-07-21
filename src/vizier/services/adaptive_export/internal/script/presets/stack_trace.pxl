@@ -1,7 +1,7 @@
 import px
 
-# Native continuous profiler (stack_traces.beta) — always-on, no tracepoint.
-# Exports folded user+kernel stacks per pod → ClickHouse via the OTel plugin.
+# Native continuous profiler (stack_traces.beta) - always-on, no tracepoint.
+# Exports folded user+kernel stacks per pod -> ClickHouse via the OTel plugin.
 # This is the OTel "profiles" signal for the SBoB stack-trace vector (V9).
 df = px.DataFrame(table='stack_traces.beta', start_time=px.plugin.start_time, end_time=px.plugin.end_time)
 df.namespace = df.ctx['namespace']

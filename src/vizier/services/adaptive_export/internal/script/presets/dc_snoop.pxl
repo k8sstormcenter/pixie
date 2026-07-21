@@ -1,0 +1,45 @@
+import pxtrace
+import px
+
+program = """
+#include <linux/fs.h>
+
+// from fs/namei.c:
+struct nameidata {
+                struct path     path;
+                struct qstr     last;
+                // [...]
+};
+
+// comment out this block to avoid showing hits:
+kprobe:lookup_fast,
+kprobe:lookup_fast.constprop.*
+{
+        $nd = (struct nameidata *)arg0;
+        printf("time_:%llu pid:%d comm:%s t:%s file:%s",
+                     nsecs, pid, comm, "R", str($nd->last.name));
+}
+
+kprobe:d_lookup
+{
+        $name = (struct qstr *)arg1;
+        @fname[tid] = $name->name;
+}
+
+kretprobe:d_lookup
+/@fname[tid]/
+{
+        printf("time_:%llu pid:%d comm:%s t:%s file:%s",
+                     nsecs, pid, comm, "M", str(@fname[tid]));
+        delete(@fname[tid]);
+}
+"""
+
+table_name = 'dc_snoop'
+pxtrace.UpsertTracepoint('dc_snoop',
+                                                 table_name,
+                                                 program,
+                                                 pxtrace.kprobe(),
+                                                 "876000h")
+df = px.DataFrame(table=table_name, start_time=px.plugin.start_time, end_time=px.plugin.end_time)
+px.export(df, px.otel.ClickHouseRows(table=table_name))

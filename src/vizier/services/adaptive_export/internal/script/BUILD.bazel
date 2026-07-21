@@ -18,7 +18,15 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "script",
-    srcs = ["script.go"],
+    srcs = [
+        "presets.go",
+        "script.go",
+    ],
+    embedsrcs = [
+        "presets/creds_change.pxl",
+        "presets/dc_snoop.pxl",
+        "presets/stack_trace.pxl",
+    ],
     importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/script",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
 )

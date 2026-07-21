@@ -95,7 +95,7 @@ func TestPodEnrichPxL_DarkVsNative(t *testing.T) {
 	if !strings.Contains(native, "px.upid_to_pod_name(df.upid)") {
 		t.Errorf("native table must resolve pod via upid: %q", native)
 	}
-	for _, tbl := range []string{"dx_execve", "dx_creds", "dx_bpf", "dx_ptrace"} {
+	for _, tbl := range []string{"dx_dcsnoop", "dx_creds", "dx_bpf", "dx_ptrace"} {
 		q := PodEnrichPxL(tbl)
 		if strings.Contains(q, "df.upid") {
 			t.Errorf("%s (pid-keyed) must NOT reference df.upid: %q", tbl, q)

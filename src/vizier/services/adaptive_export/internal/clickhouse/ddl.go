@@ -57,7 +57,7 @@ var KnownTables = []string{
 	// conn_stats — re-added to rev-2 schema; counts per
 	// (remote_addr, remote_port, protocol) on each retention-script pull.
 	"conn_stats",
-	"dx_execve",
+	"dx_dcsnoop",
 	"dx_vfs_events",
 	"dx_unlink",
 	"dx_dlookup",
@@ -136,7 +136,7 @@ func PixieTables() []string {
 		"mux_events",
 		"tls_events",
 		"conn_stats",
-		"dx_execve",
+		"dx_dcsnoop",
 		"dx_vfs_events",
 		"dx_unlink",
 		"dx_dlookup",

@@ -571,11 +571,12 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_evidence_manifest (
 -- Fed by AE-owned bpftrace UpsertTracepoint probes (constantly enabled, no TTL).
 -- Emit raw kernel pid+comm (NOT upid); namespace/pod enriched at pull time via a
 -- process_stats join on pid. One column per line (schema-verify parser is line-oriented).
-CREATE TABLE IF NOT EXISTS forensic_db.dx_execve (
+CREATE TABLE IF NOT EXISTS forensic_db.dx_dcsnoop (
   time_ UInt64,
   pid Int32,
   comm String,
   file String,
+  t String,
   namespace String,
   pod String,
   hostname String,

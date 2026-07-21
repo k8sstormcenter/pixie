@@ -163,11 +163,15 @@ func setUpConfig() error {
 	log.SetLevel(log.InfoLevel)
 
 	// Try to read configuration from environment variables first
-	clickhouseDSN := os.Getenv(envClickHouseDSN)
-	pixieClusterID := os.Getenv(envPixieClusterID)
-	pixieAPIKey := os.Getenv(envPixieAPIKey)
-	clusterName := os.Getenv(envClusterName)
-	pixieHost := getEnvWithDefault(envPixieEndpoint, defPixieHostname)
+	clickhouseDSN := strings.TrimSpace(os.Getenv(envClickHouseDSN))
+	pixieClusterID := strings.TrimSpace(os.Getenv(envPixieClusterID))
+	// TrimSpace: a secret sourced via `kubectl --from-file` keeps the file's
+	// trailing newline. In the pixie-api-key gRPC metadata header that newline is
+	// an HTTP/2 protocol violation → the cloud PluginService replies RST_STREAM
+	// PROTOCOL_ERROR (looks like an auth failure but isn't). Trim it defensively.
+	pixieAPIKey := strings.TrimSpace(os.Getenv(envPixieAPIKey))
+	clusterName := strings.TrimSpace(os.Getenv(envClusterName))
+	pixieHost := strings.TrimSpace(getEnvWithDefault(envPixieEndpoint, defPixieHostname))
 	enableDebug := os.Getenv(envVerbose)
 
 	if strings.EqualFold(enableDebug, boolTrue) {

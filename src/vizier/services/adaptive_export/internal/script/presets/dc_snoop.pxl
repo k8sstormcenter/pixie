@@ -54,4 +54,9 @@ kretprobe:d_lookup
 table_name = 'dc_snoop'
 pxtrace.UpsertTracepoint('dc_snoop', table_name, program, pxtrace.kprobe(), "876000h")
 df = px.DataFrame(table=table_name, start_time=px.plugin.start_time, end_time=px.plugin.end_time)
+# Provide event_time (nanoseconds) explicitly so the ClickHouse export sink
+# emits it as DateTime64(9) via its normal type map, instead of auto-appending
+# a DateTime64(3) millisecond column (which would break the nanosecond-consistent
+# event_time contract shared with the AE HTTP path + dx/soc reads).
+df.event_time = df.time_
 px.export(df, px.otel.ClickHouseRows(table=table_name))

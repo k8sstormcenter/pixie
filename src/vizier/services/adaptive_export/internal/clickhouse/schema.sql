@@ -663,19 +663,19 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_ptrace (
 CREATE TABLE IF NOT EXISTS forensic_db.dc_snoop (
   time_ DateTime64(9, 'UTC'), pid Int64, comm String, t String, file String,
   namespace String, pod String, hostname String,
-  event_time DateTime64(3, 'UTC')
+  event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);
 
 -- stack_trace (native continuous profiler stack_traces.beta, V9) — OTel export.
 CREATE TABLE IF NOT EXISTS forensic_db.stack_trace (
   time_ DateTime64(9, 'UTC'), upid String, namespace String, pod String, container String,
   stack_trace_id Int64, stack_trace String, count Int64,
-  event_time DateTime64(3, 'UTC')
+  event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);
 
 -- creds_change (commit_creds privilege-escalation to root, V7) — OTel export.
 CREATE TABLE IF NOT EXISTS forensic_db.creds_change (
   time_ DateTime64(9, 'UTC'), pid Int64, comm String, old_uid Int64, new_uid Int64,
   namespace String, pod String, hostname String,
-  event_time DateTime64(3, 'UTC')
+  event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);

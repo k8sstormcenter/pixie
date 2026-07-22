@@ -24,4 +24,6 @@ df.namespace = df.ctx['namespace']
 df.pod = df.ctx['pod']
 df.container = df.ctx['container']
 df = df[['time_', 'upid', 'namespace', 'pod', 'container', 'stack_trace_id', 'stack_trace', 'count']]
+# event_time as nanoseconds -> sink emits DateTime64(9) (see dc_snoop.pxl).
+df.event_time = df.time_
 px.export(df, px.otel.ClickHouseRows(table='stack_trace'))

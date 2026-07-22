@@ -662,7 +662,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_ptrace (
 -- retention plugin (px.export). pid-keyed; t = R (reference) / M (miss).
 CREATE TABLE IF NOT EXISTS forensic_db.dc_snoop (
   time_ DateTime64(9, 'UTC'), pid Int64, comm String, t String, file String,
-  namespace String, pod String, hostname String,
+  namespace String, pod String, container String, hostname String,
   event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);
 
@@ -676,6 +676,6 @@ CREATE TABLE IF NOT EXISTS forensic_db.stack_trace (
 -- creds_change (commit_creds privilege-escalation to root, V7) — OTel export.
 CREATE TABLE IF NOT EXISTS forensic_db.creds_change (
   time_ DateTime64(9, 'UTC'), pid Int64, comm String, old_uid Int64, new_uid Int64,
-  namespace String, pod String, hostname String,
+  namespace String, pod String, container String, hostname String,
   event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);

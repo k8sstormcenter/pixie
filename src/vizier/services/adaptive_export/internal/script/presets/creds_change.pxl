@@ -27,12 +27,14 @@ df = px.DataFrame(table=table_name, start_time=px.plugin.start_time, end_time=px
 # emits a raw kernel pid, no upid). Validated join; blank pod for host/transient
 # pids. See dc_snoop.pxl for why it is pid-only (not pid+asid).
 proc = px.DataFrame(table='process_stats', start_time='-5m')
-proc.pod = proc.ctx['pod']
 proc.namespace = proc.ctx['namespace']
+proc.pod = proc.ctx['pod']
+proc.container = proc.ctx['container']
+proc.hostname = px.upid_to_node_name(proc.upid)
 proc.pid = px.upid_to_pid(proc.upid)
-proc = proc.groupby(['pod', 'namespace', 'pid']).agg()
+proc = proc.groupby(['namespace', 'pod', 'container', 'hostname', 'pid']).agg()
 df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['', '_x'])
-df = df[['time_', 'pid', 'comm', 'old_uid', 'new_uid', 'namespace', 'pod']]
+df = df[['time_', 'pid', 'comm', 'old_uid', 'new_uid', 'namespace', 'pod', 'container', 'hostname']]
 
 # event_time as nanoseconds -> sink emits DateTime64(9) (see dc_snoop.pxl).
 df.event_time = df.time_

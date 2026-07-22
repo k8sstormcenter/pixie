@@ -14,31 +14,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import pxtrace
+# creds_change EXPORT (retention cron) — query the creds_change tracepoint table
+# and export to ClickHouse. The tracepoint is deployed by the AE at boot
+# (creds_change_deploy.pxl); a cron script cannot deploy it. Read + export only.
+
 import px
 
-# Privilege-escalation to root: a process whose creds are being committed with
-# new uid==0 while its previous (real) uid was >0. kprobe:commit_creds — arg0 is
-# the NEW cred; the OLD uid is the current task's real_cred (still in place at
-# commit time). V7 credential vector.
-program = """
-#include <linux/cred.h>
-#include <linux/sched.h>
-
-kprobe:commit_creds
-{
-    $new = (struct cred *)arg0;
-    $newuid = $new->uid.val;
-    $olduid = ((struct task_struct *)curtask)->real_cred->uid.val;
-    if ($newuid == 0 && $olduid > 0) {
-        printf("time_:%llu pid:%d comm:%s old_uid:%u new_uid:%u",
-               nsecs, pid, comm, $olduid, $newuid);
-    }
-}
-"""
-
 table_name = 'creds_change'
-pxtrace.UpsertTracepoint('creds_change', table_name, program, pxtrace.kprobe(), "876000h")
 df = px.DataFrame(table=table_name, start_time=px.plugin.start_time, end_time=px.plugin.end_time)
 # event_time as nanoseconds -> sink emits DateTime64(9) (see dc_snoop.pxl).
 df.event_time = df.time_

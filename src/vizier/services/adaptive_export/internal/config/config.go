@@ -470,7 +470,7 @@ func (c *clickhouse) DSN() string { return c.dsn }
 func (c *clickhouse) NativeDSN() string {
 	return fmt.Sprintf("clickhouse://%s:%s@%s:%s/%s", c.user, c.password, c.host, c.port, c.database)
 }
-func (c *clickhouse) Host() string { return c.host }
+func (c *clickhouse) Host() string      { return c.host }
 func (c *clickhouse) Port() string      { return c.port }
 func (c *clickhouse) User() string      { return c.user }
 func (c *clickhouse) Password() string  { return c.password }

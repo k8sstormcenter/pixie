@@ -97,22 +97,28 @@ func TestCredsChangeCalibration(t *testing.T) {
 	require.NotEmptyf(t, got.comm, "creds_change row carries no comm — attribution incomplete")
 	t.Logf("(b) ATTRIBUTION OK: pid=%d comm=%q reached ClickHouse", got.pid, got.comm)
 
-	// pod attribution (pid->pod enrichment) is a later AE step; assert-or-log so
-	// this calibration lights up green automatically once pod is populated,
-	// without failing today when only pid/comm are present.
-	if got.pod != "" {
-		t.Logf("bonus: creds_change.pod attribution present = %q", got.pod)
+	// (c) pod/namespace attribution via the process_stats pid-merge in the export
+	// preset. The escalation pod sleeps so process_stats captures its pid. This is
+	// a best-effort left join, so assert-or-log: when attribution lands we verify
+	// it is the calibration's own namespace (correctness); a merge miss is logged,
+	// not a hard flake. Harden to require once proven stable on a live rig.
+	if got.pod != "" || got.namespace != "" {
+		t.Logf("(c) POD ATTRIBUTION OK: namespace=%q pod=%q reached ClickHouse", got.namespace, got.pod)
+		require.Containsf(t, got.namespace, ns,
+			"creds_change namespace=%q did not resolve to the calibration namespace %q", got.namespace, ns)
 	} else {
-		t.Log("NOTE: creds_change.pod is empty (pid/comm attribution only; pid->pod enrichment pending)")
+		t.Logf("NOTE: creds_change pod/namespace empty — process_stats pid-merge did not attribute pid=%d "+
+			"(best-effort join; check the enrichment / process_stats coverage)", got.pid)
 	}
 }
 
 // credsRow is the single freshest sentinel escalation row read back from CH.
 type credsRow struct {
-	count int
-	pid   int
-	comm  string
-	pod   string
+	count     int
+	pid       int
+	comm      string
+	pod       string
+	namespace string
 }
 
 // queryCredsRow reads the creds_change row(s) for the sentinel escalation fired
@@ -125,9 +131,12 @@ func (e Env) queryCredsRow(t *testing.T, oldUID int, sinceNanos int64) credsRow 
 	if r.count == 0 {
 		return r
 	}
+	// anyIf(x, x!='') prefers an attributed row if any export landed pod/namespace,
+	// so a later enriched write wins over an earlier bare one for the same event.
 	r.pid = e.QueryInt(t, "SELECT any(pid) FROM forensic_db.creds_change WHERE "+where)
 	r.comm = strings.TrimSpace(e.Query(t, "SELECT any(comm) FROM forensic_db.creds_change WHERE "+where))
-	r.pod = strings.TrimSpace(e.Query(t, "SELECT any(pod) FROM forensic_db.creds_change WHERE "+where))
+	r.pod = strings.TrimSpace(e.Query(t, "SELECT anyIf(pod, pod!='') FROM forensic_db.creds_change WHERE "+where))
+	r.namespace = strings.TrimSpace(e.Query(t, "SELECT anyIf(namespace, namespace!='') FROM forensic_db.creds_change WHERE "+where))
 	return r
 }
 
@@ -137,8 +146,12 @@ func (e Env) queryCredsRow(t *testing.T, oldUID int, sinceNanos int64) credsRow 
 // pulls the real uid back to 0 — the escalation the tracepoint filters for.
 // python is present in python:3-slim; no custom image or setuid binary needed.
 func credsCalibJob(ns, name, node string, oldUID int) string {
+	// After firing the escalation the process sleeps ~20s so it is alive long
+	// enough for Pixie's process_stats to capture its pid — the dc_snoop/
+	// creds_change export presets resolve pod/namespace by merging process_stats
+	// on pid, and a sub-second process would never be sampled (empty attribution).
 	py := fmt.Sprintf(
-		"import os; os.setresuid(%d,0,0); os.setuid(0); print('credcalib escalated', os.getresuid())",
+		"import os,time; os.setresuid(%d,0,0); os.setuid(0); print('credcalib escalated', os.getresuid()); time.sleep(20)",
 		oldUID)
 	nodeLine := ""
 	if node != "" {

@@ -23,6 +23,23 @@ import px
 
 table_name = 'dc_snoop'
 df = px.DataFrame(table=table_name, start_time=px.plugin.start_time, end_time=px.plugin.end_time)
+
+# pid -> pod/namespace attribution. Dark-vector tracepoints emit a raw kernel pid
+# with NO upid, so px.upid_to_* / ctx['pod'] fail outright; resolve pod by merging
+# process_stats on pid ONLY — the validated join (PodEnrichPxL, dx#126). NOT
+# pid+asid: on a dynamic tracepoint px.asid() is the aggregator/kelvin asid, not
+# the per-PEM asid of the data, so pid+asid never matches. Best-effort left join:
+# pod/namespace stay blank for host/transient pids (correct — they have no pod).
+proc = px.DataFrame(table='process_stats', start_time='-5m')
+proc.pod = proc.ctx['pod']
+proc.namespace = proc.ctx['namespace']
+proc.pid = px.upid_to_pid(proc.upid)
+proc = proc.groupby(['pod', 'namespace', 'pid']).agg()
+df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['', '_x'])
+# Keep exactly the forensic_db.dc_snoop columns (drop the merge's pid_x etc.),
+# else the export sink sends an unknown column and the INSERT fails.
+df = df[['time_', 'pid', 'comm', 't', 'file', 'namespace', 'pod']]
+
 # Provide event_time (nanoseconds) explicitly so the ClickHouse export sink
 # emits it as DateTime64(9) via its normal type map, instead of auto-appending
 # a DateTime64(3) millisecond column (which would break the nanosecond-consistent

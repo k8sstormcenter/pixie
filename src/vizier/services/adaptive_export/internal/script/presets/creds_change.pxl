@@ -22,6 +22,18 @@ import px
 
 table_name = 'creds_change'
 df = px.DataFrame(table=table_name, start_time=px.plugin.start_time, end_time=px.plugin.end_time)
+
+# pid -> pod/namespace attribution via a process_stats merge on pid (the tracepoint
+# emits a raw kernel pid, no upid). Validated join; blank pod for host/transient
+# pids. See dc_snoop.pxl for why it is pid-only (not pid+asid).
+proc = px.DataFrame(table='process_stats', start_time='-5m')
+proc.pod = proc.ctx['pod']
+proc.namespace = proc.ctx['namespace']
+proc.pid = px.upid_to_pid(proc.upid)
+proc = proc.groupby(['pod', 'namespace', 'pid']).agg()
+df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['', '_x'])
+df = df[['time_', 'pid', 'comm', 'old_uid', 'new_uid', 'namespace', 'pod']]
+
 # event_time as nanoseconds -> sink emits DateTime64(9) (see dc_snoop.pxl).
 df.event_time = df.time_
 px.export(df, px.otel.ClickHouseRows(table=table_name))

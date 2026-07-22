@@ -426,6 +426,7 @@ func (s *settings) BuildDate() string {
 
 type ClickHouse interface {
 	DSN() string
+	NativeDSN() string
 	Host() string
 	Port() string
 	User() string
@@ -458,8 +459,18 @@ func (c *clickhouse) validate() error {
 	return nil
 }
 
-func (c *clickhouse) DSN() string       { return c.dsn }
-func (c *clickhouse) Host() string      { return c.host }
+func (c *clickhouse) DSN() string { return c.dsn }
+
+// NativeDSN builds the ClickHouse retention-plugin export DSN in the format the
+// query engine's ClickHouseExportSink requires: [clickhouse://]user:pass@host:port/db,
+// where port is the NATIVE TCP port (9000), NOT the HTTP port (8123). The sink uses
+// the clickhouse-cpp native client — an HTTP DSN (http:// scheme / :8123) makes it
+// parse "http" as the username and crash on connect, taking the whole vizier
+// Unhealthy. This is distinct from DSN() (the AE's own HTTP write endpoint).
+func (c *clickhouse) NativeDSN() string {
+	return fmt.Sprintf("clickhouse://%s:%s@%s:%s/%s", c.user, c.password, c.host, c.port, c.database)
+}
+func (c *clickhouse) Host() string { return c.host }
 func (c *clickhouse) Port() string      { return c.port }
 func (c *clickhouse) User() string      { return c.user }
 func (c *clickhouse) Password() string  { return c.password }

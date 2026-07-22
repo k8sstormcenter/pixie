@@ -253,14 +253,31 @@ func main() {
 		pluginClient = nil
 	}
 	if pluginClient != nil {
-		chDSN := cfg.ClickHouse().DSN()
-		exportURL, err := pluginClient.EnsureClickHousePluginEnabled(chDSN)
+		// The retention plugin's export sink is the query engine's native
+		// ClickHouseExportSink (clickhouse-cpp over TCP :9000), NOT the AE's own
+		// HTTP write path (:8123). It requires the native DSN format
+		// clickhouse://user:pass@host:9000/db; an HTTP DSN crashes the sink on
+		// connect and takes the vizier Unhealthy. See config.NativeDSN().
+		chDSN := cfg.ClickHouse().NativeDSN()
+		// Boot-race: the vizier's plugin service can 404 GetClickHousePlugin for
+		// the first few seconds after the AE comes up. Retry a bounded number of
+		// times so a cold start doesn't permanently skip plugin enablement.
+		var exportURL string
+		var err error
+		for attempt := 1; attempt <= 5; attempt++ {
+			exportURL, err = pluginClient.EnsureClickHousePluginEnabled(chDSN)
+			if err == nil {
+				break
+			}
+			log.WithError(err).WithField("attempt", attempt).Warn("ensure ClickHouse plugin enabled failed — retrying (vizier plugin service may still be starting)")
+			time.Sleep(6 * time.Second)
+		}
 		if err != nil {
 			// non-fatal — the operator's own write path doesn't depend on
 			// the plugin; analyst joins against pixie-table rows do, but a
 			// missing plugin is a deployment misconfiguration the user
 			// surfaces via UI.
-			log.WithError(err).Warn("could not ensure ClickHouse plugin is enabled — pixie tables will not be populated until you turn it on in the Pixie UI")
+			log.WithError(err).Warn("could not ensure ClickHouse plugin is enabled after retries — pixie tables will not be populated until you turn it on in the Pixie UI")
 		} else {
 			log.WithField("export_url", exportURL).Info("clickhouse retention plugin is enabled")
 		}

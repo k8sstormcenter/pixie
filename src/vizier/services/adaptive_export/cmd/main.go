@@ -426,8 +426,14 @@ func main() {
 	// loop. All three need a live pxapi client; constructing once avoids
 	// holding two parallel grpc streams for the same vizier.
 	passthroughEnabled := strings.EqualFold(os.Getenv(envPassthrough), "true")
+	// The AE owns bpftrace deployment. Cron/retention export scripts cannot
+	// deploy a tracepoint (their pxtrace mutation is dropped by the cron
+	// executor), so the AE deploys the desired bpftraces itself via a mutation
+	// ExecuteScript over the pixie adapter — gated on the same INSTALL_PRESET_SCRIPTS
+	// flag as the export-preset registration.
+	deployTracepoints := strings.EqualFold(os.Getenv(envInstallPresets), "true") && len(script.DesiredTracepoints()) > 0
 	var pixieAdapterInst *pixieapi.Adapter
-	if len(ctlCfg.PushPixieTables) > 0 || streamingMode || passthroughEnabled {
+	if len(ctlCfg.PushPixieTables) > 0 || streamingMode || passthroughEnabled || deployTracepoints {
 		var adapter *pixieapi.Adapter
 		if direct := os.Getenv("ADAPTIVE_VIZIER_DIRECT_ADDR"); direct != "" {
 			// Direct mode — bypass the cloud's passthrough proxy and
@@ -453,6 +459,9 @@ func main() {
 		pixieAdapterInst = adapter
 		if len(ctlCfg.PushPixieTables) > 0 {
 			ctl = ctl.WithPixieQuerier(&pixieAdapter{a: adapter})
+		}
+		if deployTracepoints {
+			deployDesiredTracepoints(ctx, adapter)
 		}
 	}
 
@@ -811,6 +820,38 @@ func (p *pixieAdapter) Query(ctx context.Context, src string) ([]map[string]any,
 		out[i] = map[string]any(r)
 	}
 	return out, nil
+}
+
+// deployDesiredTracepoints deploys the AE-owned bpftraces (script.DesiredTracepoints)
+// via a mutation ExecuteScript over the pixie adapter. The retention/cron export
+// path cannot deploy a tracepoint — the cron executor drops the pxtrace mutation,
+// so the dark-vector output tables (dc_snoop, creds_change, …) never get created
+// that way. The AE therefore owns tracepoint deployment here. UpsertTracepoint is
+// idempotent (create-if-absent / no-op), so re-running on every boot is safe; each
+// deploy is retried because deployment can transiently fail while PEMs (re)register.
+func deployDesiredTracepoints(ctx context.Context, adapter *pixieapi.Adapter) {
+	for _, tp := range script.DesiredTracepoints() {
+		var err error
+		for attempt := 1; attempt <= 5; attempt++ {
+			// The deploy script is `import pxtrace` + UpsertTracepoint, which
+			// pxapi runs as a mutation. It returns no rows; we only care that
+			// the mutation was accepted (err == nil).
+			_, err = adapter.Query(ctx, tp.Script)
+			if err == nil {
+				break
+			}
+			log.WithError(err).WithFields(log.Fields{"tracepoint": tp.Name, "attempt": attempt}).
+				Warn("deploy bpftrace tracepoint failed — retrying")
+			time.Sleep(6 * time.Second)
+		}
+		if err != nil {
+			log.WithError(err).WithField("tracepoint", tp.Name).
+				Warn("could not deploy bpftrace tracepoint after retries — its dark table stays empty until deployed")
+		} else {
+			log.WithFields(log.Fields{"tracepoint": tp.Name, "table": tp.Table}).
+				Info("bpftrace tracepoint deployed (permanent, idempotent upsert)")
+		}
+	}
 }
 
 // installPresetScripts purges any stale ClickHouse-plugin retention

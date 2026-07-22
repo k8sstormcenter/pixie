@@ -21,6 +21,34 @@ var stackTraceScript string
 //go:embed presets/creds_change.pxl
 var credsChangeScript string
 
+//go:embed presets/dc_snoop_deploy.pxl
+var dcSnoopDeployScript string
+
+//go:embed presets/creds_change_deploy.pxl
+var credsChangeDeployScript string
+
+// TracepointDef is a bpftrace tracepoint the AE deploys itself at boot. The
+// retention/cron export path cannot deploy tracepoints (its pxtrace mutation is
+// dropped), so the AE owns deployment via a mutation ExecuteScript (pixieapi).
+// Script is an `import pxtrace` + UpsertTracepoint program (idempotent upsert,
+// permanent TTL); Table is the tracepoint output table its export preset reads.
+type TracepointDef struct {
+	Name   string
+	Table  string
+	Script string
+}
+
+// DesiredTracepoints is the source of truth for the bpftraces the AE deploys at
+// boot. stack_traces.beta (V9) is the native continuous profiler and needs no
+// tracepoint, so it is absent here (its export preset works with no deploy).
+// Extend this list as new bpftraces (V6 mprotect, V8 bpf/ptrace, …) are added.
+func DesiredTracepoints() []TracepointDef {
+	return []TracepointDef{
+		{Name: "dc_snoop", Table: "dc_snoop", Script: dcSnoopDeployScript},
+		{Name: "creds_change", Table: "creds_change", Script: credsChangeDeployScript},
+	}
+}
+
 // DarkVectorPresets are the tracepoint/profiler export scripts the operator
 // registers if-not-present. Names are operator-managed (reconciled on boot).
 func DarkVectorPresets() []*ScriptDefinition {

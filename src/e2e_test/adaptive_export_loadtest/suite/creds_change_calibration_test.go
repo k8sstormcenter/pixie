@@ -103,7 +103,8 @@ func TestCredsChangeCalibration(t *testing.T) {
 	// it is the calibration's own namespace (correctness); a merge miss is logged,
 	// not a hard flake. Harden to require once proven stable on a live rig.
 	if got.pod != "" || got.namespace != "" {
-		t.Logf("(c) POD ATTRIBUTION OK: namespace=%q pod=%q reached ClickHouse", got.namespace, got.pod)
+		t.Logf("(c) METADATA ATTRIBUTION OK: namespace=%q pod=%q container=%q node=%q reached ClickHouse",
+			got.namespace, got.pod, got.container, got.hostname)
 		require.Containsf(t, got.namespace, ns,
 			"creds_change namespace=%q did not resolve to the calibration namespace %q", got.namespace, ns)
 	} else {
@@ -117,8 +118,10 @@ type credsRow struct {
 	count     int
 	pid       int
 	comm      string
-	pod       string
 	namespace string
+	pod       string
+	container string
+	hostname  string
 }
 
 // queryCredsRow reads the creds_change row(s) for the sentinel escalation fired
@@ -135,8 +138,10 @@ func (e Env) queryCredsRow(t *testing.T, oldUID int, sinceNanos int64) credsRow 
 	// so a later enriched write wins over an earlier bare one for the same event.
 	r.pid = e.QueryInt(t, "SELECT any(pid) FROM forensic_db.creds_change WHERE "+where)
 	r.comm = strings.TrimSpace(e.Query(t, "SELECT any(comm) FROM forensic_db.creds_change WHERE "+where))
-	r.pod = strings.TrimSpace(e.Query(t, "SELECT anyIf(pod, pod!='') FROM forensic_db.creds_change WHERE "+where))
 	r.namespace = strings.TrimSpace(e.Query(t, "SELECT anyIf(namespace, namespace!='') FROM forensic_db.creds_change WHERE "+where))
+	r.pod = strings.TrimSpace(e.Query(t, "SELECT anyIf(pod, pod!='') FROM forensic_db.creds_change WHERE "+where))
+	r.container = strings.TrimSpace(e.Query(t, "SELECT anyIf(container, container!='') FROM forensic_db.creds_change WHERE "+where))
+	r.hostname = strings.TrimSpace(e.Query(t, "SELECT anyIf(hostname, hostname!='') FROM forensic_db.creds_change WHERE "+where))
 	return r
 }
 

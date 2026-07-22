@@ -924,6 +924,11 @@ func builtinPresetScripts() []*script.ScriptDefinition {
 			"df = px.DataFrame(table='" + t + "', start_time='-15s')\n" +
 			"df.namespace = px.upid_to_namespace(df.upid)\n" +
 			"df.pod = px.upid_to_pod_name(df.upid)\n" +
+			// Provide event_time (nanoseconds) so the ClickHouse export sink emits
+			// it as DateTime64(9) via its normal type map, instead of auto-appending
+			// a DateTime64(3) millisecond column that mismatches the table's
+			// DateTime64(9) event_time and crashes the sink.
+			"df.event_time = df.time_\n" +
 			"px.display(df, '" + t + "')\n"
 		out = append(out, &script.ScriptDefinition{
 			Name:        "ch-" + t,

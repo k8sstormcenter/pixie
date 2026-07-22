@@ -40,4 +40,6 @@ kprobe:commit_creds
 table_name = 'creds_change'
 pxtrace.UpsertTracepoint('creds_change', table_name, program, pxtrace.kprobe(), "876000h")
 df = px.DataFrame(table=table_name, start_time=px.plugin.start_time, end_time=px.plugin.end_time)
+# event_time as nanoseconds -> sink emits DateTime64(9) (see dc_snoop.pxl).
+df.event_time = df.time_
 px.export(df, px.otel.ClickHouseRows(table=table_name))

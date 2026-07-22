@@ -831,25 +831,39 @@ func (p *pixieAdapter) Query(ctx context.Context, src string) ([]map[string]any,
 // deploy is retried because deployment can transiently fail while PEMs (re)register.
 func deployDesiredTracepoints(ctx context.Context, adapter *pixieapi.Adapter) {
 	for _, tp := range script.DesiredTracepoints() {
-		var err error
-		for attempt := 1; attempt <= 5; attempt++ {
-			// The deploy script is `import pxtrace` + UpsertTracepoint, which
-			// pxapi runs as a mutation. It returns no rows; we only care that
-			// the mutation was accepted (err == nil).
-			_, err = adapter.Query(ctx, tp.Script)
-			if err == nil {
+		// Fire the deploy mutation. pxapi's result collector cannot decode the
+		// mutation-info response the vizier returns for a pxtrace deploy
+		// ("stream: unimplemented type"), so a Query error here is NOT a
+		// deployment failure — the UpsertTracepoint applies server-side
+		// regardless. Success is confirmed below by the tracepoint's output
+		// table becoming queryable (PENDING_STATE -> RUNNING_STATE).
+		if _, err := adapter.Query(ctx, tp.Script); err != nil {
+			log.WithError(err).WithField("tracepoint", tp.Name).
+				Debug("deploy mutation returned a stream error (expected for pxtrace mutations) — confirming via table")
+		}
+		// Confirm the tracepoint reached RUNNING by polling its output table. A
+		// plain DataFrame query on a not-yet-deployed table fails PxL compilation
+		// ("Table '<t>' not found"); once the tracepoint is RUNNING the query
+		// compiles and returns (0 rows is fine — RUNNING, just no captures yet).
+		// Re-fire the deploy every few attempts in case the first didn't take.
+		verify := "import px\npx.display(px.DataFrame(table='" + tp.Table + "', start_time='-5s').head(1))\n"
+		running := false
+		for attempt := 1; attempt <= 12; attempt++ {
+			if _, err := adapter.Query(ctx, verify); err == nil {
+				running = true
 				break
 			}
-			log.WithError(err).WithFields(log.Fields{"tracepoint": tp.Name, "attempt": attempt}).
-				Warn("deploy bpftrace tracepoint failed — retrying")
-			time.Sleep(6 * time.Second)
+			if attempt%4 == 0 {
+				_, _ = adapter.Query(ctx, tp.Script)
+			}
+			time.Sleep(5 * time.Second)
 		}
-		if err != nil {
-			log.WithError(err).WithField("tracepoint", tp.Name).
-				Warn("could not deploy bpftrace tracepoint after retries — its dark table stays empty until deployed")
-		} else {
+		if running {
 			log.WithFields(log.Fields{"tracepoint": tp.Name, "table": tp.Table}).
-				Info("bpftrace tracepoint deployed (permanent, idempotent upsert)")
+				Info("bpftrace tracepoint deployed + RUNNING (permanent, idempotent upsert)")
+		} else {
+			log.WithField("tracepoint", tp.Name).
+				Warn("bpftrace tracepoint not confirmed RUNNING after deploy — its dark table stays empty until it deploys")
 		}
 	}
 }

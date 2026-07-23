@@ -574,69 +574,69 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_evidence_manifest (
 -- (dx_dcsnoop superseded by forensic_db.dc_snoop — canonical DateTime64(9)/Int64
 --  schema with full k8s metadata; see the dark-vector section above.)
 CREATE TABLE IF NOT EXISTS forensic_db.dx_vfs_events (
-  time_ UInt64,
-  pid Int32,
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
   op String,
   file String,
   namespace String,
   pod String,
   hostname String,
-  event_time DateTime64(3) DEFAULT toDateTime64(time_ / 1e9, 3)
+  event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);
 
 CREATE TABLE IF NOT EXISTS forensic_db.dx_unlink (
-  time_ UInt64,
-  pid Int32,
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
   op String,
   file String,
   namespace String,
   pod String,
   hostname String,
-  event_time DateTime64(3) DEFAULT toDateTime64(time_ / 1e9, 3)
+  event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);
 
 CREATE TABLE IF NOT EXISTS forensic_db.dx_dlookup (
-  time_ UInt64,
-  pid Int32,
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
   comm String,
   file String,
   namespace String,
   pod String,
   hostname String,
-  event_time DateTime64(3) DEFAULT toDateTime64(time_ / 1e9, 3)
+  event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);
 
 CREATE TABLE IF NOT EXISTS forensic_db.dx_mprotect (
-  time_ UInt64,
-  pid Int32,
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
   comm String,
   prot UInt64,
   namespace String,
   pod String,
   hostname String,
-  event_time DateTime64(3) DEFAULT toDateTime64(time_ / 1e9, 3)
+  event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);
 
 -- (dx_creds superseded by forensic_db.creds_change — canonical schema with
 --  old_uid/new_uid + full k8s metadata.)
 CREATE TABLE IF NOT EXISTS forensic_db.dx_bpf (
-  time_ UInt64,
-  pid Int32,
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
   comm String,
   namespace String,
   pod String,
   hostname String,
-  event_time DateTime64(3) DEFAULT toDateTime64(time_ / 1e9, 3)
+  event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);
 
 CREATE TABLE IF NOT EXISTS forensic_db.dx_ptrace (
-  time_ UInt64,
-  pid Int32,
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
   comm String,
   namespace String,
   pod String,
   hostname String,
-  event_time DateTime64(3) DEFAULT toDateTime64(time_ / 1e9, 3)
+  event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);
 
 -- dc_snoop (dentry cache, V1/V2 process+file) — exported via the OTel/ClickHouse

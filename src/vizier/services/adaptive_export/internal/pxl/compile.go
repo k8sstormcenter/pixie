@@ -70,8 +70,9 @@ func CompilePassthrough(table string, window time.Duration) (string, error) {
 // emit raw kernel pid + comm (no upid), so pod is resolved differently — see
 // PodEnrichPxL.
 var darkVectorTables = map[string]bool{
-	"dx_dcsnoop": true, "dx_vfs_events": true, "dx_unlink": true, "dx_dlookup": true,
-	"dx_mprotect": true, "dx_creds": true, "dx_bpf": true, "dx_ptrace": true,
+	"dc_snoop": true, "creds_change": true,
+	"dx_vfs_events": true, "dx_unlink": true, "dx_dlookup": true,
+	"dx_mprotect": true, "dx_bpf": true, "dx_ptrace": true,
 }
 
 // IsDarkVector reports whether table is a pid-keyed dx tracepoint table.

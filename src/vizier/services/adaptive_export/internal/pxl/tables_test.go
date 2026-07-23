@@ -26,11 +26,12 @@ import (
 // mysql_events, pgsql_events, cql_events, mongodb_events,
 // kafka_events.beta, amqp_events, mux_events, tls_events, conn_stats).
 // Update this guard if the spec adds / removes a table.
-// 13 socket_tracer tables + 8 dx dark-vector tracepoint tables (dx_dcsnoop,
-// dx_vfs_events, dx_unlink, dx_dlookup, dx_mprotect, dx_creds, dx_bpf, dx_ptrace
-// — entlein/dx#126). Update this guard if the spec adds / removes a table.
+// 13 socket_tracer tables + 9 dark-vector tables: dc_snoop (V1/V2), creds_change
+// (V7), stack_trace (V9) — canonical schemas, active — plus dx_vfs_events,
+// dx_unlink, dx_dlookup, dx_mprotect, dx_bpf, dx_ptrace reserved for the bpftraces
+// still to be written (entlein/dx#126). Update this guard if the spec changes.
 func TestBuiltinTables_Count(t *testing.T) {
-	const want = 21
+	const want = 22
 	if got := len(builtinTables); got != want {
 		t.Fatalf("builtinTables = %d entries, want %d", got, want)
 	}

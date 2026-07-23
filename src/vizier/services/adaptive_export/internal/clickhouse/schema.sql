@@ -576,10 +576,12 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_evidence_manifest (
 CREATE TABLE IF NOT EXISTS forensic_db.dx_vfs_events (
   time_ DateTime64(9, 'UTC'),
   pid Int64,
+  comm String,
   op String,
   file String,
   namespace String,
   pod String,
+  container String,
   hostname String,
   event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);
@@ -587,10 +589,12 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_vfs_events (
 CREATE TABLE IF NOT EXISTS forensic_db.dx_unlink (
   time_ DateTime64(9, 'UTC'),
   pid Int64,
+  comm String,
   op String,
   file String,
   namespace String,
   pod String,
+  container String,
   hostname String,
   event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);
@@ -602,6 +606,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_dlookup (
   file String,
   namespace String,
   pod String,
+  container String,
   hostname String,
   event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);
@@ -613,6 +618,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_mprotect (
   prot UInt64,
   namespace String,
   pod String,
+  container String,
   hostname String,
   event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);
@@ -625,6 +631,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_bpf (
   comm String,
   namespace String,
   pod String,
+  container String,
   hostname String,
   event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);
@@ -635,6 +642,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_ptrace (
   comm String,
   namespace String,
   pod String,
+  container String,
   hostname String,
   event_time DateTime64(9, 'UTC')
 ) ENGINE = MergeTree ORDER BY (event_time, pod);

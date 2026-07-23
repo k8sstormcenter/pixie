@@ -51,6 +51,9 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"px.dev/pixie/src/api/go/pxapi"
 	"px.dev/pixie/src/shared/services"
@@ -210,6 +213,15 @@ func main() {
 	}
 	log.WithField("hostname", hostname).Info("operator pod is node-local")
 
+	// The AE runs as a DaemonSet (one pod per node), but the retention plugin, its
+	// cron scripts, and the bpftrace tracepoints are CLUSTER-scoped. If every pod
+	// registered them, each preset would get one duplicate cron script per node and
+	// every dark table would be exported N times (observed 2x → 35% duplicate rows
+	// on a 2-node rig). Elect a single deterministic leader so exactly one pod does
+	// the cluster-scoped boot setup; the node-local trigger/data-plane still runs on
+	// every pod.
+	clusterSetupLeader := isClusterSetupLeader(ctx, hostname)
+
 	chEndpoint := chHTTPEndpoint(cfg.ClickHouse().Host(), os.Getenv(envCHHTTPEndpoint))
 	log.WithField("endpoint", chEndpoint).Info("clickhouse HTTP endpoint resolved")
 
@@ -285,7 +297,7 @@ func main() {
 		// 3b. (optional) install Pixie's preset retention scripts so the
 		//     pixie observation tables actually receive rows. Without this,
 		//     the plugin is enabled but does nothing.
-		if strings.EqualFold(os.Getenv(envInstallPresets), "true") {
+		if strings.EqualFold(os.Getenv(envInstallPresets), "true") && clusterSetupLeader {
 			installed, err := installPresetScripts(pluginClient, cfg.Pixie().ClusterID(), cfg.Worker().ClusterName())
 			if err != nil {
 				log.WithError(err).Warn("INSTALL_PRESET_SCRIPTS=true but install failed — pixie tables will stay empty")
@@ -431,7 +443,7 @@ func main() {
 	// executor), so the AE deploys the desired bpftraces itself via a mutation
 	// ExecuteScript over the pixie adapter — gated on the same INSTALL_PRESET_SCRIPTS
 	// flag as the export-preset registration.
-	deployTracepoints := strings.EqualFold(os.Getenv(envInstallPresets), "true") && len(script.DesiredTracepoints()) > 0
+	deployTracepoints := strings.EqualFold(os.Getenv(envInstallPresets), "true") && len(script.DesiredTracepoints()) > 0 && clusterSetupLeader
 	var pixieAdapterInst *pixieapi.Adapter
 	if len(ctlCfg.PushPixieTables) > 0 || streamingMode || passthroughEnabled || deployTracepoints {
 		var adapter *pixieapi.Adapter
@@ -820,6 +832,65 @@ func (p *pixieAdapter) Query(ctx context.Context, src string) ([]map[string]any,
 		out[i] = map[string]any(r)
 	}
 	return out, nil
+}
+
+// isClusterSetupLeader reports whether THIS AE pod should perform the
+// CLUSTER-SCOPED boot setup — registering the retention cron scripts and
+// deploying the bpftrace tracepoints. The AE is a DaemonSet (one pod per node),
+// but those are cluster-wide: if every pod did them, each preset would get one
+// duplicate cron script per node and every dark table would be exported once per
+// node (observed 2x → ~35% duplicate rows on a 2-node rig). We elect a single
+// deterministic leader: the AE pod on the lexicographically-smallest node name.
+// Every pod computes the same winner from the same pod list, so no coordination
+// or lease is needed; pod-list RBAC is already held. Fail-open (return true) on
+// any error — a transient duplicate is safer than skipping setup entirely.
+func isClusterSetupLeader(ctx context.Context, myNode string) bool {
+	ns := os.Getenv("PL_NAMESPACE")
+	if ns == "" {
+		ns = "pl"
+	}
+	fallback := func(reason string, err error) bool {
+		log.WithError(err).Warnf("cluster-setup leader check (%s) — proceeding as leader", reason)
+		return true
+	}
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		return fallback("in-cluster config", err)
+	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return fallback("clientset", err)
+	}
+	pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: "name=adaptive-export"})
+	if err != nil {
+		return fallback("pod list", err)
+	}
+	nodes := make([]string, 0, len(pods.Items))
+	for _, p := range pods.Items {
+		nodes = append(nodes, p.Spec.NodeName)
+	}
+	minNode := leaderNode(nodes)
+	if minNode == "" {
+		return fallback("no scheduled AE pods found", nil)
+	}
+	leader := myNode == minNode
+	log.WithFields(log.Fields{"my_node": myNode, "leader_node": minNode, "is_leader": leader}).
+		Info("cluster-setup leader election — only the leader registers retention scripts + deploys tracepoints")
+	return leader
+}
+
+// leaderNode picks the deterministic cluster-setup leader: the lexicographically
+// smallest non-empty node name. Every AE pod computes the same winner from the
+// same DaemonSet pod list, so no lease/coordination is needed. Empty input (or
+// all-empty node names) yields "" — the caller then fails open.
+func leaderNode(nodes []string) string {
+	min := ""
+	for _, n := range nodes {
+		if n != "" && (min == "" || n < min) {
+			min = n
+		}
+	}
+	return min
 }
 
 // deployDesiredTracepoints deploys the AE-owned bpftraces (script.DesiredTracepoints)

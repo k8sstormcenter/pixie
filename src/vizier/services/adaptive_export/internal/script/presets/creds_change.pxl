@@ -14,7 +14,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# creds_change EXPORT (retention cron) — query the creds_change tracepoint table
+# creds_change EXPORT (retention cron) - query the creds_change tracepoint table
 # and export to ClickHouse. The tracepoint is deployed by the AE at boot
 # (creds_change_deploy.pxl); a cron script cannot deploy it. Read + export only.
 

@@ -14,9 +14,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# dc_snoop EXPORT (retention cron) — query the dc_snoop tracepoint table and
+# dc_snoop EXPORT (retention cron) - query the dc_snoop tracepoint table and
 # export to ClickHouse. The tracepoint itself is deployed by the AE at boot
-# (dc_snoop_deploy.pxl) — a cron script CANNOT deploy a tracepoint (its mutation
+# (dc_snoop_deploy.pxl) - a cron script CANNOT deploy a tracepoint (its mutation
 # is dropped), so this script only reads + exports the already-deployed table.
 
 import px
@@ -26,10 +26,10 @@ df = px.DataFrame(table=table_name, start_time=px.plugin.start_time, end_time=px
 
 # pid -> pod/namespace attribution. Dark-vector tracepoints emit a raw kernel pid
 # with NO upid, so px.upid_to_* / ctx['pod'] fail outright; resolve pod by merging
-# process_stats on pid ONLY — the validated join (PodEnrichPxL, dx#126). NOT
+# process_stats on pid ONLY - the validated join (PodEnrichPxL, dx#126). NOT
 # pid+asid: on a dynamic tracepoint px.asid() is the aggregator/kelvin asid, not
 # the per-PEM asid of the data, so pid+asid never matches. Best-effort left join:
-# pod/namespace stay blank for host/transient pids (correct — they have no pod).
+# pod/namespace stay blank for host/transient pids (correct - they have no pod).
 proc = px.DataFrame(table='process_stats', start_time='-5m')
 proc.namespace = proc.ctx['namespace']
 proc.pod = proc.ctx['pod']

@@ -14,10 +14,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# creds_change tracepoint DEPLOYMENT (mutation) — run once at AE boot via the
+# creds_change tracepoint DEPLOYMENT (mutation) - run once at AE boot via the
 # pixieapi mutation path. Privilege-escalation to root: a process whose creds
 # are committed with new uid==0 while its previous (real) uid was >0.
-# kprobe:commit_creds — arg0 is the NEW cred; the OLD uid is the current task's
+# kprobe:commit_creds - arg0 is the NEW cred; the OLD uid is the current task's
 # real_cred (still in place at commit time). V7 credential vector. Idempotent
 # upsert; TTL 876000h (~permanent). See dc_snoop_deploy.pxl for why the AE owns
 # tracepoint deployment separately from the cron export path.

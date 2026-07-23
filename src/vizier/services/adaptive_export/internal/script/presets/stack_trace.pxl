@@ -23,7 +23,8 @@ df = px.DataFrame(table='stack_traces.beta', start_time=px.plugin.start_time, en
 df.namespace = df.ctx['namespace']
 df.pod = df.ctx['pod']
 df.container = df.ctx['container']
-df = df[['time_', 'upid', 'namespace', 'pod', 'container', 'stack_trace_id', 'stack_trace', 'count']]
+df.hostname = px.upid_to_node_name(df.upid)
+df = df[['time_', 'upid', 'namespace', 'pod', 'container', 'hostname', 'stack_trace_id', 'stack_trace', 'count']]
 # event_time as nanoseconds -> sink emits DateTime64(9) (see dc_snoop.pxl).
 df.event_time = df.time_
 px.export(df, px.otel.ClickHouseRows(table='stack_trace'))

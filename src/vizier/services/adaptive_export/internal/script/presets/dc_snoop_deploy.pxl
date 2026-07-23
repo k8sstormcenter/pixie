@@ -14,7 +14,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# dc_snoop tracepoint DEPLOYMENT (mutation) — run once at AE boot via the
+# dc_snoop tracepoint DEPLOYMENT (mutation) - run once at AE boot via the
 # pixieapi mutation path (pxapi sets Mutation:true for `import pxtrace`).
 # The retention/cron export path CANNOT deploy tracepoints (the mutation is
 # dropped), so the AE owns this deploy separately. UpsertTracepoint is

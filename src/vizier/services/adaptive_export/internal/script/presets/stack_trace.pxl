@@ -25,6 +25,16 @@ df.pod = df.ctx['pod']
 df.container = df.ctx['container']
 df.hostname = px.upid_to_node_name(df.upid)
 df = df[['time_', 'upid', 'namespace', 'pod', 'container', 'hostname', 'stack_trace_id', 'stack_trace', 'count']]
+
+# EXCLUDE our own monitoring/infra pods (see dc_snoop.pxl) - the profiler otherwise
+# fills stack_trace with samples of Pixie's own pem/kelvin/vizier + the AE + CH,
+# which is self-observation noise, not workload control-flow evidence.
+df = df[df.namespace != 'pl']
+df = df[df.namespace != 'px-operator']
+df = df[df.namespace != 'olm']
+df = df[df.namespace != 'clickhouse']
+df = df[df.namespace != 'kube-system']
+
 # event_time as nanoseconds -> sink emits DateTime64(9) (see dc_snoop.pxl).
 df.event_time = df.time_
 px.export(df, px.otel.ClickHouseRows(table='stack_trace'))

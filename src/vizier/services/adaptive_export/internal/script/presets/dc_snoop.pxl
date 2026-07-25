@@ -42,6 +42,18 @@ df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['',
 # else the export sink sends an unknown column and the INSERT fails.
 df = df[['time_', 'pid', 'comm', 't', 'file', 'namespace', 'pod', 'container', 'hostname']]
 
+# EXCLUDE our own monitoring/infra pods. The evidence base is WORKLOAD activity,
+# not our stack's self-lookups: Pixie (pem/kelvin/vizier-*/nats in `pl`), the AE
+# (also `pl`), the Pixie operator + OLM, and the forensic ClickHouse generate the
+# overwhelming majority of dc_snoop rows (self-observation feedback). Dropping them
+# at the export keeps the noise out of ClickHouse entirely. Workload pods and
+# host/kernel (blank-namespace) rows are retained.
+df = df[df.namespace != 'pl']
+df = df[df.namespace != 'px-operator']
+df = df[df.namespace != 'olm']
+df = df[df.namespace != 'clickhouse']
+df = df[df.namespace != 'kube-system']
+
 # Provide event_time (nanoseconds) explicitly so the ClickHouse export sink
 # emits it as DateTime64(9) via its normal type map, instead of auto-appending
 # a DateTime64(3) millisecond column (which would break the nanosecond-consistent

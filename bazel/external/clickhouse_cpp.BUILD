@@ -37,11 +37,11 @@ cmake(
         "BUILD_TESTS": "OFF",
         "BUILD_SHARED_LIBS": "OFF",
         "CMAKE_BUILD_TYPE": "Release",
-        "WITH_OPENSSL": "OFF",         # Disable OpenSSL for now
-        "WITH_SYSTEM_ABSEIL": "OFF",   # Use bundled abseil
-        "WITH_SYSTEM_LZ4": "OFF",      # Use bundled for now
-        "WITH_SYSTEM_CITYHASH": "OFF", # Use bundled for now  
-        "WITH_SYSTEM_ZSTD": "OFF",     # Use bundled for now
+        "WITH_OPENSSL": "ON",
+        "WITH_SYSTEM_ABSEIL": "ON",
+        "WITH_SYSTEM_LZ4": "OFF",
+        "WITH_SYSTEM_CITYHASH": "OFF",
+        "WITH_SYSTEM_ZSTD": "OFF",
         "CMAKE_POSITION_INDEPENDENT_CODE": "ON",
     },
     lib_source = ":all",
@@ -50,15 +50,18 @@ cmake(
         "liblz4.a",
         "libcityhash.a",
         "libzstdstatic.a",
-        "libabsl_int128.a",
     ],
     targets = [
         "clickhouse-cpp-lib",
         "lz4",
         "cityhash",
         "zstdstatic",
-        "absl_int128",
     ],
     visibility = ["//visibility:public"],
     working_directory = "",
+    deps = [
+        "@boringssl//:crypto",
+        "@boringssl//:ssl",
+        "@com_google_absl//absl/numeric:int128",
+    ],
 )

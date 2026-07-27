@@ -1,0 +1,14 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -81,6 +81,9 @@
+ IF (WITH_SYSTEM_ABSEIL)
+-    FIND_PACKAGE(absl REQUIRED)
++    ADD_LIBRARY (absl::int128 STATIC IMPORTED)
++    SET_TARGET_PROPERTIES (absl::int128 PROPERTIES
++        IMPORTED_LOCATION "$ENV{EXT_BUILD_DEPS}/lib/libint128.a"
++        INTERFACE_INCLUDE_DIRECTORIES "$ENV{EXT_BUILD_ROOT}/external/com_google_absl")
+ ELSE ()
+     INCLUDE_DIRECTORIES (contrib/absl)
+     SUBDIRS (contrib/absl/absl)
+ ENDIF ()

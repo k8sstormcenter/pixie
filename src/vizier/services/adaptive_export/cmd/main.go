@@ -1055,7 +1055,13 @@ func builtinPresetScripts() []*script.ScriptDefinition {
 			// a DateTime64(3) millisecond column that mismatches the table's
 			// DateTime64(9) event_time and crashes the sink.
 			"df.event_time = df.time_\n" +
-			"px.display(df, '" + t + "')\n"
+			// Export via the native OTel ClickHouse sink (like DarkVectorPresets),
+			// NOT px.display. px.display relies on the retention plugin routing the
+			// display output to ClickHouse, which does not write on this stack
+			// (verified on a clean rig: dns_events/conn_stats/http_events = 0 parts
+			// ever, while the px.export dark tables dc_snoop/stack_trace populate).
+			// px.export writes directly through the same sink the dark presets use.
+			"px.export(df, px.otel.ClickHouseRows(table='" + t + "'))\n"
 		out = append(out, &script.ScriptDefinition{
 			Name:        "ch-" + t,
 			Description: "adaptive_export builtin preset for " + t,

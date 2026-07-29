@@ -123,6 +123,14 @@ const (
 	// users author scripts in the Pixie UI.
 	envInstallPresets = "INSTALL_PRESET_SCRIPTS"
 
+	// envDeployTracepoints controls the AE's permanent bpftrace deploy
+	// (dc_snoop, creds_change). Decoupled from the retention firehose:
+	// the tracepoints stay upserted (876000h TTL) so they collect
+	// indefinitely, while INSTALL_PRESET_SCRIPTS governs only whether the
+	// cluster-wide cron *export* runs. Defaults to true (unset = deploy);
+	// set to "false" to skip the deploy.
+	envDeployTracepoints = "DEPLOY_TRACEPOINTS"
+
 	// === Throughput-protection knobs for the pushPixieRows fan-out.
 	// All default to 0 (= legacy unbounded behavior preserved).
 	envMaxParallelQueriesPerHash = "ADAPTIVE_MAX_PARALLEL_QUERIES_PER_HASH"
@@ -304,6 +312,17 @@ func main() {
 			} else {
 				log.WithField("installed", installed).Info("preset retention scripts installed on cluster")
 			}
+		} else if clusterSetupLeader {
+			// Firehose off: purge any stale operator-managed cron scripts so the
+			// cluster-wide export stops. Evidence export is then driven per
+			// kubescape-alert by dx (OrderQuery → /query) over the deployed
+			// tracepoints, deduped — not a continuous whole-cluster firehose.
+			purged, err := purgePresetScripts(pluginClient, cfg.Pixie().ClusterID(), cfg.Worker().ClusterName())
+			if err != nil {
+				log.WithError(err).Warn("could not purge retention scripts — firehose may still be running")
+			} else if purged > 0 {
+				log.WithField("purged", purged).Info("retention firehose disabled — purged cluster-wide cron scripts (dx steers per-anomaly export)")
+			}
 		}
 	}
 
@@ -441,9 +460,10 @@ func main() {
 	// The AE owns bpftrace deployment. Cron/retention export scripts cannot
 	// deploy a tracepoint (their pxtrace mutation is dropped by the cron
 	// executor), so the AE deploys the desired bpftraces itself via a mutation
-	// ExecuteScript over the pixie adapter — gated on the same INSTALL_PRESET_SCRIPTS
-	// flag as the export-preset registration.
-	deployTracepoints := strings.EqualFold(os.Getenv(envInstallPresets), "true") && len(script.DesiredTracepoints()) > 0 && clusterSetupLeader
+	// ExecuteScript over the pixie adapter. Decoupled from the retention
+	// firehose: default-on (unset = deploy) so the traces stay permanent even
+	// when INSTALL_PRESET_SCRIPTS is off and dx steers per-anomaly export.
+	deployTracepoints := !strings.EqualFold(os.Getenv(envDeployTracepoints), "false") && len(script.DesiredTracepoints()) > 0 && clusterSetupLeader
 	var pixieAdapterInst *pixieapi.Adapter
 	if len(ctlCfg.PushPixieTables) > 0 || streamingMode || passthroughEnabled || deployTracepoints {
 		var adapter *pixieapi.Adapter
@@ -939,44 +959,34 @@ func deployDesiredTracepoints(ctx context.Context, adapter *pixieapi.Adapter) {
 	}
 }
 
-// installPresetScripts purges any stale ClickHouse-plugin retention
-// scripts on the cluster, then installs the operator's built-in PxL
-// scripts targeting the 13 socket_tracer tables we DDL'd. Cloud-side
-// "presets" are deliberately ignored: in this fork the legacy
-// "conn_stats export" / "dc snoop export" / "stack_traces export"
-// preset names predate the rev-2 schema and would silently fail to
-// write. conn_stats is now in the rev-2 schema, but it
-// ships as "ch-conn_stats" (operator-managed naming) — the legacy
-// "conn_stats export" preset name is still purged below so a stale
-// one doesn't double-write.
-func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (int, error) {
+// purgePresetScripts deletes the operator-managed (ch-*) + legacy retention
+// cron scripts from the cluster, leaving user-authored scripts alone. Used both
+// as the first step of installPresetScripts (reconcile) and standalone when
+// INSTALL_PRESET_SCRIPTS is off, to stop the cluster-wide export firehose so
+// that dx steers per-anomaly export instead. Returns the number purged.
+func purgePresetScripts(client *pixie.Client, clusterID, clusterName string) (int, error) {
 	current, err := client.GetClusterScripts(clusterID, clusterName)
 	if err != nil {
 		return 0, fmt.Errorf("get cluster scripts: %w", err)
 	}
-	currentNames := make([]string, 0, len(current))
-	for _, s := range current {
-		currentNames = append(currentNames, s.Name)
-	}
-	log.WithFields(log.Fields{
-		"already_on_cluster":   len(current),
-		"cluster_script_names": currentNames,
-	}).Info("preset script install — purging managed + installing built-ins")
-
-	// Purge ONLY scripts we recognise as operator-managed or as legacy
-	// presets we know are broken in the rev-2 schema. User-authored
-	// retention scripts are left alone.
+	purged := 0
 	for _, s := range current {
 		if !isOperatorManagedScript(s.Name) {
-			log.WithField("script", s.Name).
-				Debug("preset install — leaving user-authored script alone")
 			continue
 		}
 		if err := client.DeleteDataRetentionScript(s.ScriptID); err != nil {
 			log.WithError(err).WithField("script", s.Name).Warn("failed to delete stale script")
 			continue
 		}
-		log.WithField("script", s.Name).Info("purged stale retention script")
+		purged++
+		log.WithField("script", s.Name).Info("purged retention script")
+	}
+	return purged, nil
+}
+
+func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (int, error) {
+	if _, err := purgePresetScripts(client, clusterID, clusterName); err != nil {
+		return 0, err
 	}
 
 	// Install built-ins.

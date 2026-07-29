@@ -110,6 +110,17 @@ type Config struct {
 	// to be unambiguous.
 	PushRefreshInterval time.Duration
 
+	// QueryLag holds the per-table watermark this far behind wall-clock:
+	// each pass queries up to now-QueryLag, not now. Sparse tables (dns_events,
+	// dc_snoop) emit events that socket_tracer/stirling flush a few seconds
+	// after they occur; without a lag the watermark advances past an event's
+	// time_ before it is queryable, so it is skipped forever. Continuous tables
+	// (conn_stats) always have fresh post-watermark rows so they never notice —
+	// which is why sparse tables lost ALL rows while continuous ones exported
+	// fully. Defaulted to 30s in defaulted(); 0 keeps the legacy (lossy) behavior
+	// only if set negative is not used — env ADAPTIVE_QUERY_LAG_SEC overrides.
+	QueryLag time.Duration
+
 	// === Throughput-protection knobs ===
 	//
 	// At high anomaly rates (many concurrent active hashes), the default
@@ -175,6 +186,9 @@ func (c *Config) defaulted() Config {
 	// (see PushRefreshInterval doc above).
 	if out.PushRefreshInterval == 0 {
 		out.PushRefreshInterval = 30 * time.Second
+	}
+	if out.QueryLag == 0 {
+		out.QueryLag = 30 * time.Second
 	}
 	return out
 }
@@ -564,7 +578,11 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 				continue
 			}
 			sliceStart := lastUpper[table]
-			sliceEnd := now
+			// Trail the watermark by QueryLag so sparse late-flushed rows are
+			// still queryable when this slice runs. QueryFor's `now` (for its
+			// relative start_time pad) stays real-now so the DataFrame window
+			// still covers the slice.
+			sliceEnd := now.Add(-c.cfg.QueryLag)
 			if !sliceEnd.After(sliceStart) {
 				continue // tiny / inverted slice — skip
 			}

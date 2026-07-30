@@ -122,6 +122,12 @@ type Config struct {
 	// only if set negative is not used — env ADAPTIVE_QUERY_LAG_SEC overrides.
 	QueryLag time.Duration
 
+	// ExportAllFloor bounds how often the control-surface steer-all (OrderExportAll)
+	// re-captures the SAME target. dx fires StartExport per referral (~1s floor), so
+	// without this a sustained attack floods the broker with redundant full-table
+	// captures over overlapping windows. Defaulted to 30s in defaulted().
+	ExportAllFloor time.Duration
+
 	// === Throughput-protection knobs ===
 	//
 	// At high anomaly rates (many concurrent active hashes), the default
@@ -191,6 +197,9 @@ func (c *Config) defaulted() Config {
 	if out.QueryLag == 0 {
 		out.QueryLag = 30 * time.Second
 	}
+	if out.ExportAllFloor == 0 {
+		out.ExportAllFloor = 30 * time.Second
+	}
 	return out
 }
 
@@ -224,6 +233,9 @@ type Controller struct {
 	emptyCacheMu   sync.Mutex
 	emptyStreak    map[string]int       // consecutive 0-row returns
 	emptySkipUntil map[string]time.Time // skip this (ns,pod,table) until this time
+
+	exportAllMu sync.Mutex
+	exportAllAt map[string]time.Time // per-target floor for OrderExportAll (steer-all)
 }
 
 // New wires a Controller. nil clock falls through to RealClock.
@@ -247,6 +259,7 @@ func New(trig Trigger, snk Sink, cfg Config, clk Clock) *Controller {
 		inFlight:       map[anomaly.AnomalyHash]bool{},
 		emptyStreak:    map[string]int{},
 		emptySkipUntil: map[string]time.Time{},
+		exportAllAt:    map[string]time.Time{},
 	}
 	if defaulted.MaxInflightQueriesGlobal > 0 {
 		c.globalSem = make(chan struct{}, defaulted.MaxInflightQueriesGlobal)
@@ -334,6 +347,21 @@ func (c *Controller) OrderExportAll(target anomaly.Target, start, end time.Time)
 	if c.querier == nil || len(c.cfg.PushPixieTables) == 0 {
 		return
 	}
+	// Per-target floor: dx sends StartExport on EVERY referral (its own floor is
+	// ~1s), so a sustained attack fires OrderExportAll many times per second for
+	// the SAME pod. Each call is a full 20-table capture over a rolling ~600s
+	// window that already overlaps the previous one, so re-running them just floods
+	// the broker (globalSem saturates, nothing completes). Collapse the burst: one
+	// full capture per target per ExportAllFloor — the rolling window still covers
+	// every event.
+	tk := target.Namespace + "/" + target.Pod
+	c.exportAllMu.Lock()
+	if last, ok := c.exportAllAt[tk]; ok && c.clock.Now().Sub(last) < c.cfg.ExportAllFloor {
+		c.exportAllMu.Unlock()
+		return
+	}
+	c.exportAllAt[tk] = c.clock.Now()
+	c.exportAllMu.Unlock()
 	log.WithFields(log.Fields{
 		"pod": target.Pod, "namespace": target.Namespace, "tables": len(c.cfg.PushPixieTables),
 	}).Info("OrderExportAll: dx-steered full-evidence capture for anomaly pod")

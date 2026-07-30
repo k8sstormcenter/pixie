@@ -85,8 +85,8 @@ const (
 
 	// envWindowBeforeSec / envWindowAfterSec / envTriggerPollMS /
 	// envPruneIntervalSec are programmatic overrides per the spec.
-	envWindowBeforeSec  = "ADAPTIVE_WINDOW_BEFORE_SEC"
-	envWindowAfterSec   = "ADAPTIVE_WINDOW_AFTER_SEC"
+	envWindowBeforeSec = "ADAPTIVE_WINDOW_BEFORE_SEC"
+	envWindowAfterSec  = "ADAPTIVE_WINDOW_AFTER_SEC"
 	// envQueryLagSec trails the per-table fan-out watermark this far behind
 	// wall-clock so sparse late-flushed rows (dns_events, dc_snoop) stay
 	// queryable. Default 30s (see controller.Config.QueryLag).
@@ -94,8 +94,8 @@ const (
 	// envExportAllFloorSec bounds how often the dx-steered full capture
 	// (OrderExportAll) re-runs for the same target. Default 30s.
 	envExportAllFloorSec = "ADAPTIVE_EXPORT_ALL_FLOOR_SEC"
-	envTriggerPollMS    = "ADAPTIVE_TRIGGER_POLL_MS"
-	envPruneIntervalSec = "ADAPTIVE_PRUNE_INTERVAL_SEC"
+	envTriggerPollMS     = "ADAPTIVE_TRIGGER_POLL_MS"
+	envPruneIntervalSec  = "ADAPTIVE_PRUNE_INTERVAL_SEC"
 
 	// envPushRefreshSec overrides controller.PushRefreshInterval. Unset →
 	// 30s default. A NEGATIVE value selects single-shot mode (one pull per
@@ -347,7 +347,8 @@ func main() {
 	wmStore, err := trigger.NewClickHouseWatermarkStore(
 		chEndpoint, cfg.ClickHouse().Database(),
 		cfg.ClickHouse().User(), cfg.ClickHouse().Password(),
-		httpTimeout)
+		httpTimeout,
+	)
 	if err != nil {
 		log.WithError(err).Fatal("failed to create persistent watermark store")
 	}
@@ -410,15 +411,15 @@ func main() {
 	})
 
 	ctlCfg := controller.Config{
-		Hostname:                  hostname,
-		Rec:                       rec,
-		Before:                    durEnv(envWindowBeforeSec, 5*time.Minute, time.Second),
-		After:                     durEnv(envWindowAfterSec, 5*time.Minute, time.Second),
-		QueryLag:                  durEnv(envQueryLagSec, 30*time.Second, time.Second),
-		ExportAllFloor:            durEnv(envExportAllFloorSec, 30*time.Second, time.Second),
+		Hostname:       hostname,
+		Rec:            rec,
+		Before:         durEnv(envWindowBeforeSec, 5*time.Minute, time.Second),
+		After:          durEnv(envWindowAfterSec, 5*time.Minute, time.Second),
+		QueryLag:       durEnv(envQueryLagSec, 30*time.Second, time.Second),
+		ExportAllFloor: durEnv(envExportAllFloorSec, 30*time.Second, time.Second),
 		// EXPORT_MODE=never → the kubescape trigger stops self-steering; only a
 		// control client (dx) drives exports via /export/start + /query.
-		DisableSelfSteer: strings.EqualFold(strings.TrimSpace(os.Getenv("EXPORT_MODE")), "never"),
+		DisableSelfSteer:          strings.EqualFold(strings.TrimSpace(os.Getenv("EXPORT_MODE")), "never"),
 		MaxParallelQueriesPerHash: intEnvOrZero(envMaxParallelQueriesPerHash),
 		MaxInflightQueriesGlobal:  intEnvOrZero(envMaxInflightQueriesGlobal),
 		EmptyResultSkipAfterN:     intEnvOrZero(envEmptyResultSkipAfterN),
@@ -916,13 +917,13 @@ func isClusterSetupLeader(ctx context.Context, myNode string) bool {
 // same DaemonSet pod list, so no lease/coordination is needed. Empty input (or
 // all-empty node names) yields "" — the caller then fails open.
 func leaderNode(nodes []string) string {
-	min := ""
+	smallest := ""
 	for _, n := range nodes {
-		if n != "" && (min == "" || n < min) {
-			min = n
+		if n != "" && (smallest == "" || n < smallest) {
+			smallest = n
 		}
 	}
-	return min
+	return smallest
 }
 
 // deployDesiredTracepoints deploys the AE-owned bpftraces (script.DesiredTracepoints)

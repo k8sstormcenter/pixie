@@ -137,8 +137,9 @@ func TestControlAuth(t *testing.T) {
 func TestStartExportUpserts(t *testing.T) {
 	ex := &fakeExporter{}
 	srv := New(ex, nil)
+	// t_end is unix NANOSECONDS (the pipeline-wide unit) — 1717200600s expressed in ns.
 	resp := do(t, srv, http.MethodPost, "/export/start",
-		`{"namespace":"svc-poc","pod":"chain-backend-abc","comm":"sh","t_end":1717200600}`)
+		`{"namespace":"svc-poc","pod":"chain-backend-abc","comm":"sh","t_end":1717200600000000000}`)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202", resp.StatusCode)
 	}
@@ -146,8 +147,8 @@ func TestStartExportUpserts(t *testing.T) {
 		ex.upserts[0].Namespace != "svc-poc" {
 		t.Fatalf("upsert = %+v, want one for svc-poc/chain-backend-abc", ex.upserts)
 	}
-	if ex.lastEnd != time.Unix(1717200600, 0) {
-		t.Fatalf("tEnd = %v, want 1717200600", ex.lastEnd)
+	if !ex.lastEnd.Equal(time.Unix(0, 1717200600000000000)) {
+		t.Fatalf("tEnd = %v, want %v", ex.lastEnd, time.Unix(0, 1717200600000000000).UTC())
 	}
 }
 

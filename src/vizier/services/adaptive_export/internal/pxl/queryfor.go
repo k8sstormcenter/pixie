@@ -19,6 +19,7 @@ package pxl
 import (
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -70,32 +71,78 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	// not the bare pod name. Dark-vector tracepoint tables (pid-keyed) resolve pod
 	// via a process_stats pid-merge instead and yield a BARE pod name (dx#126).
 	b.WriteString(PodEnrichPxL(table))
-	if t.Namespace != "" {
-		b.WriteString("df = df[df.namespace == '" + escapePxL(t.Namespace) + "']\n")
-	}
-	if t.Pod != "" {
-		if IsDarkVector(table) {
-			// proc.ctx['pod'] yields the NAMESPACED pod name (ns/pod) on Pixie
-			// v0.14.20+ (verified live, rig 6a5f6bc0: df.pod=='ns/pod' matches,
-			// bare pod matches 0), NOT the bare name — so match the namespaced key
-			// exactly as the native branch does.
+	if IsDarkVector(table) {
+		// Dark-vector tracepoints emit a RAW kernel pid. The malignant transient
+		// pids an incident actually produces — an attack's whoami/cat/getent
+		// children — are too short-lived to land in process_stats, so their
+		// pod/namespace resolves BLANK; a pod (or even namespace) filter drops
+		// exactly the evidence, which is why the dark tables came back empty.
+		// The AE is node-local (pem-direct → the node's own PEM), so the query is
+		// already scoped to the alert's node — we keep every dark row in the
+		// window and only drop the infra/self comms (env-driven, no recompile) so
+		// the workload's dark activity (incl. the transient attack procs) is
+		// captured without the node's system noise.
+		b.WriteString(darkCommExclusion(table))
+	} else {
+		if t.Namespace != "" {
+			b.WriteString("df = df[df.namespace == '" + escapePxL(t.Namespace) + "']\n")
+		}
+		if t.Pod != "" {
 			if t.Namespace != "" {
+				// upid_to_pod_name is "<ns>/<pod>" — exact equality on the namespaced key.
 				b.WriteString("df = df[df.pod == '" + escapePxL(t.Namespace+"/"+t.Pod) + "']\n")
 			} else {
-				b.WriteString("df = df[df.pod == '" + escapePxL(t.Pod) + "']\n")
+				// Pod-only fallback: df.pod is "<ns>/<pod>", so a bare-pod
+				// equality always misses. Regex-anchor "<any-ns>/<pod>".
+				b.WriteString("df = df[px.regex_match('^[^/]+/" + escapePxL(regexp.QuoteMeta(t.Pod)) + "$', df.pod)]\n")
 			}
-		} else if t.Namespace != "" {
-			// Both fields present — use exact equality on the namespaced key.
-			b.WriteString("df = df[df.pod == '" + escapePxL(t.Namespace+"/"+t.Pod) + "']\n")
-		} else {
-			// Pod-only fallback: df.pod is "<ns>/<pod>", so a bare-pod
-			// equality always misses. Regex-anchor "<any-ns>/<pod>" via
-			// px.regex_match so the defensive path stays functional.
-			b.WriteString("df = df[px.regex_match('^[^/]+/" + escapePxL(regexp.QuoteMeta(t.Pod)) + "$', df.pod)]\n")
 		}
 	}
 	b.WriteString("px.display(df, '" + table + "')\n")
 	return b.String(), nil
+}
+
+// darkVectorHasComm lists the dark-vector tables that carry a `comm` column, so
+// the infra-comm exclusion only emits for those (stack_trace is upid-only).
+var darkVectorHasComm = map[string]bool{
+	"dc_snoop": true, "creds_change": true, "dx_vfs_events": true,
+	"dx_unlink": true, "dx_dlookup": true, "dx_mprotect": true,
+	"dx_bpf": true, "dx_ptrace": true,
+}
+
+// darkExcludeCommsDefault is the node's own infra/self comms dropped from the
+// node-scoped dark capture so the workload's activity stands out. Overridable at
+// runtime via DC_SNOOP_EXCLUDE_COMMS (csv) — a process can be added without a
+// recompile. Kept in sync with script.presets defaultExcludeComms.
+var darkExcludeCommsDefault = []string{
+	"pem", "kelvin", "containerd", "containerd-shim", "runc", "node-agent",
+	"vizier-query-broker", "vizier-metadata", "nats-server", "k3s-server",
+	"k3s-agent", "systemd", "systemd-journal", "SystemLogFlush", "kubelet",
+	"AsyncInsertQ", "BgSchPool", "Collector", "AsyncMetrics", "MergeMutate",
+	"MergeTreeIndex", "coredns", "metadata", "storage", "operator", "iptables",
+	"ip6tables", "ConfigReloader", "clickhouse-oper",
+}
+
+// darkCommExclusion builds the infra-comm drop filter for a dark-vector table
+// that has a comm column. Returns "" for comm-less tables (stack_trace).
+func darkCommExclusion(table string) string {
+	if !darkVectorHasComm[table] {
+		return ""
+	}
+	comms := darkExcludeCommsDefault
+	if v := strings.TrimSpace(os.Getenv("DC_SNOOP_EXCLUDE_COMMS")); v != "" {
+		comms = nil
+		for _, s := range strings.Split(v, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				comms = append(comms, s)
+			}
+		}
+	}
+	var b strings.Builder
+	for _, c := range comms {
+		b.WriteString("df = df[df.comm != '" + escapePxL(c) + "']\n")
+	}
+	return b.String()
 }
 
 // pxlEscaper turns raw bytes that could break out of a PxL single-quoted

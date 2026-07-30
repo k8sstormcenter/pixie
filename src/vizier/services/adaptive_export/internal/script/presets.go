@@ -14,6 +14,7 @@ var defaultExcludeNamespaces = []string{
 	"pl", "honey", "px-operator", "olm", "clickhouse",
 	"kube-system", "kube-public", "kube-node-lease", "local-path-storage",
 }
+
 var defaultExcludeComms = []string{
 	"k3s-server", "k3s-agent", "containerd", "containerd-shim",
 	"runc", "runc:[2:INIT]", "runc:[1:CHILD]", "node-agent", "kelvin",

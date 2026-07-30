@@ -39,7 +39,7 @@ func csvEnv(key string, def []string) []string {
 
 // dcSnoopExclusion builds the dc_snoop noise filter (namespace + comm drops) from
 // DC_SNOOP_EXCLUDE_NAMESPACES / DC_SNOOP_EXCLUDE_COMMS, substituted into
-// dc_snoop.pxl at #__DC_SNOOP_EXCLUSION__ so a process can be added without a
+// dc_snoop.pxl at # __DC_SNOOP_EXCLUSION__ so a process can be added without a
 // recompile. Kept in sync with dx benchlive.writeSelfExclusion.
 func dcSnoopExclusion() string {
 	var b strings.Builder
@@ -100,7 +100,7 @@ func DesiredTracepoints() []TracepointDef {
 // registers if-not-present. Names are operator-managed (reconciled on boot).
 func DarkVectorPresets() []*ScriptDefinition {
 	return []*ScriptDefinition{
-		{Name: "ch-dc_snoop", Description: "dc_snoop (dentry cache: process+file, V1/V2) → ClickHouse", FrequencyS: 10, Script: strings.Replace(dcSnoopScript, "#__DC_SNOOP_EXCLUSION__", dcSnoopExclusion(), 1)},
+		{Name: "ch-dc_snoop", Description: "dc_snoop (dentry cache: process+file, V1/V2) → ClickHouse", FrequencyS: 10, Script: strings.Replace(dcSnoopScript, "# __DC_SNOOP_EXCLUSION__", dcSnoopExclusion(), 1)},
 		{Name: "ch-stack_trace", Description: "stack_traces.beta (continuous profiler, V9) → ClickHouse", FrequencyS: 10, Script: stackTraceScript},
 		{Name: "ch-creds_change", Description: "commit_creds privilege-escalation to root (V7) → ClickHouse", FrequencyS: 10, Script: credsChangeScript},
 	}

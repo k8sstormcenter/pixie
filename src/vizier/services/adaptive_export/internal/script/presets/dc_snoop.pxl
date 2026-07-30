@@ -46,7 +46,7 @@ df = df[['time_', 'pid', 'comm', 't', 'file', 'namespace', 'pod', 'container', '
 # rows are kept). The filter is injected here from env by presets.go
 # (DC_SNOOP_EXCLUDE_NAMESPACES / DC_SNOOP_EXCLUDE_COMMS) so a process can be added
 # without recompiling. Kept in sync with dx benchlive.writeSelfExclusion.
-#__DC_SNOOP_EXCLUSION__
+# __DC_SNOOP_EXCLUSION__
 
 # Provide event_time (nanoseconds) explicitly so the ClickHouse export sink
 # emits it as DateTime64(9) via its normal type map, instead of auto-appending

@@ -34,8 +34,7 @@ ignored_dirs = [
     ".github/workflows/trivy_images.yaml",
     "DEVELOPMENT.md", # Should be moved to a fork only file
     "ci/github/bazelrc",                           # fork-specific bazelrc REPO_URL
-    "k8s/**",                          # cert-manager support (upstream)
-    "scripts/create_cloud_secrets.sh", # cert-manager support (upstream)
+    "k8s/vizier/BUILD.bazel",
     "skaffold/**",
     "bazel/repositories.bzl", # to be upstreamed
     "bazel/repository_locations.bzl", # to be upstreamed
@@ -87,7 +86,6 @@ ignored_dirs = [
     "src/stirling/source_connectors/socket_tracer/testing/container_images/clickhouse/**",
     "src/ui/README.md", # should be moved to fork only file
     "src/utils/testingutils/docker/elastic.go", # To be upstreamed
-    "src/utils/shared/certs/**", # cert-manager support (upstream)
     "src/vizier/funcs/md_udtfs/**", # Clickhouse UDTF changes
     "src/vizier/services/agent/shared/manager/BUILD.bazel", # ASAN build changes. Likely to be upstreamed
     "src/vizier/services/cloud_connector/bridge/**", # should be made generic and upstreamed

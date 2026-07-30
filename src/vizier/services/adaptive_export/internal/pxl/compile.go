@@ -78,6 +78,13 @@ var darkVectorTables = map[string]bool{
 // IsDarkVector reports whether table is a pid-keyed dx tracepoint table.
 func IsDarkVector(table string) bool { return darkVectorTables[table] }
 
+// darkProcStatsWindow bounds the process_stats scan used to resolve pod/namespace
+// for the dark-vector pid-merge. Kept short on purpose: a wide window is the
+// dominant cost of the dark query and starved / timed it out under load. Long-
+// lived workload pids are sampled continuously so a 2-minute window resolves
+// them; transient attack pids never enter process_stats regardless.
+const darkProcStatsWindow = "-2m"
+
 // PodEnrichPxL returns the PxL that populates df.namespace + df.pod for a table.
 //
 // Native socket_tracer tables carry upid → direct px.upid_to_* resolution (df.pod
@@ -90,7 +97,15 @@ func IsDarkVector(table string) bool { return darkVectorTables[table] }
 // for host/transient pids (correct — no pod).
 func PodEnrichPxL(table string) string {
 	if darkVectorTables[table] {
-		return "proc = px.DataFrame(table='process_stats', start_time='-5m')\n" +
+		// process_stats is the COST of the dark-table merge: a busy node samples
+		// every live pid every ~10-30s, so a wide window is a huge scan that
+		// competes with the fast native-table queries for the shared query-slot
+		// budget — the heavy pull that starved / timed out the dark capture. A
+		// short window still resolves the pods that matter: long-lived workload
+		// pids (redis-server) appear in every sample, so darkProcStatsWindow is
+		// plenty; genuinely transient attack pids (whoami/cat children) never land
+		// in process_stats at all and resolve blank either way (see comment above).
+		return "proc = px.DataFrame(table='process_stats', start_time='" + darkProcStatsWindow + "')\n" +
 			"proc.pod = proc.ctx['pod']\n" +
 			"proc.namespace = proc.ctx['namespace']\n" +
 			"proc.pid = px.upid_to_pid(proc.upid)\n" +

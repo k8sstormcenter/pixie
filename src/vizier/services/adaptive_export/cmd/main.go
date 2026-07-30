@@ -91,6 +91,9 @@ const (
 	// wall-clock so sparse late-flushed rows (dns_events, dc_snoop) stay
 	// queryable. Default 30s (see controller.Config.QueryLag).
 	envQueryLagSec = "ADAPTIVE_QUERY_LAG_SEC"
+	// envExportAllFloorSec bounds how often the dx-steered full capture
+	// (OrderExportAll) re-runs for the same target. Default 30s.
+	envExportAllFloorSec = "ADAPTIVE_EXPORT_ALL_FLOOR_SEC"
 	envTriggerPollMS    = "ADAPTIVE_TRIGGER_POLL_MS"
 	envPruneIntervalSec = "ADAPTIVE_PRUNE_INTERVAL_SEC"
 
@@ -412,6 +415,7 @@ func main() {
 		Before:                    durEnv(envWindowBeforeSec, 5*time.Minute, time.Second),
 		After:                     durEnv(envWindowAfterSec, 5*time.Minute, time.Second),
 		QueryLag:                  durEnv(envQueryLagSec, 30*time.Second, time.Second),
+		ExportAllFloor:            durEnv(envExportAllFloorSec, 30*time.Second, time.Second),
 		MaxParallelQueriesPerHash: intEnvOrZero(envMaxParallelQueriesPerHash),
 		MaxInflightQueriesGlobal:  intEnvOrZero(envMaxInflightQueriesGlobal),
 		EmptyResultSkipAfterN:     intEnvOrZero(envEmptyResultSkipAfterN),

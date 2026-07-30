@@ -79,3 +79,6 @@ Vagrantfile
 # Ignore symlink to bazel_output_base/external
 external
 !bazel/external
+
+# Stray root go build output (accidental commit of the adaptive_export binary)
+/cmd

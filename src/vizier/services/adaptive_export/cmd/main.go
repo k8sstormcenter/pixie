@@ -519,7 +519,29 @@ func main() {
 			ctl = ctl.WithPixieQuerier(&pixieAdapter{a: adapter})
 		}
 		if deployTracepoints {
-			deployDesiredTracepoints(ctx, adapter)
+			// pem-direct (:50305) serves fast node-local QUERIES but refuses
+			// MUTATIONS ("direct-query: mutations out of scope #29"), so the
+			// bpftrace deploy (an UpsertTracepoint mutation) must go through a
+			// mutation-capable path. When the query adapter is pem-direct, deploy
+			// the tracepoints via the in-cluster broker (:50300) with the same
+			// service JWT, then keep querying via pem-direct.
+			mutAdapter := adapter
+			if strings.HasSuffix(direct, ":50305") && os.Getenv("PL_JWT_SIGNING_KEY") != "" {
+				brokerAddr := os.Getenv("ADAPTIVE_MUTATION_ADDR")
+				if brokerAddr == "" {
+					brokerAddr = "vizier-query-broker-svc.pl.svc.cluster.local:50300"
+				}
+				if m, err := pixieapi.NewDirect(cfg.Pixie().ClusterID(), pixieapi.DirectOptions{
+					VizierAddr: brokerAddr,
+					SigningKey: os.Getenv("PL_JWT_SIGNING_KEY"),
+				}); err != nil {
+					log.WithError(err).Warn("could not build broker-direct mutation adapter — tracepoint deploy may fail on pem-direct")
+				} else {
+					mutAdapter = m
+					log.WithField("addr", brokerAddr).Info("tracepoint deploy via broker-direct (pem-direct can't mutate)")
+				}
+			}
+			deployDesiredTracepoints(ctx, mutAdapter)
 		}
 	}
 

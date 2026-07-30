@@ -181,8 +181,14 @@ func (s *ClickHouseHTTP) WritePixieRows(ctx context.Context, table string, rows 
 	if strings.Contains(table, ".") {
 		identifier = "`" + table + "`"
 	}
+	// SETTINGS async_insert=0: write synchronously so the rows land (and are
+	// counted in the response) immediately. Fresh ClickHouse deployments default
+	// async_insert=1, which buffers the INSERT and returns written_rows=0 — the
+	// AE then looks like it "wrote 0" while the evidence trickles in minutes
+	// later (or is lost on a flush failure). This makes the evidence write a
+	// self-contained per-PG-fix-free contract.
 	res, err := s.c.Insert(ctx,
-		fmt.Sprintf("INSERT INTO %s.%s FORMAT JSONEachRow", s.cfg.Database, identifier),
+		fmt.Sprintf("INSERT INTO %s.%s SETTINGS async_insert=0 FORMAT JSONEachRow", s.cfg.Database, identifier),
 		buf.Bytes(), chhttp.InsertOptions{FailLoud: true})
 	if err != nil {
 		return fmt.Errorf("sink: pixie POST %s: %w", table, err)

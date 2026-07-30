@@ -122,6 +122,13 @@ type Config struct {
 	// only if set negative is not used — env ADAPTIVE_QUERY_LAG_SEC overrides.
 	QueryLag time.Duration
 
+	// DisableSelfSteer, when true, stops the kubescape trigger from spawning its own
+	// pushPixieRows fan-out — the AE then exports ONLY what a control client (dx)
+	// orders via /export/start (OrderExportAll) or /query (OrderQuery). Set by
+	// EXPORT_MODE=never in main.go. Inverted bool so the zero value preserves the
+	// legacy self-steering behavior (and existing tests that build Config directly).
+	DisableSelfSteer bool
+
 	// ExportAllFloor bounds how often the control-surface steer-all (OrderExportAll)
 	// re-captures the SAME target. dx fires StartExport per referral (~1s floor), so
 	// without this a sustained attack floods the broker with redundant full-table
@@ -398,7 +405,7 @@ func (c *Controller) Rehydrate(ctx context.Context) error {
 		// without this, post-restart Pixie data is silently missed until another
 		// event for the same hash arrives (CodeRabbit). Re-arm the fan-out for
 		// each restored window, mirroring handle()'s spawn (in-flight guarded).
-		if c.querier != nil && len(c.cfg.PushPixieTables) > 0 && !c.inFlight[row.AnomalyHash] {
+		if !c.cfg.DisableSelfSteer && c.querier != nil && len(c.cfg.PushPixieTables) > 0 && !c.inFlight[row.AnomalyHash] {
 			c.inFlight[row.AnomalyHash] = true
 			resume = append(resume, row)
 		}
@@ -491,7 +498,7 @@ func (c *Controller) handle(ctx context.Context, ev kubescape.Event) {
 	snapshot := *row
 	// Decide AND mark inFlight under the same mutex acquisition so two
 	// rapid events for the same hash can't both decide to spawn.
-	spawn := c.querier != nil && len(c.cfg.PushPixieTables) > 0 && !c.inFlight[hash]
+	spawn := !c.cfg.DisableSelfSteer && c.querier != nil && len(c.cfg.PushPixieTables) > 0 && !c.inFlight[hash]
 	if spawn {
 		c.inFlight[hash] = true
 	}

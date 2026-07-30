@@ -416,6 +416,9 @@ func main() {
 		After:                     durEnv(envWindowAfterSec, 5*time.Minute, time.Second),
 		QueryLag:                  durEnv(envQueryLagSec, 30*time.Second, time.Second),
 		ExportAllFloor:            durEnv(envExportAllFloorSec, 30*time.Second, time.Second),
+		// EXPORT_MODE=never → the kubescape trigger stops self-steering; only a
+		// control client (dx) drives exports via /export/start + /query.
+		DisableSelfSteer: strings.EqualFold(strings.TrimSpace(os.Getenv("EXPORT_MODE")), "never"),
 		MaxParallelQueriesPerHash: intEnvOrZero(envMaxParallelQueriesPerHash),
 		MaxInflightQueriesGlobal:  intEnvOrZero(envMaxInflightQueriesGlobal),
 		EmptyResultSkipAfterN:     intEnvOrZero(envEmptyResultSkipAfterN),

@@ -480,12 +480,25 @@ func main() {
 	var pixieAdapterInst *pixieapi.Adapter
 	if len(ctlCfg.PushPixieTables) > 0 || streamingMode || passthroughEnabled || deployTracepoints {
 		var adapter *pixieapi.Adapter
-		if direct := os.Getenv("ADAPTIVE_VIZIER_DIRECT_ADDR"); direct != "" {
-			// Direct mode — bypass the cloud's passthrough proxy and
-			// connect to the in-cluster vizier-query-broker. Use this
-			// on self-hosted clouds where pxapi.WithAPIKey isn't
-			// authorized for the cluster (e.g. a freshly-deployed
-			// vizier whose ID isn't yet linked to the API key's owner).
+		// DEFAULT to pem-direct: query THIS node's own vizier-pem at HOST_IP:50305
+		// directly. It is node-local (matches the node-scoped AE), desync-immune
+		// (no kelvin/broker aggregation — the recurring "Agent ids not the same
+		// size" desync silently drops passthrough/broker queries) and fast. The
+		// default kicks in when the deploy provides HOST_IP (downward-API
+		// status.hostIP) + PL_JWT_SIGNING_KEY (the direct-query JWT); otherwise it
+		// falls back to cloud passthrough. An explicit ADAPTIVE_VIZIER_DIRECT_ADDR
+		// still wins (e.g. broker :50300 for a cluster-wide query).
+		direct := os.Getenv("ADAPTIVE_VIZIER_DIRECT_ADDR")
+		if direct == "" {
+			if hip := strings.TrimSpace(os.Getenv("HOST_IP")); hip != "" && os.Getenv("PL_JWT_SIGNING_KEY") != "" {
+				direct = hip + ":50305"
+				_ = os.Setenv("ADAPTIVE_VIZIER_DIRECT_ADDR", direct) // NewDirectFromEnv reads it
+				log.WithField("addr", direct).Info("pixieapi: defaulting to pem-direct (node-local PEM)")
+			}
+		}
+		if direct != "" {
+			// Direct mode — bypass the cloud passthrough proxy and connect to the
+			// in-cluster vizier-pem (pem-direct, default) or query-broker.
 			a, err := pixieapi.NewDirectFromEnv(cfg.Pixie().ClusterID())
 			if err != nil {
 				log.WithError(err).Fatal("ADAPTIVE_VIZIER_DIRECT_ADDR set but direct-mode adapter init failed")

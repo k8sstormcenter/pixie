@@ -70,7 +70,6 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	// metadata_ops.h UPIDToPodNameUDF::Exec → absl::Substitute("$0/$1", ns, name)),
 	// not the bare pod name. Dark-vector tracepoint tables (pid-keyed) resolve pod
 	// via a process_stats pid-merge instead and yield a BARE pod name (dx#126).
-	b.WriteString(PodEnrichPxL(table))
 	if IsDarkVector(table) {
 		// Dark-vector tracepoints emit a RAW kernel pid. The malignant transient
 		// pids an incident actually produces — an attack's whoami/cat/getent
@@ -78,12 +77,18 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 		// pod/namespace resolves BLANK; a pod (or even namespace) filter drops
 		// exactly the evidence, which is why the dark tables came back empty.
 		// The AE is node-local (pem-direct → the node's own PEM), so the query is
-		// already scoped to the alert's node — we keep every dark row in the
-		// window and only drop the infra/self comms (env-driven, no recompile) so
-		// the workload's dark activity (incl. the transient attack procs) is
-		// captured without the node's system noise.
+		// already scoped to the alert's node.
+		//
+		// ORDER MATTERS: drop the infra/self comms FIRST (env-driven, no recompile),
+		// THEN do the process_stats pid-merge. The node's dark stream is huge
+		// (Formatter/vector/runc/... thousands of rows per window); merging every
+		// one against process_stats is the query that timed out and silently
+		// dropped dc_snoop. Filtering comm first shrinks the merge to the handful
+		// of workload rows (bash/redis/whoami/cat), so the dark capture completes.
 		b.WriteString(darkCommExclusion(table))
+		b.WriteString(PodEnrichPxL(table))
 	} else {
+		b.WriteString(PodEnrichPxL(table))
 		if t.Namespace != "" {
 			b.WriteString("df = df[df.namespace == '" + escapePxL(t.Namespace) + "']\n")
 		}
@@ -116,11 +121,15 @@ var darkVectorHasComm = map[string]bool{
 // recompile. Kept in sync with script.presets defaultExcludeComms.
 var darkExcludeCommsDefault = []string{
 	"pem", "kelvin", "containerd", "containerd-shim", "runc", "node-agent",
+	"runc:[2:INIT]", "runc:[1:CHILD]",
 	"vizier-query-broker", "vizier-metadata", "nats-server", "k3s-server",
 	"k3s-agent", "systemd", "systemd-journal", "SystemLogFlush", "kubelet",
 	"AsyncInsertQ", "BgSchPool", "Collector", "AsyncMetrics", "MergeMutate",
-	"MergeTreeIndex", "coredns", "metadata", "storage", "operator", "iptables",
-	"ip6tables", "ConfigReloader", "clickhouse-oper",
+	"MergeTreeIndex", "CgrpMemUsgObsr", "coredns", "metadata", "storage",
+	"operator", "iptables", "iptables-save", "iptables-restor", "ip6tables",
+	"ConfigReloader", "clickhouse-oper", "Formatter", "(setup.sh)", "cmd",
+	"vector-worker", "metrics-server", "local-path-prov", "portmap",
+	"(udev-worker)", "systemd-resolve", "systemd-timesyn",
 }
 
 // darkCommExclusion builds the infra-comm drop filter for a dark-vector table

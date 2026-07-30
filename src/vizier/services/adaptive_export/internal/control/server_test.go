@@ -54,6 +54,39 @@ func (f *fakeRunner) OrderQuery(t anomaly.Target, table string, start, end time.
 	return f.err
 }
 
+// fakeExportAller implements BOTH queryRunner and exportAller — the controller's
+// real shape. It sends the OrderExportAll target on a channel so the test can
+// assert /export/start drove the steer-all full-evidence capture.
+type fakeExportAller struct {
+	fakeRunner
+	exported chan anomaly.Target
+}
+
+func (f *fakeExportAller) OrderExportAll(t anomaly.Target, start, end time.Time) {
+	f.exported <- t
+}
+
+// TestStartExportDrivesSteerAll pins the steer-all contract: a POST /export/start
+// (what dx sends default-on per referral) triggers OrderExportAll for the pod —
+// i.e. dx steers AE to grab the complete evidence set, no per-table decision.
+func TestStartExportDrivesSteerAll(t *testing.T) {
+	rn := &fakeExportAller{exported: make(chan anomaly.Target, 1)}
+	srv := New(&fakeExporter{}, rn)
+	r := do(t, srv, http.MethodPost, "/export/start",
+		`{"namespace":"redis","pod":"redis-1","t_end":1785000000}`)
+	if r.StatusCode != http.StatusAccepted {
+		t.Fatalf("want 202, got %d", r.StatusCode)
+	}
+	select {
+	case got := <-rn.exported:
+		if got.Pod != "redis-1" || got.Namespace != "redis" {
+			t.Fatalf("steer-all target wrong: %+v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OrderExportAll not called by /export/start within 2s")
+	}
+}
+
 func do(t *testing.T, srv *Server, method, path, body string) *http.Response {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))

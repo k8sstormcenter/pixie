@@ -32,6 +32,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -318,6 +319,38 @@ func (c *Controller) OrderQuery(target anomaly.Target, table string, start, end 
 		"table": table, "rows": len(rows), "pod": target.Pod, "query_id": queryID,
 	}).Info("ordered pixie rows written to forensic_db (dx→AE /query)")
 	return nil
+}
+
+// OrderExportAll runs a one-shot OrderQuery for EVERY configured pixie table for
+// the target/window — the control-surface "steer-all" path. A control client
+// (dx) asks AE to capture the COMPLETE evidence set for an anomaly's pod, with NO
+// per-table relevance decision: dx filters only to (namespace, pod), AE grabs
+// everything that could be relevant. Tables run concurrently (each OrderQuery
+// takes the globalSem itself, so MaxInflightQueriesGlobal still bounds broker
+// load), best-effort — a per-table error is logged and skipped so one slow/empty
+// table can't block the rest. The deterministic query_id makes overlapping
+// anomalies on the same pod idempotent (same target+table+window → same id).
+func (c *Controller) OrderExportAll(target anomaly.Target, start, end time.Time) {
+	if c.querier == nil || len(c.cfg.PushPixieTables) == 0 {
+		return
+	}
+	log.WithFields(log.Fields{
+		"pod": target.Pod, "namespace": target.Namespace, "tables": len(c.cfg.PushPixieTables),
+	}).Info("OrderExportAll: dx-steered full-evidence capture for anomaly pod")
+	var wg sync.WaitGroup
+	for _, table := range c.cfg.PushPixieTables {
+		wg.Add(1)
+		go func(table string) {
+			defer wg.Done()
+			qid := fmt.Sprintf("steerall:%s/%s:%s:%d-%d",
+				target.Namespace, target.Pod, table, start.Unix(), end.Unix())
+			if err := c.OrderQuery(target, table, start, end, qid); err != nil {
+				log.WithError(err).WithFields(log.Fields{"table": table, "pod": target.Pod}).
+					Warn("OrderExportAll: table export failed (skipped)")
+			}
+		}(table)
+	}
+	wg.Wait()
 }
 
 // Rehydrate populates the in-memory active set from ClickHouse so a

@@ -53,6 +53,20 @@ type queryRunner interface {
 	OrderQuery(target anomaly.Target, table string, start, end time.Time, queryID string) error
 }
 
+// exportAller is the optional "steer-all" capability behind /export/start: given
+// a target, capture the COMPLETE evidence set (every configured pixie table) for
+// its pod. The controller implements it. Optional (type-asserted) so start/stop-
+// only deployments and test mocks that only implement queryRunner still compile.
+type exportAller interface {
+	OrderExportAll(target anomaly.Target, start, end time.Time)
+}
+
+// controlExportLookbackS is how far back /export/start reaches when a client
+// (dx) steers a full capture — it sends only t_end, so AE captures
+// [t_end-lookback, t_end]. 600s mirrors dx's ±300s referral window so the
+// anomaly is comfortably inside the pulled slice.
+const controlExportLookbackS = 600
+
 // graphWriter persists dx evidence-graph edges (newline-delimited JSON,
 // JSONEachRow) to forensic_db.dx_evidence_graph. nil → /dx/evidence_graph 501s.
 type graphWriter interface {
@@ -290,6 +304,16 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.set.Upsert(req.key(), time.Unix(req.TEnd, 0))
+	// Steer-all: when a querier is wired (pull mode), a StartExport is dx telling
+	// AE "grab the complete evidence set for this pod." The activeSet.Upsert above
+	// only feeds streaming mode, so in pull mode drive the full-table capture here.
+	// Async: the fan-out is slow (one query per table); dx must get its 202 back
+	// immediately and not block on the export.
+	if ea, ok := s.runner.(exportAller); ok {
+		lo := time.Unix(req.TEnd-controlExportLookbackS, 0)
+		hi := time.Unix(req.TEnd, 0)
+		go ea.OrderExportAll(req.target(), lo, hi)
+	}
 	w.WriteHeader(http.StatusAccepted)
 }
 

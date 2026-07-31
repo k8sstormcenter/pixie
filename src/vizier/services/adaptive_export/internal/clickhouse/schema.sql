@@ -108,9 +108,9 @@ CREATE TABLE IF NOT EXISTS forensic_db.http_events (
     latency        Int64,
     hostname       String,
     event_time     DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
-) ENGINE = MergeTree()
+) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time);
+  ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_method, req_path);
 
 -- http2_messages.beta — http2_messages_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.`http2_messages.beta` (
@@ -153,9 +153,9 @@ CREATE TABLE IF NOT EXISTS forensic_db.dns_events (
     latency     Int64,
     hostname    String,
     event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
-) ENGINE = MergeTree()
+) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time);
+  ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_body);
 
 -- redis_events — redis_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.redis_events (
@@ -175,9 +175,9 @@ CREATE TABLE IF NOT EXISTS forensic_db.redis_events (
     latency     Int64,
     hostname    String,
     event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
-) ENGINE = MergeTree()
+) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time);
+  ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_cmd);
 
 -- mysql_events — mysql_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.mysql_events (
@@ -384,9 +384,9 @@ CREATE TABLE IF NOT EXISTS forensic_db.conn_stats (
     bytes_recv    Int64,
     hostname      String,
     event_time    DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
-) ENGINE = MergeTree()
+) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time);
+  ORDER BY (hostname, event_time, time_, upid, remote_addr, remote_port, trace_role);
 
 -- ============================================================================
 -- adaptive_attribution — operator's only write target in ClickHouse.
@@ -661,7 +661,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.dc_snoop (
   container String,
   hostname String,
   event_time DateTime64(9, 'UTC')
-) ENGINE = MergeTree ORDER BY (event_time, pod);
+) ENGINE = ReplacingMergeTree ORDER BY (time_, pid, comm, t, file, pod);
 
 -- stack_trace (native continuous profiler stack_traces.beta, V9) — OTel export.
 CREATE TABLE IF NOT EXISTS forensic_db.stack_trace (
@@ -675,7 +675,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.stack_trace (
   stack_trace String,
   count Int64,
   event_time DateTime64(9, 'UTC')
-) ENGINE = MergeTree ORDER BY (event_time, pod);
+) ENGINE = ReplacingMergeTree ORDER BY (time_, upid, stack_trace_id, pod);
 
 -- creds_change (commit_creds privilege-escalation to root, V7) — OTel export.
 CREATE TABLE IF NOT EXISTS forensic_db.creds_change (
@@ -689,4 +689,4 @@ CREATE TABLE IF NOT EXISTS forensic_db.creds_change (
   container String,
   hostname String,
   event_time DateTime64(9, 'UTC')
-) ENGINE = MergeTree ORDER BY (event_time, pod);
+) ENGINE = ReplacingMergeTree ORDER BY (time_, pid, comm, old_uid, new_uid, pod);

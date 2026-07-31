@@ -63,14 +63,37 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	var b strings.Builder
 	b.WriteString(pxSetMaxRows)
 	b.WriteString("import px\n")
-	b.WriteString("df = px.DataFrame(table='" + table + "', start_time='" + relStart + "')\n")
+	b.WriteString("df = px.DataFrame(table='" + pixieSourceFor(table) + "', start_time='" + relStart + "')\n")
 	b.WriteString("df = df[df.time_ >= px.int64_to_time(" + strconv.FormatInt(sliceStart.UnixNano(), 10) + ")]\n")
 	b.WriteString("df = df[df.time_ <  px.int64_to_time(" + strconv.FormatInt(sliceEnd.UnixNano(), 10) + ")]\n")
 	// Native tables: px.upid_to_pod_name returns "<namespace>/<pod>" (carnot:
 	// metadata_ops.h UPIDToPodNameUDF::Exec → absl::Substitute("$0/$1", ns, name)),
 	// not the bare pod name. Dark-vector tracepoint tables (pid-keyed) resolve pod
 	// via a process_stats pid-merge instead and yield a BARE pod name (dx#126).
-	if IsDarkVector(table) {
+	if table == "stack_trace" {
+		// stack_trace is the CANONICAL native continuous profiler (stack_traces.beta,
+		// upid-keyed — NOT a pid tracepoint, so NOT a dark-vector pid-merge). Resolve
+		// pod/namespace/container/hostname exactly like the export preset
+		// (script/presets/stack_trace.pxl) and stamp event_time = time_ so the CH
+		// stack_trace row is complete. df.ctx['pod'] is the NAMESPACED "<ns>/<pod>"
+		// key (verified live), so the pod filter is namespaced — same as the native
+		// upid_to_pod_name path below.
+		b.WriteString("df.namespace = df.ctx['namespace']\n")
+		b.WriteString("df.pod = df.ctx['pod']\n")
+		b.WriteString("df.container = df.ctx['container']\n")
+		b.WriteString("df.hostname = px.upid_to_node_name(df.upid)\n")
+		b.WriteString("df.event_time = df.time_\n")
+		if t.Namespace != "" {
+			b.WriteString("df = df[df.namespace == '" + escapePxL(t.Namespace) + "']\n")
+		}
+		if t.Pod != "" {
+			if t.Namespace != "" {
+				b.WriteString("df = df[df.pod == '" + escapePxL(t.Namespace+"/"+t.Pod) + "']\n")
+			} else {
+				b.WriteString("df = df[px.regex_match('^[^/]+/" + escapePxL(regexp.QuoteMeta(t.Pod)) + "$', df.pod)]\n")
+			}
+		}
+	} else if IsDarkVector(table) {
 		// Dark-vector tracepoints emit a RAW kernel pid. The malignant transient
 		// pids an incident actually produces — an attack's whoami/cat/getent
 		// children — are too short-lived to land in process_stats, so their
@@ -105,6 +128,18 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	}
 	b.WriteString("px.display(df, '" + table + "')\n")
 	return b.String(), nil
+}
+
+// pixieSourceFor returns the Pixie table a builtin is sourced FROM when it
+// differs from the ClickHouse table it is written TO. stack_trace is written to
+// CH as 'stack_trace' but sourced from the CANONICAL native continuous profiler
+// 'stack_traces.beta' — the always-on Pixie profiler, NOT an AE-invented table.
+// (Dotted-name DataFrames compile fine in a direct query; verified live.)
+func pixieSourceFor(table string) string {
+	if table == "stack_trace" {
+		return "stack_traces.beta"
+	}
+	return table
 }
 
 // darkVectorHasComm lists the dark-vector tables that carry a `comm` column, so

@@ -33,6 +33,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -135,6 +136,15 @@ type Config struct {
 	// captures over overlapping windows. Defaulted to 30s in defaulted().
 	ExportAllFloor time.Duration
 
+	// OrderChunk is the sub-window span the ordered path (OrderQuery) walks the
+	// capture window in. Each chunk is a both-sides bounded pixie query, so no single
+	// query re-scans the whole (up to 600s) window on the node-local PEM — the fix for
+	// heavy tables (dc_snoop) losing the per-query deadline race under the
+	// OrderExportAll fan-out. A chunk that still times out under contention is
+	// adaptively halved down to orderMinChunk. Defaulted to defaultOrderChunk in
+	// defaulted(); env ADAPTIVE_ORDER_CHUNK_SEC overrides.
+	OrderChunk time.Duration
+
 	// === Throughput-protection knobs ===
 	//
 	// At high anomaly rates (many concurrent active hashes), the default
@@ -207,8 +217,23 @@ func (c *Config) defaulted() Config {
 	if out.ExportAllFloor == 0 {
 		out.ExportAllFloor = 30 * time.Second
 	}
+	if out.OrderChunk == 0 {
+		out.OrderChunk = defaultOrderChunk
+	}
 	return out
 }
+
+const (
+	// defaultOrderChunk is the sub-window the ordered path walks the capture window
+	// in. 60s over the 600s control lookback = 10 bounded queries per table, each
+	// cheap enough to complete well inside the 180s deadline even when 20 tables
+	// fan out concurrently against one node-local PEM.
+	defaultOrderChunk = 60 * time.Second
+	// orderMinChunk is the floor for adaptive subdivision: a span this small that
+	// still fails is surfaced rather than split further (a 1s window that can't be
+	// captured is a real error, not contention).
+	orderMinChunk = 1 * time.Second
+)
 
 // Controller is the live orchestrator. One instance per operator process.
 type Controller struct {
@@ -295,23 +320,84 @@ func (c *Controller) OrderQuery(target anomaly.Target, table string, start, end 
 		return errors.New("controller: no pixie querier (operator-side push disabled)")
 	}
 	now := c.clock.Now()
-	q, err := pxl.QueryFor(table, target, start, end, now)
-	if err != nil {
-		return err
+	chunk := c.cfg.OrderChunk
+	if chunk <= 0 {
+		chunk = defaultOrderChunk
 	}
-	// Background ctx with per-op timeouts mirroring pushPixieRows: a control-ordered
-	// capture must complete independently of any anomaly window's lifecycle.
-	var readCount, wroteCount int
-	var recErr string
-	defer func() {
-		c.cfg.Rec.Record(context.Background(), reconcile.Row{
-			TS: now, Mode: "ordered", Table: table,
-			Namespace: target.Namespace, Pod: target.Pod,
-			WinStart: start, WinEnd: end,
-			ReadCount: int64(readCount), WroteCount: int64(wroteCount),
-			WriteErr: recErr, Hostname: c.cfg.Hostname,
-		})
-	}()
+	// Walk the window oldest→newest in fixed chunks. Each chunk is a both-sides
+	// bounded pixie query (QueryFor stamps end_time), so no single query re-scans the
+	// whole window on the node-local PEM — the flaky-capture fix. captureSpan halves
+	// any chunk that still times out under fan-out contention. Chunks run
+	// sequentially per table, so OrderExportAll's per-table concurrency (20 tables)
+	// is unchanged while each table now issues cheap bounded queries instead of one
+	// firehose. ReplacingMergeTree makes the overlapping/retried spans idempotent.
+	var readTotal, wroteTotal int
+	var firstErr error
+	for s := start; s.Before(end); s = s.Add(chunk) {
+		e := s.Add(chunk)
+		if e.After(end) {
+			e = end
+		}
+		qid := fmt.Sprintf("%s:%d-%d", queryID, s.Unix(), e.Unix())
+		r, w, err := c.captureSpan(target, table, s, e, qid)
+		readTotal += r
+		wroteTotal += w
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	recErr := ""
+	if firstErr != nil {
+		recErr = firstErr.Error()
+	}
+	// One reconcile row per table, aggregating every chunk — the read/wrote counts a
+	// forensic dump reads stay per-table, not per-chunk.
+	c.cfg.Rec.Record(context.Background(), reconcile.Row{
+		TS: now, Mode: "ordered", Table: table,
+		Namespace: target.Namespace, Pod: target.Pod,
+		WinStart: start, WinEnd: end,
+		ReadCount: int64(readTotal), WroteCount: int64(wroteTotal),
+		WriteErr: recErr, Hostname: c.cfg.Hostname,
+	})
+	return firstErr
+}
+
+// captureSpan captures [start,end) for one table, subdividing on a transient
+// (deadline/overload) failure down to orderMinChunk. A span that times out under
+// PEM contention is retried as two half-spans — each scans less data at the source
+// (QueryFor bounds end_time), so a dense window that blows the 180s deadline as one
+// query completes as several small ones. Idempotent: overlapping/retried spans
+// dedupe in the ReplacingMergeTree evidence tables. Non-transient errors (e.g. a
+// missing dark-vector table) surface immediately without wasteful splitting.
+func (c *Controller) captureSpan(target anomaly.Target, table string, start, end time.Time, queryID string) (readCount, wroteCount int, err error) {
+	r, w, e := c.orderQuerySlice(target, table, start, end, queryID)
+	if e == nil || !isRetriableSpanErr(e) || end.Sub(start) <= orderMinChunk {
+		return r, w, e
+	}
+	log.WithError(e).WithFields(log.Fields{
+		"table": table, "pod": target.Pod, "span": end.Sub(start).String(),
+	}).Warn("ordered capture: transient failure, subdividing span")
+	mid := start.Add(end.Sub(start) / 2)
+	r1, w1, e1 := c.captureSpan(target, table, start, mid, queryID+".l")
+	r2, w2, e2 := c.captureSpan(target, table, mid, end, queryID+".r")
+	if e1 != nil {
+		return r1 + r2, w1 + w2, e1
+	}
+	return r1 + r2, w1 + w2, e2
+}
+
+// orderQuerySlice runs ONE bounded (target, table, [start,end)) capture: query
+// pixie, write the rows, return the read/wrote counts. It records NO reconcile row —
+// the OrderQuery driver aggregates across chunks and records once. globalSem still
+// bounds broker load per slice. Background ctx with per-op timeouts mirrors
+// pushPixieRows: a control-ordered capture completes independently of any anomaly
+// window's lifecycle.
+func (c *Controller) orderQuerySlice(target anomaly.Target, table string, start, end time.Time, queryID string) (readCount, wroteCount int, err error) {
+	now := c.clock.Now()
+	q, qerr := pxl.QueryFor(table, target, start, end, now)
+	if qerr != nil {
+		return 0, 0, qerr
+	}
 	if c.globalSem != nil {
 		c.globalSem <- struct{}{}
 		defer func() { <-c.globalSem }()
@@ -320,25 +406,45 @@ func (c *Controller) OrderQuery(target anomaly.Target, table string, start, end 
 	rows, qerr := c.querier.Query(qctx, q)
 	cancel()
 	if qerr != nil {
-		recErr = qerr.Error()
-		return qerr
+		return 0, 0, qerr
 	}
-	readCount = len(rows)
 	if len(rows) == 0 {
-		return nil // nothing to persist; the read/0-wrote reconcile row still records it
+		return 0, 0, nil // nothing to persist; the driver's reconcile row still records the read
 	}
 	wctx, wcancel := context.WithTimeout(context.Background(), 60*time.Second)
 	werr := c.sink.WritePixieRows(wctx, table, rows)
 	wcancel()
 	if werr != nil {
-		recErr = werr.Error()
-		return werr
+		return len(rows), 0, werr
 	}
-	wroteCount = len(rows)
 	log.WithFields(log.Fields{
 		"table": table, "rows": len(rows), "pod": target.Pod, "query_id": queryID,
 	}).Info("ordered pixie rows written to forensic_db (dx→AE /query)")
-	return nil
+	return len(rows), len(rows), nil
+}
+
+// isRetriableSpanErr reports whether a slice error is a transient overload/timeout
+// worth retrying as a narrower span (vs. a structural error like a missing table,
+// which no amount of subdivision fixes). Covers ctx deadlines and the gRPC status
+// strings the pixie querier surfaces (DeadlineExceeded / ResourceExhausted /
+// Unavailable), which do NOT satisfy errors.Is(context.DeadlineExceeded).
+func isRetriableSpanErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	s := strings.ToLower(err.Error())
+	for _, m := range []string{
+		"deadline", "timeout", "exceeded", "resourceexhausted",
+		"resource exhausted", "unavailable", "context canceled", "context cancelled",
+	} {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // OrderExportAll runs a one-shot OrderQuery for EVERY configured pixie table for

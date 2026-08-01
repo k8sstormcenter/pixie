@@ -63,7 +63,18 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	var b strings.Builder
 	b.WriteString(pxSetMaxRows)
 	b.WriteString("import px\n")
-	b.WriteString("df = px.DataFrame(table='" + pixieSourceFor(table) + "', start_time='" + relStart + "')\n")
+	// Bound the PEM source scan on BOTH sides. Without an end_time the planner
+	// scans [sliceStart, now] for EVERY query, so an old ordered window (e.g. the
+	// 600s control lookback) re-materializes the whole span on the node-local PEM;
+	// under the OrderExportAll fan-out the heavy tables (dc_snoop) then blow the
+	// per-query deadline and drop out (the flaky-capture RCA). relEndBound caps the
+	// scan at ~sliceEnd; the exact upper bound is still trimmed by the df.time_ <
+	// sliceEnd nanos filter below, so nothing real is clipped.
+	dfArgs := "table='" + pixieSourceFor(table) + "', start_time='" + relStart + "'"
+	if relEnd := relEndBound(now, sliceEnd); relEnd != "" {
+		dfArgs += ", end_time='" + relEnd + "'"
+	}
+	b.WriteString("df = px.DataFrame(" + dfArgs + ")\n")
 	b.WriteString("df = df[df.time_ >= px.int64_to_time(" + strconv.FormatInt(sliceStart.UnixNano(), 10) + ")]\n")
 	b.WriteString("df = df[df.time_ <  px.int64_to_time(" + strconv.FormatInt(sliceEnd.UnixNano(), 10) + ")]\n")
 	// Native tables: px.upid_to_pod_name returns "<namespace>/<pod>" (carnot:
@@ -128,6 +139,21 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	}
 	b.WriteString("px.display(df, '" + table + "')\n")
 	return b.String(), nil
+}
+
+// relEndBound returns a RELATIVE end_time ("-<n>s") that caps the PEM's source
+// scan at ~sliceEnd, or "" when sliceEnd is at/after now (scan to the live edge).
+// The gap is floored to whole seconds so the source window ends slightly LATER
+// than sliceEnd and never clips real rows — the precise upper bound is enforced by
+// the df.time_ < sliceEnd nanos post-filter. This is the load lever behind the
+// chunked ordered path: each chunk materializes only its own span instead of
+// [chunkStart, now].
+func relEndBound(now, sliceEnd time.Time) string {
+	gap := now.Sub(sliceEnd)
+	if gap < time.Second {
+		return "" // at/after now → default end_time (scan to now)
+	}
+	return "-" + strconv.FormatInt(int64(gap/time.Second), 10) + "s"
 }
 
 // pixieSourceFor returns the Pixie table a builtin is sourced FROM when it

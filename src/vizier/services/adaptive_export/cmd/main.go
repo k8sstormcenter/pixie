@@ -94,8 +94,12 @@ const (
 	// envExportAllFloorSec bounds how often the dx-steered full capture
 	// (OrderExportAll) re-runs for the same target. Default 30s.
 	envExportAllFloorSec = "ADAPTIVE_EXPORT_ALL_FLOOR_SEC"
-	envTriggerPollMS     = "ADAPTIVE_TRIGGER_POLL_MS"
-	envPruneIntervalSec  = "ADAPTIVE_PRUNE_INTERVAL_SEC"
+	// envOrderChunkSec is the sub-window the ordered path walks the capture window
+	// in, so each pixie query is both-sides bounded instead of re-scanning the whole
+	// window on the node-local PEM. Default 60s (see controller.Config.OrderChunk).
+	envOrderChunkSec    = "ADAPTIVE_ORDER_CHUNK_SEC"
+	envTriggerPollMS    = "ADAPTIVE_TRIGGER_POLL_MS"
+	envPruneIntervalSec = "ADAPTIVE_PRUNE_INTERVAL_SEC"
 
 	// envPushRefreshSec overrides controller.PushRefreshInterval. Unset →
 	// 30s default. A NEGATIVE value selects single-shot mode (one pull per
@@ -417,6 +421,7 @@ func main() {
 		After:          durEnv(envWindowAfterSec, 5*time.Minute, time.Second),
 		QueryLag:       durEnv(envQueryLagSec, 30*time.Second, time.Second),
 		ExportAllFloor: durEnv(envExportAllFloorSec, 30*time.Second, time.Second),
+		OrderChunk:     durEnv(envOrderChunkSec, 60*time.Second, time.Second),
 		// EXPORT_MODE=never → the kubescape trigger stops self-steering; only a
 		// control client (dx) drives exports via /export/start + /query.
 		DisableSelfSteer:          strings.EqualFold(strings.TrimSpace(os.Getenv("EXPORT_MODE")), "never"),

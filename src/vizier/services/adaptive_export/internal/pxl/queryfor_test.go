@@ -18,6 +18,7 @@ package pxl
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -338,5 +339,40 @@ func TestQueryFor_PodOnlyRegexEscapesQuoteMetaInjection(t *testing.T) {
 	}
 	if strings.Contains(q, "exec(") || strings.Count(q, "\n") > 9 {
 		t.Fatalf("pod-only path injection succeeded:\n%s", q)
+	}
+}
+
+// TestQueryFor_EndTimeBoundsPastWindow — a window whose upper bound is in the past
+// must emit a relative end_time so the PEM scan is bounded on BOTH sides (not
+// [sliceStart, now]). The precise upper bound is still enforced by the df.time_ <
+// nanos post-filter.
+func TestQueryFor_EndTimeBoundsPastWindow(t *testing.T) {
+	// sliceEnd 2 minutes before now → end_time must appear.
+	end := fixedNow.Add(-2 * time.Minute)
+	start := fixedNow.Add(-7 * time.Minute)
+	q, err := QueryFor("dc_snoop", target, start, end, fixedNow)
+	if err != nil {
+		t.Fatalf("QueryFor: %v", err)
+	}
+	if !strings.Contains(q, "end_time='-120s'") {
+		t.Fatalf("past-window query must bound the source scan with end_time='-120s'; got:\n%s", q)
+	}
+	// exact upper bound still trimmed precisely in nanos.
+	if !strings.Contains(q, "df = df[df.time_ <  px.int64_to_time("+
+		strconv.FormatInt(end.UnixNano(), 10)+")]") {
+		t.Fatalf("precise nanos upper-bound filter must remain; got:\n%s", q)
+	}
+}
+
+// TestQueryFor_NoEndTimeAtLiveEdge — a window that reaches now must NOT emit
+// end_time (scan to the live edge), preserving the pre-chunking behavior for the
+// most-recent slice.
+func TestQueryFor_NoEndTimeAtLiveEdge(t *testing.T) {
+	q, err := QueryFor("dc_snoop", target, fixedNow.Add(-1*time.Minute), fixedNow, fixedNow)
+	if err != nil {
+		t.Fatalf("QueryFor: %v", err)
+	}
+	if strings.Contains(q, "end_time=") {
+		t.Fatalf("live-edge window must not bound end_time; got:\n%s", q)
 	}
 }

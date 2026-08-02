@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -45,12 +46,14 @@ func (f *fakeExporter) Remove(k activeset.Key) { f.removes = append(f.removes, k
 
 // fakeRunner records OrderQuery calls; err controls the failure path.
 type fakeRunner struct {
-	calls []string // "table|ns/pod|queryID"
-	err   error
+	calls              []string // "table|ns/pod|queryID"
+	lastStart, lastEnd time.Time
+	err                error
 }
 
 func (f *fakeRunner) OrderQuery(t anomaly.Target, table string, start, end time.Time, qid string) error {
 	f.calls = append(f.calls, table+"|"+t.Namespace+"/"+t.Pod+"|"+qid)
+	f.lastStart, f.lastEnd = start, end
 	return f.err
 }
 
@@ -311,3 +314,48 @@ func TestEvidenceManifest(t *testing.T) {
 		t.Fatalf("writer error: got %d, want 502", r.StatusCode)
 	}
 }
+
+// TestQueryWidensNarrowWindow — a control client that sends a near-zero window
+// (lo≈hi, e.g. dx keying on a single finding's event_time) would capture nothing;
+// the handler widens it to controlExportLookback ending at hi so the evidence
+// leading up to the referral is still captured.
+func TestQueryWidensNarrowWindow(t *testing.T) {
+	rn := &fakeRunner{}
+	srv := New(&fakeExporter{}, rn)
+	// hi = 10_000_000_000 ns, lo = hi - 512ns → a 512ns window (passes lo<hi).
+	hi := int64(10_000_000_000)
+	lo := hi - 512
+	resp := do(t, srv, http.MethodPost, "/query",
+		`{"pod":"p","namespace":"redis-demo","table":"dc_snoop","query_id":"q1","window":[`+
+			itoa(lo)+`,`+itoa(hi)+`]}`)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("want 202, got %d", resp.StatusCode)
+	}
+	got := rn.lastEnd.Sub(rn.lastStart)
+	if got < minControlQueryWindow {
+		t.Fatalf("narrow window must be widened to >= %v; got %v", minControlQueryWindow, got)
+	}
+	// hi must be preserved (we widen the lower bound only).
+	if rn.lastEnd.UnixNano() != hi {
+		t.Errorf("hi must be preserved; want %d got %d", hi, rn.lastEnd.UnixNano())
+	}
+}
+
+// A comfortably-wide window is passed through unchanged (no over-widening).
+func TestQueryWideWindowUnchanged(t *testing.T) {
+	rn := &fakeRunner{}
+	srv := New(&fakeExporter{}, rn)
+	hi := int64(1_000_000_000_000) // 1000s in ns, so lo stays positive
+	lo := hi - int64(120*time.Second)
+	resp := do(t, srv, http.MethodPost, "/query",
+		`{"pod":"p","namespace":"redis-demo","table":"dc_snoop","query_id":"q2","window":[`+
+			itoa(lo)+`,`+itoa(hi)+`]}`)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("want 202, got %d", resp.StatusCode)
+	}
+	if got := rn.lastEnd.Sub(rn.lastStart); got != 120*time.Second {
+		t.Errorf("wide window must pass through unchanged; want 120s got %v", got)
+	}
+}
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }

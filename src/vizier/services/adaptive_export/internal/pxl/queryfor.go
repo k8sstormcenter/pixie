@@ -121,6 +121,13 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 		// of workload rows (bash/redis/whoami/cat), so the dark capture completes.
 		b.WriteString(darkCommExclusion(table))
 		b.WriteString(PodEnrichPxL(table))
+		// AFTER the pid-merge resolves df.namespace: drop infra/system namespaces
+		// (blank-namespace transient workload rows are KEPT — see darkCommExclusion
+		// note; the attack's short-lived children resolve blank). This mirrors the
+		// shipped cron preset (script/presets dc_snoop.pxl __DC_SNOOP_EXCLUSION__);
+		// the OrderExportAll path was missing it, so infra pods' dcache churn
+		// (ConfigReloader/iptables/CNI/host daemons) flooded every dc_snoop capture.
+		b.WriteString(darkNamespaceExclusion())
 	} else {
 		b.WriteString(PodEnrichPxL(table))
 		if t.Namespace != "" {
@@ -191,6 +198,23 @@ var darkExcludeCommsDefault = []string{
 	"ConfigReloader", "clickhouse-oper", "Formatter", "(setup.sh)", "cmd",
 	"vector-worker", "metrics-server", "local-path-prov", "portmap",
 	"(udev-worker)", "systemd-resolve", "systemd-timesyn",
+	// host/CNI/node daemons that flood dc_snoop with dcache churn but carry no
+	// workload forensic value (observed leaking on a real k3s node, aeprod54).
+	"systemd-udevd", "systemd-sysctl", "host-local", "bridge", "flannel",
+	"loopback", "bandwidth", "dbus-daemon", "mount", "umount", "tailscaled",
+	"grpc_health_pro", "kubevuln", "opm", "(spawn)", "kube-proxy",
+}
+
+// darkExcludeNamespacesDefault drops infra/system namespaces from the node-scoped
+// dark capture (blank-namespace transient workload rows are KEPT — the attack's
+// short-lived children resolve blank, so a namespace filter must never drop them).
+// Overridable via DC_SNOOP_EXCLUDE_NAMESPACES (csv). Kept in sync with
+// script/presets.go defaultExcludeNamespaces — the shipped cron path already
+// filtered these; the dx-steered OrderExportAll path did not, so infra pods'
+// process churn flooded every capture.
+var darkExcludeNamespacesDefault = []string{
+	"pl", "honey", "px-operator", "olm", "clickhouse", "socdemo", "socdemo-ch",
+	"kube-system", "kube-public", "kube-node-lease", "local-path-storage",
 }
 
 // darkCommExclusion builds the infra-comm drop filter for a dark-vector table
@@ -211,6 +235,27 @@ func darkCommExclusion(table string) string {
 	var b strings.Builder
 	for _, c := range comms {
 		b.WriteString("df = df[df.comm != '" + escapePxL(c) + "']\n")
+	}
+	return b.String()
+}
+
+// darkNamespaceExclusion builds the infra-namespace drop filter for the node-scoped
+// dark capture. Emitted AFTER PodEnrichPxL resolves df.namespace. Blank-namespace
+// rows survive (each `!=` predicate is true for ”), so transient attack children
+// are never dropped. Overridable via DC_SNOOP_EXCLUDE_NAMESPACES (csv).
+func darkNamespaceExclusion() string {
+	nss := darkExcludeNamespacesDefault
+	if v := strings.TrimSpace(os.Getenv("DC_SNOOP_EXCLUDE_NAMESPACES")); v != "" {
+		nss = nil
+		for _, s := range strings.Split(v, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				nss = append(nss, s)
+			}
+		}
+	}
+	var b strings.Builder
+	for _, ns := range nss {
+		b.WriteString("df = df[df.namespace != '" + escapePxL(ns) + "']\n")
 	}
 	return b.String()
 }

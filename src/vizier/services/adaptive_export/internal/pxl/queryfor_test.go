@@ -376,3 +376,45 @@ func TestQueryFor_NoEndTimeAtLiveEdge(t *testing.T) {
 		t.Fatalf("live-edge window must not bound end_time; got:\n%s", q)
 	}
 }
+
+// TestQueryFor_DarkNamespaceExclusion — the node-scoped dark capture (dc_snoop)
+// must drop infra namespaces (pl, kube-system, …) while KEEPING blank-namespace
+// transient rows (the attack's short-lived children). Mirrors the shipped preset.
+func TestQueryFor_DarkNamespaceExclusion(t *testing.T) {
+	q, err := QueryFor("dc_snoop", target, fixedStart, fixedEnd, fixedNow)
+	if err != nil {
+		t.Fatalf("QueryFor: %v", err)
+	}
+	// namespace drops present for infra
+	for _, ns := range []string{"pl", "kube-system", "clickhouse"} {
+		if !strings.Contains(q, "df = df[df.namespace != '"+ns+"']") {
+			t.Errorf("dark capture must drop infra namespace %q; got:\n%s", ns, q)
+		}
+	}
+	// must NOT pin to the alert pod's namespace (node-scoped keeps blank + other workloads)
+	if strings.Contains(q, "df = df[df.namespace == '") {
+		t.Errorf("dark capture must not pin df.namespace ==; got:\n%s", q)
+	}
+	// host/CNI comm drops present
+	for _, c := range []string{"host-local", "systemd-udevd", "tailscaled", "kubevuln"} {
+		if !strings.Contains(q, "df = df[df.comm != '"+c+"']") {
+			t.Errorf("dark capture must drop host/CNI comm %q; got:\n%s", c, q)
+		}
+	}
+}
+
+// TestQueryFor_DarkNamespaceExclusion_EnvOverride — DC_SNOOP_EXCLUDE_NAMESPACES
+// replaces the default list.
+func TestQueryFor_DarkNamespaceExclusion_EnvOverride(t *testing.T) {
+	t.Setenv("DC_SNOOP_EXCLUDE_NAMESPACES", "foo,bar")
+	q, err := QueryFor("dc_snoop", target, fixedStart, fixedEnd, fixedNow)
+	if err != nil {
+		t.Fatalf("QueryFor: %v", err)
+	}
+	if !strings.Contains(q, "df = df[df.namespace != 'foo']") || !strings.Contains(q, "df = df[df.namespace != 'bar']") {
+		t.Errorf("env override must emit foo/bar drops; got:\n%s", q)
+	}
+	if strings.Contains(q, "df = df[df.namespace != 'pl']") {
+		t.Errorf("env override must REPLACE the default (no 'pl'); got:\n%s", q)
+	}
+}

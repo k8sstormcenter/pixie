@@ -184,3 +184,40 @@ func TestCaptureSpanTerminatesAtMinChunk(t *testing.T) {
 		t.Errorf("subdivision must terminate at orderMinChunk with a bounded call count, got %d", got)
 	}
 }
+
+// A persistently-timing-out multi-chunk window must NOT explode into a query storm.
+// Without guards, 10 chunks each subdividing 60s→1s ≈ 10×64 = 640 queries against a
+// saturated PEM. The depth cap (≤2^3 leaves/chunk) + circuit-breaker (stop
+// subdividing after orderBreakerTrip consecutive timeouts) bound it hard.
+func TestOrderQueryCircuitBreakerBoundsStorm(t *testing.T) {
+	snk := newRecordingSink()
+	q := &countingQuerier{failAll: true, failErr: deadlineErr}
+	end := canonicalEventTime
+	start := end.Add(-600 * time.Second) // 10 chunks @ 60s, all time out
+	_ = chunkCtl(snk, q, reconcile.Nop{}, 60*time.Second).
+		OrderQuery(oqTarget, "dc_snoop", start, end, "qid-storm")
+	got := q.callCount()
+	if got > 60 {
+		t.Errorf("depth-cap + circuit-breaker must bound the storm; got %d calls (want <=60, ungrafted would be ~640)", got)
+	}
+	if got < 10 {
+		t.Errorf("must still attempt each of the 10 chunks at least once; got %d", got)
+	}
+}
+
+// A healthy PEM (queries succeed) must NOT trip the breaker — subdivision stays
+// available for genuinely-oversized windows. A querier that fails ONCE then succeeds
+// still subdivides and recovers (breaker reset by the success).
+func TestCircuitBreakerResetsOnSuccess(t *testing.T) {
+	snk := newRecordingSink()
+	q := &countingQuerier{rows: []map[string]any{{"comm": "cat"}}, failN: 1, failErr: deadlineErr}
+	end := canonicalEventTime
+	start := end.Add(-8 * time.Second)
+	if err := chunkCtl(snk, q, reconcile.Nop{}, 60*time.Second).
+		OrderQuery(oqTarget, "dc_snoop", start, end, "qid-reset"); err != nil {
+		t.Fatalf("single transient failure must recover (breaker must not latch); got %v", err)
+	}
+	if snk.count("dc_snoop") < 1 {
+		t.Errorf("recovered subdivision must write rows; got %d", snk.count("dc_snoop"))
+	}
+}

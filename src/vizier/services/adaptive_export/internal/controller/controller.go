@@ -35,6 +35,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -268,7 +269,28 @@ type Controller struct {
 
 	exportAllMu sync.Mutex
 	exportAllAt map[string]time.Time // per-target floor for OrderExportAll (steer-all)
+
+	// orderTimeoutStreak counts CONSECUTIVE transient (deadline/overload) failures on
+	// the ordered path across all in-flight captures. Any successful ordered query
+	// resets it to 0. When it exceeds orderBreakerTrip the node-local PEM is treated
+	// as saturated and captureSpan STOPS subdividing (fails fast) — otherwise each
+	// timeout would spawn two narrower retries, and under the dx steering firehose
+	// (OrderExportAll × 20 tables × every noisy pod) that amplification turns a busy
+	// PEM into a query storm where nothing completes. The breaker makes subdivision
+	// safe: it splits a genuinely-too-large window on a healthy PEM, but never floods
+	// a saturated one.
+	orderTimeoutStreak atomic.Int32
 }
+
+const (
+	// maxOrderSplitDepth caps captureSpan recursion so one chunk can spawn at most
+	// 2^depth leaf queries even if it keeps timing out (3 → ≤8, vs. ~64 splitting a
+	// 60s chunk to the 1s floor). Bounds worst-case amplification per chunk.
+	maxOrderSplitDepth = 3
+	// orderBreakerTrip is the consecutive-timeout count above which captureSpan stops
+	// subdividing (PEM saturated → splitting only makes it worse). Reset by any success.
+	orderBreakerTrip = 8
+)
 
 // New wires a Controller. nil clock falls through to RealClock.
 // nil querier disables the rev-1 push path (controller will only
@@ -339,7 +361,7 @@ func (c *Controller) OrderQuery(target anomaly.Target, table string, start, end 
 			e = end
 		}
 		qid := fmt.Sprintf("%s:%d-%d", queryID, s.Unix(), e.Unix())
-		r, w, err := c.captureSpan(target, table, s, e, qid)
+		r, w, err := c.captureSpan(target, table, s, e, qid, 0)
 		readTotal += r
 		wroteTotal += w
 		if err != nil && firstErr == nil {
@@ -369,17 +391,32 @@ func (c *Controller) OrderQuery(target anomaly.Target, table string, start, end 
 // query completes as several small ones. Idempotent: overlapping/retried spans
 // dedupe in the ReplacingMergeTree evidence tables. Non-transient errors (e.g. a
 // missing dark-vector table) surface immediately without wasteful splitting.
-func (c *Controller) captureSpan(target anomaly.Target, table string, start, end time.Time, queryID string) (readCount, wroteCount int, err error) {
+//
+// Subdivision is bounded to stay SAFE under load: it stops at (a) the orderMinChunk
+// floor, (b) maxOrderSplitDepth (worst case ≤2^depth leaves per chunk), and (c) the
+// saturation circuit-breaker (orderTimeoutStreak > orderBreakerTrip). Without these,
+// a saturated node-local PEM under the dx steering firehose turns every timeout into
+// two retries → a query storm where nothing completes.
+func (c *Controller) captureSpan(target anomaly.Target, table string, start, end time.Time, queryID string, depth int) (readCount, wroteCount int, err error) {
 	r, w, e := c.orderQuerySlice(target, table, start, end, queryID)
 	if e == nil || !isRetriableSpanErr(e) || end.Sub(start) <= orderMinChunk {
 		return r, w, e
 	}
+	if depth >= maxOrderSplitDepth {
+		return r, w, e // depth-capped: don't amplify a persistently-failing span
+	}
+	if c.orderTimeoutStreak.Load() > orderBreakerTrip {
+		// PEM saturated (sustained timeouts) — splitting would only add load.
+		log.WithFields(log.Fields{"table": table, "pod": target.Pod}).
+			Warn("ordered capture: circuit-breaker open (PEM saturated), not subdividing")
+		return r, w, e
+	}
 	log.WithError(e).WithFields(log.Fields{
-		"table": table, "pod": target.Pod, "span": end.Sub(start).String(),
+		"table": table, "pod": target.Pod, "span": end.Sub(start).String(), "depth": depth,
 	}).Warn("ordered capture: transient failure, subdividing span")
 	mid := start.Add(end.Sub(start) / 2)
-	r1, w1, e1 := c.captureSpan(target, table, start, mid, queryID+".l")
-	r2, w2, e2 := c.captureSpan(target, table, mid, end, queryID+".r")
+	r1, w1, e1 := c.captureSpan(target, table, start, mid, queryID+".l", depth+1)
+	r2, w2, e2 := c.captureSpan(target, table, mid, end, queryID+".r", depth+1)
 	if e1 != nil {
 		return r1 + r2, w1 + w2, e1
 	}
@@ -406,8 +443,15 @@ func (c *Controller) orderQuerySlice(target anomaly.Target, table string, start,
 	rows, qerr := c.querier.Query(qctx, q)
 	cancel()
 	if qerr != nil {
+		// Feed the saturation circuit-breaker: sustained transient failures mean the
+		// node-local PEM is overloaded, so captureSpan should stop subdividing.
+		if isRetriableSpanErr(qerr) {
+			c.orderTimeoutStreak.Add(1)
+		}
 		return 0, 0, qerr
 	}
+	// A completed query means the PEM is serving — clear the breaker.
+	c.orderTimeoutStreak.Store(0)
 	if len(rows) == 0 {
 		return 0, 0, nil // nothing to persist; the driver's reconcile row still records the read
 	}

@@ -1,12 +1,6 @@
 ---
-# adaptive-export: node-local forensic capture operator. DaemonSet (not a
-# Deployment) because it defaults to PEM-DIRECT — each pod queries its OWN node's
-# vizier-pem at HOST_IP:50305, so it must run one-per-node and be co-located with
-# the PEM whose data it reads. (The old replicas:0 Deployment never ran and could
-# not do node-local pem-direct.)
-#
-# Secret pl-adaptive-export-secrets (pixie-api-key + clickhouse-dsn) is NOT bundled
-# in the kustomization — seed it per-cluster (see adaptive_export_secrets.yaml).
+# adaptive-export: node-local forensic capture operator. DaemonSet so each pod
+# queries its own node's vizier-pem (pem-direct). Secret seeded per-cluster.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -35,7 +29,6 @@ spec:
           requests: { cpu: 100m, memory: 128Mi }
           limits:   { cpu: "1",  memory: 1Gi }
         env:
-        # --- pem-direct: query THIS node's own vizier-pem (node-local, desync-immune)
         - name: HOST_IP
           valueFrom: { fieldRef: { fieldPath: status.hostIP } }
         - name: ADAPTIVE_VIZIER_DIRECT_ADDR
@@ -54,8 +47,6 @@ spec:
           valueFrom: { secretKeyRef: { name: pl-adaptive-export-secrets, key: clickhouse-dsn } }
         - name: KUBESCAPE_TABLE
           value: "kubescape_logs"
-        # --- dx-steered capture: dx drives OrderExportAll/OrderQuery via the control
-        #     surface; self-steer off so only dx opens capture windows.
         - name: EXPORT_MODE
           value: "never"
         - name: CONTROL_ADDR
@@ -68,9 +59,6 @@ spec:
           value: "true"
         - name: INSTALL_PRESET_SCRIPTS
           value: "false"
-        # --- PEM-protection: one node-local PEM serves both dx and AE, so cap the
-        #     AE's concurrent queries and issue ONE query per table (no window
-        #     pre-chunking) to avoid saturating it. See RCA_ae_capture_20260803.
         - name: ADAPTIVE_MAX_INFLIGHT_QUERIES_GLOBAL
           value: "4"
         - name: ADAPTIVE_ORDER_CHUNK_SEC

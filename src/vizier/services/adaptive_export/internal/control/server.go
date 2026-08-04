@@ -67,11 +67,8 @@ type exportAller interface {
 // anomaly is comfortably inside the pulled slice.
 const controlExportLookback = 600 * time.Second
 
-// minControlQueryWindow is the floor for a /query window. A control client that
-// keys the window on a single finding's timestamp can send a sub-microsecond span
-// (lo≈hi) that passes the lo<hi validation but matches no pixie rows; such windows
-// are widened to controlExportLookback ending at hi. 5s is comfortably above any
-// legitimate narrow window while catching the degenerate point-query case.
+// A /query window narrower than this is widened to controlExportLookback (a
+// point window keyed on one finding's timestamp matches no pixie rows).
 const minControlQueryWindow = 5 * time.Second
 
 // The control API carries timestamps in the pipeline's ONE unit: unix
@@ -362,14 +359,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	hi := time.Unix(0, req.Window[1]).UTC()
 	lo := time.Unix(0, req.Window[0]).UTC()
-	// Robustness: a control client that sends a near-zero window (e.g. dx keying the
-	// window on a single finding's event_time → lo≈hi, a few-hundred-ns span) would
-	// capture nothing — pixie has no rows in a sub-microsecond slice. Widen anything
-	// narrower than minControlQueryWindow to the standard lookback ending at hi, so a
-	// point-in-time referral still captures the evidence leading up to it. Mirrors
-	// /export/start, which already reaches back controlExportLookback.
 	if hi.Sub(lo) < minControlQueryWindow {
-		lo = hi.Add(-controlExportLookback)
+		lo = hi.Add(-controlExportLookback) // widen a point window
 	}
 	err := s.runner.OrderQuery(req.target(), req.Table, lo, hi, req.QueryID)
 	if err != nil {

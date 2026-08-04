@@ -418,3 +418,24 @@ func TestQueryFor_DarkNamespaceExclusion_EnvOverride(t *testing.T) {
 		t.Errorf("env override must REPLACE the default (no 'pl'); got:\n%s", q)
 	}
 }
+
+// dc_snoop drops kernel-thread families (variable suffix) via px.logicalNot(px.contains),
+// keeps workload comms (redis-server), and doesn't pin the alert pod's namespace.
+func TestQueryFor_DarkCommSubstringExclusion(t *testing.T) {
+	q, err := QueryFor("dc_snoop", target, fixedStart, fixedEnd, fixedNow)
+	if err != nil {
+		t.Fatalf("QueryFor: %v", err)
+	}
+	for _, sub := range []string{"kworker", "ksoftirqd", "rcu_"} {
+		want := "df = df[px.logicalNot(px.contains(df.comm, '" + sub + "'))]"
+		if !strings.Contains(q, want) {
+			t.Errorf("want kernel-thread drop %q; got:\n%s", want, q)
+		}
+	}
+	if strings.Contains(q, "df.comm != 'redis-server'") || strings.Contains(q, "df.comm, 'redis") {
+		t.Errorf("workload comm redis-* must NOT be excluded; got:\n%s", q)
+	}
+	if !strings.Contains(q, "df = df[df.comm != 'pause']") {
+		t.Errorf("want exact drop of 'pause'; got:\n%s", q)
+	}
+}

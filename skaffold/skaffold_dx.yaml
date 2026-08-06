@@ -1,13 +1,19 @@
+---
+# Deploy-only Skaffold for the dx-daemon DaemonSet (prebuilt image), overlaying an
+# already-running vizier + soc stack. Run from the repo root, AFTER adaptive_export
+# (the hook mirrors pl-adaptive-export-secrets into honey):
+#   skaffold deploy -f skaffold/skaffold_dx.yaml
 apiVersion: skaffold/v4beta11
 kind: Config
 metadata:
   name: dx-daemon
 manifests:
-  rawYaml:
-    - dx-daemon.yaml
+  kustomize:
+    paths:
+      - k8s/vizier/dx
 deploy:
   kubectl:
-    defaultNamespace: ""
+    defaultNamespace: honey
     hooks:
       before:
         - host:

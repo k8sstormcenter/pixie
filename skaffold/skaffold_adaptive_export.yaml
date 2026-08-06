@@ -1,3 +1,8 @@
+---
+# Deploy-only Skaffold for the adaptive_export DaemonSet using a prebuilt image
+# (lab / review), overlaying an already-running vizier. Run from the repo root:
+#   skaffold deploy -f skaffold/skaffold_adaptive_export.yaml
+# Bump the image via newTag in k8s/vizier/adaptive_export/kustomization.yaml.
 apiVersion: skaffold/v4beta11
 kind: Config
 metadata:
@@ -5,7 +10,7 @@ metadata:
 manifests:
   kustomize:
     paths:
-      - .
+      - k8s/vizier/adaptive_export
     buildArgs:
       - --load-restrictor=LoadRestrictionsNone
 deploy:
@@ -19,12 +24,10 @@ deploy:
               - -c
               - |
                 set -e
-                # PL_CLOUD_ADDR must carry an explicit :443 or the AE cloud client
-                # crashloops (see AE per-PG notes).
+                # PL_CLOUD_ADDR must carry an explicit :443 or the AE cloud client crashloops.
                 CA=$(kubectl -n pl get cm pl-cloud-config -o jsonpath='{.data.PL_CLOUD_ADDR}' 2>/dev/null || true)
                 case "$CA" in ""|*:*) ;; *) kubectl -n pl patch cm pl-cloud-config --type merge -p "{\"data\":{\"PL_CLOUD_ADDR\":\"$CA:443\"}}";; esac
-                # Seed pl-adaptive-export-secrets ONLY when a key is supplied, and
-                # never clobber an existing good secret with an empty one.
+                # Seed pl-adaptive-export-secrets ONLY when a key is supplied; never clobber a good secret with an empty one.
                 API="${PIXIE_API_KEY:-${PX_API_KEY:-}}"
                 CH_DSN="${AE_CH_DSN:-ingest_writer:changeme-ingest@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db}"
                 if [ -n "$API" ]; then

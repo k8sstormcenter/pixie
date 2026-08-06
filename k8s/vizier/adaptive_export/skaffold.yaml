@@ -1,0 +1,41 @@
+apiVersion: skaffold/v4beta11
+kind: Config
+metadata:
+  name: adaptive-export
+manifests:
+  kustomize:
+    paths:
+      - .
+    buildArgs:
+      - --load-restrictor=LoadRestrictionsNone
+deploy:
+  kubectl:
+    defaultNamespace: pl
+    hooks:
+      before:
+        - host:
+            command:
+              - bash
+              - -c
+              - |
+                set -e
+                # PL_CLOUD_ADDR must carry an explicit :443 or the AE cloud client
+                # crashloops (see AE per-PG notes).
+                CA=$(kubectl -n pl get cm pl-cloud-config -o jsonpath='{.data.PL_CLOUD_ADDR}' 2>/dev/null || true)
+                case "$CA" in ""|*:*) ;; *) kubectl -n pl patch cm pl-cloud-config --type merge -p "{\"data\":{\"PL_CLOUD_ADDR\":\"$CA:443\"}}";; esac
+                # Seed pl-adaptive-export-secrets ONLY when a key is supplied, and
+                # never clobber an existing good secret with an empty one.
+                API="${PIXIE_API_KEY:-${PX_API_KEY:-}}"
+                CH_DSN="${AE_CH_DSN:-ingest_writer:changeme-ingest@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db}"
+                if [ -n "$API" ]; then
+                  kubectl -n pl create secret generic pl-adaptive-export-secrets \
+                    --from-literal=pixie-api-key="$API" \
+                    --from-literal=clickhouse-dsn="$CH_DSN" \
+                    --dry-run=client -o yaml | kubectl apply -f -
+                elif ! kubectl -n pl get secret pl-adaptive-export-secrets >/dev/null 2>&1; then
+                  echo "ERROR: set PIXIE_API_KEY (or source keys.env) to seed pl-adaptive-export-secrets" >&2
+                  exit 1
+                else
+                  echo "pl-adaptive-export-secrets exists; PIXIE_API_KEY unset -> leaving it untouched"
+                fi
+            os: [linux, darwin]

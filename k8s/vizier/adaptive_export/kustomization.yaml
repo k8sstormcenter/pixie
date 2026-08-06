@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: pl
+resources:
+  - ../bootstrap/adaptive_export_role.yaml
+  - ../bootstrap/adaptive_export_deployment.yaml
+images:
+  - name: vizier-adaptive_export_image
+    newName: ghcr.io/k8sstormcenter/vizier-adaptive_export_image
+    newTag: 0.14.19-aeprod57

@@ -1,0 +1,36 @@
+apiVersion: skaffold/v4beta11
+kind: Config
+metadata:
+  name: dx-daemon
+manifests:
+  rawYaml:
+    - dx-daemon.yaml
+deploy:
+  kubectl:
+    defaultNamespace: ""
+    hooks:
+      before:
+        - host:
+            command:
+              - bash
+              - -c
+              - |
+                set -e
+                kubectl create namespace honey --dry-run=client -o yaml | kubectl apply -f -
+                JWT=$(kubectl -n pl get secret pl-cluster-secrets -o jsonpath='{.data.jwt-signing-key}' | base64 -d)
+                CID=$(kubectl -n pl get secret pl-cluster-secrets -o jsonpath='{.data.cluster-id}' | base64 -d)
+                CA=$(kubectl -n pl get cm pl-cloud-config -o jsonpath='{.data.PL_CLOUD_ADDR}')
+                API=$(kubectl -n pl get secret pl-adaptive-export-secrets -o jsonpath='{.data.pixie-api-key}' 2>/dev/null | base64 -d)
+                CH_URL="${DX_CH_HTTP_URL:-http://ingest_writer:changeme-ingest@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:8123/?database=forensic_db}"
+                kubectl -n honey create secret generic dx-vizier-direct \
+                  --from-literal=jwt-signing-key="$JWT" \
+                  --dry-run=client -o yaml | kubectl apply -f -
+                kubectl -n honey create secret generic dx-pixie-auth \
+                  --from-literal=api-key="$API" \
+                  --from-literal=cluster-id="$CID" \
+                  --from-literal=cloud-addr="$CA" \
+                  --dry-run=client -o yaml | kubectl apply -f -
+                kubectl -n honey create secret generic dx-metastasis-ch \
+                  --from-literal=http-url="$CH_URL" \
+                  --dry-run=client -o yaml | kubectl apply -f -
+            os: [linux, darwin]

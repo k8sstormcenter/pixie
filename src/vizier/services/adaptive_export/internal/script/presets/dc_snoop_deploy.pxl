@@ -34,21 +34,23 @@ struct nameidata {
                 // [...]
 };
 
-// pid_start/ppid/ppid_start/pcomm come from the current task's real_parent so
-// every dcache event carries its parent inline (curtask struct walks in a kprobe
-// are supported — see pxbeta/vfs_snoop). group_leader->start_time (ns since boot) gives a
-// pid-reuse-stable identity for both the process and its parent.
+// ppid/pcomm + start ticks come from curtask->parent, INLINE, matching the proven
+// exec_snoop form (src/pxl_scripts/bpftrace/exec_snoop + pxbeta/vfs_snoop): %d ints
+// (NOT the 64-bit 'lld' verb — not in Pixie's tracepoint printf subset; it misaligns every field
+// after it, which is why ppid parsed as 0), ->parent (not ->real_parent), and
+// group_leader->start_time/10000000 (clock ticks, fits %d, matches exec_snoop so a
+// future forest join on start_time is unit-consistent). Each dcache event now
+// carries its parent's identity + a pid-reuse-stable start for process and parent.
 kprobe:lookup_fast,
 kprobe:lookup_fast.constprop.*
 {
         $nd = (struct nameidata *)arg0;
-        $tk = (struct task_struct *)curtask;
-        printf("time_:%llu pid:%d pid_start:%lld ppid:%d ppid_start:%lld comm:%s pcomm:%s t:%s file:%s",
+        printf("time_:%llu pid:%d pid_start:%d ppid:%d ppid_start:%d comm:%s pcomm:%s t:%s file:%s",
                      nsecs, pid,
-                     $tk->group_leader->start_time,
-                     $tk->real_parent->pid,
-                     $tk->real_parent->group_leader->start_time,
-                     comm, $tk->real_parent->comm,
+                     ((struct task_struct*)curtask)->group_leader->start_time / 10000000,
+                     ((struct task_struct*)curtask)->parent->pid,
+                     ((struct task_struct*)curtask)->parent->group_leader->start_time / 10000000,
+                     comm, ((struct task_struct*)curtask)->parent->comm,
                      "R", str($nd->last.name));
 }
 
@@ -61,13 +63,12 @@ kprobe:d_lookup
 kretprobe:d_lookup
 /@fname[tid]/
 {
-        $tk = (struct task_struct *)curtask;
-        printf("time_:%llu pid:%d pid_start:%lld ppid:%d ppid_start:%lld comm:%s pcomm:%s t:%s file:%s",
+        printf("time_:%llu pid:%d pid_start:%d ppid:%d ppid_start:%d comm:%s pcomm:%s t:%s file:%s",
                      nsecs, pid,
-                     $tk->group_leader->start_time,
-                     $tk->real_parent->pid,
-                     $tk->real_parent->group_leader->start_time,
-                     comm, $tk->real_parent->comm,
+                     ((struct task_struct*)curtask)->group_leader->start_time / 10000000,
+                     ((struct task_struct*)curtask)->parent->pid,
+                     ((struct task_struct*)curtask)->parent->group_leader->start_time / 10000000,
+                     comm, ((struct task_struct*)curtask)->parent->comm,
                      "M", str(@fname[tid]));
         delete(@fname[tid]);
 }

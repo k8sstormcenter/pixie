@@ -56,20 +56,29 @@ func TestDcSnoopExportColumnsMatchSchema(t *testing.T) {
 }
 
 // TestDcSnoopTracepointCapturesParent — the bpftrace program must emit the parent
-// identity inline (curtask->real_parent) so every dcache event carries ppid/pcomm
-// and a pid-reuse-stable start time (group_leader->start_time) for both the process
-// and its parent — the process-forest edge.
+// identity inline (curtask->parent) so every dcache event carries ppid/pcomm and a
+// pid-reuse-stable start time (group_leader->start_time) for both the process and
+// its parent — the process-forest edge. Uses the exec_snoop-proven form: ->parent
+// (not ->real_parent) and %d ints (%lld is not in Pixie's tracepoint printf subset;
+// it misaligned every field after it, which is why ppid/pcomm parsed as 0).
 func TestDcSnoopTracepointCapturesParent(t *testing.T) {
 	for _, tok := range []string{
-		"real_parent", "ppid:", "pcomm:", "pid_start:", "ppid_start:", "group_leader->start_time",
+		"ppid:", "pcomm:", "pid_start:", "ppid_start:", "group_leader->start_time",
 	} {
 		if !strings.Contains(dcSnoopDeployScript, tok) {
 			t.Errorf("dc_snoop_deploy.pxl missing %q — parent/identity capture incomplete", tok)
 		}
 	}
-	// Both probe blocks (kprobe:lookup_fast + kretprobe:d_lookup) must carry it.
-	if n := strings.Count(dcSnoopDeployScript, "real_parent->pid"); n < 2 {
-		t.Errorf("dc_snoop_deploy.pxl: real_parent->pid must appear in BOTH probe blocks, got %d", n)
+	// Both probe blocks (kprobe:lookup_fast + kretprobe:d_lookup) must carry the
+	// parent pid via curtask->parent (the proven form; ->real_parent + %lld was the
+	// field-misalignment bug that captured ppid=0).
+	if n := strings.Count(dcSnoopDeployScript, "->parent->pid"); n < 2 {
+		t.Errorf("dc_snoop_deploy.pxl: ->parent->pid must appear in BOTH probe blocks, got %d", n)
+	}
+	// The %lld regression must not creep back — it silently zeroes every field after
+	// the first %lld.
+	if strings.Contains(dcSnoopDeployScript, "%lld") {
+		t.Error("dc_snoop_deploy.pxl uses percent-lld — not in Pixie's tracepoint printf subset; use percent-d")
 	}
 	// Tracepoint fields must be a superset of the raw (non-enriched) schema columns
 	// the export reads straight from the table.
@@ -78,6 +87,38 @@ func TestDcSnoopTracepointCapturesParent(t *testing.T) {
 			t.Errorf("dc_snoop_deploy.pxl printf missing field %q", c)
 		}
 	}
+}
+
+// TestDcSnoopAncestryFilterJoinsParentNamespace — the export must resolve the
+// parent's namespace via a process_stats join keyed on ppid, and the resolved
+// parent_namespace must be a TEMP column (used only for the drop, never projected
+// to the sink — else the INSERT gets an unknown column). The actual drops are
+// injected from env by presets.go and asserted in presets_test.go.
+func TestDcSnoopAncestryFilterJoinsParentNamespace(t *testing.T) {
+	for _, tok := range []string{
+		"par = px.DataFrame(table='process_stats'",
+		"par.parent_namespace = par.ctx['namespace']",
+		"par.ppid = px.upid_to_pid(par.upid)",
+		"left_on=['ppid'], right_on=['ppid']",
+		"# __DC_SNOOP_PARENT_EXCLUSION__",
+	} {
+		if !strings.Contains(dcSnoopScript, tok) {
+			t.Errorf("dc_snoop.pxl ancestry filter missing %q", tok)
+		}
+	}
+	// parent_namespace must NOT reach the sink — it is not a schema column.
+	if proj := lastProjection(dcSnoopScript); contains(proj, "parent_namespace") {
+		t.Error("parent_namespace leaked into the final projection — sink would reject the INSERT")
+	}
+}
+
+func contains(ss []string, want string) bool {
+	for _, s := range ss {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }
 
 // TestDcSnoopCollapseKeepsRepeats — the path-walk collapse must (a) exist and be

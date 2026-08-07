@@ -34,30 +34,32 @@ struct nameidata {
                 // [...]
 };
 
-// ppid + start ticks come from curtask->parent, INLINE, matching the proven
-// exec_snoop form (src/pxl_scripts/bpftrace/exec_snoop + pxbeta/vfs_snoop): %d ints
-// (NOT the 64-bit 'lld' verb — not in Pixie's tracepoint printf subset; it misaligns every field
-// after it, which is why ppid parsed as 0), ->parent (not ->real_parent), and
-// group_leader->start_time/10000000 (clock ticks, fits %d, matches exec_snoop so a
-// future forest join on start_time is unit-consistent).
+// pid_start/ppid/ppid_start/pcomm come from the current task's real_parent via a
+// $tk intermediate so every dcache event carries its parent inline (curtask struct
+// walks in a kprobe are supported — see pxbeta/vfs_snoop). group_leader->start_time
+// (ns since boot) is a pid-reuse-stable identity for the process and its parent.
 //
-// EXACTLY 8 printf args (5 numeric + 3 strings), the same profile as the proven
-// exec_snoop tracepoint. Pixie's tracepoint bpftrace rejects a 9th arg ("printf:
-// Too many arguments for format string") — the program then never compiles, the
-// tracepoint flaps FAILED<->RUNNING, and dc_snoop captures ZERO rows. A 9th field
-// (parent comm) blew that budget; it is dropped here. The ancestry filter needs
-// only ppid (it joins process_stats on ppid for the parent's namespace, never the
-// parent comm), and dx can resolve parent comm from ppid on the process forest.
+// This is the EXACT structure of the last image that CAPTURED (9fd0ca430: 49132
+// rows) — $tk intermediate, real_parent, raw group_leader->start_time, 9 args
+// including pcomm — with ONE change: the two u64 start fields use the unsigned
+// 64-bit verb, not the signed one. The signed 64-bit verb is not handled by
+// Pixie's tracepoint printf output parser; it misaligns every field after it,
+// which is why ppid parsed as 0 despite being a correct signed-int verb. The
+// unsigned 64-bit verb is proven (time_ uses it; see the connector's u64 tests).
+// Do NOT "simplify" to inline casts, ->parent, or a divided start_time: those
+// changes (my earlier rewrite) made the program capture ZERO rows.
 kprobe:lookup_fast,
 kprobe:lookup_fast.constprop.*
 {
         $nd = (struct nameidata *)arg0;
-        printf("time_:%llu pid:%d pid_start:%d ppid:%d ppid_start:%d comm:%s t:%s file:%s",
+        $tk = (struct task_struct *)curtask;
+        printf("time_:%llu pid:%d pid_start:%llu ppid:%d ppid_start:%llu comm:%s pcomm:%s t:%s file:%s",
                      nsecs, pid,
-                     ((struct task_struct*)curtask)->group_leader->start_time / 10000000,
-                     ((struct task_struct*)curtask)->parent->pid,
-                     ((struct task_struct*)curtask)->parent->group_leader->start_time / 10000000,
-                     comm, "R", str($nd->last.name));
+                     $tk->group_leader->start_time,
+                     $tk->real_parent->pid,
+                     $tk->real_parent->group_leader->start_time,
+                     comm, $tk->real_parent->comm,
+                     "R", str($nd->last.name));
 }
 
 kprobe:d_lookup
@@ -69,12 +71,14 @@ kprobe:d_lookup
 kretprobe:d_lookup
 /@fname[tid]/
 {
-        printf("time_:%llu pid:%d pid_start:%d ppid:%d ppid_start:%d comm:%s t:%s file:%s",
+        $tk = (struct task_struct *)curtask;
+        printf("time_:%llu pid:%d pid_start:%llu ppid:%d ppid_start:%llu comm:%s pcomm:%s t:%s file:%s",
                      nsecs, pid,
-                     ((struct task_struct*)curtask)->group_leader->start_time / 10000000,
-                     ((struct task_struct*)curtask)->parent->pid,
-                     ((struct task_struct*)curtask)->parent->group_leader->start_time / 10000000,
-                     comm, "M", str(@fname[tid]));
+                     $tk->group_leader->start_time,
+                     $tk->real_parent->pid,
+                     $tk->real_parent->group_leader->start_time,
+                     comm, $tk->real_parent->comm,
+                     "M", str(@fname[tid]));
         delete(@fname[tid]);
 }
 """

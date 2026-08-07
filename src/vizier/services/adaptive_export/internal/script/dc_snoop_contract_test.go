@@ -35,7 +35,7 @@ func lastProjection(script string) []string {
 // dc_snoop retention export projects — plus event_time (added via df.event_time =
 // df.time_) — must be EXACTLY the forensic_db.dc_snoop schema columns. A mismatch
 // means the OTel/ClickHouse sink sends an unknown or missing column and the INSERT
-// fails. This is the coupling that adding ppid/pid_start/ppid_start could have
+// fails. This is the coupling that adding ppid/pcomm/pid_start/ppid_start could have
 // silently broken, and it guards the steered path too (queryfor auto-carries the
 // tracepoint columns, so schema == export == tracepoint-derived).
 func TestDcSnoopExportColumnsMatchSchema(t *testing.T) {
@@ -56,53 +56,48 @@ func TestDcSnoopExportColumnsMatchSchema(t *testing.T) {
 }
 
 // TestDcSnoopTracepointCapturesParent — the bpftrace program must emit the parent
-// identity inline (curtask->parent) so every dcache event carries ppid and a
-// pid-reuse-stable start time (group_leader->start_time) for both the process and
-// its parent — the process-forest edge. Uses the exec_snoop-proven form: ->parent
-// (not ->real_parent) and %d ints (%lld is not in Pixie's tracepoint printf subset;
-// it misaligned every field after it, which is why ppid parsed as 0).
+// identity inline (curtask->real_parent via a $tk intermediate) so every dcache
+// event carries ppid/pcomm and a pid-reuse-stable start time (group_leader->
+// start_time) for both the process and its parent — the process-forest edge.
 //
-// CRITICAL: the printf must stay within the 8-argument budget (5 numeric + 3
-// strings), the same profile as the proven exec_snoop tracepoint. A 9th arg makes
-// bpftrace reject the program ("printf: Too many arguments for format string"), the
-// tracepoint flaps FAILED<->RUNNING, and dc_snoop captures ZERO rows — which is
-// exactly what a captured parent comm (%s) cost us. So this asserts the arg budget.
+// This is the exact structure of the last image that CAPTURED (9fd0ca430, 49132
+// rows): $tk intermediate, real_parent, raw group_leader->start_time, 9 args incl
+// pcomm. The ONLY change is the u64 start fields use %llu, not %lld: the 64-bit
+// 'lld' verb is not handled by Pixie's tracepoint printf output parser and
+// misaligns every field after it, which is why ppid parsed as 0 despite being a
+// correct %d. %llu is the proven u64 verb (time_ uses it). A prior "simplify" to
+// inline casts / ->parent / a /10000000 divide made the program capture ZERO rows
+// (ae_reconcile read 49132 -> 0), so this test pins the capturing form.
 func TestDcSnoopTracepointCapturesParent(t *testing.T) {
 	for _, tok := range []string{
-		"ppid:", "pid_start:", "ppid_start:", "group_leader->start_time",
+		"ppid:", "pcomm:", "pid_start:", "ppid_start:", "group_leader->start_time",
 	} {
 		if !strings.Contains(dcSnoopDeployScript, tok) {
 			t.Errorf("dc_snoop_deploy.pxl missing %q — parent/identity capture incomplete", tok)
 		}
 	}
 	// Both probe blocks (kprobe:lookup_fast + kretprobe:d_lookup) must carry the
-	// parent pid via curtask->parent (the proven form; ->real_parent + %lld was the
-	// field-misalignment bug that captured ppid=0).
-	if n := strings.Count(dcSnoopDeployScript, "->parent->pid"); n < 2 {
-		t.Errorf("dc_snoop_deploy.pxl: ->parent->pid must appear in BOTH probe blocks, got %d", n)
+	// parent pid via the capturing real_parent form.
+	if n := strings.Count(dcSnoopDeployScript, "real_parent->pid"); n < 2 {
+		t.Errorf("dc_snoop_deploy.pxl: real_parent->pid must appear in BOTH probe blocks, got %d", n)
 	}
-	// The %lld regression must not creep back — it silently zeroes every field after
-	// the first %lld.
+	// The %lld regression must not creep back — it is not in Pixie's tracepoint
+	// printf output parser and silently zeroes every field after it (that was the
+	// ppid=0 bug). The u64 start fields must use %llu.
 	if strings.Contains(dcSnoopDeployScript, "%lld") {
-		t.Error("dc_snoop_deploy.pxl uses percent-lld — not in Pixie's tracepoint printf subset; use percent-d")
+		t.Error("dc_snoop_deploy.pxl uses percent-lld — misaligns output; use percent-llu for u64 start fields")
 	}
-	// Parent comm must NOT be captured — it was the 9th arg that broke the program.
-	if strings.Contains(dcSnoopDeployScript, "parent->comm") || strings.Contains(dcSnoopDeployScript, "pcomm:") {
-		t.Error("dc_snoop_deploy.pxl captures parent comm — that 9th printf arg exceeds bpftrace's budget and zeroes capture")
+	if strings.Count(dcSnoopDeployScript, "pid_start:%llu") < 2 || strings.Count(dcSnoopDeployScript, "ppid_start:%llu") < 2 {
+		t.Error("dc_snoop_deploy.pxl: pid_start/ppid_start must use percent-llu in both probe blocks")
 	}
-	// Enforce the 8-arg printf budget: each probe's printf format must have at most
-	// 8 conversion specifiers. A 9th (or more) is rejected by bpftrace at compile.
-	for _, line := range strings.Split(dcSnoopDeployScript, "\n") {
-		if !strings.Contains(line, "printf(\"time_:") {
-			continue
-		}
-		if n := strings.Count(line, "%"); n > 8 {
-			t.Errorf("dc_snoop_deploy.pxl printf has %d args (>8, over bpftrace's budget): %s", n, strings.TrimSpace(line))
-		}
+	// A /10000000 divide inside the printf args coincided with zero capture — keep
+	// the raw start_time (the proven-capturing form).
+	if strings.Contains(dcSnoopDeployScript, "10000000") {
+		t.Error("dc_snoop_deploy.pxl divides start_time — the proven-capturing form uses raw group_leader->start_time")
 	}
 	// Tracepoint fields must be a superset of the raw (non-enriched) schema columns
-	// the export reads straight from the table (no parent comm).
-	for _, c := range []string{"time_", "pid", "pid_start", "ppid", "ppid_start", "comm", "t", "file"} {
+	// the export reads straight from the table.
+	for _, c := range []string{"time_", "pid", "pid_start", "ppid", "ppid_start", "comm", "pcomm", "t", "file"} {
 		if !strings.Contains(dcSnoopDeployScript, c+":") {
 			t.Errorf("dc_snoop_deploy.pxl printf missing field %q", c)
 		}

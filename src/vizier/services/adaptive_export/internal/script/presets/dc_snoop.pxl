@@ -78,10 +78,10 @@ df = df.merge(par, how='left', left_on=['ppid'], right_on=['ppid'], suffixes=[''
 # __DC_SNOOP_PARENT_EXCLUSION__
 
 # Keep exactly the forensic_db.dc_snoop columns (drop the merge's pid_x etc.),
-# else the export sink sends an unknown column and the INSERT fails. ppid/pid_start/
-# ppid_start come straight from the tracepoint (no join). Parent pod resolution,
-# parent comm, + multi-level ancestry are dx's job against the process forest.
-df = df[['time_', 'pid', 'pid_start', 'ppid', 'ppid_start', 'comm', 't', 'file',
+# else the export sink sends an unknown column and the INSERT fails. ppid/pcomm/
+# pid_start/ppid_start come straight from the tracepoint (no join). Parent pod
+# resolution + multi-level ancestry is dx's job against the process forest.
+df = df[['time_', 'pid', 'pid_start', 'ppid', 'ppid_start', 'comm', 'pcomm', 't', 'file',
          'namespace', 'pod', 'container', 'hostname']]
 
 # Drop known infrastructure namespaces + process comms (blank-namespace workload

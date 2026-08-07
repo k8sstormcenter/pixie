@@ -25,6 +25,7 @@ import pxtrace
 
 program = """
 #include <linux/fs.h>
+#include <linux/sched.h>
 
 // from fs/namei.c:
 struct nameidata {
@@ -33,13 +34,22 @@ struct nameidata {
                 // [...]
 };
 
-// comment out this block to avoid showing hits:
+// pid_start/ppid/ppid_start/pcomm come from the current task's real_parent so
+// every dcache event carries its parent inline (curtask struct walks in a kprobe
+// are supported — see pxbeta/vfs_snoop). group_leader->start_time (ns since boot) gives a
+// pid-reuse-stable identity for both the process and its parent.
 kprobe:lookup_fast,
 kprobe:lookup_fast.constprop.*
 {
         $nd = (struct nameidata *)arg0;
-        printf("time_:%llu pid:%d comm:%s t:%s file:%s",
-                     nsecs, pid, comm, "R", str($nd->last.name));
+        $tk = (struct task_struct *)curtask;
+        printf("time_:%llu pid:%d pid_start:%lld ppid:%d ppid_start:%lld comm:%s pcomm:%s t:%s file:%s",
+                     nsecs, pid,
+                     $tk->group_leader->start_time,
+                     $tk->real_parent->pid,
+                     $tk->real_parent->group_leader->start_time,
+                     comm, $tk->real_parent->comm,
+                     "R", str($nd->last.name));
 }
 
 kprobe:d_lookup
@@ -51,8 +61,14 @@ kprobe:d_lookup
 kretprobe:d_lookup
 /@fname[tid]/
 {
-        printf("time_:%llu pid:%d comm:%s t:%s file:%s",
-                     nsecs, pid, comm, "M", str(@fname[tid]));
+        $tk = (struct task_struct *)curtask;
+        printf("time_:%llu pid:%d pid_start:%lld ppid:%d ppid_start:%lld comm:%s pcomm:%s t:%s file:%s",
+                     nsecs, pid,
+                     $tk->group_leader->start_time,
+                     $tk->real_parent->pid,
+                     $tk->real_parent->group_leader->start_time,
+                     comm, $tk->real_parent->comm,
+                     "M", str(@fname[tid]));
         delete(@fname[tid]);
 }
 """

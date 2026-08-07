@@ -970,11 +970,41 @@ func leaderNode(nodes []string) string {
 // via a mutation ExecuteScript over the pixie adapter. The retention/cron export
 // path cannot deploy a tracepoint — the cron executor drops the pxtrace mutation,
 // so the dark-vector output tables (dc_snoop, creds_change, …) never get created
-// that way. The AE therefore owns tracepoint deployment here. UpsertTracepoint is
-// idempotent (create-if-absent / no-op), so re-running on every boot is safe; each
-// deploy is retried because deployment can transiently fail while PEMs (re)register.
+// that way. The AE therefore owns tracepoint deployment here.
+//
+// UpsertTracepoint is create-if-absent: on an ALREADY-DEPLOYED tracepoint it is a
+// no-op and does NOT refresh a changed bpftrace program (the recurring foot-gun —
+// e.g. a fixed printf format never reaches a cluster still running the old one). So
+// each boot first DELETES the tracepoint and waits for it to be gone, then upserts,
+// guaranteeing the RUNNING program always matches the code in this image. The brief
+// teardown/redeploy gap on restart is acceptable (restarts are rare); capture is
+// continuous otherwise. Each step is retried because deploy can transiently fail
+// while PEMs (re)register.
 func deployDesiredTracepoints(ctx context.Context, adapter *pixieapi.Adapter) {
 	for _, tp := range script.DesiredTracepoints() {
+		// Refresh: delete the existing tracepoint first so the upsert below installs
+		// THIS image's program (not a no-op over a stale one). The delete mutation
+		// returns the same benign "stream: unimplemented type" error as the upsert
+		// (it applies server-side regardless). Wait until the output table stops
+		// being queryable (deleted) so the subsequent upsert re-creates rather than
+		// no-ops; if it never clears we proceed anyway (upsert keeps the old one, no
+		// worse than before this refresh existed).
+		deleteScript := "import pxtrace\npxtrace.DeleteTracepoint('" + tp.Name + "')\n"
+		verify := "import px\npx.display(px.DataFrame(table='" + tp.Table + "', start_time='-5s').head(1))\n"
+		if _, err := adapter.Query(ctx, deleteScript); err != nil {
+			log.WithError(err).WithField("tracepoint", tp.Name).
+				Debug("delete mutation returned a stream error (expected for pxtrace mutations) — confirming gone via table")
+		}
+		for attempt := 1; attempt <= 6; attempt++ {
+			// Once the tracepoint is gone the DataFrame no longer compiles
+			// ("Table '<t>' not found") → Query errors → it is deleted.
+			if _, err := adapter.Query(ctx, verify); err != nil {
+				log.WithFields(log.Fields{"tracepoint": tp.Name, "table": tp.Table}).
+					Debug("tracepoint deleted (output table no longer queryable) — re-deploying fresh")
+				break
+			}
+			time.Sleep(5 * time.Second)
+		}
 		// Fire the deploy mutation. pxapi's result collector cannot decode the
 		// mutation-info response the vizier returns for a pxtrace deploy
 		// ("stream: unimplemented type"), so a Query error here is NOT a
@@ -985,12 +1015,12 @@ func deployDesiredTracepoints(ctx context.Context, adapter *pixieapi.Adapter) {
 			log.WithError(err).WithField("tracepoint", tp.Name).
 				Debug("deploy mutation returned a stream error (expected for pxtrace mutations) — confirming via table")
 		}
-		// Confirm the tracepoint reached RUNNING by polling its output table. A
-		// plain DataFrame query on a not-yet-deployed table fails PxL compilation
-		// ("Table '<t>' not found"); once the tracepoint is RUNNING the query
-		// compiles and returns (0 rows is fine — RUNNING, just no captures yet).
-		// Re-fire the deploy every few attempts in case the first didn't take.
-		verify := "import px\npx.display(px.DataFrame(table='" + tp.Table + "', start_time='-5s').head(1))\n"
+		// Confirm the tracepoint reached RUNNING by polling its output table (the
+		// same `verify` query used above to detect the delete). A plain DataFrame
+		// query on a not-yet-deployed table fails PxL compilation ("Table '<t>' not
+		// found"); once the tracepoint is RUNNING the query compiles and returns (0
+		// rows is fine — RUNNING, just no captures yet). Re-fire the deploy every few
+		// attempts in case the first didn't take.
 		running := false
 		for attempt := 1; attempt <= 12; attempt++ {
 			if _, err := adapter.Query(ctx, verify); err == nil {

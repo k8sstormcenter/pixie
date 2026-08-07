@@ -34,24 +34,30 @@ struct nameidata {
                 // [...]
 };
 
-// ppid/pcomm + start ticks come from curtask->parent, INLINE, matching the proven
+// ppid + start ticks come from curtask->parent, INLINE, matching the proven
 // exec_snoop form (src/pxl_scripts/bpftrace/exec_snoop + pxbeta/vfs_snoop): %d ints
 // (NOT the 64-bit 'lld' verb — not in Pixie's tracepoint printf subset; it misaligns every field
 // after it, which is why ppid parsed as 0), ->parent (not ->real_parent), and
 // group_leader->start_time/10000000 (clock ticks, fits %d, matches exec_snoop so a
-// future forest join on start_time is unit-consistent). Each dcache event now
-// carries its parent's identity + a pid-reuse-stable start for process and parent.
+// future forest join on start_time is unit-consistent).
+//
+// EXACTLY 8 printf args (5 numeric + 3 strings), the same profile as the proven
+// exec_snoop tracepoint. Pixie's tracepoint bpftrace rejects a 9th arg ("printf:
+// Too many arguments for format string") — the program then never compiles, the
+// tracepoint flaps FAILED<->RUNNING, and dc_snoop captures ZERO rows. A 9th field
+// (parent comm) blew that budget; it is dropped here. The ancestry filter needs
+// only ppid (it joins process_stats on ppid for the parent's namespace, never the
+// parent comm), and dx can resolve parent comm from ppid on the process forest.
 kprobe:lookup_fast,
 kprobe:lookup_fast.constprop.*
 {
         $nd = (struct nameidata *)arg0;
-        printf("time_:%llu pid:%d pid_start:%d ppid:%d ppid_start:%d comm:%s pcomm:%s t:%s file:%s",
+        printf("time_:%llu pid:%d pid_start:%d ppid:%d ppid_start:%d comm:%s t:%s file:%s",
                      nsecs, pid,
                      ((struct task_struct*)curtask)->group_leader->start_time / 10000000,
                      ((struct task_struct*)curtask)->parent->pid,
                      ((struct task_struct*)curtask)->parent->group_leader->start_time / 10000000,
-                     comm, ((struct task_struct*)curtask)->parent->comm,
-                     "R", str($nd->last.name));
+                     comm, "R", str($nd->last.name));
 }
 
 kprobe:d_lookup
@@ -63,13 +69,12 @@ kprobe:d_lookup
 kretprobe:d_lookup
 /@fname[tid]/
 {
-        printf("time_:%llu pid:%d pid_start:%d ppid:%d ppid_start:%d comm:%s pcomm:%s t:%s file:%s",
+        printf("time_:%llu pid:%d pid_start:%d ppid:%d ppid_start:%d comm:%s t:%s file:%s",
                      nsecs, pid,
                      ((struct task_struct*)curtask)->group_leader->start_time / 10000000,
                      ((struct task_struct*)curtask)->parent->pid,
                      ((struct task_struct*)curtask)->parent->group_leader->start_time / 10000000,
-                     comm, ((struct task_struct*)curtask)->parent->comm,
-                     "M", str(@fname[tid]));
+                     comm, "M", str(@fname[tid]));
         delete(@fname[tid]);
 }
 """

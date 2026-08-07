@@ -9,9 +9,10 @@ import (
 	"time"
 )
 
-// dcSnoopRow builds a representative dc_snoop event. withParent adds the four
-// fields the ppid change introduces (pid_start/ppid/ppid_start Int64 + pcomm
-// String) — everything else is the pre-change shape.
+// dcSnoopRow builds a representative dc_snoop event. withParent adds the three
+// Int64 fields the ppid change introduces (pid_start/ppid/ppid_start) — everything
+// else is the pre-change shape. Parent comm is NOT captured (it was the 9th printf
+// arg that exceeded bpftrace's budget and zeroed capture).
 func dcSnoopRow(withParent bool) map[string]any {
 	r := map[string]any{
 		"time_":      time.Unix(0, 1_700_000_000_171_199_174),
@@ -29,7 +30,6 @@ func dcSnoopRow(withParent bool) map[string]any {
 		r["pid_start"] = int64(1_700_000_000_000_000_000)
 		r["ppid"] = int64(90059)
 		r["ppid_start"] = int64(1_699_999_999_000_000_000)
-		r["pcomm"] = "containerd-shim"
 	}
 	return r
 }
@@ -85,7 +85,7 @@ func encodeBytesPerRow(b *testing.B, withParent bool, cols []string) float64 {
 
 var (
 	dcSnoopOldCols = []string{"time_", "pid", "comm", "t", "file", "namespace", "pod", "container", "hostname", "event_time"}
-	dcSnoopNewCols = []string{"time_", "pid", "pid_start", "ppid", "ppid_start", "comm", "pcomm", "t", "file", "namespace", "pod", "container", "hostname", "event_time"}
+	dcSnoopNewCols = []string{"time_", "pid", "pid_start", "ppid", "ppid_start", "comm", "t", "file", "namespace", "pod", "container", "hostname", "event_time"}
 )
 
 // BenchmarkDCSnoopEncode_Baseline / _WithParent measure the per-event wire bytes
@@ -99,8 +99,8 @@ func BenchmarkDCSnoopEncode_Baseline(b *testing.B) {
 func BenchmarkDCSnoopEncode_WithParent(b *testing.B) {
 	bpr := encodeBytesPerRow(b, true, dcSnoopNewCols)
 	b.ReportMetric(bpr, "bytes/row")
-	// Columnar (PEM table-store) cost of the 4 added fields: 3×Int64 + comm(16).
-	b.ReportMetric(3*8+16, "columnar_add_bytes/row")
+	// Columnar (PEM table-store) cost of the 3 added fields: 3×Int64.
+	b.ReportMetric(3*8, "columnar_add_bytes/row")
 }
 
 // TestDCSnoopPerEventDataDelta prints the concrete numbers (not just a benchmark
@@ -110,10 +110,10 @@ func TestDCSnoopPerEventDataDelta(t *testing.T) {
 	oldB := sizeOnce(false, dcSnoopOldCols)
 	newB := sizeOnce(true, dcSnoopNewCols)
 	addWire := newB - oldB
-	addColumnar := 3*8 + 16 // pid_start+ppid+ppid_start (Int64) + pcomm (comm String, 16)
+	addColumnar := 3 * 8 // pid_start+ppid+ppid_start (Int64); parent comm not captured
 	t.Logf("dc_snoop per-event data delta:")
 	t.Logf("  wire (JSON) bytes/row:      old=%d  new=%d  +%d", oldB, newB, addWire)
-	t.Logf("  columnar (PEM) bytes/row:   +%d (3xInt64 + comm16)", addColumnar)
+	t.Logf("  columnar (PEM) bytes/row:   +%d (3xInt64)", addColumnar)
 	t.Logf("  per 1,000,000 events:       +%d MB wire, +%d MB columnar", addWire, addColumnar)
 	t.Logf("  NOTE: PEM table-store is CAPPED (PL_TABLE_STORE_DATA_LIMIT_MB) — the +40B/event")
 	t.Logf("        fills the cap faster (shorter lookback) but does NOT raise peak memory.")

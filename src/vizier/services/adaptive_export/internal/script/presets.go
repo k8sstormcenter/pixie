@@ -52,6 +52,20 @@ func dcSnoopExclusion() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// dcSnoopParentExclusion builds the ppid-ancestry filter (drop events whose PARENT
+// resolves to an own-stack namespace) from the SAME namespace list as the self
+// filter, substituted into dc_snoop.pxl at # __DC_SNOOP_PARENT_EXCLUSION__. Rooted
+// on the parent's namespace (via the ppid->process_stats join), not comm, so it
+// catches transient children exec'd by infra pods without touching workload/attack
+// children of shared (blank-namespace) parents like containerd-shim/runc.
+func dcSnoopParentExclusion() string {
+	var b strings.Builder
+	for _, ns := range csvEnv("DC_SNOOP_EXCLUDE_NAMESPACES", defaultExcludeNamespaces) {
+		fmt.Fprintf(&b, "df = df[df.parent_namespace != '%s']\n", ns)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 // Dark-vector + profiler retention/export scripts, embedded so the operator can
 // register them (if not already present) at boot via CreateRetentionScript.
 // Each keeps its tracepoint permanently upserted ("876000h" ≈ 100y, effectively
@@ -100,7 +114,7 @@ func DesiredTracepoints() []TracepointDef {
 // registers if-not-present. Names are operator-managed (reconciled on boot).
 func DarkVectorPresets() []*ScriptDefinition {
 	return []*ScriptDefinition{
-		{Name: "ch-dc_snoop", Description: "dc_snoop (dentry cache: process+file, V1/V2) → ClickHouse", FrequencyS: 10, Script: strings.Replace(dcSnoopScript, "# __DC_SNOOP_EXCLUSION__", dcSnoopExclusion(), 1)},
+		{Name: "ch-dc_snoop", Description: "dc_snoop (dentry cache: process+file, V1/V2) → ClickHouse", FrequencyS: 10, Script: strings.Replace(strings.Replace(dcSnoopScript, "# __DC_SNOOP_PARENT_EXCLUSION__", dcSnoopParentExclusion(), 1), "# __DC_SNOOP_EXCLUSION__", dcSnoopExclusion(), 1)},
 		{Name: "ch-stack_trace", Description: "stack_traces.beta (continuous profiler, V9) → ClickHouse", FrequencyS: 10, Script: stackTraceScript},
 		{Name: "ch-creds_change", Description: "commit_creds privilege-escalation to root (V7) → ClickHouse", FrequencyS: 10, Script: credsChangeScript},
 	}

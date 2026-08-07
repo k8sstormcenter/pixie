@@ -57,6 +57,26 @@ proc.hostname = px.upid_to_node_name(proc.upid)
 proc.pid = px.upid_to_pid(proc.upid)
 proc = proc.groupby(['namespace', 'pod', 'container', 'hostname', 'pid']).agg()
 df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['', '_x'])
+
+# Ancestry filter (the ppid-based noise cut). Resolve the PARENT's namespace via
+# the same process_stats join, keyed on ppid, and drop events whose parent lives
+# in an own-stack namespace even when the child's own pod is blank (a transient
+# process exec'd by an infra pod - the dcache firehose we were drowning in). This
+# is pod/namespace-rooted, NOT comm-matched, so a real attack child of a shared
+# parent (containerd-shim/runc carry no namespace) survives. Best-effort left
+# join: parent_namespace stays blank for host/transient/unseen parents (kept - a
+# blank parent is not proven own-stack). The drops are injected from env below by
+# presets.go (DC_SNOOP_EXCLUDE_NAMESPACES, same list as the self-namespace
+# filter). parent_namespace is a temp column dropped by the final
+# projection below, so the schema/sink coupling is unchanged. Multi-level ancestry
+# (walk ppid->parent->... past shared parents) is dx's job on the process forest.
+par = px.DataFrame(table='process_stats', start_time='-5m')
+par.parent_namespace = par.ctx['namespace']
+par.ppid = px.upid_to_pid(par.upid)
+par = par.groupby(['parent_namespace', 'ppid']).agg()
+df = df.merge(par, how='left', left_on=['ppid'], right_on=['ppid'], suffixes=['', '_par'])
+# __DC_SNOOP_PARENT_EXCLUSION__
+
 # Keep exactly the forensic_db.dc_snoop columns (drop the merge's pid_x etc.),
 # else the export sink sends an unknown column and the INSERT fails. ppid/pcomm/
 # pid_start/ppid_start come straight from the tracepoint (no join). Parent pod

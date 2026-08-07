@@ -24,6 +24,25 @@ import px
 table_name = 'dc_snoop'
 df = px.DataFrame(table=table_name, start_time=px.plugin.start_time, end_time=px.plugin.end_time)
 
+# Collapse dcache path-walk amplification. One path resolution fires the kprobe
+# once per component (nd->last.name is the shrinking *remaining* path), so a single
+# file access lands as N suffix rows (sh, bin/sh, ..., opt/bitnami/common/bin/sh).
+# Keep only the full path (longest fragment) per (pid, comm, t, basename, 50us
+# window): all fragments of one walk share the basename, so grouping on it never
+# merges two DISTINCT files; the tight window separates rare same-basename accesses,
+# and a walk straddling a bin boundary only UNDER-collapses (safe, never drops a
+# real access). Distinct repeats of the same file are preserved (kept as separate
+# rows) — folding those is a separate (pid,comm,file,window)->count pass. ~3-4x.
+# Runs before the pod merge so the join is over the collapsed set. [rig-validate]
+df.flen = px.length(df.file)
+df.leaf = px.replace('.*/', df.file, '')
+df.win = px.bin(df.time_, 50000)
+grp = df.groupby(['pid', 'comm', 't', 'leaf', 'win']).agg(flen_max=('flen', px.max))
+df = df.merge(grp, how='inner',
+              left_on=['pid', 'comm', 't', 'leaf', 'win'],
+              right_on=['pid', 'comm', 't', 'leaf', 'win'], suffixes=['', '_g'])
+df = df[df.flen == df.flen_max]
+
 # pid -> pod/namespace attribution. Dark-vector tracepoints emit a raw kernel pid
 # with NO upid, so px.upid_to_* / ctx['pod'] fail outright; resolve pod by merging
 # process_stats on pid ONLY - the validated join (PodEnrichPxL, dx#126). NOT

@@ -39,8 +39,11 @@ proc.pid = px.upid_to_pid(proc.upid)
 proc = proc.groupby(['namespace', 'pod', 'container', 'hostname', 'pid']).agg()
 df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['', '_x'])
 # Keep exactly the forensic_db.dc_snoop columns (drop the merge's pid_x etc.),
-# else the export sink sends an unknown column and the INSERT fails.
-df = df[['time_', 'pid', 'comm', 't', 'file', 'namespace', 'pod', 'container', 'hostname']]
+# else the export sink sends an unknown column and the INSERT fails. ppid/pcomm/
+# pid_start/ppid_start come straight from the tracepoint (no join). Parent pod
+# resolution + multi-level ancestry is dx's job against the process forest.
+df = df[['time_', 'pid', 'pid_start', 'ppid', 'ppid_start', 'comm', 'pcomm', 't', 'file',
+         'namespace', 'pod', 'container', 'hostname']]
 
 # Drop known infrastructure namespaces + process comms (blank-namespace workload
 # rows are kept). The filter is injected here from env by presets.go

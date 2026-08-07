@@ -649,11 +649,22 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_ptrace (
 
 -- dc_snoop (dentry cache, V1/V2 process+file) — exported via the OTel/ClickHouse
 -- retention plugin (px.export). pid-keyed; t = R (reference) / M (miss).
+-- ppid/pcomm captured inline in the tracepoint (curtask->real_parent) so every
+-- dcache event carries its parent with no join. pid_start/ppid_start are
+-- group_leader->start_time (ns since boot) — a pid-reuse-stable identity for the
+-- process and its parent, and the (pid,pid_start)/(ppid,ppid_start) keys the
+-- per-node process forest walks to correlate evidence to ancestry. Deeper
+-- ancestry (pod attribution of a blank-pod child) is resolved by dx against the
+-- forest; the AE only cuts 1-level own-stack noise here via pcomm.
 -- One column per line (schema-verify parser is line-oriented).
 CREATE TABLE IF NOT EXISTS forensic_db.dc_snoop (
   time_ DateTime64(9, 'UTC'),
   pid Int64,
+  pid_start Int64,
+  ppid Int64,
+  ppid_start Int64,
   comm String,
+  pcomm String,
   t String,
   file String,
   namespace String,

@@ -86,3 +86,25 @@ func TestCompilePassthrough_UnknownTable(t *testing.T) {
 		t.Fatalf("err=%v want ErrUnknownTable", err)
 	}
 }
+
+// TestPodEnrichPxL_DarkVsNative locks the #126 split: native tables resolve pod
+// via upid; the pid-keyed dark-vector tracepoint tables use the validated
+// process_stats pid-merge (pid ONLY, not pid+asid) and never reference df.upid.
+func TestPodEnrichPxL_DarkVsNative(t *testing.T) {
+	native := PodEnrichPxL("http_events")
+	if !strings.Contains(native, "px.upid_to_pod_name(df.upid)") {
+		t.Errorf("native table must resolve pod via upid: %q", native)
+	}
+	for _, tbl := range []string{"dc_snoop", "creds_change", "dx_bpf", "dx_ptrace"} {
+		q := PodEnrichPxL(tbl)
+		if strings.Contains(q, "df.upid") {
+			t.Errorf("%s (pid-keyed) must NOT reference df.upid: %q", tbl, q)
+		}
+		if !strings.Contains(q, "left_on=['pid'], right_on=['pid']") {
+			t.Errorf("%s must merge process_stats on pid only: %q", tbl, q)
+		}
+		if !IsDarkVector(tbl) {
+			t.Errorf("%s should be IsDarkVector", tbl)
+		}
+	}
+}

@@ -1,0 +1,41 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# creds_change EXPORT (retention cron) - query the creds_change tracepoint table
+# and export to ClickHouse. The tracepoint is deployed by the AE at boot
+# (creds_change_deploy.pxl); a cron script cannot deploy it. Read + export only.
+
+import px
+
+table_name = 'creds_change'
+df = px.DataFrame(table=table_name, start_time=px.plugin.start_time, end_time=px.plugin.end_time)
+
+# pid -> pod/namespace attribution via a process_stats merge on pid (the tracepoint
+# emits a raw kernel pid, no upid). Validated join; blank pod for host/transient
+# pids. See dc_snoop.pxl for why it is pid-only (not pid+asid).
+proc = px.DataFrame(table='process_stats', start_time='-5m')
+proc.namespace = proc.ctx['namespace']
+proc.pod = proc.ctx['pod']
+proc.container = proc.ctx['container']
+proc.hostname = px.upid_to_node_name(proc.upid)
+proc.pid = px.upid_to_pid(proc.upid)
+proc = proc.groupby(['namespace', 'pod', 'container', 'hostname', 'pid']).agg()
+df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['', '_x'])
+df = df[['time_', 'pid', 'comm', 'old_uid', 'new_uid', 'namespace', 'pod', 'container', 'hostname']]
+
+# event_time as nanoseconds -> sink emits DateTime64(9) (see dc_snoop.pxl).
+df.event_time = df.time_
+px.export(df, px.otel.ClickHouseRows(table=table_name))

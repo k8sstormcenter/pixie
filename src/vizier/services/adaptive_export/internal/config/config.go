@@ -163,11 +163,15 @@ func setUpConfig() error {
 	log.SetLevel(log.InfoLevel)
 
 	// Try to read configuration from environment variables first
-	clickhouseDSN := os.Getenv(envClickHouseDSN)
-	pixieClusterID := os.Getenv(envPixieClusterID)
-	pixieAPIKey := os.Getenv(envPixieAPIKey)
-	clusterName := os.Getenv(envClusterName)
-	pixieHost := getEnvWithDefault(envPixieEndpoint, defPixieHostname)
+	clickhouseDSN := strings.TrimSpace(os.Getenv(envClickHouseDSN))
+	pixieClusterID := strings.TrimSpace(os.Getenv(envPixieClusterID))
+	// TrimSpace: a secret sourced via `kubectl --from-file` keeps the file's
+	// trailing newline. In the pixie-api-key gRPC metadata header that newline is
+	// an HTTP/2 protocol violation → the cloud PluginService replies RST_STREAM
+	// PROTOCOL_ERROR (looks like an auth failure but isn't). Trim it defensively.
+	pixieAPIKey := strings.TrimSpace(os.Getenv(envPixieAPIKey))
+	clusterName := strings.TrimSpace(os.Getenv(envClusterName))
+	pixieHost := strings.TrimSpace(getEnvWithDefault(envPixieEndpoint, defPixieHostname))
 	enableDebug := os.Getenv(envVerbose)
 
 	if strings.EqualFold(enableDebug, boolTrue) {
@@ -422,6 +426,7 @@ func (s *settings) BuildDate() string {
 
 type ClickHouse interface {
 	DSN() string
+	NativeDSN() string
 	Host() string
 	Port() string
 	User() string
@@ -454,7 +459,17 @@ func (c *clickhouse) validate() error {
 	return nil
 }
 
-func (c *clickhouse) DSN() string       { return c.dsn }
+func (c *clickhouse) DSN() string { return c.dsn }
+
+// NativeDSN builds the ClickHouse retention-plugin export DSN in the format the
+// query engine's ClickHouseExportSink requires: [clickhouse://]user:pass@host:port/db,
+// where port is the NATIVE TCP port (9000), NOT the HTTP port (8123). The sink uses
+// the clickhouse-cpp native client — an HTTP DSN (http:// scheme / :8123) makes it
+// parse "http" as the username and crash on connect, taking the whole vizier
+// Unhealthy. This is distinct from DSN() (the AE's own HTTP write endpoint).
+func (c *clickhouse) NativeDSN() string {
+	return fmt.Sprintf("clickhouse://%s:%s@%s:%s/%s", c.user, c.password, c.host, c.port, c.database)
+}
 func (c *clickhouse) Host() string      { return c.host }
 func (c *clickhouse) Port() string      { return c.port }
 func (c *clickhouse) User() string      { return c.user }

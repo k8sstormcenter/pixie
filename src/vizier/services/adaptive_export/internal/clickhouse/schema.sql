@@ -108,9 +108,9 @@ CREATE TABLE IF NOT EXISTS forensic_db.http_events (
     latency        Int64,
     hostname       String,
     event_time     DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
-) ENGINE = MergeTree()
+) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time);
+  ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_method, req_path);
 
 -- http2_messages.beta — http2_messages_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.`http2_messages.beta` (
@@ -153,9 +153,9 @@ CREATE TABLE IF NOT EXISTS forensic_db.dns_events (
     latency     Int64,
     hostname    String,
     event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
-) ENGINE = MergeTree()
+) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time);
+  ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_body);
 
 -- redis_events — redis_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.redis_events (
@@ -175,9 +175,9 @@ CREATE TABLE IF NOT EXISTS forensic_db.redis_events (
     latency     Int64,
     hostname    String,
     event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
-) ENGINE = MergeTree()
+) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time);
+  ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_cmd);
 
 -- mysql_events — mysql_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.mysql_events (
@@ -384,9 +384,9 @@ CREATE TABLE IF NOT EXISTS forensic_db.conn_stats (
     bytes_recv    Int64,
     hostname      String,
     event_time    DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
-) ENGINE = MergeTree()
+) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time);
+  ORDER BY (hostname, event_time, time_, upid, remote_addr, remote_port, trace_role);
 
 -- ============================================================================
 -- adaptive_attribution — operator's only write target in ClickHouse.
@@ -566,3 +566,127 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_evidence_manifest (
   PARTITION BY toYYYYMM(fromUnixTimestamp64Nano(event_time))
   TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
   SETTINGS index_granularity = 8192;
+
+-- ── dx dark-vector tracepoint tables (entlein/dx#126) ────────────────────────
+-- Fed by AE-owned bpftrace UpsertTracepoint probes (constantly enabled, no TTL).
+-- Emit raw kernel pid+comm (NOT upid); namespace/pod enriched at pull time via a
+-- process_stats join on pid. One column per line (schema-verify parser is line-oriented).
+-- (dx_dcsnoop superseded by forensic_db.dc_snoop — canonical DateTime64(9)/Int64
+--  schema with full k8s metadata; see the dark-vector section above.)
+CREATE TABLE IF NOT EXISTS forensic_db.dx_vfs_events (
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
+  comm String,
+  op String,
+  file String,
+  namespace String,
+  pod String,
+  container String,
+  hostname String,
+  event_time DateTime64(9, 'UTC')
+) ENGINE = MergeTree ORDER BY (event_time, pod);
+
+CREATE TABLE IF NOT EXISTS forensic_db.dx_unlink (
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
+  comm String,
+  op String,
+  file String,
+  namespace String,
+  pod String,
+  container String,
+  hostname String,
+  event_time DateTime64(9, 'UTC')
+) ENGINE = MergeTree ORDER BY (event_time, pod);
+
+CREATE TABLE IF NOT EXISTS forensic_db.dx_dlookup (
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
+  comm String,
+  file String,
+  namespace String,
+  pod String,
+  container String,
+  hostname String,
+  event_time DateTime64(9, 'UTC')
+) ENGINE = MergeTree ORDER BY (event_time, pod);
+
+CREATE TABLE IF NOT EXISTS forensic_db.dx_mprotect (
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
+  comm String,
+  prot UInt64,
+  namespace String,
+  pod String,
+  container String,
+  hostname String,
+  event_time DateTime64(9, 'UTC')
+) ENGINE = MergeTree ORDER BY (event_time, pod);
+
+-- (dx_creds superseded by forensic_db.creds_change — canonical schema with
+--  old_uid/new_uid + full k8s metadata.)
+CREATE TABLE IF NOT EXISTS forensic_db.dx_bpf (
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
+  comm String,
+  namespace String,
+  pod String,
+  container String,
+  hostname String,
+  event_time DateTime64(9, 'UTC')
+) ENGINE = MergeTree ORDER BY (event_time, pod);
+
+CREATE TABLE IF NOT EXISTS forensic_db.dx_ptrace (
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
+  comm String,
+  namespace String,
+  pod String,
+  container String,
+  hostname String,
+  event_time DateTime64(9, 'UTC')
+) ENGINE = MergeTree ORDER BY (event_time, pod);
+
+-- dc_snoop (dentry cache, V1/V2 process+file) — exported via the OTel/ClickHouse
+-- retention plugin (px.export). pid-keyed; t = R (reference) / M (miss).
+-- One column per line (schema-verify parser is line-oriented).
+CREATE TABLE IF NOT EXISTS forensic_db.dc_snoop (
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
+  comm String,
+  t String,
+  file String,
+  namespace String,
+  pod String,
+  container String,
+  hostname String,
+  event_time DateTime64(9, 'UTC')
+) ENGINE = ReplacingMergeTree ORDER BY (time_, pid, comm, t, file, pod);
+
+-- stack_trace (native continuous profiler stack_traces.beta, V9) — OTel export.
+CREATE TABLE IF NOT EXISTS forensic_db.stack_trace (
+  time_ DateTime64(9, 'UTC'),
+  upid String,
+  namespace String,
+  pod String,
+  container String,
+  hostname String,
+  stack_trace_id Int64,
+  stack_trace String,
+  count Int64,
+  event_time DateTime64(9, 'UTC')
+) ENGINE = ReplacingMergeTree ORDER BY (time_, upid, stack_trace_id, pod);
+
+-- creds_change (commit_creds privilege-escalation to root, V7) — OTel export.
+CREATE TABLE IF NOT EXISTS forensic_db.creds_change (
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
+  comm String,
+  old_uid Int64,
+  new_uid Int64,
+  namespace String,
+  pod String,
+  container String,
+  hostname String,
+  event_time DateTime64(9, 'UTC')
+) ENGINE = ReplacingMergeTree ORDER BY (time_, pid, comm, old_uid, new_uid, pod);

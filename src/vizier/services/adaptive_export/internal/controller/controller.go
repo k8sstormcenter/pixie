@@ -32,6 +32,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -110,6 +111,30 @@ type Config struct {
 	// to be unambiguous.
 	PushRefreshInterval time.Duration
 
+	// QueryLag holds the per-table watermark this far behind wall-clock:
+	// each pass queries up to now-QueryLag, not now. Sparse tables (dns_events,
+	// dc_snoop) emit events that socket_tracer/stirling flush a few seconds
+	// after they occur; without a lag the watermark advances past an event's
+	// time_ before it is queryable, so it is skipped forever. Continuous tables
+	// (conn_stats) always have fresh post-watermark rows so they never notice —
+	// which is why sparse tables lost ALL rows while continuous ones exported
+	// fully. Defaulted to 30s in defaulted(); 0 keeps the legacy (lossy) behavior
+	// only if set negative is not used — env ADAPTIVE_QUERY_LAG_SEC overrides.
+	QueryLag time.Duration
+
+	// DisableSelfSteer, when true, stops the kubescape trigger from spawning its own
+	// pushPixieRows fan-out — the AE then exports ONLY what a control client (dx)
+	// orders via /export/start (OrderExportAll) or /query (OrderQuery). Set by
+	// EXPORT_MODE=never in main.go. Inverted bool so the zero value preserves the
+	// legacy self-steering behavior (and existing tests that build Config directly).
+	DisableSelfSteer bool
+
+	// ExportAllFloor bounds how often the control-surface steer-all (OrderExportAll)
+	// re-captures the SAME target. dx fires StartExport per referral (~1s floor), so
+	// without this a sustained attack floods the broker with redundant full-table
+	// captures over overlapping windows. Defaulted to 30s in defaulted().
+	ExportAllFloor time.Duration
+
 	// === Throughput-protection knobs ===
 	//
 	// At high anomaly rates (many concurrent active hashes), the default
@@ -176,6 +201,12 @@ func (c *Config) defaulted() Config {
 	if out.PushRefreshInterval == 0 {
 		out.PushRefreshInterval = 30 * time.Second
 	}
+	if out.QueryLag == 0 {
+		out.QueryLag = 30 * time.Second
+	}
+	if out.ExportAllFloor == 0 {
+		out.ExportAllFloor = 30 * time.Second
+	}
 	return out
 }
 
@@ -209,6 +240,9 @@ type Controller struct {
 	emptyCacheMu   sync.Mutex
 	emptyStreak    map[string]int       // consecutive 0-row returns
 	emptySkipUntil map[string]time.Time // skip this (ns,pod,table) until this time
+
+	exportAllMu sync.Mutex
+	exportAllAt map[string]time.Time // per-target floor for OrderExportAll (steer-all)
 }
 
 // New wires a Controller. nil clock falls through to RealClock.
@@ -232,6 +266,7 @@ func New(trig Trigger, snk Sink, cfg Config, clk Clock) *Controller {
 		inFlight:       map[anomaly.AnomalyHash]bool{},
 		emptyStreak:    map[string]int{},
 		emptySkipUntil: map[string]time.Time{},
+		exportAllAt:    map[string]time.Time{},
 	}
 	if defaulted.MaxInflightQueriesGlobal > 0 {
 		c.globalSem = make(chan struct{}, defaulted.MaxInflightQueriesGlobal)
@@ -306,6 +341,53 @@ func (c *Controller) OrderQuery(target anomaly.Target, table string, start, end 
 	return nil
 }
 
+// OrderExportAll runs a one-shot OrderQuery for EVERY configured pixie table for
+// the target/window — the control-surface "steer-all" path. A control client
+// (dx) asks AE to capture the COMPLETE evidence set for an anomaly's pod, with NO
+// per-table relevance decision: dx filters only to (namespace, pod), AE grabs
+// everything that could be relevant. Tables run concurrently (each OrderQuery
+// takes the globalSem itself, so MaxInflightQueriesGlobal still bounds broker
+// load), best-effort — a per-table error is logged and skipped so one slow/empty
+// table can't block the rest. The deterministic query_id makes overlapping
+// anomalies on the same pod idempotent (same target+table+window → same id).
+func (c *Controller) OrderExportAll(target anomaly.Target, start, end time.Time) {
+	if c.querier == nil || len(c.cfg.PushPixieTables) == 0 {
+		return
+	}
+	// Per-target floor: dx sends StartExport on EVERY referral (its own floor is
+	// ~1s), so a sustained attack fires OrderExportAll many times per second for
+	// the SAME pod. Each call is a full 20-table capture over a rolling ~600s
+	// window that already overlaps the previous one, so re-running them just floods
+	// the broker (globalSem saturates, nothing completes). Collapse the burst: one
+	// full capture per target per ExportAllFloor — the rolling window still covers
+	// every event.
+	tk := target.Namespace + "/" + target.Pod
+	c.exportAllMu.Lock()
+	if last, ok := c.exportAllAt[tk]; ok && c.clock.Now().Sub(last) < c.cfg.ExportAllFloor {
+		c.exportAllMu.Unlock()
+		return
+	}
+	c.exportAllAt[tk] = c.clock.Now()
+	c.exportAllMu.Unlock()
+	log.WithFields(log.Fields{
+		"pod": target.Pod, "namespace": target.Namespace, "tables": len(c.cfg.PushPixieTables),
+	}).Info("OrderExportAll: dx-steered full-evidence capture for anomaly pod")
+	var wg sync.WaitGroup
+	for _, table := range c.cfg.PushPixieTables {
+		wg.Add(1)
+		go func(table string) {
+			defer wg.Done()
+			qid := fmt.Sprintf("steerall:%s/%s:%s:%d-%d",
+				target.Namespace, target.Pod, table, start.Unix(), end.Unix())
+			if err := c.OrderQuery(target, table, start, end, qid); err != nil {
+				log.WithError(err).WithFields(log.Fields{"table": table, "pod": target.Pod}).
+					Warn("OrderExportAll: table export failed (skipped)")
+			}
+		}(table)
+	}
+	wg.Wait()
+}
+
 // Rehydrate populates the in-memory active set from ClickHouse so a
 // restarted operator picks up where it left off. Idempotent. Call
 // once at boot before Run.
@@ -323,7 +405,7 @@ func (c *Controller) Rehydrate(ctx context.Context) error {
 		// without this, post-restart Pixie data is silently missed until another
 		// event for the same hash arrives (CodeRabbit). Re-arm the fan-out for
 		// each restored window, mirroring handle()'s spawn (in-flight guarded).
-		if c.querier != nil && len(c.cfg.PushPixieTables) > 0 && !c.inFlight[row.AnomalyHash] {
+		if !c.cfg.DisableSelfSteer && c.querier != nil && len(c.cfg.PushPixieTables) > 0 && !c.inFlight[row.AnomalyHash] {
 			c.inFlight[row.AnomalyHash] = true
 			resume = append(resume, row)
 		}
@@ -416,7 +498,7 @@ func (c *Controller) handle(ctx context.Context, ev kubescape.Event) {
 	snapshot := *row
 	// Decide AND mark inFlight under the same mutex acquisition so two
 	// rapid events for the same hash can't both decide to spawn.
-	spawn := c.querier != nil && len(c.cfg.PushPixieTables) > 0 && !c.inFlight[hash]
+	spawn := !c.cfg.DisableSelfSteer && c.querier != nil && len(c.cfg.PushPixieTables) > 0 && !c.inFlight[hash]
 	if spawn {
 		c.inFlight[hash] = true
 	}
@@ -564,7 +646,11 @@ func (c *Controller) pushPixieRows(ctx context.Context, initial sink.Attribution
 				continue
 			}
 			sliceStart := lastUpper[table]
-			sliceEnd := now
+			// Trail the watermark by QueryLag so sparse late-flushed rows are
+			// still queryable when this slice runs. QueryFor's `now` (for its
+			// relative start_time pad) stays real-now so the DataFrame window
+			// still covers the slice.
+			sliceEnd := now.Add(-c.cfg.QueryLag)
 			if !sliceEnd.After(sliceStart) {
 				continue // tiny / inverted slice — skip
 			}

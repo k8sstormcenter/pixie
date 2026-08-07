@@ -1,0 +1,60 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# dc_snoop tracepoint DEPLOYMENT (mutation) - run once at AE boot via the
+# pixieapi mutation path (pxapi sets Mutation:true for `import pxtrace`).
+# The retention/cron export path CANNOT deploy tracepoints (the mutation is
+# dropped), so the AE owns this deploy separately. UpsertTracepoint is
+# idempotent, so re-running at every boot is safe (create-if-absent / no-op).
+# TTL 876000h (~100y) = effectively permanent; no reliance on the 24h re-run.
+
+import pxtrace
+
+program = """
+#include <linux/fs.h>
+
+// from fs/namei.c:
+struct nameidata {
+                struct path     path;
+                struct qstr     last;
+                // [...]
+};
+
+// comment out this block to avoid showing hits:
+kprobe:lookup_fast,
+kprobe:lookup_fast.constprop.*
+{
+        $nd = (struct nameidata *)arg0;
+        printf("time_:%llu pid:%d comm:%s t:%s file:%s",
+                     nsecs, pid, comm, "R", str($nd->last.name));
+}
+
+kprobe:d_lookup
+{
+        $name = (struct qstr *)arg1;
+        @fname[tid] = $name->name;
+}
+
+kretprobe:d_lookup
+/@fname[tid]/
+{
+        printf("time_:%llu pid:%d comm:%s t:%s file:%s",
+                     nsecs, pid, comm, "M", str(@fname[tid]));
+        delete(@fname[tid]);
+}
+"""
+
+pxtrace.UpsertTracepoint('dc_snoop', 'dc_snoop', program, pxtrace.kprobe(), "876000h")

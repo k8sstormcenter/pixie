@@ -39,6 +39,8 @@ pl_go_test(
         "columns_test.go",
         "ddl_test.go",
         "insert_test.go",
+        "metadata_invariants_test.go",
+        "timestamp_invariants_test.go",
     ],
     embed = [":clickhouse"],
 )

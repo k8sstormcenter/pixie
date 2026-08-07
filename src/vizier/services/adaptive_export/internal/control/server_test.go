@@ -54,6 +54,39 @@ func (f *fakeRunner) OrderQuery(t anomaly.Target, table string, start, end time.
 	return f.err
 }
 
+// fakeExportAller implements BOTH queryRunner and exportAller — the controller's
+// real shape. It sends the OrderExportAll target on a channel so the test can
+// assert /export/start drove the steer-all full-evidence capture.
+type fakeExportAller struct {
+	fakeRunner
+	exported chan anomaly.Target
+}
+
+func (f *fakeExportAller) OrderExportAll(t anomaly.Target, start, end time.Time) {
+	f.exported <- t
+}
+
+// TestStartExportDrivesSteerAll pins the steer-all contract: a POST /export/start
+// (what dx sends default-on per referral) triggers OrderExportAll for the pod —
+// i.e. dx steers AE to grab the complete evidence set, no per-table decision.
+func TestStartExportDrivesSteerAll(t *testing.T) {
+	rn := &fakeExportAller{exported: make(chan anomaly.Target, 1)}
+	srv := New(&fakeExporter{}, rn)
+	r := do(t, srv, http.MethodPost, "/export/start",
+		`{"namespace":"redis","pod":"redis-1","t_end":1785000000}`)
+	if r.StatusCode != http.StatusAccepted {
+		t.Fatalf("want 202, got %d", r.StatusCode)
+	}
+	select {
+	case got := <-rn.exported:
+		if got.Pod != "redis-1" || got.Namespace != "redis" {
+			t.Fatalf("steer-all target wrong: %+v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OrderExportAll not called by /export/start within 2s")
+	}
+}
+
 func do(t *testing.T, srv *Server, method, path, body string) *http.Response {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -104,8 +137,9 @@ func TestControlAuth(t *testing.T) {
 func TestStartExportUpserts(t *testing.T) {
 	ex := &fakeExporter{}
 	srv := New(ex, nil)
+	// t_end is unix NANOSECONDS (the pipeline-wide unit) — 1717200600s expressed in ns.
 	resp := do(t, srv, http.MethodPost, "/export/start",
-		`{"namespace":"svc-poc","pod":"chain-backend-abc","comm":"sh","t_end":1717200600}`)
+		`{"namespace":"svc-poc","pod":"chain-backend-abc","comm":"sh","t_end":1717200600000000000}`)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202", resp.StatusCode)
 	}
@@ -113,8 +147,8 @@ func TestStartExportUpserts(t *testing.T) {
 		ex.upserts[0].Namespace != "svc-poc" {
 		t.Fatalf("upsert = %+v, want one for svc-poc/chain-backend-abc", ex.upserts)
 	}
-	if ex.lastEnd != time.Unix(1717200600, 0) {
-		t.Fatalf("tEnd = %v, want 1717200600", ex.lastEnd)
+	if !ex.lastEnd.Equal(time.Unix(0, 1717200600000000000)) {
+		t.Fatalf("tEnd = %v, want %v", ex.lastEnd, time.Unix(0, 1717200600000000000).UTC())
 	}
 }
 

@@ -61,10 +61,59 @@ func CompilePassthrough(table string, window time.Duration) (string, error) {
 	b.WriteString("df = px.DataFrame(table='" + table + "', start_time='" + relStart + "')\n")
 	b.WriteString("df = df[df.time_ >= px.int64_to_time(%d)]\n")
 	b.WriteString("df = df[df.time_ <  px.int64_to_time(%d)]\n")
-	b.WriteString("df.namespace = px.upid_to_namespace(df.upid)\n")
-	b.WriteString("df.pod = px.upid_to_pod_name(df.upid)\n")
+	b.WriteString(PodEnrichPxL(table))
 	b.WriteString("px.display(df, '" + table + "')\n")
 	return b.String(), nil
+}
+
+// darkVectorTables are the pid-keyed dx tracepoint tables (entlein/dx#126). They
+// emit raw kernel pid + comm (no upid), so pod is resolved differently — see
+// PodEnrichPxL.
+var darkVectorTables = map[string]bool{
+	"dc_snoop": true, "creds_change": true,
+	"dx_vfs_events": true, "dx_unlink": true, "dx_dlookup": true,
+	"dx_mprotect": true, "dx_bpf": true, "dx_ptrace": true,
+}
+
+// IsDarkVector reports whether table is a pid-keyed dx tracepoint table.
+func IsDarkVector(table string) bool { return darkVectorTables[table] }
+
+// darkProcStatsWindow bounds the process_stats scan used to resolve pod/namespace
+// for the dark-vector pid-merge. Kept short on purpose: a wide window is the
+// dominant cost of the dark query and starved / timed it out under load. Long-
+// lived workload pids are sampled continuously so a 2-minute window resolves
+// them; transient attack pids never enter process_stats regardless.
+const darkProcStatsWindow = "-2m"
+
+// PodEnrichPxL returns the PxL that populates df.namespace + df.pod for a table.
+//
+// Native socket_tracer tables carry upid → direct px.upid_to_* resolution (df.pod
+// is the namespaced "<ns>/<pod>" key). The dx dark-vector tracepoint tables emit
+// raw kernel pid with NO upid (px.upid_to_* / ctx['pod'] fail outright), so pod is
+// resolved by merging process_stats on pid ONLY — the validated join (dx#126,
+// join-pod.pxl). NOT pid+asid: on a dynamic tracepoint px.asid() is the
+// aggregator/kelvin asid, not the per-PEM asid of the data, so pid+asid never
+// matches. df.pod here is the BARE pod name (proc.ctx['pod']). Best-effort: blank
+// for host/transient pids (correct — no pod).
+func PodEnrichPxL(table string) string {
+	if darkVectorTables[table] {
+		// process_stats is the COST of the dark-table merge: a busy node samples
+		// every live pid every ~10-30s, so a wide window is a huge scan that
+		// competes with the fast native-table queries for the shared query-slot
+		// budget — the heavy pull that starved / timed out the dark capture. A
+		// short window still resolves the pods that matter: long-lived workload
+		// pids (redis-server) appear in every sample, so darkProcStatsWindow is
+		// plenty; genuinely transient attack pids (whoami/cat children) never land
+		// in process_stats at all and resolve blank either way (see comment above).
+		return "proc = px.DataFrame(table='process_stats', start_time='" + darkProcStatsWindow + "')\n" +
+			"proc.pod = proc.ctx['pod']\n" +
+			"proc.namespace = proc.ctx['namespace']\n" +
+			"proc.pid = px.upid_to_pid(proc.upid)\n" +
+			"proc = proc.groupby(['pod', 'namespace', 'pid']).agg()\n" +
+			"df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['', '_x'])\n"
+	}
+	return "df.namespace = px.upid_to_namespace(df.upid)\n" +
+		"df.pod = px.upid_to_pod_name(df.upid)\n"
 }
 
 // Render fills a CompilePassthrough template with the precise [sliceStart,

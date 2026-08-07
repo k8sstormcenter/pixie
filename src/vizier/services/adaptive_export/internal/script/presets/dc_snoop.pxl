@@ -1,0 +1,56 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# dc_snoop EXPORT (retention cron) - query the dc_snoop tracepoint table and
+# export to ClickHouse. The tracepoint itself is deployed by the AE at boot
+# (dc_snoop_deploy.pxl) - a cron script CANNOT deploy a tracepoint (its mutation
+# is dropped), so this script only reads + exports the already-deployed table.
+
+import px
+
+table_name = 'dc_snoop'
+df = px.DataFrame(table=table_name, start_time=px.plugin.start_time, end_time=px.plugin.end_time)
+
+# pid -> pod/namespace attribution. Dark-vector tracepoints emit a raw kernel pid
+# with NO upid, so px.upid_to_* / ctx['pod'] fail outright; resolve pod by merging
+# process_stats on pid ONLY - the validated join (PodEnrichPxL, dx#126). NOT
+# pid+asid: on a dynamic tracepoint px.asid() is the aggregator/kelvin asid, not
+# the per-PEM asid of the data, so pid+asid never matches. Best-effort left join:
+# pod/namespace stay blank for host/transient pids (correct - they have no pod).
+proc = px.DataFrame(table='process_stats', start_time='-5m')
+proc.namespace = proc.ctx['namespace']
+proc.pod = proc.ctx['pod']
+proc.container = proc.ctx['container']
+proc.hostname = px.upid_to_node_name(proc.upid)
+proc.pid = px.upid_to_pid(proc.upid)
+proc = proc.groupby(['namespace', 'pod', 'container', 'hostname', 'pid']).agg()
+df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['', '_x'])
+# Keep exactly the forensic_db.dc_snoop columns (drop the merge's pid_x etc.),
+# else the export sink sends an unknown column and the INSERT fails.
+df = df[['time_', 'pid', 'comm', 't', 'file', 'namespace', 'pod', 'container', 'hostname']]
+
+# Drop known infrastructure namespaces + process comms (blank-namespace workload
+# rows are kept). The filter is injected here from env by presets.go
+# (DC_SNOOP_EXCLUDE_NAMESPACES / DC_SNOOP_EXCLUDE_COMMS) so a process can be added
+# without recompiling. Kept in sync with dx benchlive.writeSelfExclusion.
+# __DC_SNOOP_EXCLUSION__
+
+# Provide event_time (nanoseconds) explicitly so the ClickHouse export sink
+# emits it as DateTime64(9) via its normal type map, instead of auto-appending
+# a DateTime64(3) millisecond column (which would break the nanosecond-consistent
+# event_time contract shared with the AE HTTP path + dx/soc reads).
+df.event_time = df.time_
+px.export(df, px.otel.ClickHouseRows(table=table_name))

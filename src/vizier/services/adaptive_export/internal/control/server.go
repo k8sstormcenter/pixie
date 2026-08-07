@@ -53,6 +53,27 @@ type queryRunner interface {
 	OrderQuery(target anomaly.Target, table string, start, end time.Time, queryID string) error
 }
 
+// exportAller is the optional "steer-all" capability behind /export/start: given
+// a target, capture the COMPLETE evidence set (every configured pixie table) for
+// its pod. The controller implements it. Optional (type-asserted) so start/stop-
+// only deployments and test mocks that only implement queryRunner still compile.
+type exportAller interface {
+	OrderExportAll(target anomaly.Target, start, end time.Time)
+}
+
+// controlExportLookback is how far back /export/start reaches when a client
+// (dx) steers a full capture — it sends only t_end, so AE captures
+// [t_end-lookback, t_end]. 600s mirrors dx's ±300s referral window so the
+// anomaly is comfortably inside the pulled slice.
+const controlExportLookback = 600 * time.Second
+
+// The control API carries timestamps in the pipeline's ONE unit: unix
+// NANOSECONDS — the same unit as forensic_db.*.event_time and dx's referral
+// windows. Read them with time.Unix(0, ns). (This spot previously did
+// time.Unix(ns, 0), reading nanos AS seconds → a year-56-billion window that
+// overlaps no data, so every dx-steered export — all dark tables included —
+// silently returned zero rows.)
+
 // graphWriter persists dx evidence-graph edges (newline-delimited JSON,
 // JSONEachRow) to forensic_db.dx_evidence_graph. nil → /dx/evidence_graph 501s.
 type graphWriter interface {
@@ -242,13 +263,13 @@ type targetReq struct {
 
 type startReq struct {
 	targetReq
-	TEnd int64 `json:"t_end"` // unix seconds
+	TEnd int64 `json:"t_end"` // unix NANOSECONDS (pipeline-wide unit)
 }
 
 type queryReq struct {
 	targetReq
 	Table   string   `json:"table"`
-	Window  [2]int64 `json:"window"` // [start,end] unix seconds
+	Window  [2]int64 `json:"window"` // [start,end] unix NANOSECONDS (pipeline-wide unit)
 	QueryID string   `json:"query_id"`
 }
 
@@ -289,7 +310,17 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	s.set.Upsert(req.key(), time.Unix(req.TEnd, 0))
+	s.set.Upsert(req.key(), time.Unix(0, req.TEnd).UTC())
+	// Steer-all: when a querier is wired (pull mode), a StartExport is dx telling
+	// AE "grab the complete evidence set for this pod." The activeSet.Upsert above
+	// only feeds streaming mode, so in pull mode drive the full-table capture here.
+	// Async: the fan-out is slow (one query per table); dx must get its 202 back
+	// immediately and not block on the export.
+	if ea, ok := s.runner.(exportAller); ok {
+		hi := time.Unix(0, req.TEnd).UTC()
+		lo := hi.Add(-controlExportLookback)
+		go ea.OrderExportAll(req.target(), lo, hi)
+	}
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -323,7 +354,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := s.runner.OrderQuery(req.target(), req.Table,
-		time.Unix(req.Window[0], 0), time.Unix(req.Window[1], 0), req.QueryID)
+		time.Unix(0, req.Window[0]).UTC(), time.Unix(0, req.Window[1]).UTC(), req.QueryID)
 	if err != nil {
 		w.WriteHeader(http.StatusBadGateway)
 		return

@@ -51,6 +51,9 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"px.dev/pixie/src/api/go/pxapi"
 	"px.dev/pixie/src/shared/services"
@@ -82,10 +85,17 @@ const (
 
 	// envWindowBeforeSec / envWindowAfterSec / envTriggerPollMS /
 	// envPruneIntervalSec are programmatic overrides per the spec.
-	envWindowBeforeSec  = "ADAPTIVE_WINDOW_BEFORE_SEC"
-	envWindowAfterSec   = "ADAPTIVE_WINDOW_AFTER_SEC"
-	envTriggerPollMS    = "ADAPTIVE_TRIGGER_POLL_MS"
-	envPruneIntervalSec = "ADAPTIVE_PRUNE_INTERVAL_SEC"
+	envWindowBeforeSec = "ADAPTIVE_WINDOW_BEFORE_SEC"
+	envWindowAfterSec  = "ADAPTIVE_WINDOW_AFTER_SEC"
+	// envQueryLagSec trails the per-table fan-out watermark this far behind
+	// wall-clock so sparse late-flushed rows (dns_events, dc_snoop) stay
+	// queryable. Default 30s (see controller.Config.QueryLag).
+	envQueryLagSec = "ADAPTIVE_QUERY_LAG_SEC"
+	// envExportAllFloorSec bounds how often the dx-steered full capture
+	// (OrderExportAll) re-runs for the same target. Default 30s.
+	envExportAllFloorSec = "ADAPTIVE_EXPORT_ALL_FLOOR_SEC"
+	envTriggerPollMS     = "ADAPTIVE_TRIGGER_POLL_MS"
+	envPruneIntervalSec  = "ADAPTIVE_PRUNE_INTERVAL_SEC"
 
 	// envPushRefreshSec overrides controller.PushRefreshInterval. Unset →
 	// 30s default. A NEGATIVE value selects single-shot mode (one pull per
@@ -119,6 +129,14 @@ const (
 	// match → skip). Defaults to false because the production design has
 	// users author scripts in the Pixie UI.
 	envInstallPresets = "INSTALL_PRESET_SCRIPTS"
+
+	// envDeployTracepoints controls the AE's permanent bpftrace deploy
+	// (dc_snoop, creds_change). Decoupled from the retention firehose:
+	// the tracepoints stay upserted (876000h TTL) so they collect
+	// indefinitely, while INSTALL_PRESET_SCRIPTS governs only whether the
+	// cluster-wide cron *export* runs. Defaults to true (unset = deploy);
+	// set to "false" to skip the deploy.
+	envDeployTracepoints = "DEPLOY_TRACEPOINTS"
 
 	// === Throughput-protection knobs for the pushPixieRows fan-out.
 	// All default to 0 (= legacy unbounded behavior preserved).
@@ -210,6 +228,15 @@ func main() {
 	}
 	log.WithField("hostname", hostname).Info("operator pod is node-local")
 
+	// The AE runs as a DaemonSet (one pod per node), but the retention plugin, its
+	// cron scripts, and the bpftrace tracepoints are CLUSTER-scoped. If every pod
+	// registered them, each preset would get one duplicate cron script per node and
+	// every dark table would be exported N times (observed 2x → 35% duplicate rows
+	// on a 2-node rig). Elect a single deterministic leader so exactly one pod does
+	// the cluster-scoped boot setup; the node-local trigger/data-plane still runs on
+	// every pod.
+	clusterSetupLeader := isClusterSetupLeader(ctx, hostname)
+
 	chEndpoint := chHTTPEndpoint(cfg.ClickHouse().Host(), os.Getenv(envCHHTTPEndpoint))
 	log.WithField("endpoint", chEndpoint).Info("clickhouse HTTP endpoint resolved")
 
@@ -253,14 +280,31 @@ func main() {
 		pluginClient = nil
 	}
 	if pluginClient != nil {
-		chDSN := cfg.ClickHouse().DSN()
-		exportURL, err := pluginClient.EnsureClickHousePluginEnabled(chDSN)
+		// The retention plugin's export sink is the query engine's native
+		// ClickHouseExportSink (clickhouse-cpp over TCP :9000), NOT the AE's own
+		// HTTP write path (:8123). It requires the native DSN format
+		// clickhouse://user:pass@host:9000/db; an HTTP DSN crashes the sink on
+		// connect and takes the vizier Unhealthy. See config.NativeDSN().
+		chDSN := cfg.ClickHouse().NativeDSN()
+		// Boot-race: the vizier's plugin service can 404 GetClickHousePlugin for
+		// the first few seconds after the AE comes up. Retry a bounded number of
+		// times so a cold start doesn't permanently skip plugin enablement.
+		var exportURL string
+		var err error
+		for attempt := 1; attempt <= 5; attempt++ {
+			exportURL, err = pluginClient.EnsureClickHousePluginEnabled(chDSN)
+			if err == nil {
+				break
+			}
+			log.WithError(err).WithField("attempt", attempt).Warn("ensure ClickHouse plugin enabled failed — retrying (vizier plugin service may still be starting)")
+			time.Sleep(6 * time.Second)
+		}
 		if err != nil {
 			// non-fatal — the operator's own write path doesn't depend on
 			// the plugin; analyst joins against pixie-table rows do, but a
 			// missing plugin is a deployment misconfiguration the user
 			// surfaces via UI.
-			log.WithError(err).Warn("could not ensure ClickHouse plugin is enabled — pixie tables will not be populated until you turn it on in the Pixie UI")
+			log.WithError(err).Warn("could not ensure ClickHouse plugin is enabled after retries — pixie tables will not be populated until you turn it on in the Pixie UI")
 		} else {
 			log.WithField("export_url", exportURL).Info("clickhouse retention plugin is enabled")
 		}
@@ -268,12 +312,23 @@ func main() {
 		// 3b. (optional) install Pixie's preset retention scripts so the
 		//     pixie observation tables actually receive rows. Without this,
 		//     the plugin is enabled but does nothing.
-		if strings.EqualFold(os.Getenv(envInstallPresets), "true") {
+		if strings.EqualFold(os.Getenv(envInstallPresets), "true") && clusterSetupLeader {
 			installed, err := installPresetScripts(pluginClient, cfg.Pixie().ClusterID(), cfg.Worker().ClusterName())
 			if err != nil {
 				log.WithError(err).Warn("INSTALL_PRESET_SCRIPTS=true but install failed — pixie tables will stay empty")
 			} else {
 				log.WithField("installed", installed).Info("preset retention scripts installed on cluster")
+			}
+		} else if clusterSetupLeader {
+			// Firehose off: purge any stale operator-managed cron scripts so the
+			// cluster-wide export stops. Evidence export is then driven per
+			// kubescape-alert by dx (OrderQuery → /query) over the deployed
+			// tracepoints, deduped — not a continuous whole-cluster firehose.
+			purged, err := purgePresetScripts(pluginClient, cfg.Pixie().ClusterID(), cfg.Worker().ClusterName())
+			if err != nil {
+				log.WithError(err).Warn("could not purge retention scripts — firehose may still be running")
+			} else if purged > 0 {
+				log.WithField("purged", purged).Info("retention firehose disabled — purged cluster-wide cron scripts (dx steers per-anomaly export)")
 			}
 		}
 	}
@@ -292,7 +347,8 @@ func main() {
 	wmStore, err := trigger.NewClickHouseWatermarkStore(
 		chEndpoint, cfg.ClickHouse().Database(),
 		cfg.ClickHouse().User(), cfg.ClickHouse().Password(),
-		httpTimeout)
+		httpTimeout,
+	)
 	if err != nil {
 		log.WithError(err).Fatal("failed to create persistent watermark store")
 	}
@@ -355,10 +411,15 @@ func main() {
 	})
 
 	ctlCfg := controller.Config{
-		Hostname:                  hostname,
-		Rec:                       rec,
-		Before:                    durEnv(envWindowBeforeSec, 5*time.Minute, time.Second),
-		After:                     durEnv(envWindowAfterSec, 5*time.Minute, time.Second),
+		Hostname:       hostname,
+		Rec:            rec,
+		Before:         durEnv(envWindowBeforeSec, 5*time.Minute, time.Second),
+		After:          durEnv(envWindowAfterSec, 5*time.Minute, time.Second),
+		QueryLag:       durEnv(envQueryLagSec, 30*time.Second, time.Second),
+		ExportAllFloor: durEnv(envExportAllFloorSec, 30*time.Second, time.Second),
+		// EXPORT_MODE=never → the kubescape trigger stops self-steering; only a
+		// control client (dx) drives exports via /export/start + /query.
+		DisableSelfSteer:          strings.EqualFold(strings.TrimSpace(os.Getenv("EXPORT_MODE")), "never"),
 		MaxParallelQueriesPerHash: intEnvOrZero(envMaxParallelQueriesPerHash),
 		MaxInflightQueriesGlobal:  intEnvOrZero(envMaxInflightQueriesGlobal),
 		EmptyResultSkipAfterN:     intEnvOrZero(envEmptyResultSkipAfterN),
@@ -409,15 +470,35 @@ func main() {
 	// loop. All three need a live pxapi client; constructing once avoids
 	// holding two parallel grpc streams for the same vizier.
 	passthroughEnabled := strings.EqualFold(os.Getenv(envPassthrough), "true")
+	// The AE owns bpftrace deployment. Cron/retention export scripts cannot
+	// deploy a tracepoint (their pxtrace mutation is dropped by the cron
+	// executor), so the AE deploys the desired bpftraces itself via a mutation
+	// ExecuteScript over the pixie adapter. Decoupled from the retention
+	// firehose: default-on (unset = deploy) so the traces stay permanent even
+	// when INSTALL_PRESET_SCRIPTS is off and dx steers per-anomaly export.
+	deployTracepoints := !strings.EqualFold(os.Getenv(envDeployTracepoints), "false") && len(script.DesiredTracepoints()) > 0 && clusterSetupLeader
 	var pixieAdapterInst *pixieapi.Adapter
-	if len(ctlCfg.PushPixieTables) > 0 || streamingMode || passthroughEnabled {
+	if len(ctlCfg.PushPixieTables) > 0 || streamingMode || passthroughEnabled || deployTracepoints {
 		var adapter *pixieapi.Adapter
-		if direct := os.Getenv("ADAPTIVE_VIZIER_DIRECT_ADDR"); direct != "" {
-			// Direct mode — bypass the cloud's passthrough proxy and
-			// connect to the in-cluster vizier-query-broker. Use this
-			// on self-hosted clouds where pxapi.WithAPIKey isn't
-			// authorized for the cluster (e.g. a freshly-deployed
-			// vizier whose ID isn't yet linked to the API key's owner).
+		// DEFAULT to pem-direct: query THIS node's own vizier-pem at HOST_IP:50305
+		// directly. It is node-local (matches the node-scoped AE), desync-immune
+		// (no kelvin/broker aggregation — the recurring "Agent ids not the same
+		// size" desync silently drops passthrough/broker queries) and fast. The
+		// default kicks in when the deploy provides HOST_IP (downward-API
+		// status.hostIP) + PL_JWT_SIGNING_KEY (the direct-query JWT); otherwise it
+		// falls back to cloud passthrough. An explicit ADAPTIVE_VIZIER_DIRECT_ADDR
+		// still wins (e.g. broker :50300 for a cluster-wide query).
+		direct := os.Getenv("ADAPTIVE_VIZIER_DIRECT_ADDR")
+		if direct == "" {
+			if hip := strings.TrimSpace(os.Getenv("HOST_IP")); hip != "" && os.Getenv("PL_JWT_SIGNING_KEY") != "" {
+				direct = hip + ":50305"
+				_ = os.Setenv("ADAPTIVE_VIZIER_DIRECT_ADDR", direct) // NewDirectFromEnv reads it
+				log.WithField("addr", direct).Info("pixieapi: defaulting to pem-direct (node-local PEM)")
+			}
+		}
+		if direct != "" {
+			// Direct mode — bypass the cloud passthrough proxy and connect to the
+			// in-cluster vizier-pem (pem-direct, default) or query-broker.
 			a, err := pixieapi.NewDirectFromEnv(cfg.Pixie().ClusterID())
 			if err != nil {
 				log.WithError(err).Fatal("ADAPTIVE_VIZIER_DIRECT_ADDR set but direct-mode adapter init failed")
@@ -436,6 +517,31 @@ func main() {
 		pixieAdapterInst = adapter
 		if len(ctlCfg.PushPixieTables) > 0 {
 			ctl = ctl.WithPixieQuerier(&pixieAdapter{a: adapter})
+		}
+		if deployTracepoints {
+			// pem-direct (:50305) serves fast node-local QUERIES but refuses
+			// MUTATIONS ("direct-query: mutations out of scope #29"), so the
+			// bpftrace deploy (an UpsertTracepoint mutation) must go through a
+			// mutation-capable path. When the query adapter is pem-direct, deploy
+			// the tracepoints via the in-cluster broker (:50300) with the same
+			// service JWT, then keep querying via pem-direct.
+			mutAdapter := adapter
+			if strings.HasSuffix(direct, ":50305") && os.Getenv("PL_JWT_SIGNING_KEY") != "" {
+				brokerAddr := os.Getenv("ADAPTIVE_MUTATION_ADDR")
+				if brokerAddr == "" {
+					brokerAddr = "vizier-query-broker-svc.pl.svc.cluster.local:50300"
+				}
+				if m, err := pixieapi.NewDirect(cfg.Pixie().ClusterID(), pixieapi.DirectOptions{
+					VizierAddr: brokerAddr,
+					SigningKey: os.Getenv("PL_JWT_SIGNING_KEY"),
+				}); err != nil {
+					log.WithError(err).Warn("could not build broker-direct mutation adapter — tracepoint deploy may fail on pem-direct")
+				} else {
+					mutAdapter = m
+					log.WithField("addr", brokerAddr).Info("tracepoint deploy via broker-direct (pem-direct can't mutate)")
+				}
+			}
+			deployDesiredTracepoints(ctx, mutAdapter)
 		}
 	}
 
@@ -796,44 +902,139 @@ func (p *pixieAdapter) Query(ctx context.Context, src string) ([]map[string]any,
 	return out, nil
 }
 
-// installPresetScripts purges any stale ClickHouse-plugin retention
-// scripts on the cluster, then installs the operator's built-in PxL
-// scripts targeting the 13 socket_tracer tables we DDL'd. Cloud-side
-// "presets" are deliberately ignored: in this fork the legacy
-// "conn_stats export" / "dc snoop export" / "stack_traces export"
-// preset names predate the rev-2 schema and would silently fail to
-// write. conn_stats is now in the rev-2 schema, but it
-// ships as "ch-conn_stats" (operator-managed naming) — the legacy
-// "conn_stats export" preset name is still purged below so a stale
-// one doesn't double-write.
-func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (int, error) {
+// isClusterSetupLeader reports whether THIS AE pod should perform the
+// CLUSTER-SCOPED boot setup — registering the retention cron scripts and
+// deploying the bpftrace tracepoints. The AE is a DaemonSet (one pod per node),
+// but those are cluster-wide: if every pod did them, each preset would get one
+// duplicate cron script per node and every dark table would be exported once per
+// node (observed 2x → ~35% duplicate rows on a 2-node rig). We elect a single
+// deterministic leader: the AE pod on the lexicographically-smallest node name.
+// Every pod computes the same winner from the same pod list, so no coordination
+// or lease is needed; pod-list RBAC is already held. Fail-open (return true) on
+// any error — a transient duplicate is safer than skipping setup entirely.
+func isClusterSetupLeader(ctx context.Context, myNode string) bool {
+	ns := os.Getenv("PL_NAMESPACE")
+	if ns == "" {
+		ns = "pl"
+	}
+	fallback := func(reason string, err error) bool {
+		log.WithError(err).Warnf("cluster-setup leader check (%s) — proceeding as leader", reason)
+		return true
+	}
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		return fallback("in-cluster config", err)
+	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return fallback("clientset", err)
+	}
+	pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: "name=adaptive-export"})
+	if err != nil {
+		return fallback("pod list", err)
+	}
+	nodes := make([]string, 0, len(pods.Items))
+	for _, p := range pods.Items {
+		nodes = append(nodes, p.Spec.NodeName)
+	}
+	minNode := leaderNode(nodes)
+	if minNode == "" {
+		return fallback("no scheduled AE pods found", nil)
+	}
+	leader := myNode == minNode
+	log.WithFields(log.Fields{"my_node": myNode, "leader_node": minNode, "is_leader": leader}).
+		Info("cluster-setup leader election — only the leader registers retention scripts + deploys tracepoints")
+	return leader
+}
+
+// leaderNode picks the deterministic cluster-setup leader: the lexicographically
+// smallest non-empty node name. Every AE pod computes the same winner from the
+// same DaemonSet pod list, so no lease/coordination is needed. Empty input (or
+// all-empty node names) yields "" — the caller then fails open.
+func leaderNode(nodes []string) string {
+	smallest := ""
+	for _, n := range nodes {
+		if n != "" && (smallest == "" || n < smallest) {
+			smallest = n
+		}
+	}
+	return smallest
+}
+
+// deployDesiredTracepoints deploys the AE-owned bpftraces (script.DesiredTracepoints)
+// via a mutation ExecuteScript over the pixie adapter. The retention/cron export
+// path cannot deploy a tracepoint — the cron executor drops the pxtrace mutation,
+// so the dark-vector output tables (dc_snoop, creds_change, …) never get created
+// that way. The AE therefore owns tracepoint deployment here. UpsertTracepoint is
+// idempotent (create-if-absent / no-op), so re-running on every boot is safe; each
+// deploy is retried because deployment can transiently fail while PEMs (re)register.
+func deployDesiredTracepoints(ctx context.Context, adapter *pixieapi.Adapter) {
+	for _, tp := range script.DesiredTracepoints() {
+		// Fire the deploy mutation. pxapi's result collector cannot decode the
+		// mutation-info response the vizier returns for a pxtrace deploy
+		// ("stream: unimplemented type"), so a Query error here is NOT a
+		// deployment failure — the UpsertTracepoint applies server-side
+		// regardless. Success is confirmed below by the tracepoint's output
+		// table becoming queryable (PENDING_STATE -> RUNNING_STATE).
+		if _, err := adapter.Query(ctx, tp.Script); err != nil {
+			log.WithError(err).WithField("tracepoint", tp.Name).
+				Debug("deploy mutation returned a stream error (expected for pxtrace mutations) — confirming via table")
+		}
+		// Confirm the tracepoint reached RUNNING by polling its output table. A
+		// plain DataFrame query on a not-yet-deployed table fails PxL compilation
+		// ("Table '<t>' not found"); once the tracepoint is RUNNING the query
+		// compiles and returns (0 rows is fine — RUNNING, just no captures yet).
+		// Re-fire the deploy every few attempts in case the first didn't take.
+		verify := "import px\npx.display(px.DataFrame(table='" + tp.Table + "', start_time='-5s').head(1))\n"
+		running := false
+		for attempt := 1; attempt <= 12; attempt++ {
+			if _, err := adapter.Query(ctx, verify); err == nil {
+				running = true
+				break
+			}
+			if attempt%4 == 0 {
+				_, _ = adapter.Query(ctx, tp.Script)
+			}
+			time.Sleep(5 * time.Second)
+		}
+		if running {
+			log.WithFields(log.Fields{"tracepoint": tp.Name, "table": tp.Table}).
+				Info("bpftrace tracepoint deployed + RUNNING (permanent, idempotent upsert)")
+		} else {
+			log.WithField("tracepoint", tp.Name).
+				Warn("bpftrace tracepoint not confirmed RUNNING after deploy — its dark table stays empty until it deploys")
+		}
+	}
+}
+
+// purgePresetScripts deletes the operator-managed (ch-*) + legacy retention
+// cron scripts from the cluster, leaving user-authored scripts alone. Used both
+// as the first step of installPresetScripts (reconcile) and standalone when
+// INSTALL_PRESET_SCRIPTS is off, to stop the cluster-wide export firehose so
+// that dx steers per-anomaly export instead. Returns the number purged.
+func purgePresetScripts(client *pixie.Client, clusterID, clusterName string) (int, error) {
 	current, err := client.GetClusterScripts(clusterID, clusterName)
 	if err != nil {
 		return 0, fmt.Errorf("get cluster scripts: %w", err)
 	}
-	currentNames := make([]string, 0, len(current))
-	for _, s := range current {
-		currentNames = append(currentNames, s.Name)
-	}
-	log.WithFields(log.Fields{
-		"already_on_cluster":   len(current),
-		"cluster_script_names": currentNames,
-	}).Info("preset script install — purging managed + installing built-ins")
-
-	// Purge ONLY scripts we recognise as operator-managed or as legacy
-	// presets we know are broken in the rev-2 schema. User-authored
-	// retention scripts are left alone.
+	purged := 0
 	for _, s := range current {
 		if !isOperatorManagedScript(s.Name) {
-			log.WithField("script", s.Name).
-				Debug("preset install — leaving user-authored script alone")
 			continue
 		}
 		if err := client.DeleteDataRetentionScript(s.ScriptID); err != nil {
 			log.WithError(err).WithField("script", s.Name).Warn("failed to delete stale script")
 			continue
 		}
-		log.WithField("script", s.Name).Info("purged stale retention script")
+		purged++
+		log.WithField("script", s.Name).Info("purged retention script")
+	}
+	return purged, nil
+}
+
+func installPresetScripts(client *pixie.Client, clusterID, clusterName string) (int, error) {
+	if _, err := purgePresetScripts(client, clusterID, clusterName); err != nil {
+		return 0, err
 	}
 
 	// Install built-ins.
@@ -907,7 +1108,18 @@ func builtinPresetScripts() []*script.ScriptDefinition {
 			"df = px.DataFrame(table='" + t + "', start_time='-15s')\n" +
 			"df.namespace = px.upid_to_namespace(df.upid)\n" +
 			"df.pod = px.upid_to_pod_name(df.upid)\n" +
-			"px.display(df, '" + t + "')\n"
+			// Provide event_time (nanoseconds) so the ClickHouse export sink emits
+			// it as DateTime64(9) via its normal type map, instead of auto-appending
+			// a DateTime64(3) millisecond column that mismatches the table's
+			// DateTime64(9) event_time and crashes the sink.
+			"df.event_time = df.time_\n" +
+			// Export via the native OTel ClickHouse sink (like DarkVectorPresets),
+			// NOT px.display. px.display relies on the retention plugin routing the
+			// display output to ClickHouse, which does not write on this stack
+			// (verified on a clean rig: dns_events/conn_stats/http_events = 0 parts
+			// ever, while the px.export dark tables dc_snoop/stack_trace populate).
+			// px.export writes directly through the same sink the dark presets use.
+			"px.export(df, px.otel.ClickHouseRows(table='" + t + "'))\n"
 		out = append(out, &script.ScriptDefinition{
 			Name:        "ch-" + t,
 			Description: "adaptive_export builtin preset for " + t,
@@ -916,5 +1128,9 @@ func builtinPresetScripts() []*script.ScriptDefinition {
 			IsPreset:    false,
 		})
 	}
-	return out
+	// Dark-vector + profiler tracepoint/profiler export scripts (dc_snoop,
+	// stack_trace, creds_change) — permanent tracepoints (876000h) + OTel→
+	// ClickHouse export; registered if-not-present at boot alongside the
+	// protocol presets.
+	return append(out, script.DarkVectorPresets()...)
 }

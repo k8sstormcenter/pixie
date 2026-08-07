@@ -1,0 +1,40 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+import px
+
+# Native continuous profiler (stack_traces.beta) - always-on, no tracepoint.
+# Exports folded user+kernel stacks per pod -> ClickHouse via the OTel plugin.
+# This is the OTel "profiles" signal for the SBoB stack-trace vector (V9).
+df = px.DataFrame(table='stack_traces.beta', start_time=px.plugin.start_time, end_time=px.plugin.end_time)
+df.namespace = df.ctx['namespace']
+df.pod = df.ctx['pod']
+df.container = df.ctx['container']
+df.hostname = px.upid_to_node_name(df.upid)
+df = df[['time_', 'upid', 'namespace', 'pod', 'container', 'hostname', 'stack_trace_id', 'stack_trace', 'count']]
+
+# EXCLUDE our own monitoring/infra pods (see dc_snoop.pxl) - the profiler otherwise
+# fills stack_trace with samples of Pixie's own pem/kelvin/vizier + the AE + CH,
+# which is self-observation noise, not workload control-flow evidence.
+df = df[df.namespace != 'pl']
+df = df[df.namespace != 'px-operator']
+df = df[df.namespace != 'olm']
+df = df[df.namespace != 'clickhouse']
+df = df[df.namespace != 'kube-system']
+
+# event_time as nanoseconds -> sink emits DateTime64(9) (see dc_snoop.pxl).
+df.event_time = df.time_
+px.export(df, px.otel.ClickHouseRows(table='stack_trace'))

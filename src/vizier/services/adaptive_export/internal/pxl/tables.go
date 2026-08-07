@@ -72,6 +72,21 @@ var builtinTables = []TableSpec{
 	{Name: "mux_events", Protocol: "Mux (Twitter Finagle)"},
 	{Name: "tls_events", Protocol: "TLS handshake"},
 	{Name: "conn_stats", Protocol: "Connection-level statistics"},
+	// Dark-vector tracepoint + profiler tables the AE deploys + exports itself.
+	// dc_snoop (V1/V2), creds_change (V7), stack_trace (V9) are the active set —
+	// canonical schemas (DateTime64(9) time_/event_time, Int64 ids, full k8s
+	// metadata via the process_stats pid-merge), matching the export presets and
+	// dx#129's darkTables keys. The remaining dx_* entries are reserved for the
+	// bpftraces still to be written (V2 write/unlink, V6 mprotect, V8 bpf/ptrace).
+	{Name: "dc_snoop", Protocol: "tracepoint (dentry lookup, V1/V2)"},
+	{Name: "creds_change", Protocol: "tracepoint (commit_creds priv-esc, V7)"},
+	{Name: "stack_trace", Protocol: "profiler (stack_traces.beta, V9)"},
+	{Name: "dx_vfs_events", Protocol: "tracepoint"},
+	{Name: "dx_unlink", Protocol: "tracepoint"},
+	{Name: "dx_dlookup", Protocol: "tracepoint"},
+	{Name: "dx_mprotect", Protocol: "tracepoint"},
+	{Name: "dx_bpf", Protocol: "tracepoint"},
+	{Name: "dx_ptrace", Protocol: "tracepoint"},
 }
 
 // Registry is the extension surface for users to register their own

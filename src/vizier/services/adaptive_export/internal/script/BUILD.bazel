@@ -15,10 +15,27 @@
 # SPDX-License-Identifier: Apache-2.0
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@px//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
     name = "script",
-    srcs = ["script.go"],
+    srcs = [
+        "presets.go",
+        "script.go",
+    ],
+    embedsrcs = [
+        "presets/creds_change.pxl",
+        "presets/creds_change_deploy.pxl",
+        "presets/dc_snoop.pxl",
+        "presets/dc_snoop_deploy.pxl",
+        "presets/stack_trace.pxl",
+    ],
     importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/script",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
+)
+
+pl_go_test(
+    name = "script_test",
+    srcs = ["presets_test.go"],
+    embed = [":script"],
 )

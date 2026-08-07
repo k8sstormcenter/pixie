@@ -15,6 +15,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@px//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
     name = "pixie",
@@ -29,6 +30,15 @@ go_library(
         "@com_github_gogo_protobuf//types",
         "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//credentials",
+        "@org_golang_google_grpc//metadata",
+    ],
+)
+
+pl_go_test(
+    name = "pixie_test",
+    srcs = ["auth_invariants_test.go"],
+    embed = [":pixie"],
+    deps = [
         "@org_golang_google_grpc//metadata",
     ],
 )

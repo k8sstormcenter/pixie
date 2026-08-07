@@ -35,7 +35,7 @@ func lastProjection(script string) []string {
 // dc_snoop retention export projects — plus event_time (added via df.event_time =
 // df.time_) — must be EXACTLY the forensic_db.dc_snoop schema columns. A mismatch
 // means the OTel/ClickHouse sink sends an unknown or missing column and the INSERT
-// fails. This is the coupling that adding ppid/pcomm/pid_start/ppid_start could have
+// fails. This is the coupling that adding ppid/pid_start/ppid_start could have
 // silently broken, and it guards the steered path too (queryfor auto-carries the
 // tracepoint columns, so schema == export == tracepoint-derived).
 func TestDcSnoopExportColumnsMatchSchema(t *testing.T) {
@@ -56,14 +56,20 @@ func TestDcSnoopExportColumnsMatchSchema(t *testing.T) {
 }
 
 // TestDcSnoopTracepointCapturesParent — the bpftrace program must emit the parent
-// identity inline (curtask->parent) so every dcache event carries ppid/pcomm and a
+// identity inline (curtask->parent) so every dcache event carries ppid and a
 // pid-reuse-stable start time (group_leader->start_time) for both the process and
 // its parent — the process-forest edge. Uses the exec_snoop-proven form: ->parent
 // (not ->real_parent) and %d ints (%lld is not in Pixie's tracepoint printf subset;
-// it misaligned every field after it, which is why ppid/pcomm parsed as 0).
+// it misaligned every field after it, which is why ppid parsed as 0).
+//
+// CRITICAL: the printf must stay within the 8-argument budget (5 numeric + 3
+// strings), the same profile as the proven exec_snoop tracepoint. A 9th arg makes
+// bpftrace reject the program ("printf: Too many arguments for format string"), the
+// tracepoint flaps FAILED<->RUNNING, and dc_snoop captures ZERO rows — which is
+// exactly what a captured parent comm (%s) cost us. So this asserts the arg budget.
 func TestDcSnoopTracepointCapturesParent(t *testing.T) {
 	for _, tok := range []string{
-		"ppid:", "pcomm:", "pid_start:", "ppid_start:", "group_leader->start_time",
+		"ppid:", "pid_start:", "ppid_start:", "group_leader->start_time",
 	} {
 		if !strings.Contains(dcSnoopDeployScript, tok) {
 			t.Errorf("dc_snoop_deploy.pxl missing %q — parent/identity capture incomplete", tok)
@@ -80,9 +86,23 @@ func TestDcSnoopTracepointCapturesParent(t *testing.T) {
 	if strings.Contains(dcSnoopDeployScript, "%lld") {
 		t.Error("dc_snoop_deploy.pxl uses percent-lld — not in Pixie's tracepoint printf subset; use percent-d")
 	}
+	// Parent comm must NOT be captured — it was the 9th arg that broke the program.
+	if strings.Contains(dcSnoopDeployScript, "parent->comm") || strings.Contains(dcSnoopDeployScript, "pcomm:") {
+		t.Error("dc_snoop_deploy.pxl captures parent comm — that 9th printf arg exceeds bpftrace's budget and zeroes capture")
+	}
+	// Enforce the 8-arg printf budget: each probe's printf format must have at most
+	// 8 conversion specifiers. A 9th (or more) is rejected by bpftrace at compile.
+	for _, line := range strings.Split(dcSnoopDeployScript, "\n") {
+		if !strings.Contains(line, "printf(\"time_:") {
+			continue
+		}
+		if n := strings.Count(line, "%"); n > 8 {
+			t.Errorf("dc_snoop_deploy.pxl printf has %d args (>8, over bpftrace's budget): %s", n, strings.TrimSpace(line))
+		}
+	}
 	// Tracepoint fields must be a superset of the raw (non-enriched) schema columns
-	// the export reads straight from the table.
-	for _, c := range []string{"time_", "pid", "pid_start", "ppid", "ppid_start", "comm", "pcomm", "t", "file"} {
+	// the export reads straight from the table (no parent comm).
+	for _, c := range []string{"time_", "pid", "pid_start", "ppid", "ppid_start", "comm", "t", "file"} {
 		if !strings.Contains(dcSnoopDeployScript, c+":") {
 			t.Errorf("dc_snoop_deploy.pxl printf missing field %q", c)
 		}

@@ -37,6 +37,30 @@ var (
 	}
 )
 
+// TestQueryFor_CleanupNoCollateral — the pure-ancestry cleanup touched ONLY the
+// dark-vector branch. Every native/protocol table (redis_events, dns_events, …) and
+// stack_trace must be UNAFFECTED: no ancestry join, no parent_namespace, no comm
+// drops, and they must still pin the alert pod (dx-steered pod scope). This is the
+// "other CH tables not affected" guard.
+func TestQueryFor_CleanupNoCollateral(t *testing.T) {
+	native := []string{"redis_events", "dns_events", "http_events", "conn_stats", "pgsql_events", "mysql_events", "stack_trace"}
+	for _, tbl := range native {
+		q, err := QueryFor(tbl, target, fixedStart, fixedEnd, fixedNow)
+		if err != nil {
+			t.Fatalf("QueryFor(%s): %v", tbl, err)
+		}
+		for _, banned := range []string{"parent_namespace", "left_on=['ppid']", "df.comm !=", "px.contains(df.comm", "df = df[df.namespace != '"} {
+			if strings.Contains(q, banned) {
+				t.Errorf("%s (native) must not contain dark-path machinery %q; got:\n%s", tbl, banned, q)
+			}
+		}
+		// still pod-scoped (dx-steered): the alert pod is pinned
+		if !strings.Contains(q, "redis-6fbcfb97c-82qxv") {
+			t.Errorf("%s must still pin the alert pod; got:\n%s", tbl, q)
+		}
+	}
+}
+
 // TestQueryFor_UnknownTable — non-builtin tables wrap ErrUnknownTable.
 func TestQueryFor_UnknownTable(t *testing.T) {
 	_, err := QueryFor("nope_table", target, fixedStart, fixedEnd, fixedNow)
@@ -378,14 +402,14 @@ func TestQueryFor_NoEndTimeAtLiveEdge(t *testing.T) {
 }
 
 // TestQueryFor_DarkNamespaceExclusion — the node-scoped dark capture (dc_snoop)
-// must drop infra namespaces (pl, kube-system, …) while KEEPING blank-namespace
-// transient rows (the attack's short-lived children). Mirrors the shipped preset.
+// must drop infra namespaces by the row's OWN namespace (resolved own-stack
+// processes) while KEEPING blank-namespace transient rows. Mirrors the shipped
+// preset.
 func TestQueryFor_DarkNamespaceExclusion(t *testing.T) {
 	q, err := QueryFor("dc_snoop", target, fixedStart, fixedEnd, fixedNow)
 	if err != nil {
 		t.Fatalf("QueryFor: %v", err)
 	}
-	// namespace drops present for infra
 	for _, ns := range []string{"pl", "kube-system", "clickhouse"} {
 		if !strings.Contains(q, "df = df[df.namespace != '"+ns+"']") {
 			t.Errorf("dark capture must drop infra namespace %q; got:\n%s", ns, q)
@@ -395,47 +419,93 @@ func TestQueryFor_DarkNamespaceExclusion(t *testing.T) {
 	if strings.Contains(q, "df = df[df.namespace == '") {
 		t.Errorf("dark capture must not pin df.namespace ==; got:\n%s", q)
 	}
-	// host/CNI comm drops present
-	for _, c := range []string{"host-local", "systemd-udevd", "tailscaled", "kubevuln"} {
-		if !strings.Contains(q, "df = df[df.comm != '"+c+"']") {
-			t.Errorf("dark capture must drop host/CNI comm %q; got:\n%s", c, q)
-		}
-	}
 }
 
 // TestQueryFor_DarkNamespaceExclusion_EnvOverride — DC_SNOOP_EXCLUDE_NAMESPACES
-// replaces the default list.
+// replaces the default list for BOTH the child-namespace and the parent-ancestry
+// drops (they share one resolved list, so they can never drift).
 func TestQueryFor_DarkNamespaceExclusion_EnvOverride(t *testing.T) {
 	t.Setenv("DC_SNOOP_EXCLUDE_NAMESPACES", "foo,bar")
 	q, err := QueryFor("dc_snoop", target, fixedStart, fixedEnd, fixedNow)
 	if err != nil {
 		t.Fatalf("QueryFor: %v", err)
 	}
-	if !strings.Contains(q, "df = df[df.namespace != 'foo']") || !strings.Contains(q, "df = df[df.namespace != 'bar']") {
-		t.Errorf("env override must emit foo/bar drops; got:\n%s", q)
+	for _, want := range []string{
+		"df = df[df.namespace != 'foo']", "df = df[df.namespace != 'bar']",
+		"df = df[df.parent_namespace != 'foo']", "df = df[df.parent_namespace != 'bar']",
+	} {
+		if !strings.Contains(q, want) {
+			t.Errorf("env override must emit %q; got:\n%s", want, q)
+		}
 	}
-	if strings.Contains(q, "df = df[df.namespace != 'pl']") {
-		t.Errorf("env override must REPLACE the default (no 'pl'); got:\n%s", q)
+	if strings.Contains(q, "!= 'pl']") {
+		t.Errorf("env override must REPLACE the default (no 'pl' in either child or parent drop); got:\n%s", q)
 	}
 }
 
-// dc_snoop drops kernel-thread families (variable suffix) via px.logicalNot(px.contains),
-// keeps workload comms (redis-server), and doesn't pin the alert pod's namespace.
-func TestQueryFor_DarkCommSubstringExclusion(t *testing.T) {
+// TestQueryFor_DarkNoCommBlocklist — the hardcoded comm blocklist and kernel-thread
+// substring filter were DELETED (pure-ancestry cleanup). The dark capture must emit
+// NO comm-based drops at all: no `df.comm != ...`, no `px.contains(df.comm, ...)`.
+// Noise is cut structurally (own + parent namespace), so host/kernel comms now enter
+// the retention look-back for dx's forest to relevance-filter.
+func TestQueryFor_DarkNoCommBlocklist(t *testing.T) {
 	q, err := QueryFor("dc_snoop", target, fixedStart, fixedEnd, fixedNow)
 	if err != nil {
 		t.Fatalf("QueryFor: %v", err)
 	}
-	for _, sub := range []string{"kworker", "ksoftirqd", "rcu_"} {
-		want := "df = df[px.logicalNot(px.contains(df.comm, '" + sub + "'))]"
+	if strings.Contains(q, "df.comm !=") {
+		t.Errorf("comm blocklist must be gone (no df.comm != drops); got:\n%s", q)
+	}
+	if strings.Contains(q, "px.contains(df.comm") {
+		t.Errorf("kernel-thread substring filter must be gone; got:\n%s", q)
+	}
+}
+
+// TestQueryFor_DarkParentAncestry — for a ppid-bearing dark table (dc_snoop) the
+// query must resolve the PARENT namespace via a process_stats join on ppid, drop
+// own-stack parents (the ancestry cut that replaced the comm blocklist), and DROP
+// parent_namespace before display so the sink projection is unchanged.
+func TestQueryFor_DarkParentAncestry(t *testing.T) {
+	q, err := QueryFor("dc_snoop", target, fixedStart, fixedEnd, fixedNow)
+	if err != nil {
+		t.Fatalf("QueryFor: %v", err)
+	}
+	for _, want := range []string{
+		"par = px.DataFrame(table='process_stats'",
+		"par.parent_namespace = par.ctx['namespace']",
+		"par.ppid = px.upid_to_pid(par.upid)",
+		"left_on=['ppid'], right_on=['ppid']",
+		"df = df[df.parent_namespace != 'pl']",
+		"df = df[df.parent_namespace != 'clickhouse']",
+		"df = df.drop(['parent_namespace'])",
+	} {
 		if !strings.Contains(q, want) {
-			t.Errorf("want kernel-thread drop %q; got:\n%s", want, q)
+			t.Errorf("dark ancestry filter missing %q; got:\n%s", want, q)
 		}
 	}
-	if strings.Contains(q, "df.comm != 'redis-server'") || strings.Contains(q, "df.comm, 'redis") {
-		t.Errorf("workload comm redis-* must NOT be excluded; got:\n%s", q)
+	// parent_namespace must be dropped BEFORE px.display (not leak to the sink).
+	di, pi := strings.Index(q, "df.drop(['parent_namespace'])"), strings.Index(q, "px.display")
+	if di < 0 || pi < 0 || di > pi {
+		t.Errorf("parent_namespace must be dropped before px.display; drop@%d display@%d", di, pi)
 	}
-	if !strings.Contains(q, "df = df[df.comm != 'pause']") {
-		t.Errorf("want exact drop of 'pause'; got:\n%s", q)
+}
+
+// TestQueryFor_AncestryOnlyForPpidTables — the ancestry join applies ONLY to dark
+// tables that capture ppid (dc_snoop). creds_change and the dx_* tables have no
+// ppid, so they must NOT get a process_stats-on-ppid parent merge (it would fail to
+// compile), only the child-namespace exclusion.
+func TestQueryFor_AncestryOnlyForPpidTables(t *testing.T) {
+	for _, tbl := range []string{"creds_change", "dx_vfs_events"} {
+		q, err := QueryFor(tbl, target, fixedStart, fixedEnd, fixedNow)
+		if err != nil {
+			t.Fatalf("QueryFor(%s): %v", tbl, err)
+		}
+		if strings.Contains(q, "parent_namespace") || strings.Contains(q, "left_on=['ppid']") {
+			t.Errorf("%s has no ppid — must NOT get the ancestry join; got:\n%s", tbl, q)
+		}
+		// but it still gets the child-namespace exclusion
+		if !strings.Contains(q, "df = df[df.namespace != 'pl']") {
+			t.Errorf("%s must still get child-namespace exclusion; got:\n%s", tbl, q)
+		}
 	}
 }

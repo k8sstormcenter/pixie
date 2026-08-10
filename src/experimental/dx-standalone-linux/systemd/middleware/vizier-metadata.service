@@ -1,0 +1,32 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+[Unit]
+Description=vizier-metadata — agent registry + (DEGRADED off-k8s) upid->pod map
+After=pl-nats.service pl-etcd.service
+Requires=pl-etcd.service
+Wants=pl-nats.service
+[Service]
+EnvironmentFile=/etc/vizier/middleware.env
+# OFF-K8S CAVEAT: the real metadata service watches the k8s API for pod/service/
+# namespace. There is none on a VM, so upid_to_pod_name/namespace/service resolve
+# EMPTY. Supply a static host/cgroup->service map (PL_STATIC_METADATA_FILE) to
+# restore readable names at lower fidelity; else the UI shows process/cgroup ids.
+Environment=PL_STATIC_METADATA_FILE=/etc/vizier/metadata-static.json
+ExecStart=/usr/local/bin/vizier-metadata_server
+Restart=on-failure
+RestartSec=3
+[Install]
+WantedBy=multi-user.target

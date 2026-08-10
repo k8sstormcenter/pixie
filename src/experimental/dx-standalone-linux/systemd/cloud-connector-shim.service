@@ -1,0 +1,21 @@
+[Unit]
+Description=dx cloud-connector shim (registers the standalone PEM with Pixie Cloud vzconn + proxies ExecuteScript)
+After=standalone-pem.service network-online.target
+Wants=standalone-pem.service
+
+[Service]
+# Auth to cloud exactly as vizier's cloud-connector does: deploy key -> vzconn mTLS
+# -> RegisterVizier -> cluster cert. Then proxy cloud-tunneled ExecuteScript to the
+# local PEM :12345. See cloudshim/README.md for the wiring + what remains to build.
+Environment=PL_CLOUD_ADDR=withpixie.ai:443
+Environment=PL_DEPLOY_KEY_FILE=/etc/dx/deploy.key
+Environment=PL_CLUSTER_ID_FILE=/etc/dx/cluster.id
+Environment=PEM_ADDR=127.0.0.1:12345
+ExecStart=/usr/local/bin/dx-cloud-connector-shim
+DynamicUser=yes
+NoNewPrivileges=yes
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

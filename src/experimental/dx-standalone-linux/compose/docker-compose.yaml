@@ -1,0 +1,44 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+---
+# Fast single-VM bring-up of the DETECTION path (no cloud, no k8s). Host network
+# so dx reaches the PEM on 127.0.0.1:12345 and the injector reaches dx :9099.
+services:
+  standalone-pem:
+    image: ghcr.io/k8sstormcenter/vizier-standalone_pem_image:0.14.18-dxpoc3
+    network_mode: host
+    pid: host
+    privileged: true
+    environment:
+      PX_STANDALONE_PEM_PORT: "12345"
+      PL_TABLE_STORE_DATA_LIMIT_MB: "1024"
+      PL_HOST_PATH: /host
+    volumes:
+    - /:/host:ro
+    - /sys:/sys:rw
+  dx-daemon:
+    image: docker.io/entlein/dx-daemon:0.3.0-integration4
+    network_mode: host
+    depends_on:
+    - standalone-pem
+    environment:
+      DX_PORT: "9099"
+      DX_METRICS_PORT: "9095"
+      DX_BENCH: pxdirect
+      PX_DIRECT_ADDR: 127.0.0.1:12345
+      DX_CATALOG_DIR: /etc/dx/catalog
+    volumes:
+    - ./catalog:/etc/dx/catalog:ro

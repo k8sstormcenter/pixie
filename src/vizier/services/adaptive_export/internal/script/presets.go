@@ -15,14 +15,6 @@ var defaultExcludeNamespaces = []string{
 	"kube-system", "kube-public", "kube-node-lease", "local-path-storage",
 }
 
-var defaultExcludeComms = []string{
-	"k3s-server", "k3s-agent", "containerd", "containerd-shim",
-	"runc", "runc:[2:INIT]", "runc:[1:CHILD]", "node-agent", "kelvin",
-	"vizier-pem", "vizier-query-broker", "vizier-metadata",
-	"systemd", "systemd-journal", "iptables", "ip6tables", "kubelet",
-	"operator", "storage",
-}
-
 func csvEnv(key string, def []string) []string {
 	v := os.Getenv(key)
 	if v == "" {
@@ -37,17 +29,31 @@ func csvEnv(key string, def []string) []string {
 	return out
 }
 
-// dcSnoopExclusion builds the dc_snoop noise filter (namespace + comm drops) from
-// DC_SNOOP_EXCLUDE_NAMESPACES / DC_SNOOP_EXCLUDE_COMMS, substituted into
-// dc_snoop.pxl at # __DC_SNOOP_EXCLUSION__ so a process can be added without a
-// recompile. Kept in sync with dx benchlive.writeSelfExclusion.
+// dcSnoopExclusion builds the dc_snoop CHILD-namespace noise filter from
+// DC_SNOOP_EXCLUDE_NAMESPACES, substituted into dc_snoop.pxl at
+// # __DC_SNOOP_EXCLUSION__ so an infra namespace can be added without a recompile.
+// The hardcoded comm blocklist was DELETED (pure-ancestry cleanup): own-stack pods
+// are dropped here by their resolved namespace, and their transient blank-namespace
+// children by the parent-ancestry filter (dcSnoopParentExclusion). Host/kernel
+// processes (blank namespace, blank/kernel parent) are left to dx's process forest.
 func dcSnoopExclusion() string {
 	var b strings.Builder
 	for _, ns := range csvEnv("DC_SNOOP_EXCLUDE_NAMESPACES", defaultExcludeNamespaces) {
 		fmt.Fprintf(&b, "df = df[df.namespace != '%s']\n", ns)
 	}
-	for _, c := range csvEnv("DC_SNOOP_EXCLUDE_COMMS", defaultExcludeComms) {
-		fmt.Fprintf(&b, "df = df[df.comm != '%s']\n", c)
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// dcSnoopParentExclusion builds the ppid-ancestry filter (drop events whose PARENT
+// resolves to an own-stack namespace) from the SAME namespace list as the self
+// filter, substituted into dc_snoop.pxl at # __DC_SNOOP_PARENT_EXCLUSION__. Rooted
+// on the parent's namespace (via the ppid->process_stats join), not comm, so it
+// catches transient children exec'd by infra pods without touching workload/attack
+// children of shared (blank-namespace) parents like containerd-shim/runc.
+func dcSnoopParentExclusion() string {
+	var b strings.Builder
+	for _, ns := range csvEnv("DC_SNOOP_EXCLUDE_NAMESPACES", defaultExcludeNamespaces) {
+		fmt.Fprintf(&b, "df = df[df.parent_namespace != '%s']\n", ns)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -100,7 +106,7 @@ func DesiredTracepoints() []TracepointDef {
 // registers if-not-present. Names are operator-managed (reconciled on boot).
 func DarkVectorPresets() []*ScriptDefinition {
 	return []*ScriptDefinition{
-		{Name: "ch-dc_snoop", Description: "dc_snoop (dentry cache: process+file, V1/V2) → ClickHouse", FrequencyS: 10, Script: strings.Replace(dcSnoopScript, "# __DC_SNOOP_EXCLUSION__", dcSnoopExclusion(), 1)},
+		{Name: "ch-dc_snoop", Description: "dc_snoop (dentry cache: process+file, V1/V2) → ClickHouse", FrequencyS: 10, Script: strings.Replace(strings.Replace(dcSnoopScript, "# __DC_SNOOP_PARENT_EXCLUSION__", dcSnoopParentExclusion(), 1), "# __DC_SNOOP_EXCLUSION__", dcSnoopExclusion(), 1)},
 		{Name: "ch-stack_trace", Description: "stack_traces.beta (continuous profiler, V9) → ClickHouse", FrequencyS: 10, Script: stackTraceScript},
 		{Name: "ch-creds_change", Description: "commit_creds privilege-escalation to root (V7) → ClickHouse", FrequencyS: 10, Script: credsChangeScript},
 	}

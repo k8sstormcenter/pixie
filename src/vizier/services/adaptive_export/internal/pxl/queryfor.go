@@ -90,11 +90,19 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 			}
 		}
 	} else if IsDarkVector(table) {
-		// Node-scoped (transient attack pids resolve blank ns, so no pod filter). Drop
-		// own-stack comms before the pid-merge to keep it cheap, then drop infra namespaces.
-		b.WriteString(darkCommExclusion(table))
+		// Node-scoped (transient attack pids resolve blank ns, so no pod filter).
+		// Noise is cut structurally, NOT by a hardcoded comm blocklist (deleted):
+		//   1. child-namespace exclusion drops resolved own-stack processes (vizier,
+		//      pem, node-agent, … resolve to pl/honey/clickhouse via their pod);
+		//   2. parent-ancestry exclusion (ppid -> parent namespace) drops the
+		//      transient children of own-stack pods that resolve blank themselves.
+		// Host-level runtime + kernel threads (containerd-shim/systemd/k3s/kworker)
+		// have a blank namespace AND a blank/kernel-thread parent, so 1-level ancestry
+		// cannot resolve them — they enter the always-on retention look-back and are
+		// relevance-filtered by dx's multi-level process forest, not here.
 		b.WriteString(PodEnrichPxL(table))
 		b.WriteString(darkNamespaceExclusion())
+		b.WriteString(darkParentAncestryExclusion(table))
 	} else {
 		b.WriteString(PodEnrichPxL(table))
 		if t.Namespace != "" {
@@ -132,83 +140,67 @@ func pixieSourceFor(table string) string {
 	return table
 }
 
-// Dark-vector tables carrying a comm column (so the comm exclusion applies).
-var darkVectorHasComm = map[string]bool{
-	"dc_snoop": true, "creds_change": true, "dx_vfs_events": true,
-	"dx_unlink": true, "dx_dlookup": true, "dx_mprotect": true,
-	"dx_bpf": true, "dx_ptrace": true,
+// Dark-vector tables that carry a ppid column (so the parent-ancestry exclusion
+// applies). Only dc_snoop captures ppid today; creds_change and the dx_* bpftrace
+// tables do not, so they get the child-namespace exclusion only.
+var darkVectorHasPpid = map[string]bool{
+	"dc_snoop": true,
 }
 
-// Own-stack + node/system comms dropped from the node-scoped dark capture; workload
-// comms (redis-*, etc.) are never listed. Override via DC_SNOOP_EXCLUDE_COMMS (csv).
-var darkExcludeCommsDefault = []string{
-	"pem", "kelvin", "containerd", "containerd-shim", "runc", "node-agent",
-	"runc:[2:INIT]", "runc:[1:CHILD]",
-	"vizier-query-broker", "vizier-metadata", "nats-server", "k3s-server",
-	"k3s-agent", "systemd", "systemd-journal", "SystemLogFlush", "kubelet",
-	"AsyncInsertQ", "BgSchPool", "Collector", "AsyncMetrics", "MergeMutate",
-	"MergeTreeIndex", "CgrpMemUsgObsr", "coredns", "metadata", "storage",
-	"operator", "iptables", "iptables-save", "iptables-restor", "ip6tables",
-	"ConfigReloader", "clickhouse-oper", "Formatter", "(setup.sh)", "cmd",
-	"vector-worker", "metrics-server", "local-path-prov", "portmap",
-	"(udev-worker)", "systemd-resolve", "systemd-timesyn",
-	"systemd-udevd", "systemd-sysctl", "host-local", "bridge", "flannel",
-	"loopback", "bandwidth", "dbus-daemon", "mount", "umount", "tailscaled",
-	"grpc_health_pro", "kubevuln", "opm", "(spawn)", "kube-proxy",
-	"pause", "systemd-logind",
-}
-
-// Kernel-thread families whose names carry a variable suffix (kworker/u8:3) that
-// exact match misses; dropped via px.contains.
-var darkExcludeCommSubstrings = []string{
-	"kworker", "ksoftirqd", "migration", "rcu_", "kthreadd", "kdevtmpfs",
-	"kcompactd", "khugepaged", "kswapd", "watchdog", "cpuhp", "ksmd", "irq/",
-}
-
-// Infra namespaces dropped from the node-scoped dark capture. Blank-namespace rows
-// (transient attack children) survive. Override via DC_SNOOP_EXCLUDE_NAMESPACES.
+// Infra namespaces dropped from the node-scoped dark capture — applied BOTH to the
+// row's own namespace (resolved own-stack processes) and, for tables with ppid, to
+// the parent's namespace (ancestry). Blank-namespace rows survive (transient attack
+// children; host/kernel processes). Override via DC_SNOOP_EXCLUDE_NAMESPACES.
 var darkExcludeNamespacesDefault = []string{
-	"pl", "honey", "px-operator", "olm", "clickhouse", "socdemo", "socdemo-ch",
+	"pl", "honey", "px-operator", "olm", "clickhouse",
 	"kube-system", "kube-public", "kube-node-lease", "local-path-storage",
 }
 
-func darkCommExclusion(table string) string {
-	if !darkVectorHasComm[table] {
-		return ""
-	}
-	comms := darkExcludeCommsDefault
-	if v := strings.TrimSpace(os.Getenv("DC_SNOOP_EXCLUDE_COMMS")); v != "" {
-		comms = nil
-		for _, s := range strings.Split(v, ",") {
-			if s = strings.TrimSpace(s); s != "" {
-				comms = append(comms, s)
-			}
-		}
-	}
-	var b strings.Builder
-	for _, c := range comms {
-		b.WriteString("df = df[df.comm != '" + escapePxL(c) + "']\n")
-	}
-	for _, s := range darkExcludeCommSubstrings {
-		b.WriteString("df = df[px.logicalNot(px.contains(df.comm, '" + escapePxL(s) + "'))]\n")
-	}
-	return b.String()
-}
-
-func darkNamespaceExclusion() string {
-	nss := darkExcludeNamespacesDefault
+// darkExcludeNamespaces resolves the effective infra-namespace list (env override
+// or default), shared by the child-namespace and parent-ancestry exclusions so the
+// two can never drift.
+func darkExcludeNamespaces() []string {
 	if v := strings.TrimSpace(os.Getenv("DC_SNOOP_EXCLUDE_NAMESPACES")); v != "" {
-		nss = nil
+		var nss []string
 		for _, s := range strings.Split(v, ",") {
 			if s = strings.TrimSpace(s); s != "" {
 				nss = append(nss, s)
 			}
 		}
+		return nss
 	}
+	return darkExcludeNamespacesDefault
+}
+
+func darkNamespaceExclusion() string {
 	var b strings.Builder
-	for _, ns := range nss {
+	for _, ns := range darkExcludeNamespaces() {
 		b.WriteString("df = df[df.namespace != '" + escapePxL(ns) + "']\n")
 	}
+	return b.String()
+}
+
+// darkParentAncestryExclusion resolves each row's PARENT namespace via a
+// process_stats join on ppid and drops rows whose parent lives in an own-stack
+// namespace — even when the row's own pod is blank (a transient process exec'd by
+// an infra pod). This is the ppid-based ancestry cut that REPLACES the deleted
+// hardcoded comm blocklist: pod/namespace-rooted, not comm-matched. parent_namespace
+// is dropped before display so the sink projection is unchanged. Emits nothing for
+// tables without a ppid column. Mirrors the retention path (dc_snoop.pxl).
+func darkParentAncestryExclusion(table string) string {
+	if !darkVectorHasPpid[table] {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("par = px.DataFrame(table='process_stats', start_time='" + darkProcStatsWindow + "')\n")
+	b.WriteString("par.parent_namespace = par.ctx['namespace']\n")
+	b.WriteString("par.ppid = px.upid_to_pid(par.upid)\n")
+	b.WriteString("par = par.groupby(['parent_namespace', 'ppid']).agg()\n")
+	b.WriteString("df = df.merge(par, how='left', left_on=['ppid'], right_on=['ppid'], suffixes=['', '_par'])\n")
+	for _, ns := range darkExcludeNamespaces() {
+		b.WriteString("df = df[df.parent_namespace != '" + escapePxL(ns) + "']\n")
+	}
+	b.WriteString("df = df.drop(['parent_namespace'])\n")
 	return b.String()
 }
 

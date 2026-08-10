@@ -152,7 +152,7 @@ var darkVectorHasPpid = map[string]bool{
 // the parent's namespace (ancestry). Blank-namespace rows survive (transient attack
 // children; host/kernel processes). Override via DC_SNOOP_EXCLUDE_NAMESPACES.
 var darkExcludeNamespacesDefault = []string{
-	"pl", "honey", "px-operator", "olm", "clickhouse", "socdemo", "socdemo-ch",
+	"pl", "honey", "px-operator", "olm", "clickhouse",
 	"kube-system", "kube-public", "kube-node-lease", "local-path-storage",
 }
 

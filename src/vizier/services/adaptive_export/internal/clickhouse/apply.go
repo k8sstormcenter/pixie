@@ -58,6 +58,7 @@ var OperatorOwnedTables = []string{
 	"conn_stats",
 	"dc_snoop",
 	"creds_change",
+	"process_tree",
 	"stack_trace",
 	"dx_vfs_events",
 	"dx_unlink",

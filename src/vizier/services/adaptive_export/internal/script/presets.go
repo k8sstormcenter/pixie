@@ -80,6 +80,12 @@ var dcSnoopDeployScript string
 //go:embed presets/creds_change_deploy.pxl
 var credsChangeDeployScript string
 
+//go:embed presets/process_tree.pxl
+var processTreeScript string
+
+//go:embed presets/proc_exec_deploy.pxl
+var procExecDeployScript string
+
 // TracepointDef is a bpftrace tracepoint the AE deploys itself at boot. The
 // retention/cron export path cannot deploy tracepoints (its pxtrace mutation is
 // dropped), so the AE owns deployment via a mutation ExecuteScript (pixieapi).
@@ -99,6 +105,7 @@ func DesiredTracepoints() []TracepointDef {
 	return []TracepointDef{
 		{Name: "dc_snoop", Table: "dc_snoop", Script: dcSnoopDeployScript},
 		{Name: "creds_change", Table: "creds_change", Script: credsChangeDeployScript},
+		{Name: "proc_exec", Table: "proc_exec", Script: procExecDeployScript},
 	}
 }
 
@@ -109,5 +116,6 @@ func DarkVectorPresets() []*ScriptDefinition {
 		{Name: "ch-dc_snoop", Description: "dc_snoop (dentry cache: process+file, V1/V2) → ClickHouse", FrequencyS: 10, Script: strings.Replace(strings.Replace(dcSnoopScript, "# __DC_SNOOP_PARENT_EXCLUSION__", dcSnoopParentExclusion(), 1), "# __DC_SNOOP_EXCLUSION__", dcSnoopExclusion(), 1)},
 		{Name: "ch-stack_trace", Description: "stack_traces.beta (continuous profiler, V9) → ClickHouse", FrequencyS: 10, Script: stackTraceScript},
 		{Name: "ch-creds_change", Description: "commit_creds privilege-escalation to root (V7) → ClickHouse", FrequencyS: 10, Script: credsChangeScript},
+		{Name: "ch-process_tree", Description: "process_tree (exec-edge forest for ancestry classification) → ClickHouse", FrequencyS: 10, Script: processTreeScript},
 	}
 }

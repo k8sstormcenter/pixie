@@ -702,3 +702,31 @@ CREATE TABLE IF NOT EXISTS forensic_db.creds_change (
   hostname String,
   event_time DateTime64(9, 'UTC')
 ) ENGINE = ReplacingMergeTree ORDER BY (time_, pid, comm, old_uid, new_uid, pod);
+
+-- process_tree (exec-edge process forest). The AE-deployed proc_exec tracepoint
+-- (tracepoint:syscalls:sys_enter_exec*) emits each exec's UPID (pid,pid_start) + its
+-- parent PUPID (ppid,ppid_start) inline via curtask->real_parent, using the SAME
+-- verified capture form as dc_snoop (%llu + raw group_leader->start_time), so
+-- process_tree.pid_start JOINS dc_snoop.pid_start exactly. The export resolves pod via
+-- the process_stats merge — Pixie's own cgroup->pod resolution — so a process spawned
+-- via runc INTO a pod (containerd-shim->runc->malware) is attributed to that pod and
+-- caught by the forest self-anchor, even though its host parent is runc. Keyed on the
+-- node-scoped UPID (hostname,pid,pid_start); a process's exec chain collapses to its
+-- latest image (the edge is stable across exec). origin is reserved for the
+-- exec>fork>procscan precedence when proc_fork/proc_exit land. exe = the exec'd binary.
+-- One column per line (schema-verify parser is line-oriented).
+CREATE TABLE IF NOT EXISTS forensic_db.process_tree (
+  time_ DateTime64(9, 'UTC'),
+  pid Int64,
+  pid_start Int64,
+  ppid Int64,
+  ppid_start Int64,
+  comm String,
+  exe String,
+  namespace String,
+  pod String,
+  container String,
+  hostname String,
+  origin String,
+  event_time DateTime64(9, 'UTC')
+) ENGINE = ReplacingMergeTree ORDER BY (hostname, pid, pid_start);

@@ -1,0 +1,39 @@
+# Copyright 2018- The Pixie Authors.
+# SPDX-License-Identifier: Apache-2.0
+
+# proc_exec tracepoint DEPLOYMENT (mutation) — run once at AE boot via the pixieapi
+# mutation path, same as dc_snoop_deploy.pxl. Captures every exec as an edge of the
+# process forest: the exec'd process's UPID (pid, pid_start) + its parent's PUPID
+# (ppid, ppid_start), so the forest can walk ancestry across processes that never
+# open a file (the dc_snoop-only forest dead-ends at depth 1). UpsertTracepoint is
+# idempotent (create-if-absent), permanent TTL.
+
+import pxtrace
+
+program = """
+#include <linux/sched.h>
+
+// Identity + parent captured inline from curtask->real_parent via a $tk intermediate,
+// the SAME verified form dc_snoop uses (unsigned 64-bit verb, RAW group_leader->
+// start_time — NOT the signed verb, NOT a divided-by-clock-ticks value): this is what
+// makes process_tree.pid_start and process_tree.ppid_start match dc_snoop.pid_start/
+// ppid_start EXACTLY, so evidence in dc_snoop joins the forest on (pid, pid_start).
+// exe is the exec'd binary path
+// (args->filename); comm is derived from its basename in the export. A tracepoint on
+// sys_enter_exec* fires for every execve, capturing the exec edge regardless of the
+// process's lifetime (the transient-child gap that the process_stats pod-merge alone
+// can't close). 6 printf args (5 numeric + 1 string) — well within the tracepoint
+// bpftrace budget.
+tracepoint:syscalls:sys_enter_exec*
+{
+        $tk = (struct task_struct *)curtask;
+        printf("time_:%llu pid:%d pid_start:%llu ppid:%d ppid_start:%llu exe:%s",
+                     nsecs, pid,
+                     $tk->group_leader->start_time,
+                     $tk->real_parent->pid,
+                     $tk->real_parent->group_leader->start_time,
+                     str(args->filename));
+}
+"""
+
+pxtrace.UpsertTracepoint('proc_exec', 'proc_exec', program, pxtrace.kprobe(), "876000h")

@@ -1,0 +1,45 @@
+# Copyright 2018- The Pixie Authors.
+# SPDX-License-Identifier: Apache-2.0
+
+# process_tree export: the proc_exec tracepoint's exec edges + pod attribution ->
+# forensic_db.process_tree. This is the forest the dc_snoop ancestry classifier walks
+# to catch host/kernel noise and, crucially, to catch a malignant process spawned via
+# runc INTO a pod (its host parent is runc, but its OWN pod resolves here).
+import px
+
+table_name = 'process_tree'
+df = px.DataFrame(table='proc_exec', start_time=px.plugin.start_time, end_time=px.plugin.end_time)
+
+# comm = basename of the exec'd binary (the node's identity after exec). exe keeps the
+# full path for provenance. px.replace(pattern, string, repl) — pattern FIRST.
+df.exe = df.exe
+df.comm = px.replace('.*/', df.exe, '')
+
+# pid -> pod/namespace/container attribution via the process_stats merge on pid — the
+# SAME node-local join dc_snoop uses. process_stats' ctx[...] is Pixie's OWN cgroup->
+# pod resolution, so a process exec'd via runc into a pod resolves to THAT pod (not the
+# host runc parent), which is exactly what lets the forest self-anchor catch it. Best-
+# effort left join: pod/namespace stay blank for host/transient pids not yet sampled
+# (their lineage still resolves through a captured pod ancestor).
+proc = px.DataFrame(table='process_stats', start_time='-5m')
+proc.namespace = proc.ctx['namespace']
+proc.pod = proc.ctx['pod']
+proc.container = proc.ctx['container']
+proc.hostname = px.upid_to_node_name(proc.upid)
+proc.pid = px.upid_to_pid(proc.upid)
+proc = proc.groupby(['namespace', 'pod', 'container', 'hostname', 'pid']).agg()
+df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['', '_x'])
+
+# origin marks the capture source for the ReplacingMergeTree precedence exec>fork>
+# procscan (fork/procscan land with proc_fork + the /proc seed).
+df.origin = 'exec'
+
+# Keep exactly the forensic_db.process_tree columns so the export sink projection
+# matches the schema (an unknown/missing column fails the INSERT).
+df = df[['time_', 'pid', 'pid_start', 'ppid', 'ppid_start', 'comm', 'exe',
+         'namespace', 'pod', 'container', 'hostname', 'origin']]
+
+# event_time (nanoseconds) explicit, so the sink emits DateTime64(9) — the nanosecond-
+# consistent event_time contract shared with dc_snoop + the rest of forensic_db.
+df.event_time = df.time_
+px.export(df, px.otel.ClickHouseRows(table=table_name))

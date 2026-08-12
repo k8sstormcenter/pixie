@@ -219,8 +219,12 @@ func darkParentAncestryExclusion(table string) string {
 func DarkVectorEnrichPxL(table string) string {
 	s := PodEnrichPxL(table) + darkNamespaceExclusion() + darkParentAncestryExclusion(table)
 	if darkVectorHasPpid[table] {
+		// px.any (NOT px.max) for the per-lookup columns: px.max has no STRING overload
+		// (file/t are strings) — "Could not find UDF 'max' with arguments [STRING]".
+		// px.any is registered for String/Time/Int and returns one representative per
+		// group, which is all the collapse needs (identity is the groupby key).
 		s += "df = df.groupby(['pid', 'pid_start', 'ppid', 'ppid_start', 'comm', 'pcomm', 'namespace', 'pod'])" +
-			".agg(file=('file', px.max), t=('t', px.max), time_=('time_', px.max))\n"
+			".agg(file=('file', px.any), t=('t', px.any), time_=('time_', px.any))\n"
 	}
 	return s
 }

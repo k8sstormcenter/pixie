@@ -283,7 +283,17 @@ func (s *TableScanner) buildPxL(f Filter) string {
 	// only in the retention builder (pxl/queryfor.go); this streaming scanner — the
 	// path dx steers EXCLUSIVELY — kept hardcoding px.upid_to_*(df.upid) and threw
 	// "Column 'upid' not found" for every dark table. Reuse the one builder here.
-	b.WriteString(pxl.PodEnrichPxL(s.cfg.Table))
+	//
+	// Dark tables use the COMPLETE recipe (DarkVectorEnrichPxL): pod pid-merge +
+	// own-stack exclusions + the dc_snoop firehose collapse to distinct processes.
+	// The collapse is the OOM guard — the first fixed build (PodEnrichPxL only)
+	// pulled the raw node-wide dentry-lookup firehose (millions of rows) into AE
+	// under the 1M cap and OOM-killed node-01. Native tables keep plain PodEnrichPxL.
+	if pxl.IsDarkVector(s.cfg.Table) {
+		b.WriteString(pxl.DarkVectorEnrichPxL(s.cfg.Table))
+	} else {
+		b.WriteString(pxl.PodEnrichPxL(s.cfg.Table))
+	}
 	// The pod-allowlist filter is NATIVE-tables only. Dark-vector rows are
 	// node-scoped: a transient attack pid (sh→whoami) resolves a BLANK pod, so a
 	// pod-equality filter would delete exactly the malignant evidence (entlein/dx#129).

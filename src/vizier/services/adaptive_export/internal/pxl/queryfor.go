@@ -100,9 +100,7 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 		// have a blank namespace AND a blank/kernel-thread parent, so 1-level ancestry
 		// cannot resolve them — they enter the always-on retention look-back and are
 		// relevance-filtered by dx's multi-level process forest, not here.
-		b.WriteString(PodEnrichPxL(table))
-		b.WriteString(darkNamespaceExclusion())
-		b.WriteString(darkParentAncestryExclusion(table))
+		b.WriteString(DarkVectorEnrichPxL(table))
 	} else {
 		b.WriteString(PodEnrichPxL(table))
 		if t.Namespace != "" {
@@ -202,6 +200,29 @@ func darkParentAncestryExclusion(table string) string {
 	}
 	b.WriteString("df = df.drop(['parent_namespace'])\n")
 	return b.String()
+}
+
+// DarkVectorEnrichPxL is the COMPLETE dark-vector query recipe, shared by the
+// retention builder (queryfor) and the streaming scanner so the two never drift:
+// pod resolution via the process_stats pid-merge (PodEnrichPxL), own-stack
+// namespace exclusion, parent-ancestry exclusion, and — for the firehose tables
+// (dc_snoop) — a collapse to DISTINCT PROCESSES.
+//
+// The collapse is the OOM guard. dc_snoop's kprobe:lookup_fast fires on EVERY
+// dentry lookup, so a raw node-wide window is MILLIONS of rows (containerd-shim /
+// k3s alone ~500k over minutes) that the streaming scanner's 1M row cap pulls
+// straight into AE memory — the node-01 OOM observed on the first fixed build.
+// Collapsing to one row per (pid,pid_start,ppid,ppid_start,comm,pcomm,namespace,
+// pod) — all the process forest needs — bounds it to the hundreds of distinct
+// processes on the node (the per-lookup file/t/time_ are reduced to a
+// representative), independent of firehose volume.
+func DarkVectorEnrichPxL(table string) string {
+	s := PodEnrichPxL(table) + darkNamespaceExclusion() + darkParentAncestryExclusion(table)
+	if darkVectorHasPpid[table] {
+		s += "df = df.groupby(['pid', 'pid_start', 'ppid', 'ppid_start', 'comm', 'pcomm', 'namespace', 'pod'])" +
+			".agg(file=('file', px.max), t=('t', px.max), time_=('time_', px.max))\n"
+	}
+	return s
 }
 
 // pxlEscaper turns raw bytes that could break out of a PxL single-quoted

@@ -262,4 +262,26 @@ func TestScanner_DarkVectorPidMergeNodeScoped(t *testing.T) {
 	if strings.Contains(pxl, "px.regex_match") {
 		t.Fatalf("dark table must be node-scoped (no pod allowlist filter):\n%s", pxl)
 	}
+	// OOM guard: the dentry-lookup firehose MUST be collapsed to distinct processes
+	// (one row per pid/comm/ppid), else the raw node-wide window (millions of rows)
+	// is pulled into AE memory under the 1M cap and OOM-kills the node.
+	if !strings.Contains(pxl, "df = df.groupby(['pid', 'pid_start', 'ppid', 'ppid_start', 'comm', 'pcomm', 'namespace', 'pod'])") {
+		t.Fatalf("dc_snoop must collapse the firehose to distinct processes (OOM guard):\n%s", pxl)
+	}
+}
+
+// TestScanner_NativeTableNoDarkCollapse guards the branch: native (upid) tables
+// must NOT get the dark pid-merge or the firehose collapse — they resolve pod
+// directly from upid and are pod-allowlist scoped.
+func TestScanner_NativeTableNoDarkCollapse(t *testing.T) {
+	cfg := ScannerConfig{Table: "http_events"}.defaulted()
+	s := &TableScanner{cfg: cfg}
+	f := Filter{Mode: FilterModeAllowlist, Pods: []activeset.Key{{Namespace: "redis", Pod: "redis-0"}}}
+	pxl := s.buildPxL(f)
+	if strings.Contains(pxl, "df = df.groupby(['pid', 'pid_start'") {
+		t.Fatalf("native table must NOT get the dark firehose collapse:\n%s", pxl)
+	}
+	if !strings.Contains(pxl, "px.upid_to_pod_name(df.upid)") {
+		t.Fatalf("native table must resolve pod via df.upid:\n%s", pxl)
+	}
 }

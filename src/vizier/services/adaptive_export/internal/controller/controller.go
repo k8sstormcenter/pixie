@@ -359,7 +359,7 @@ func (c *Controller) OrderQuery(target anomaly.Target, table string, start, end 
 // captureSpan captures [start,end) for one table, subdividing a transient failure into
 // half-spans down to orderMinChunk. Bounded by maxOrderSplitDepth + the breaker so a
 // saturated PEM isn't stormed; overlapping retries dedupe in the ReplacingMergeTree tables.
-func (c *Controller) captureSpan(target anomaly.Target, table string, start, end time.Time, queryID string, depth int) (readCount, wroteCount int, err error) {
+func (c *Controller) captureSpan(target anomaly.Target, table string, start, end time.Time, queryID string, depth int) (int, int, error) {
 	r, w, e := c.orderQuerySlice(target, table, start, end, queryID)
 	if e == nil || !isRetriableSpanErr(e) || end.Sub(start) <= orderMinChunk {
 		return r, w, e
@@ -387,7 +387,7 @@ func (c *Controller) captureSpan(target anomaly.Target, table string, start, end
 
 // orderQuerySlice runs one (target, table, [start,end)) capture and writes the rows.
 // It records no reconcile row — the OrderQuery driver aggregates and records once.
-func (c *Controller) orderQuerySlice(target anomaly.Target, table string, start, end time.Time, queryID string) (readCount, wroteCount int, err error) {
+func (c *Controller) orderQuerySlice(target anomaly.Target, table string, start, end time.Time, queryID string) (int, int, error) {
 	now := c.clock.Now()
 	q, qerr := pxl.QueryFor(table, target, start, end, now)
 	if qerr != nil {

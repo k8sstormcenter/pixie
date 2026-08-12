@@ -84,7 +84,7 @@ func chunkCtl(snk Sink, q PixieQuerier, rec reconcile.Recorder, chunk time.Durat
 	return c
 }
 
-var deadlineErr = errors.New("rpc error: code = DeadlineExceeded desc = context deadline exceeded")
+var errDeadline = errors.New("rpc error: code = DeadlineExceeded desc = context deadline exceeded")
 
 // A wide window is walked in OrderChunk-sized slices: one pixie query per chunk,
 // each writing its rows. 180s window / 60s chunk = 3 bounded queries.
@@ -134,7 +134,7 @@ func TestOrderQuerySingleReconcileRowPerTable(t *testing.T) {
 // call, so the initial full-chunk query subdivides and the halves succeed.
 func TestCaptureSpanSubdividesOnTransientError(t *testing.T) {
 	snk := newRecordingSink()
-	q := &countingQuerier{rows: []map[string]any{{"comm": "getent"}}, failN: 1, failErr: deadlineErr}
+	q := &countingQuerier{rows: []map[string]any{{"comm": "getent"}}, failN: 1, failErr: errDeadline}
 	end := canonicalEventTime
 	start := end.Add(-8 * time.Second) // single 60s chunk covers it → one initial query
 	if err := chunkCtl(snk, q, reconcile.Nop{}, 60*time.Second).
@@ -171,7 +171,7 @@ func TestCaptureSpanDoesNotSplitNonTransient(t *testing.T) {
 // the error instead of looping forever — the recursion terminates at the floor.
 func TestCaptureSpanTerminatesAtMinChunk(t *testing.T) {
 	snk := newRecordingSink()
-	q := &countingQuerier{failAll: true, failErr: deadlineErr}
+	q := &countingQuerier{failAll: true, failErr: errDeadline}
 	end := canonicalEventTime
 	start := end.Add(-4 * time.Second) // 4s → 2s → 1s (floor), bounded call count
 	err := chunkCtl(snk, q, reconcile.Nop{}, 60*time.Second).
@@ -191,7 +191,7 @@ func TestCaptureSpanTerminatesAtMinChunk(t *testing.T) {
 // subdividing after orderBreakerTrip consecutive timeouts) bound it hard.
 func TestOrderQueryCircuitBreakerBoundsStorm(t *testing.T) {
 	snk := newRecordingSink()
-	q := &countingQuerier{failAll: true, failErr: deadlineErr}
+	q := &countingQuerier{failAll: true, failErr: errDeadline}
 	end := canonicalEventTime
 	start := end.Add(-600 * time.Second) // 10 chunks @ 60s, all time out
 	_ = chunkCtl(snk, q, reconcile.Nop{}, 60*time.Second).
@@ -210,7 +210,7 @@ func TestOrderQueryCircuitBreakerBoundsStorm(t *testing.T) {
 // still subdivides and recovers (breaker reset by the success).
 func TestCircuitBreakerResetsOnSuccess(t *testing.T) {
 	snk := newRecordingSink()
-	q := &countingQuerier{rows: []map[string]any{{"comm": "cat"}}, failN: 1, failErr: deadlineErr}
+	q := &countingQuerier{rows: []map[string]any{{"comm": "cat"}}, failN: 1, failErr: errDeadline}
 	end := canonicalEventTime
 	start := end.Add(-8 * time.Second)
 	if err := chunkCtl(snk, q, reconcile.Nop{}, 60*time.Second).

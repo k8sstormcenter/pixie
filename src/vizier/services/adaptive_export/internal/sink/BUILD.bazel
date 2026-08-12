@@ -39,6 +39,7 @@ pl_go_test(
     srcs = [
         "clickhouse_test.go",
         "content_type_contract_test.go",
+        "dc_snoop_bench_test.go",
         "encode_bench_test.go",
         "fastencode_test.go",
     ],

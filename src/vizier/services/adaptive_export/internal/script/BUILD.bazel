@@ -36,6 +36,10 @@ go_library(
 
 pl_go_test(
     name = "script_test",
-    srcs = ["presets_test.go"],
+    srcs = [
+        "dc_snoop_contract_test.go",
+        "presets_test.go",
+    ],
     embed = [":script"],
+    deps = ["//src/vizier/services/adaptive_export/internal/clickhouse"],
 )

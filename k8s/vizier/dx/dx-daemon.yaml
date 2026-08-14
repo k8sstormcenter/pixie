@@ -37,7 +37,7 @@ spec:
         - { name: DX_CLUSTER_MALIGNANT_HTTP, valueFrom: { secretKeyRef: { name: dx-metastasis-ch, key: http-url, optional: true } } }
         - { name: DX_PX_TIMEOUT_S, value: "90" }
         - { name: DX_TELEMETRY_CACHE, value: "1" }
-        - { name: DX_WORKERS, value: "4" }
+        - { name: DX_WORKERS, value: "1" }
         # evidence-graph: forest-scope the evidence, write the per-anomaly edge set,
         # sink it straight to forensic_db.dx_evidence_graph (soc ingest_writer).
         - { name: DX_FOREST_SCOPE, value: "1" }

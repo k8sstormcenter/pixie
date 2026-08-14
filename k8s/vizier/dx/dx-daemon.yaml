@@ -48,8 +48,13 @@ spec:
           initialDelaySeconds: 3
           periodSeconds: 10
         resources:
-          requests: { cpu: 50m, memory: 256Mi }
-          limits:   { cpu: "2", memory: 1Gi }
+          # memory: the precorrelate/full-evidence workup (DX_PRECORRELATE_GRAPH) pulls
+          # the per-anomaly evidence set into memory; at 1Gi dx is OOM-killed mid-workup
+          # (exit 137) BEFORE it writes forensic_db.dx_evidence_graph → crash-loop, empty
+          # graph. 2Gi clears it on an 8GiB node (verified: dc_snoop ~4k rows). Bump to
+          # 3Gi if a heavier attack/firehose still OOMs.
+          requests: { cpu: 50m, memory: 512Mi }
+          limits:   { cpu: "2", memory: 2Gi }
 ---
 apiVersion: v1
 kind: Service

@@ -19,12 +19,11 @@ spec:
       terminationGracePeriodSeconds: 35
       containers:
       - name: dx-daemon
-        # NON-GARBLE build: the garble -literals -tiny release images (rc8..rc11) SIGSEGV
-        # (exit 139) under the kill-chain (entlein/dx#138 fault 2, unresolved); the plain
-        # go build is reliable (restarts=0 over 6+ rounds). optdbg2 also carries the
-        # evidence-manifest + DX_FOREST_PUSHDOWN code (rc8 predates both). Swap back to a
-        # garble release once the obfuscation miscompile is fixed.
-        image: docker.io/entlein/dx-daemon:0.4.0-ssotforest-optdbg2
+        # OBFUSCATED release rc13 (entlein/dx#138 fault 2 RESOLVED): garble -literals
+        # (WITHOUT -tiny — -tiny's pclntab stripping SIGSEGV'd under load). Passes the
+        # obfuscation gate AND survives the kill-chain (restarts=0, 4 rounds). Carries the
+        # evidence-manifest + DX_FOREST_PUSHDOWN code.
+        image: docker.io/entlein/dx-daemon:0.4.0-ssotforest-rc13
         ports:
         - { name: findings, containerPort: 9099, hostPort: 9099 }
         env:

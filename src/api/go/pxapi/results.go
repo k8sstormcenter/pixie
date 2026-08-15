@@ -384,8 +384,16 @@ func extractDataFromCol(colData []*vizierpb.Column, rowIdx, colIdx int64, row []
 func (s *ScriptResults) handleStats(ctx context.Context, qes *vizierpb.QueryExecutionStats) error {
 	s.stats.BytesProcessed += qes.BytesProcessed
 	s.stats.RecordsProcessed += qes.RecordsProcessed
-	s.stats.CompilationTime = time.Duration(qes.Timing.CompilationTimeNs) * time.Nanosecond
-	s.stats.ExecutionTime = time.Duration(qes.Timing.ExecutionTimeNs) * time.Nanosecond
+	// qes.Timing can be nil. The node-local PEM direct-query server (entlein/dx#29)
+	// emits an execution_stats frame with `timing` unset on its error / partial
+	// stats-roundtrip paths (direct_query_server.cc) — which surface under concurrent
+	// load (many streams from DX_WORKERS>1). Dereferencing it here SIGSEGVs INSIDE
+	// pxapi's own stream goroutine (Stream.func1), uncatchable by any caller recover(),
+	// and silent when the consumer is built with garble -tiny. Guard it.
+	if qes.Timing != nil {
+		s.stats.CompilationTime = time.Duration(qes.Timing.CompilationTimeNs) * time.Nanosecond
+		s.stats.ExecutionTime = time.Duration(qes.Timing.ExecutionTimeNs) * time.Nanosecond
+	}
 	return nil
 }
 

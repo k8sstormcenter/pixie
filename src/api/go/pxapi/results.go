@@ -211,6 +211,12 @@ func (s *ScriptResults) run() error {
 
 func (s *ScriptResults) handleTableMetadata(ctx context.Context, md *vizierpb.ExecuteScriptResponse_MetaData) error {
 	qmd := md.MetaData
+	// A malformed/partial metadata frame (no MetaData or no Relation) must not
+	// nil-deref the parse goroutine — return an error so the query surfaces as a
+	// bench failure (blind), never a hard crash.
+	if qmd == nil || qmd.Relation == nil {
+		return errdefs.ErrInternalMissingTableMetadata
+	}
 
 	// New table, check and see if we are already tracking it.
 	if _, has := s.tableIDToTracker[qmd.ID]; has {
@@ -220,6 +226,9 @@ func (s *ScriptResults) handleTableMetadata(ctx context.Context, md *vizierpb.Ex
 	colInfo := make([]types.ColSchema, len(qmd.Relation.Columns))
 	colIdxByName := make(map[string]int64)
 	for idx, col := range qmd.Relation.Columns {
+		if col == nil {
+			return errdefs.ErrInternalMissingTableMetadata
+		}
 		colInfo[idx] = types.ColSchema{
 			Name:         col.ColumnName,
 			Type:         col.ColumnType,
@@ -289,6 +298,12 @@ func (s *ScriptResults) handleTableRowbatch(ctx context.Context, b *vizierpb.Row
 	handler := tracker.handler
 	// Loop through records, do the type conversion and call HandleRecord for each row of data.
 	numCols := int64(len(b.Cols))
+	// A malformed frame can carry more columns than the table metadata declared;
+	// the per-column loop below indexes ColInfo by column position, so bail rather
+	// than let the out-of-range access panic the parse goroutine (blind, not crash).
+	if numCols > int64(len(tracker.md.ColInfo)) {
+		return errdefs.ErrInternalMismatchedType
+	}
 	row := make([]types.Datum, numCols)
 	record := &types.Record{
 		Data:          row,
@@ -338,10 +353,23 @@ func (s *ScriptResults) handleTableRowbatch(ctx context.Context, b *vizierpb.Row
 }
 
 func extractDataFromCol(colData []*vizierpb.Column, rowIdx, colIdx int64, row []types.Datum) error {
-	switch colTyped := colData[colIdx].ColData.(type) {
+	col := colData[colIdx]
+	// A malformed frame can carry a nil column or an empty oneof; the type switch
+	// below would nil-deref on the former, so reject it as an unimplemented type.
+	if col == nil || col.ColData == nil {
+		return errdefs.ErrInternalUnImplementedType
+	}
+	// Each case indexes the column's data slice by rowIdx. A frame whose NumRows
+	// exceeds a column's actual data length (or whose inner data message is nil)
+	// must return an error, never index out of range / nil-deref the parse
+	// goroutine. len(nil) == 0, so the bounds check also covers a nil inner slice.
+	switch colTyped := col.ColData.(type) {
 	case *vizierpb.Column_BooleanData:
 		dCasted, ok := row[colIdx].(*types.BooleanValue)
 		if !ok {
+			return errdefs.ErrInternalMismatchedType
+		}
+		if colTyped.BooleanData == nil || rowIdx >= int64(len(colTyped.BooleanData.Data)) {
 			return errdefs.ErrInternalMismatchedType
 		}
 		dCasted.ScanBool(colTyped.BooleanData.Data[rowIdx])
@@ -350,10 +378,16 @@ func extractDataFromCol(colData []*vizierpb.Column, rowIdx, colIdx int64, row []
 		if !ok {
 			return errdefs.ErrInternalMismatchedType
 		}
+		if colTyped.Int64Data == nil || rowIdx >= int64(len(colTyped.Int64Data.Data)) {
+			return errdefs.ErrInternalMismatchedType
+		}
 		dCasted.ScanInt64(colTyped.Int64Data.Data[rowIdx])
 	case *vizierpb.Column_Time64NsData:
 		dCasted, ok := row[colIdx].(*types.Time64NSValue)
 		if !ok {
+			return errdefs.ErrInternalMismatchedType
+		}
+		if colTyped.Time64NsData == nil || rowIdx >= int64(len(colTyped.Time64NsData.Data)) {
 			return errdefs.ErrInternalMismatchedType
 		}
 		dCasted.ScanInt64(colTyped.Time64NsData.Data[rowIdx])
@@ -362,16 +396,25 @@ func extractDataFromCol(colData []*vizierpb.Column, rowIdx, colIdx int64, row []
 		if !ok {
 			return errdefs.ErrInternalMismatchedType
 		}
+		if colTyped.Float64Data == nil || rowIdx >= int64(len(colTyped.Float64Data.Data)) {
+			return errdefs.ErrInternalMismatchedType
+		}
 		dCasted.ScanFloat64(colTyped.Float64Data.Data[rowIdx])
 	case *vizierpb.Column_StringData:
 		dCasted, ok := row[colIdx].(*types.StringValue)
 		if !ok {
 			return errdefs.ErrInternalMismatchedType
 		}
+		if colTyped.StringData == nil || rowIdx >= int64(len(colTyped.StringData.Data)) {
+			return errdefs.ErrInternalMismatchedType
+		}
 		dCasted.ScanString(string(colTyped.StringData.Data[rowIdx]))
 	case *vizierpb.Column_Uint128Data:
 		dCasted, ok := row[colIdx].(*types.UInt128Value)
 		if !ok {
+			return errdefs.ErrInternalMismatchedType
+		}
+		if colTyped.Uint128Data == nil || rowIdx >= int64(len(colTyped.Uint128Data.Data)) {
 			return errdefs.ErrInternalMismatchedType
 		}
 		dCasted.ScanUInt128(colTyped.Uint128Data.Data[rowIdx])
@@ -387,9 +430,7 @@ func (s *ScriptResults) handleStats(ctx context.Context, qes *vizierpb.QueryExec
 	// qes.Timing can be nil. The node-local PEM direct-query server (entlein/dx#29)
 	// emits an execution_stats frame with `timing` unset on its error / partial
 	// stats-roundtrip paths (direct_query_server.cc) — which surface under concurrent
-	// load (many streams from DX_WORKERS>1). Dereferencing it here SIGSEGVs INSIDE
-	// pxapi's own stream goroutine (Stream.func1), uncatchable by any caller recover(),
-	// and silent when the consumer is built with garble -tiny. Guard it.
+	// load. Dereferencing it here SIGSEGVs inside pxapi's own stream goroutine.
 	if qes.Timing != nil {
 		s.stats.CompilationTime = time.Duration(qes.Timing.CompilationTimeNs) * time.Nanosecond
 		s.stats.ExecutionTime = time.Duration(qes.Timing.ExecutionTimeNs) * time.Nanosecond

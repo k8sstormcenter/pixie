@@ -19,7 +19,12 @@ spec:
       terminationGracePeriodSeconds: 35
       containers:
       - name: dx-daemon
-        image: docker.io/entlein/dx-daemon:0.4.0-ssotforest-rc8
+        # NON-GARBLE build: the garble -literals -tiny release images (rc8..rc11) SIGSEGV
+        # (exit 139) under the kill-chain (entlein/dx#138 fault 2, unresolved); the plain
+        # go build is reliable (restarts=0 over 6+ rounds). optdbg2 also carries the
+        # evidence-manifest + DX_FOREST_PUSHDOWN code (rc8 predates both). Swap back to a
+        # garble release once the obfuscation miscompile is fixed.
+        image: docker.io/entlein/dx-daemon:0.4.0-ssotforest-optdbg2
         ports:
         - { name: findings, containerPort: 9099, hostPort: 9099 }
         env:
@@ -41,6 +46,11 @@ spec:
         # evidence-graph: forest-scope the evidence, write the per-anomaly edge set,
         # sink it straight to forensic_db.dx_evidence_graph (soc ingest_writer).
         - { name: DX_FOREST_SCOPE, value: "1" }
+        # FOREST_PUSHDOWN (entlein/dx#138 fault 3): push the dc_snoop ppid-lineage filter
+        # INTO the PxL so dx pulls only the alert pod's subtree, not the whole node —
+        # frees the node-local PEM so AE can export dc_snoop under load (validated: 0→1777).
+        - { name: DX_FOREST_PUSHDOWN, value: "1" }
+        - { name: DX_FOREST_PUSHDOWN_DEPTH, value: "4" }
         - { name: DX_PRECORRELATE_GRAPH, value: "1" }
         - { name: DX_EVIDENCE_GRAPH_CH, value: "http://ingest_writer:changeme-ingest@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:8123/forensic_db" }
         readinessProbe:
@@ -48,13 +58,13 @@ spec:
           initialDelaySeconds: 3
           periodSeconds: 10
         resources:
-          # memory: the precorrelate/full-evidence workup (DX_PRECORRELATE_GRAPH) pulls
-          # the per-anomaly evidence set into memory; at 1Gi dx is OOM-killed mid-workup
-          # (exit 137) BEFORE it writes forensic_db.dx_evidence_graph → crash-loop, empty
-          # graph. 2Gi clears it on an 8GiB node (verified: dc_snoop ~4k rows). Bump to
-          # 3Gi if a heavier attack/firehose still OOMs.
-          requests: { cpu: 50m, memory: 512Mi }
-          limits:   { cpu: "2", memory: 2Gi }
+          # memory: the precorrelate/full-evidence workup (DX_PRECORRELATE_GRAPH) + pemdirect
+          # gRPC result streams pull the per-anomaly evidence set into memory; at 1Gi dx is
+          # OOM-killed mid-workup (exit 137) BEFORE it writes the graph → crash-loop, empty
+          # graph. Measured peak ~1.3GB/round under the redis kill-chain (entlein/dx#138
+          # fault 1); 3Gi clears it reliably on an 8GiB node (validated: restarts=0 over 6+ rounds).
+          requests: { cpu: 50m, memory: 1Gi }
+          limits:   { cpu: "2", memory: 3Gi }
 ---
 apiVersion: v1
 kind: Service

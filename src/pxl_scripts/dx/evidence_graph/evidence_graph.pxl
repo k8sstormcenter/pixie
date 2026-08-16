@@ -1,0 +1,103 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+''' DX Evidence Graph (3-level zoom)
+
+Renders the dx evidence graph in Pixie's built-in GraphWidget and lets an analyst
+zoom from the whole investigation set -> one investigation's manifest -> the raw
+forensic rows dx consulted.
+
+The evidence tables live in ClickHouse (forensic_db), not in Pixie's socket_tracer.
+They are read through the fork's `px.DataFrame(table, clickhouse_dsn=...)` reader
+(src/carnot/exec/clickhouse_source_node.cc), which the PEM executes like any other
+source. Every table read here carries the required `event_time` + `hostname`
+columns, so the reader's templated WHERE/ORDER-BY works.
+'''
+import px
+
+# Level 1 -----------------------------------------------------------------------
+# The severity-weighted, all-protocol pod->pod edge list for the malignant
+# (ruled-in) investigations. requestor/responder are stamped with the pod
+# semantic type (px.Pod) so a double-click on a node deep-links to px/pod via the
+# GraphWidget's built-in deepLinkURLFromSemanticType -- NO Pixie UI change.
+
+
+def evidence_graph(start_time: str, clickhouse_dsn: str, table: str, investigation_filter: str):
+    df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+
+    # Best display name per endpoint: pod > service > ip (matches px/dx_evidence_graph).
+    df.requestor = px.select(df.requestor_pod == '',
+                             px.select(df.requestor_service == '', df.requestor_ip, df.requestor_service),
+                             df.requestor_pod)
+    df.responder = px.select(df.responder_pod == '',
+                             px.select(df.responder_service == '', df.responder_ip, df.responder_service),
+                             df.responder_pod)
+
+    # Stamp ST_POD_NAME so graph nodes are drill-able to px/pod out of the box.
+    df.from_entity = px.Pod(df.requestor)
+    df.to_entity = px.Pod(df.responder)
+
+    # Zoom: keep only the selected investigation. Empty filter = all malignant edges.
+    df = df[px.contains(df.investigation_id, investigation_filter)]
+
+    return df[['from_entity', 'to_entity',
+               'confidence', 'max_severity', 'weight',
+               'condition', 'edge_kind', 'criteria', 'num_findings',
+               'investigation_id']]
+
+
+# Level 2 -----------------------------------------------------------------------
+# The manifest row(s) for the selected investigation: verdict, case-window
+# bounds, evidence_hash, and the raw findings JSON (the completeness contract).
+# case_window is a JSON string column ({"lo":<ns>,"hi":<ns>}); pluck the bounds.
+
+
+def investigation_detail(start_time: str, clickhouse_dsn: str, manifest_table: str, investigation_id: str):
+    df = px.DataFrame(manifest_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+
+    # Zoom filter. Empty investigation_id = every manifest in the window.
+    df = df[px.contains(df.investigation_id, investigation_id)]
+
+    df.win_lo = px.pluck_int64(df.case_window, 'lo')
+    df.win_hi = px.pluck_int64(df.case_window, 'hi')
+
+    return df[['investigation_id', 'verdict', 'condition',
+               'confidence', 'posterior', 'catalog_version',
+               'win_lo', 'win_hi', 'evidence_hash', 'findings']]
+
+
+# Level 3 -----------------------------------------------------------------------
+# The raw forensic rows dx consulted for the selected investigation -- the §H
+# reconstruction. Adapts demo.md §H3 (dc_snoop process rows for the alert pod
+# within the case window). Because px.DataFrame(clickhouse_dsn) issues a
+# templated per-table read (not arbitrary ClickHouse SQL), the case-window bound
+# is approximated by the Live View `start_time` and the pod is selected with
+# `pod_filter`; the exact case_window (win_lo/win_hi) is shown in Level 2.
+# Point `raw_table` at dc_snoop (default), redis_events, or kubescape_logs to
+# reconstruct the other §H tables (their projected columns differ -- see README).
+
+
+def consulted_rows(start_time: str, clickhouse_dsn: str, raw_table: str, pod_filter: str, investigation_id: str):
+    df = px.DataFrame(raw_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+
+    # Scope to the alert pod (the investigation's subject). Empty = all pods.
+    df = df[px.contains(df.pod, pod_filter)]
+
+    # Carry the selected investigation for context / cross-reference.
+    df.investigation_id = investigation_id
+
+    return df[['time_', 'namespace', 'pod', 'container',
+               'comm', 'pid', 'file', 'investigation_id']]

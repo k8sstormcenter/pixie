@@ -721,63 +721,105 @@ func main() {
 	// control surface: when CONTROL_ADDR is set, the per-node controller
 	// steers this AE's activeSet (Upsert/Remove) over HTTP. Off by default so
 	// the existing trigger→controller→activeSet flow is unchanged.
+	//
+	// Secure-by-default (#96): the control surface serves TLS and requires a
+	// bearer JWT out of the box. dx skip-verifies the in-cluster (self-signed)
+	// cert and attaches the service JWT it already mints. The ONLY way to run
+	// plaintext / no-auth is an explicit CONTROL_INSECURE=true (loud warning);
+	// without a signing key AND without CONTROL_INSECURE the control surface
+	// fails closed and does not start (everything else keeps running).
+	//
+	// CONTROL_TLS / CONTROL_REQUIRE_AUTH are deprecated no-ops (secure is the
+	// default now); they are honored for back-compat but no longer required.
 	if addr := os.Getenv("CONTROL_ADDR"); addr != "" {
-		// Wire the controller as the /query runner: dx OrderQuery → one-shot pixie
-		// capture written to forensic_db (write⊇read; entlein/dx#93). When the
-		// operator-side querier is disabled (no PushPixieTables), OrderQuery returns
-		// an error and /query 502s — start/stop + dx_evidence_graph still work.
-		ctrlSrv := control.New(activeSet, ctl)
-		ctrlSrv.SetGraphWriter(applier)    // dx_evidence_graph ingest → ClickHouse
-		ctrlSrv.SetManifestWriter(applier) // dx_evidence_manifest ingest → ClickHouse
-		// Bearer-JWT auth on the control surface (CodeRabbit: protect control
-		// endpoints). Same shared lib + signing key the broker/PEM use — dx
-		// attaches the service JWT it already mints. Default-OFF so this can
-		// merge before dx sends the bearer; flip CONTROL_REQUIRE_AUTH=true once
-		// dx is updated + PL_JWT_SIGNING_KEY is mounted. Safe incremental rollout.
-		if key := os.Getenv("PL_JWT_SIGNING_KEY"); key != "" && os.Getenv("CONTROL_REQUIRE_AUTH") == "true" {
-			ctrlSrv.SetAuth(key, "vizier")
-			log.Info("control surface: bearer-JWT auth ENABLED (audience=vizier)")
-		} else {
-			log.Warn("control surface: auth DISABLED (set CONTROL_REQUIRE_AUTH=true + PL_JWT_SIGNING_KEY)")
+		insecure := strings.EqualFold(os.Getenv("CONTROL_INSECURE"), "true")
+		signingKey := os.Getenv("PL_JWT_SIGNING_KEY")
+
+		if _, ok := os.LookupEnv("CONTROL_TLS"); ok {
+			log.Warn("CONTROL_TLS is deprecated (TLS is default-ON; use CONTROL_INSECURE=true to opt out)")
 		}
-		// Wrap in an http.Server with explicit timeouts so a slow client
-		// can't pin a goroutine on the control surface (CodeRabbit
-		// r3379377432). The control plane is small/idempotent JSON, so
-		// short read/write budgets are fine.
-		httpSrv := &http.Server{
-			Addr:              addr,
-			Handler:           ctrlSrv.Handler(),
-			ReadHeaderTimeout: 5 * time.Second,
-			ReadTimeout:       15 * time.Second,
-			WriteTimeout:      30 * time.Second,
-			IdleTimeout:       60 * time.Second,
+		if _, ok := os.LookupEnv("CONTROL_REQUIRE_AUTH"); ok {
+			log.Warn("CONTROL_REQUIRE_AUTH is deprecated (auth is default-ON when PL_JWT_SIGNING_KEY is set)")
 		}
-		go func() {
-			log.WithField("addr", addr).Info("control surface listening")
-			// CONTROL_TLS=true → serve TLS so the bearer JWT + control payloads
-			// don't cross the CNI in cleartext (auth without TLS leaks the token).
-			// Cert/key from the service-tls-certs secret the broker/PEM already use
-			// (mounted /certs); dx skip-verifies. Default-OFF for incremental rollout.
-			var err error
-			if os.Getenv("CONTROL_TLS") == "true" {
-				cert := os.Getenv("CONTROL_TLS_CERT")
-				if cert == "" {
-					cert = "/certs/server.crt"
-				}
-				key := os.Getenv("CONTROL_TLS_KEY")
-				if key == "" {
-					key = "/certs/server.key"
-				}
-				log.WithField("cert", cert).Info("control surface: TLS ENABLED")
-				err = httpSrv.ListenAndServeTLS(cert, key)
+
+		switch {
+		case signingKey == "" && !insecure:
+			// Fail-closed: refuse to expose an unauthenticated control surface
+			// silently. The operator's export/attribution paths keep running;
+			// only this HTTP surface is withheld.
+			log.Error("control surface: REFUSING to start — no PL_JWT_SIGNING_KEY and CONTROL_INSECURE not set. " +
+				"Set PL_JWT_SIGNING_KEY to enable bearer-JWT auth (recommended), or CONTROL_INSECURE=true to run " +
+				"plaintext without auth (NOT for production).")
+		default:
+			// Wire the controller as the /query runner: dx OrderQuery → one-shot pixie
+			// capture written to forensic_db (write⊇read; entlein/dx#93). When the
+			// operator-side querier is disabled (no PushPixieTables), OrderQuery returns
+			// an error and /query 502s — start/stop + dx_evidence_graph still work.
+			ctrlSrv := control.New(activeSet, ctl)
+			ctrlSrv.SetGraphWriter(applier)    // dx_evidence_graph ingest → ClickHouse
+			ctrlSrv.SetManifestWriter(applier) // dx_evidence_manifest ingest → ClickHouse
+			// Bearer-JWT auth default-ON whenever a signing key is present. Same
+			// shared lib + signing key the broker/PEM use — dx attaches the service
+			// JWT it already mints. No key is only reachable with CONTROL_INSECURE.
+			if signingKey != "" {
+				ctrlSrv.SetAuth(signingKey, "vizier")
+				log.Info("control surface: bearer-JWT auth ENABLED (audience=vizier)")
 			} else {
-				log.Warn("control surface: TLS DISABLED — bearer JWT crosses the CNI in cleartext (set CONTROL_TLS=true)")
-				err = httpSrv.ListenAndServe()
+				log.Warn("control surface: auth DISABLED — no PL_JWT_SIGNING_KEY (CONTROL_INSECURE=true set)")
 			}
-			if err != nil && err != http.ErrServerClosed {
-				log.WithError(err).Error("control surface stopped")
+			// Wrap in an http.Server with explicit timeouts so a slow client
+			// can't pin a goroutine on the control surface (CodeRabbit
+			// r3379377432). The control plane is small/idempotent JSON, so
+			// short read/write budgets are fine.
+			httpSrv := &http.Server{
+				Addr:              addr,
+				Handler:           ctrlSrv.Handler(),
+				ReadHeaderTimeout: 5 * time.Second,
+				ReadTimeout:       15 * time.Second,
+				WriteTimeout:      30 * time.Second,
+				IdleTimeout:       60 * time.Second,
 			}
-		}()
+			go func() {
+				log.WithField("addr", addr).Info("control surface listening")
+				var err error
+				if insecure {
+					// Explicit opt-out only. The bearer JWT + control payloads
+					// then cross the CNI in cleartext — never the silent default.
+					log.Warn("control surface: INSECURE (plaintext) — CONTROL_INSECURE set; " +
+						"bearer JWT + control payloads cross the CNI in cleartext")
+					err = httpSrv.ListenAndServe()
+				} else {
+					// TLS default-ON. Mounted keypair wins (service-tls-certs the
+					// broker/PEM already carry, /certs/server.{crt,key}); else an
+					// ephemeral in-memory self-signed cert so TLS works with zero
+					// extra secrets (dx skip-verifies).
+					certFile := os.Getenv("CONTROL_TLS_CERT")
+					if certFile == "" {
+						certFile = "/certs/server.crt"
+					}
+					keyFile := os.Getenv("CONTROL_TLS_KEY")
+					if keyFile == "" {
+						keyFile = "/certs/server.key"
+					}
+					tlsCfg, selfSigned, terr := control.TLSConfig(certFile, keyFile, hostname)
+					if terr != nil {
+						log.WithError(terr).Error("control surface: TLS setup failed — control surface not started")
+						return
+					}
+					httpSrv.TLSConfig = tlsCfg
+					if selfSigned {
+						log.Info("control surface: TLS ENABLED (self-signed)")
+					} else {
+						log.WithField("cert", certFile).Info("control surface: TLS ENABLED (mounted cert)")
+					}
+					// Certs are already in TLSConfig → empty file args.
+					err = httpSrv.ListenAndServeTLS("", "")
+				}
+				if err != nil && err != http.ErrServerClosed {
+					log.WithError(err).Error("control surface stopped")
+				}
+			}()
+		}
 	}
 
 	sigCh := make(chan os.Signal, 1)

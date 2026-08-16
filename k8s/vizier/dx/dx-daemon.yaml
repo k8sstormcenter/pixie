@@ -30,7 +30,9 @@ spec:
         - { name: NODE_NAME, valueFrom: { fieldRef: { fieldPath: spec.nodeName } } }
         - { name: HOST_IP, valueFrom: { fieldRef: { fieldPath: status.hostIP } } }
         - { name: DX_RECEIVER_TLS, value: "1" }
-        - { name: AE_CONTROL_ADDR, value: "http://adaptive-export-control.pl.svc.cluster.local:9100" }
+        # AE control surface is TLS-by-default (#96); the dx client TLS-skip-verifies
+        # the in-cluster (self-signed/shared) cert and attaches its bearer JWT.
+        - { name: AE_CONTROL_ADDR, value: "https://adaptive-export-control.pl.svc.cluster.local:9100" }
         - { name: PX_API_KEY, valueFrom: { secretKeyRef: { name: dx-pixie-auth, key: api-key, optional: true } } }
         - { name: PX_CLUSTER_ID, valueFrom: { secretKeyRef: { name: dx-pixie-auth, key: cluster-id, optional: true } } }
         - { name: PX_CLOUD_ADDR, valueFrom: { secretKeyRef: { name: dx-pixie-auth, key: cloud-addr, optional: true } } }

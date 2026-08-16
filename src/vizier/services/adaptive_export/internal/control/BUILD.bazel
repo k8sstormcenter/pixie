@@ -19,7 +19,10 @@ load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
     name = "control",
-    srcs = ["server.go"],
+    srcs = [
+        "server.go",
+        "tls.go",
+    ],
     importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/control",
     visibility = ["//src/vizier/services/adaptive_export:__subpackages__"],
     deps = [
@@ -31,7 +34,10 @@ go_library(
 
 pl_go_test(
     name = "control_test",
-    srcs = ["server_test.go"],
+    srcs = [
+        "server_test.go",
+        "tls_test.go",
+    ],
     embed = [":control"],
     deps = [
         "//src/shared/services/utils",

@@ -49,6 +49,11 @@ spec:
           value: "kubescape_logs"
         - name: EXPORT_MODE
           value: "never"
+        # Control surface is secure-by-default (#96): TLS + bearer-JWT auth are ON
+        # out of the box. The service-tls-certs keypair mounted at /certs below is
+        # used for TLS (else AE self-generates an ephemeral in-memory cert), and
+        # PL_JWT_SIGNING_KEY above turns on auth. CONTROL_TLS / CONTROL_REQUIRE_AUTH
+        # are deprecated no-ops; set CONTROL_INSECURE=true only to opt out (dev).
         - name: CONTROL_ADDR
           value: ":9100"
         - name: ADAPTIVE_PUSH_PIXIE_ROWS

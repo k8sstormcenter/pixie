@@ -1,9 +1,0 @@
----
-short: DX Evidence Graph (3-level zoom)
-long: >
-  Renders the dx evidence graph in Pixie's built-in GraphWidget and lets an analyst zoom
-  from the whole malignant investigation set into one investigation's manifest and the raw
-  forensic rows dx consulted. Level 1: severity-weighted pod-to-pod edges (nodes deep-link to
-  px/pod). Level 2: the manifest (verdict, case window, evidence_hash). Level 3: the §H
-  reconstruction of the consulted dc_snoop / redis_events / kubescape_logs rows. Reads
-  forensic_db in ClickHouse via px.DataFrame(clickhouse_dsn=...).

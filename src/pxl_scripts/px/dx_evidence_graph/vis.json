@@ -3,20 +3,50 @@
     {
       "name": "start_time",
       "type": "PX_STRING",
-      "description": "Start time of the window.",
+      "description": "Start time of the window (approximates the case window for Level 3).",
       "defaultValue": "-15m"
     },
     {
       "name": "clickhouse_dsn",
       "type": "PX_STRING",
-      "description": "ClickHouse DSN: user:pass@host:port/db.",
+      "description": "ClickHouse DSN for forensic_db: user:pass@host:port/db.",
       "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
     },
     {
       "name": "table",
       "type": "PX_STRING",
-      "description": "dx_evidence_graph",
+      "description": "Evidence-graph edge table (default: rule-ins-only malignant view).",
       "defaultValue": "dx_evidence_graph_malignant"
+    },
+    {
+      "name": "investigation_filter",
+      "type": "PX_STRING",
+      "description": "Substring to narrow the graph to one investigation_id. Empty = all malignant edges.",
+      "defaultValue": ""
+    },
+    {
+      "name": "manifest_table",
+      "type": "PX_STRING",
+      "description": "Manifest table (verdict / case-window / evidence_hash).",
+      "defaultValue": "dx_evidence_manifest"
+    },
+    {
+      "name": "investigation_id",
+      "type": "PX_STRING",
+      "description": "ZOOM: the investigation_id to expand into its manifest + consulted rows. Copy it from a graph edge hover. Empty = all.",
+      "defaultValue": ""
+    },
+    {
+      "name": "raw_table",
+      "type": "PX_STRING",
+      "description": "Level-3 forensic table to reconstruct: dc_snoop (default), redis_events, or kubescape_logs.",
+      "defaultValue": "dc_snoop"
+    },
+    {
+      "name": "pod_filter",
+      "type": "PX_POD",
+      "description": "ZOOM: the alert pod whose consulted rows to show (substring match). Empty = all pods in window.",
+      "defaultValue": ""
     }
   ],
   "globalFuncs": [
@@ -27,23 +57,49 @@
         "args": [
           {"name": "start_time", "variable": "start_time"},
           {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
-          {"name": "table", "variable": "table"}
+          {"name": "table", "variable": "table"},
+          {"name": "investigation_filter", "variable": "investigation_filter"}
+        ]
+      }
+    },
+    {
+      "outputName": "dx_manifest",
+      "func": {
+        "name": "investigation_detail",
+        "args": [
+          {"name": "start_time", "variable": "start_time"},
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
+          {"name": "manifest_table", "variable": "manifest_table"},
+          {"name": "investigation_id", "variable": "investigation_id"}
+        ]
+      }
+    },
+    {
+      "outputName": "dx_consulted",
+      "func": {
+        "name": "consulted_rows",
+        "args": [
+          {"name": "start_time", "variable": "start_time"},
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
+          {"name": "raw_table", "variable": "raw_table"},
+          {"name": "pod_filter", "variable": "pod_filter"},
+          {"name": "investigation_id", "variable": "investigation_id"}
         ]
       }
     }
   ],
   "widgets": [
     {
-      "name": "DX Evidence Graph",
+      "name": "DX Evidence Graph (double-click a pod node -> px/pod)",
       "position": {"x": 0, "y": 0, "w": 12, "h": 5},
       "globalFuncOutputName": "dx_graph",
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Graph",
         "adjacencyList": {
-          "fromColumn": "requestor",
-          "toColumn": "responder"
+          "fromColumn": "from_entity",
+          "toColumn": "to_entity"
         },
-        "edgeWeightColumn": "weight",
+        "edgeWeightColumn": "confidence",
         "edgeColorColumn": "max_severity",
         "edgeLabelColumn": "edge_kind",
         "edgeThresholds": {
@@ -51,22 +107,37 @@
           "highThreshold": 4
         },
         "edgeHoverInfo": [
-          "edge_kind",
+          "investigation_id",
           "condition",
           "criteria",
-          "weight",
-          "max_severity",
+          "edge_kind",
           "confidence",
-          "num_findings",
-          "investigation_id"
+          "max_severity",
+          "num_findings"
         ],
         "edgeLength": 500
       }
     },
     {
       "name": "Edges",
-      "position": {"x": 0, "y": 5, "w": 12, "h": 4},
+      "position": {"x": 0, "y": 5, "w": 12, "h": 3},
       "globalFuncOutputName": "dx_graph",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Level 2 - Investigation Manifest (verdict / case-window / evidence_hash)",
+      "position": {"x": 0, "y": 8, "w": 12, "h": 3},
+      "globalFuncOutputName": "dx_manifest",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Level 3 - Consulted Raw Rows (dc_snoop / redis_events / kubescape_logs)",
+      "position": {"x": 0, "y": 11, "w": 12, "h": 4},
+      "globalFuncOutputName": "dx_consulted",
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Table"
       }

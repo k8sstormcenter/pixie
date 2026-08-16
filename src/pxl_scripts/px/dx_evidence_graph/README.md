@@ -1,4 +1,4 @@
-# DX Evidence Graph — 3-level zoom (`dx/evidence_graph`)
+# DX Evidence Graph — 3-level zoom (`px/dx_evidence_graph`)
 
 A **standalone** Pixie Live View bundle (PxL + `vis.json`, no Pixie UI source
 changes) that renders the dx evidence graph in Pixie's existing `GraphWidget` and
@@ -40,7 +40,7 @@ This is a self-contained scripts bundle — deploy it without touching the UI:
 2. **Bundled script.** The directory (`evidence_graph.pxl` + `vis.json` +
    `manifest.yaml`) is globbed into `bundle-oss.json` by
    `src/pxl_scripts/BUILD.bazel` (the `**/*.pxl|json|yaml` filegroup), so it ships as
-   the script id **`dx/evidence_graph`** wherever that bundle is served. No registry
+   the script id **`px/dx_evidence_graph`** wherever that bundle is served. No registry
    edit is required.
 3. **`px` CLI.** `px run -f evidence_graph.pxl` (table output) for a non-UI smoke test.
 

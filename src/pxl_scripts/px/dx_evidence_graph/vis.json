@@ -39,13 +39,13 @@
     {
       "name": "raw_table",
       "type": "PX_STRING",
-      "description": "Level-3 forensic table to reconstruct: dc_snoop (default), redis_events, or kubescape_logs.",
-      "defaultValue": "dc_snoop"
+      "description": "Level-3 forensic table to reconstruct. Default kubescape_logs -- the only UInt64 event_time table px can read via clickhouse_dsn. dc_snoop/redis_events/conn_stats use DateTime64 and currently read back 0 rows (Pixie ClickHouseSourceNode limitation).",
+      "defaultValue": "kubescape_logs"
     },
     {
-      "name": "pod_filter",
-      "type": "PX_POD",
-      "description": "ZOOM: the alert pod whose consulted rows to show (substring match). Empty = all pods in window.",
+      "name": "host_filter",
+      "type": "PX_STRING",
+      "description": "ZOOM: node/hostname substring to scope Level-3 consulted rows (the only column present in every raw_table). Empty = all nodes in window.",
       "defaultValue": ""
     }
   ],
@@ -82,7 +82,7 @@
           {"name": "start_time", "variable": "start_time"},
           {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
           {"name": "raw_table", "variable": "raw_table"},
-          {"name": "pod_filter", "variable": "pod_filter"},
+          {"name": "host_filter", "variable": "host_filter"},
           {"name": "investigation_id", "variable": "investigation_id"}
         ]
       }
@@ -135,7 +135,7 @@
       }
     },
     {
-      "name": "Level 3 - Consulted Raw Rows (dc_snoop / redis_events / kubescape_logs)",
+      "name": "Level 3 - Consulted Raw Rows (event_time + hostname; raw_table: dc_snoop / redis_events / kubescape_logs)",
       "position": {"x": 0, "y": 11, "w": 12, "h": 4},
       "globalFuncOutputName": "dx_consulted",
       "displaySpec": {

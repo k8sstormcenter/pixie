@@ -66,30 +66,25 @@ def investigation_detail(start_time: str, clickhouse_dsn: str, manifest_table: s
 
 
 # Level 3 -----------------------------------------------------------------------
-# The raw forensic rows dx consulted for the selected investigation -- the §H
-# reconstruction. px.DataFrame(clickhouse_dsn) is a templated per-table read (not
-# arbitrary SQL), so the case-window bound is approximated by the Live View
-# `start_time` and rows are scoped by `host_filter` (the node). The exact
-# case_window (win_lo/win_hi) is shown in Level 2. Point `raw_table` at dc_snoop
-# (default), redis_events, or kubescape_logs.
-#
-# DEFENSIVE PROJECTION (validated live against forensic_db): the three raw tables
-# share ONLY `event_time` + `hostname` -- dc_snoop has no pod/namespace/container
-# column, redis_events keys off upid, and kubescape_logs has neither `time_` nor
-# `investigation_id`. Projecting strictly that intersection guarantees the default
-# view renders for ANY raw_table instead of failing to compile on a missing column.
-#
-# READABILITY (validated live): the px ClickHouseSourceNode only returns rows for
-# tables whose event_time is UInt64. kubescape_logs is UInt64 and reads back fine;
-# dc_snoop / redis_events / conn_stats use DateTime64 and read back 0 rows despite
-# millions present in CH. So the default raw_table is kubescape_logs -- the one that
-# actually renders. dc_snoop et al. need the Pixie-side DateTime64 read fix first.
-def consulted_rows(start_time: str, clickhouse_dsn: str, raw_table: str, host_filter: str, investigation_id: str):
-    df = px.DataFrame(raw_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    # Scope by hostname (the node) -- the only filterable column present in every
-    # raw_table. Empty = all nodes in the window.
+# The actual kubescape anomaly records dx consulted -- the real forensic evidence:
+# RuleID + the offending pod/container + the process (comm/cmdline) + the alert
+# message. Read from forensic_db.kubescape_logs (the one px-readable UInt64 table;
+# dc_snoop/redis_events/conn_stats are DateTime64 and read back 0 rows via the
+# ClickHouseSourceNode). The pod & process detail live inside two JSON columns
+# (RuntimeK8sDetails, RuntimeProcessDetails), so we px.pluck the fields out rather
+# than returning opaque event_time/hostname. Scoped by `host_filter` (node);
+# empty = all nodes in the window.
+def consulted_rows(start_time: str, clickhouse_dsn: str, host_filter: str):
+    df = px.DataFrame('kubescape_logs', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[px.contains(df.hostname, host_filter)]
-    # Carry the selected investigation for context. kubescape_logs has no
-    # investigation_id of its own, so this is a stamped constant, not a read.
-    df.investigation_id = investigation_id
-    return df[['event_time', 'hostname', 'investigation_id']]
+    # pod / container from the k8s-details JSON
+    df.namespace = px.pluck(df.RuntimeK8sDetails, 'podNamespace')
+    df.pod       = px.pluck(df.RuntimeK8sDetails, 'podName')
+    df.container = px.pluck(df.RuntimeK8sDetails, 'containerName')
+    # offending process from the process-details JSON
+    df.comm      = px.pluck(df.RuntimeProcessDetails, 'comm')
+    df.cmdline   = px.pluck(df.RuntimeProcessDetails, 'cmdline')
+    df.rule      = df.RuleID
+    df.alert     = df.message
+    return df[['event_time', 'namespace', 'pod', 'container',
+               'rule', 'comm', 'cmdline', 'alert']]

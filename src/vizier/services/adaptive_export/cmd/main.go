@@ -57,6 +57,7 @@ import (
 
 	"px.dev/pixie/src/api/go/pxapi"
 	"px.dev/pixie/src/shared/services"
+	"px.dev/pixie/src/shared/services/metrics"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/clickhouse"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/config"
@@ -115,6 +116,21 @@ const (
 	// Bounds catch-up work after a restart so an N-hour backlog
 	// drains in ceil(N/PollLimit) polls instead of one giant scan.
 	envTriggerPollLimit = "ADAPTIVE_TRIGGER_POLL_LIMIT"
+
+	// envTriggerLookbackSec — bounded lookback below the trigger
+	// watermark (#97 / F8 / AE-9). Each poll re-scans
+	// [watermark-lookback, ∞) with content-fingerprint dedup so an
+	// out-of-order / clock-skewed / restart-buried kubescape row is
+	// still processed exactly once instead of being dropped forever
+	// (the "writes stop, data still on Pixie" halt). Default 300;
+	// explicit "0" restores the legacy strict high-water-mark.
+	envTriggerLookbackSec = "ADAPTIVE_TRIGGER_LOOKBACK_SEC"
+
+	// envTriggerMaxSkewSec — wall-clock poison clamp (#97): a
+	// normalized event_time more than this many seconds past now never
+	// advances the watermark (counted in
+	// ae_trigger_event_time_rejected_total). Default 3600 (1h).
+	envTriggerMaxSkewSec = "ADAPTIVE_TRIGGER_MAX_SKEW_SEC"
 
 	// envWatermarkSaveSec — minimum interval between persistent
 	// watermark INSERTs (default 5s). The in-memory watermark
@@ -212,10 +228,27 @@ func main() {
 	// DefaultServeMux. Bind loopback in containers unless you port-forward.
 	if addr := os.Getenv("AE_PPROF_ADDR"); addr != "" {
 		go func() {
-			log.WithField("addr", addr).Info("pprof listening (/debug/pprof/*)")
+			log.WithField("addr", addr).Info("pprof listening (/debug/pprof/* + /metrics)")
 			if err := http.ListenAndServe(addr, nil); err != nil &&
 				err != http.ErrServerClosed {
 				log.WithError(err).Error("pprof listener stopped")
+			}
+		}()
+	}
+
+	// Prometheus /metrics on the DefaultServeMux via the shared pixie
+	// metrics scaffold (same DefaultGatherer pattern every other pixie
+	// service uses). The trigger's #97 watermark metrics (ae_trigger_*)
+	// promauto-register on the default registry, so they are served here.
+	// Reachable on the AE_PPROF_ADDR listener above (same mux) and, for a
+	// scrape-only port, on AE_METRICS_ADDR (e.g. ":50901"; off when unset).
+	metrics.MustRegisterMetricsHandler(http.DefaultServeMux)
+	if addr := os.Getenv("AE_METRICS_ADDR"); addr != "" {
+		go func() {
+			log.WithField("addr", addr).Info("metrics listening (/metrics)")
+			if err := http.ListenAndServe(addr, nil); err != nil &&
+				err != http.ErrServerClosed {
+				log.WithError(err).Error("metrics listener stopped")
 			}
 		}()
 	}
@@ -342,6 +375,9 @@ func main() {
 	httpTimeout := durEnv(envTriggerHTTPTimeoutSec, 30*time.Second, time.Second)
 	saveInterval := durEnv(envWatermarkSaveSec, 5*time.Second, time.Second)
 	pollLimit := intEnv(envTriggerPollLimit, 10000)
+	// #97: bounded lookback (0 = legacy strict HWM) + poison clamp.
+	triggerLookback := durEnvZeroOK(envTriggerLookbackSec, 300*time.Second, time.Second)
+	triggerMaxSkew := durEnv(envTriggerMaxSkewSec, time.Hour, time.Second)
 	// Persistent watermark store keeps the trigger's kubescape_logs
 	// cursor in forensic_db.trigger_watermark, so a restart on a busy
 	// node doesn't replay the full table from event_time=0 (which
@@ -368,6 +404,8 @@ func main() {
 		WatermarkSaveInterval: saveInterval,
 		PollLimit:             pollLimit,
 		HTTPTimeout:           httpTimeout,
+		Lookback:              triggerLookback,
+		MaxSkew:               triggerMaxSkew,
 	})
 	if err != nil {
 		log.WithError(err).Fatal("failed to create trigger")
@@ -800,6 +838,24 @@ func durEnv(key string, dflt, unit time.Duration) time.Duration {
 	if n <= 0 {
 		log.WithFields(log.Fields{"key": key, "value": v}).
 			Warn("non-positive duration env; using default")
+		return dflt
+	}
+	return time.Duration(n) * unit
+}
+
+// durEnvZeroOK is durEnv with 0 as a VALID value (= feature disabled):
+// unset / unparseable / negative → dflt; explicit "0" → 0. Used for the
+// #97 lookback knob where 0 deliberately selects the legacy strict HWM,
+// so it must be distinguishable from "not configured".
+func durEnvZeroOK(key string, dflt, unit time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return dflt
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n < 0 {
+		log.WithFields(log.Fields{"key": key, "value": v}).
+			Warn("invalid duration env; using default")
 		return dflt
 	}
 	return time.Duration(n) * unit

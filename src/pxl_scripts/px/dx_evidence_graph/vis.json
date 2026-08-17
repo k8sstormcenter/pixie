@@ -87,7 +87,7 @@
       }
     },
     {
-      "name": "Consulted findings (zoom: set uniqueID) - the evidence dx corroborated with",
+      "name": "Anomaly detail (zoom: set uniqueID) - rule / process / parent / the actual cmdline / alert",
       "position": {"x": 0, "y": 6, "w": 12, "h": 4},
       "globalFuncOutputName": "dx_findings",
       "displaySpec": {

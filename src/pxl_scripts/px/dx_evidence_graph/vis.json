@@ -19,15 +19,15 @@
       "defaultValue": "dx_kubescape_anomalies"
     },
     {
-      "name": "findings_table",
+      "name": "records_table",
       "type": "PX_STRING",
-      "description": "L2 source: the corroborating findings dx consulted, keyed by uniqueID.",
+      "description": "L2 source: the pre-correlation consulted-records set (all evidence dx collected per anomaly).",
       "defaultValue": "dx_anomaly_findings"
     },
     {
       "name": "uniqueID",
       "type": "PX_STRING",
-      "description": "ZOOM: the anomaly uniqueID to expand into its consulted findings. Copy it from a graph-edge hover or the anomalies table. Empty = all findings in the window.",
+      "description": "ZOOM: the anomaly uniqueID to expand into its consulted records. Copy it from a graph-edge hover or the anomalies table. Empty = all records in the window.",
       "defaultValue": ""
     }
   ],
@@ -44,13 +44,13 @@
       }
     },
     {
-      "outputName": "dx_findings",
+      "outputName": "dx_records",
       "func": {
-        "name": "consulted_findings",
+        "name": "consulted_records",
         "args": [
           {"name": "start_time", "variable": "start_time"},
           {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
-          {"name": "table", "variable": "findings_table"},
+          {"name": "table", "variable": "records_table"},
           {"name": "uniqueID", "variable": "uniqueID"}
         ]
       }
@@ -87,9 +87,9 @@
       }
     },
     {
-      "name": "Anomaly detail (zoom: set uniqueID) - rule / process / parent / the actual cmdline / alert",
+      "name": "Consulted records (zoom: set uniqueID) - the full pre-correlation evidence set per anomaly",
       "position": {"x": 0, "y": 6, "w": 12, "h": 4},
-      "globalFuncOutputName": "dx_findings",
+      "globalFuncOutputName": "dx_records",
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Table"
       }

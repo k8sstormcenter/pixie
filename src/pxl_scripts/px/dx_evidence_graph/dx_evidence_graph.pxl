@@ -26,7 +26,7 @@ def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
                'severity', 'alert', 'subject_pod']]
 
 
-def consulted_findings(start_time: str, clickhouse_dsn: str, table: str, uniqueID: str):
+def consulted_records(start_time: str, clickhouse_dsn: str, table: str, uniqueID: str):
     df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[px.contains(df.uniqueID, uniqueID)]
-    return df[['uniqueID', 'rule', 'comm', 'parent', 'cmdline', 'alert']]
+    return df[['uniqueID', 'vector', 'source', 'src_table', 'record']]

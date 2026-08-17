@@ -16,75 +16,17 @@
 
 import px
 
-# 3-level zoom over the dx evidence graph (all reads via the ClickHouse forensic_db):
-#   L1 evidence graph  -> pod->pod malignant edges (this func)
-#   L2 investigation   -> the manifest row (verdict / case-window / evidence_hash)
-#   L3 consulted rows  -> the raw forensic rows dx considered (the §H reconstruction)
-# The `investigation_id` vis variable is the zoom key for L2/L3. Graph nodes are
-# stamped px.Pod so a double-click deep-links to px/pod via the GraphWidget's
-# built-in deepLinkURLFromSemanticType -- no Pixie UI change.
 
-
-# Level 1 -----------------------------------------------------------------------
-def dx_evidence_graph(start_time: str, clickhouse_dsn: str, table: str, investigation_filter: str):
+def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
     df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    # Best display name per endpoint: pod > service > ip.
-    df.requestor = px.select(df.requestor_pod == '',
-                             px.select(df.requestor_service == '', df.requestor_ip, df.requestor_service),
-                             df.requestor_pod)
-    df.responder = px.select(df.responder_pod == '',
-                             px.select(df.responder_service == '', df.responder_ip, df.responder_service),
-                             df.responder_pod)
-    # Stamp ST_POD_NAME so graph nodes are drill-able to px/pod out of the box.
-    df.from_entity = px.Pod(df.requestor)
-    df.to_entity = px.Pod(df.responder)
-    # Zoom: narrow the graph to one investigation. Empty filter = all malignant edges.
-    df = df[px.contains(df.investigation_id, investigation_filter)]
+    df.from_entity = px.Pod(df.subject_pod)
+    df.to_entity = df.target
     return df[['from_entity', 'to_entity',
-               'requestor', 'responder',
-               'requestor_pod', 'responder_pod',
-               'requestor_service', 'responder_service',
-               'requestor_ip', 'responder_ip',
-               'weight', 'max_severity', 'confidence',
-               'edge_kind', 'condition', 'criteria', 'num_findings',
-               'investigation_id']]
+               'uniqueID', 'rule', 'process', 'target', 'target_kind',
+               'severity', 'alert', 'subject_pod']]
 
 
-# Level 2 -----------------------------------------------------------------------
-# The manifest row(s) for the selected investigation: verdict, case-window bounds,
-# evidence_hash, and the raw findings JSON (the completeness contract). case_window
-# is a JSON string column ({"lo":<ns>,"hi":<ns>}); pluck the bounds.
-def investigation_detail(start_time: str, clickhouse_dsn: str, manifest_table: str, investigation_id: str):
-    df = px.DataFrame(manifest_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    # Zoom filter. Empty investigation_id = every manifest in the window.
-    df = df[px.contains(df.investigation_id, investigation_id)]
-    df.win_lo = px.pluck_int64(df.case_window, 'lo')
-    df.win_hi = px.pluck_int64(df.case_window, 'hi')
-    return df[['investigation_id', 'verdict', 'condition',
-               'confidence', 'posterior', 'catalog_version',
-               'win_lo', 'win_hi', 'evidence_hash', 'findings']]
-
-
-# Level 3 -----------------------------------------------------------------------
-# The actual kubescape anomaly records dx consulted -- the real forensic evidence:
-# RuleID + the offending pod/container + the process (comm/cmdline) + the alert
-# message. Read from forensic_db.kubescape_logs (the one px-readable UInt64 table;
-# dc_snoop/redis_events/conn_stats are DateTime64 and read back 0 rows via the
-# ClickHouseSourceNode). The pod & process detail live inside two JSON columns
-# (RuntimeK8sDetails, RuntimeProcessDetails), so we px.pluck the fields out rather
-# than returning opaque event_time/hostname. Scoped by `host_filter` (node);
-# empty = all nodes in the window.
-def consulted_rows(start_time: str, clickhouse_dsn: str, host_filter: str):
-    df = px.DataFrame('kubescape_logs', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    df = df[px.contains(df.hostname, host_filter)]
-    # pod / container from the k8s-details JSON
-    df.namespace = px.pluck(df.RuntimeK8sDetails, 'podNamespace')
-    df.pod       = px.pluck(df.RuntimeK8sDetails, 'podName')
-    df.container = px.pluck(df.RuntimeK8sDetails, 'containerName')
-    # offending process from the process-details JSON
-    df.comm      = px.pluck(df.RuntimeProcessDetails, 'comm')
-    df.cmdline   = px.pluck(df.RuntimeProcessDetails, 'cmdline')
-    df.rule      = df.RuleID
-    df.alert     = df.message
-    return df[['event_time', 'namespace', 'pod', 'container',
-               'rule', 'comm', 'cmdline', 'alert']]
+def consulted_findings(start_time: str, clickhouse_dsn: str, table: str, uniqueID: str):
+    df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = df[px.contains(df.uniqueID, uniqueID)]
+    return df[['uniqueID', 'vector', 'source', 'src_table', 'detail']]

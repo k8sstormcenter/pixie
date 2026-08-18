@@ -110,11 +110,11 @@ func selfSignedCert(hostnames ...string) (tls.Certificate, error) {
 // certToPEM renders a tls.Certificate (as produced by selfSignedCert, holding a
 // single DER cert + an *ecdsa.PrivateKey) as PEM cert + PEM key bytes — the
 // on-disk shape of a mounted /certs/server.{crt,key} keypair.
-func certToPEM(cert tls.Certificate) (certPEM, keyPEM []byte, err error) {
+func certToPEM(cert tls.Certificate) ([]byte, []byte, error) {
 	if len(cert.Certificate) == 0 {
 		return nil, nil, fmt.Errorf("certToPEM: empty certificate chain")
 	}
-	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]})
 	ec, ok := cert.PrivateKey.(*ecdsa.PrivateKey)
 	if !ok {
 		return nil, nil, fmt.Errorf("certToPEM: private key is not *ecdsa.PrivateKey")
@@ -123,6 +123,6 @@ func certToPEM(cert tls.Certificate) (certPEM, keyPEM []byte, err error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal ec private key: %w", err)
 	}
-	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
 	return certPEM, keyPEM, nil
 }

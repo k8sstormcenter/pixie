@@ -47,11 +47,11 @@ type dedupEntry struct {
 	evn uint64 // normalized event_time (nanos)
 }
 
-func newDedupLRU(max int) *dedupLRU {
-	if max <= 0 {
-		max = 1
+func newDedupLRU(capacity int) *dedupLRU {
+	if capacity <= 0 {
+		capacity = 1
 	}
-	return &dedupLRU{max: max, ll: list.New(), items: map[string]*list.Element{}}
+	return &dedupLRU{max: capacity, ll: list.New(), items: map[string]*list.Element{}}
 }
 
 // Contains reports whether fp was Added and not yet evicted.

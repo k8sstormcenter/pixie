@@ -567,6 +567,26 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_evidence_manifest (
   TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
   SETTINGS index_granularity = 8192;
 
+-- dx_order_seeds — one row per kubescape referral dx sees (entlein/dx#136
+-- evidence-loss fix). dx coalesces same-pod anomalies into one investigation, so
+-- most anomalies write no manifest; this table records EVERY anomaly's identity so
+-- the dx_anomaly_orders view can give each uniqueID its own consulted window
+-- (event_time ± 300s). dx INSERTs (POST-less, direct CH); AE owns the DDL.
+-- ReplacingMergeTree ORDER BY (unique_id, rule_id) dedups re-fires but keeps
+-- co-fired rules. NOT a pixie table.
+CREATE TABLE IF NOT EXISTS forensic_db.dx_order_seeds (
+    unique_id  String,
+    rule_id    String,
+    pod        String,
+    event_time UInt64,
+    hostname   String,
+    case_key   String
+) ENGINE = ReplacingMergeTree()
+  ORDER BY (unique_id, rule_id)
+  PARTITION BY toYYYYMM(fromUnixTimestamp64Nano(event_time))
+  TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
+  SETTINGS index_granularity = 8192;
+
 -- ── dx dark-vector tracepoint tables (entlein/dx#126) ────────────────────────
 -- Fed by AE-owned bpftrace UpsertTracepoint probes (constantly enabled, no TTL).
 -- Emit raw kernel pid+comm (NOT upid); namespace/pod enriched at pull time via a

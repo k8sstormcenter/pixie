@@ -84,6 +84,10 @@ var KnownTables = []string{
 	// the evidence rows dx consulted (POST /dx/evidence_manifest). NOT a pixie
 	// table. Independent of dx_evidence_graph.
 	"dx_evidence_manifest",
+	// operator-owned dx per-referral order seeds (#136 evidence-loss fix). dx
+	// INSERTs one row per anomaly so dx_anomaly_orders can window every uniqueID.
+	// NOT a pixie table.
+	"dx_order_seeds",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

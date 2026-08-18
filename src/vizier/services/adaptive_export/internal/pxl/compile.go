@@ -108,9 +108,15 @@ func PodEnrichPxL(table string) string {
 		return "proc = px.DataFrame(table='process_stats', start_time='" + darkProcStatsWindow + "')\n" +
 			"proc.pod = proc.ctx['pod']\n" +
 			"proc.namespace = proc.ctx['namespace']\n" +
+			// node resolved from the SAME process_stats upid the pod/ns come from, so
+			// dark-vector rows (dc_snoop et al.) carry hostname and become px-readable
+			// (#136). Transient attack pids that miss process_stats resolve blank —
+			// the same accepted limitation as pod/ns above.
+			"proc.node = px.upid_to_node_name(proc.upid)\n" +
 			"proc.pid = px.upid_to_pid(proc.upid)\n" +
-			"proc = proc.groupby(['pod', 'namespace', 'pid']).agg()\n" +
-			"df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['', '_x'])\n"
+			"proc = proc.groupby(['pod', 'namespace', 'node', 'pid']).agg()\n" +
+			"df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['', '_x'])\n" +
+			"df.hostname = df.node\n"
 	}
 	return "df.namespace = px.upid_to_namespace(df.upid)\n" +
 		"df.pod = px.upid_to_pod_name(df.upid)\n" +

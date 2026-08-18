@@ -83,6 +83,9 @@ var OperatorOwnedTables = []string{
 	// dx consulted. Created on boot so POST /dx/evidence_manifest has a target.
 	// Independent of dx_evidence_graph. Not a pixie table → not in PixieTables().
 	"dx_evidence_manifest",
+	// dx per-referral order seeds (#136 evidence-loss fix) — created on boot so
+	// dx's direct INSERT has a target. Not a pixie table → not in PixieTables().
+	"dx_order_seeds",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the

@@ -1,106 +1,31 @@
 {
   "variables": [
-    {
-      "name": "start_time",
-      "type": "PX_STRING",
-      "description": "Start of the window.",
-      "defaultValue": "-30m"
-    },
-    {
-      "name": "clickhouse_dsn",
-      "type": "PX_STRING",
-      "description": "ClickHouse DSN for forensic_db: user:pass@host:port/db.",
-      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
-    },
-    {
-      "name": "graph_table",
-      "type": "PX_STRING",
-      "description": "L1 graph source: one edge per deduped kubescape anomaly (subject_pod -> target).",
-      "defaultValue": "dx_kubescape_anomalies"
-    },
-    {
-      "name": "records_table",
-      "type": "PX_STRING",
-      "description": "L2 source: the pre-correlation consulted-records set (all evidence dx collected per anomaly).",
-      "defaultValue": "dx_anomaly_findings"
-    },
-    {
-      "name": "uniqueID",
-      "type": "PX_STRING",
-      "description": "ZOOM: the anomaly uniqueID to expand into its consulted records. Copy it from a graph-edge hover or the anomalies table. Empty = all records in the window.",
-      "defaultValue": ""
-    }
+    {"name": "start_time", "type": "PX_STRING", "description": "Window start.", "defaultValue": "-6h"},
+    {"name": "clickhouse_dsn", "type": "PX_STRING", "description": "forensic_db DSN: user:pass@host:port/db.", "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"},
+    {"name": "graph_table", "type": "PX_STRING", "description": "L1 kill-chain graph source.", "defaultValue": "dx_kubescape_anomalies"},
+    {"name": "order_id", "type": "PX_STRING", "description": "Pick an order_id from the Orders panel at the bottom; every protocol panel snaps to that order's consulted records.", "defaultValue": ""}
   ],
   "globalFuncs": [
-    {
-      "outputName": "dx_graph",
-      "func": {
-        "name": "evidence_graph",
-        "args": [
-          {"name": "start_time", "variable": "start_time"},
-          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
-          {"name": "table", "variable": "graph_table"}
-        ]
-      }
-    },
-    {
-      "outputName": "dx_records",
-      "func": {
-        "name": "consulted_records",
-        "args": [
-          {"name": "start_time", "variable": "start_time"},
-          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
-          {"name": "table", "variable": "records_table"},
-          {"name": "uniqueID", "variable": "uniqueID"}
-        ]
-      }
-    }
+    {"outputName": "g_graph", "func": {"name": "evidence_graph", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "table", "variable": "graph_table"}]}},
+    {"outputName": "g_kube", "func": {"name": "kubescape", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
+    {"outputName": "g_redis", "func": {"name": "redis", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
+    {"outputName": "g_conn", "func": {"name": "conn", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
+    {"outputName": "g_http", "func": {"name": "http", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
+    {"outputName": "g_dns", "func": {"name": "dns", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
+    {"outputName": "g_pgsql", "func": {"name": "pgsql", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
+    {"outputName": "g_mysql", "func": {"name": "mysql", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
+    {"outputName": "g_orders", "func": {"name": "orders", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}]}}
   ],
   "widgets": [
-    {
-      "name": "DX Evidence Graph (subject pod -> target; double-click a pod node -> px/pod)",
-      "position": {"x": 0, "y": 0, "w": 12, "h": 6},
-      "globalFuncOutputName": "dx_graph",
-      "displaySpec": {
-        "@type": "types.px.dev/px.vispb.Graph",
-        "adjacencyList": {
-          "fromColumn": "from_entity",
-          "toColumn": "to_entity"
-        },
-        "edgeWeightColumn": "severity",
-        "edgeColorColumn": "severity",
-        "edgeLabelColumn": "rule",
-        "edgeThresholds": {
-          "mediumThreshold": 5,
-          "highThreshold": 8
-        },
-        "edgeHoverInfo": [
-          "uniqueID",
-          "rule",
-          "process",
-          "target",
-          "target_kind",
-          "severity",
-          "alert"
-        ],
-        "edgeLength": 500
-      }
-    },
-    {
-      "name": "Consulted records (zoom: set uniqueID) - the full pre-correlation evidence set per anomaly",
-      "position": {"x": 0, "y": 6, "w": 12, "h": 4},
-      "globalFuncOutputName": "dx_records",
-      "displaySpec": {
-        "@type": "types.px.dev/px.vispb.Table"
-      }
-    },
-    {
-      "name": "Anomalies (deduped kubescape_logs -> the graph edges; copy a uniqueID to zoom)",
-      "position": {"x": 0, "y": 10, "w": 12, "h": 4},
-      "globalFuncOutputName": "dx_graph",
-      "displaySpec": {
-        "@type": "types.px.dev/px.vispb.Table"
-      }
-    }
+    {"name": "Kill-chain graph (subject pod -> target)", "position": {"x": 0, "y": 0, "w": 12, "h": 4}, "globalFuncOutputName": "g_graph",
+     "displaySpec": {"@type": "types.px.dev/px.vispb.Graph", "adjacencyList": {"fromColumn": "from_entity", "toColumn": "to_entity"}, "edgeWeightColumn": "severity", "edgeColorColumn": "severity", "edgeLabelColumn": "rule", "edgeThresholds": {"mediumThreshold": 5, "highThreshold": 8}, "edgeHoverInfo": ["uniqueID", "rule", "process", "target", "severity"], "edgeLength": 500}},
+    {"name": "kubescape_logs (anomalies) for order", "position": {"x": 0, "y": 4, "w": 12, "h": 4}, "globalFuncOutputName": "g_kube", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
+    {"name": "redis_events", "position": {"x": 0, "y": 8, "w": 6, "h": 4}, "globalFuncOutputName": "g_redis", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
+    {"name": "conn_stats", "position": {"x": 6, "y": 8, "w": 6, "h": 4}, "globalFuncOutputName": "g_conn", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
+    {"name": "http_events", "position": {"x": 0, "y": 12, "w": 6, "h": 4}, "globalFuncOutputName": "g_http", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
+    {"name": "dns_events", "position": {"x": 6, "y": 12, "w": 6, "h": 4}, "globalFuncOutputName": "g_dns", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
+    {"name": "pgsql_events", "position": {"x": 0, "y": 16, "w": 6, "h": 4}, "globalFuncOutputName": "g_pgsql", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
+    {"name": "mysql_events", "position": {"x": 6, "y": 16, "w": 6, "h": 4}, "globalFuncOutputName": "g_mysql", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
+    {"name": "ORDERS (pick an order_id -> paste into the order_id variable)", "position": {"x": 0, "y": 20, "w": 12, "h": 4}, "globalFuncOutputName": "g_orders", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}}
   ]
 }

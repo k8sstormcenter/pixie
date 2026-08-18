@@ -17,16 +17,56 @@
 import px
 
 
+# _consulted: interval-join one protocol's rows to a chosen order — equi-join on
+# pod + row_time within the order's [lo,hi] window. This is the pre-correlation
+# record set per protocol for the selected anomaly (order_id).
+def _consulted(start_time: str, clickhouse_dsn: str, view: str, order_id: str):
+    orders = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = orders[orders.order_id == order_id]
+    orders = orders[['order_id', 'pod', 'lo', 'hi']]
+    src = px.DataFrame(view, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    j = src.merge(orders, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_ord'])
+    j = j[j.row_time >= j.lo]
+    j = j[j.row_time <= j.hi]
+    return j
+
+
 def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
     df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df.from_entity = px.Pod(df.subject_pod)
     df.to_entity = df.target
-    return df[['from_entity', 'to_entity',
-               'uniqueID', 'rule', 'process', 'target', 'target_kind',
-               'severity', 'alert', 'subject_pod']]
+    return df[['from_entity', 'to_entity', 'uniqueID', 'rule', 'process',
+               'target', 'target_kind', 'severity', 'alert', 'subject_pod']]
 
 
-def consulted_records(start_time: str, clickhouse_dsn: str, table: str, uniqueID: str):
-    df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    df = df[px.contains(df.uniqueID, uniqueID)]
-    return df[['uniqueID', 'vector', 'source', 'src_table', 'record']]
+def kubescape(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _consulted(start_time, clickhouse_dsn, 'dx_src__kubescape_logs', order_id)
+
+
+def redis(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _consulted(start_time, clickhouse_dsn, 'dx_src__redis_events', order_id)
+
+
+def conn(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _consulted(start_time, clickhouse_dsn, 'dx_src__conn_stats', order_id)
+
+
+def http(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _consulted(start_time, clickhouse_dsn, 'dx_src__http_events', order_id)
+
+
+def dns(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _consulted(start_time, clickhouse_dsn, 'dx_src__dns_events', order_id)
+
+
+def pgsql(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _consulted(start_time, clickhouse_dsn, 'dx_src__pgsql_events', order_id)
+
+
+def mysql(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _consulted(start_time, clickhouse_dsn, 'dx_src__mysql_events', order_id)
+
+
+def orders(start_time: str, clickhouse_dsn: str):
+    df = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    return df[['uniqueID', 'rule', 'pod', 'order_id', 'lo', 'hi']]

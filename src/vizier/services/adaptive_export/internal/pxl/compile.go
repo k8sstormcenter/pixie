@@ -113,7 +113,12 @@ func PodEnrichPxL(table string) string {
 			"df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['', '_x'])\n"
 	}
 	return "df.namespace = px.upid_to_namespace(df.upid)\n" +
-		"df.pod = px.upid_to_pod_name(df.upid)\n"
+		"df.pod = px.upid_to_pod_name(df.upid)\n" +
+		// hostname = the capture node — the leading ORDER BY column on every
+		// socket_tracer table. AE left it empty (only stack_trace stamped it), so
+		// px reads of these tables (and the #136 order-UUID views) could not filter
+		// by hostname and the pushdown prefix (hostname,event_time) was unusable.
+		"df.hostname = px.upid_to_node_name(df.upid)\n"
 }
 
 // Render fills a CompilePassthrough template with the precise [sliceStart,

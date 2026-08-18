@@ -258,14 +258,15 @@ func TestEscapePxL_TableDriven(t *testing.T) {
 //	df = df[df.time_ <  ...]                  1
 //	df.namespace = px.upid_to_namespace(...)  1
 //	df.pod = px.upid_to_pod_name(...)         1
+//	df.hostname = px.upid_to_node_name(...)   1
 //	df = df[df.namespace == '...']            1
 //	df = df[df.pod == '...']                  1
 //	px.display(df, '...')                     1
-//	(trailing newline → empty 11th split)     1
+//	(trailing newline → empty 12th split)     1
 //
-// Total: 10 statements + trailing empty == strings.Split == 11 entries.
+// Total: 11 statements + trailing empty == strings.Split == 12 entries.
 func TestQueryFor_RejectsInjectionInTargetFields(t *testing.T) {
-	const wantLines = 11
+	const wantLines = 12
 
 	cases := []struct {
 		name   string
@@ -337,7 +338,7 @@ func TestQueryFor_PodOnlyRegexEscapesQuoteMetaInjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryFor: %v", err)
 	}
-	if strings.Contains(q, "exec(") || strings.Count(q, "\n") > 9 {
+	if strings.Contains(q, "exec(") || strings.Count(q, "\n") > 10 {
 		t.Fatalf("pod-only path injection succeeded:\n%s", q)
 	}
 }

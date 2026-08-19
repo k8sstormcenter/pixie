@@ -14,10 +14,12 @@
     {"outputName": "g_dns", "func": {"name": "dns", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
     {"outputName": "g_pgsql", "func": {"name": "pgsql", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
     {"outputName": "g_mysql", "func": {"name": "mysql", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
+    {"outputName": "g_dcsnoop", "func": {"name": "dc_snoop", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
+    {"outputName": "g_stack", "func": {"name": "stack_trace", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
     {"outputName": "g_orders", "func": {"name": "orders", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}]}}
   ],
   "widgets": [
-    {"name": "Kill-chain graph (subject pod -> target)", "position": {"x": 0, "y": 0, "w": 12, "h": 4}, "globalFuncOutputName": "g_graph",
+    {"name": "Evidence graph (subject pod -> target)", "position": {"x": 0, "y": 0, "w": 12, "h": 4}, "globalFuncOutputName": "g_graph",
      "displaySpec": {"@type": "types.px.dev/px.vispb.Graph", "adjacencyList": {"fromColumn": "from_entity", "toColumn": "to_entity"}, "edgeWeightColumn": "severity", "edgeColorColumn": "severity", "edgeLabelColumn": "rule", "edgeThresholds": {"mediumThreshold": 5, "highThreshold": 8}, "edgeHoverInfo": ["uniqueID", "rule", "process", "target", "severity"], "edgeLength": 500}},
     {"name": "kubescape_logs (anomalies) for order", "position": {"x": 0, "y": 4, "w": 12, "h": 4}, "globalFuncOutputName": "g_kube", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
     {"name": "redis_events", "position": {"x": 0, "y": 8, "w": 6, "h": 4}, "globalFuncOutputName": "g_redis", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
@@ -26,6 +28,8 @@
     {"name": "dns_events", "position": {"x": 6, "y": 12, "w": 6, "h": 4}, "globalFuncOutputName": "g_dns", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
     {"name": "pgsql_events", "position": {"x": 0, "y": 16, "w": 6, "h": 4}, "globalFuncOutputName": "g_pgsql", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
     {"name": "mysql_events", "position": {"x": 6, "y": 16, "w": 6, "h": 4}, "globalFuncOutputName": "g_mysql", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
-    {"name": "ORDERS (pick an order_id -> paste into the order_id variable)", "position": {"x": 0, "y": 20, "w": 12, "h": 4}, "globalFuncOutputName": "g_orders", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}}
+    {"name": "dc_snoop (file access)", "position": {"x": 0, "y": 20, "w": 6, "h": 4}, "globalFuncOutputName": "g_dcsnoop", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
+    {"name": "stack_trace (profiler)", "position": {"x": 6, "y": 20, "w": 6, "h": 4}, "globalFuncOutputName": "g_stack", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
+    {"name": "ORDERS (pick an order_id -> paste into the order_id variable)", "position": {"x": 0, "y": 24, "w": 12, "h": 4}, "globalFuncOutputName": "g_orders", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}}
   ]
 }

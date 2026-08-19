@@ -105,6 +105,7 @@ var KnownTables = []string{
 	"dx_src__pgsql_events",
 	"dx_src__mysql_events",
 	"dx_src__dc_snoop",
+	"dx_src__stack_trace",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

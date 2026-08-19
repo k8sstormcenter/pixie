@@ -788,35 +788,40 @@ FROM forensic_db.kubescape_logs WHERE RuleID != '';
 -- dx_src__<protocol>: original protocol schema + ts/row_time/event_time, encrypted/ssl dropped.
 CREATE VIEW IF NOT EXISTS forensic_db.dx_src__redis_events AS
 SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
-       upid, namespace, pod, remote_addr, remote_port, trace_role, req_cmd, req_args, resp, latency, hostname
+       namespace, pod, remote_addr, remote_port, trace_role, req_cmd, req_args, resp, latency, hostname
 FROM forensic_db.redis_events;
 
 CREATE VIEW IF NOT EXISTS forensic_db.dx_src__conn_stats AS
 SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
-       upid, namespace, pod, remote_addr, remote_port, protocol, conn_open, conn_close, conn_active, bytes_sent, bytes_recv, hostname
+       namespace, pod, remote_addr, remote_port, protocol, conn_open, conn_close, conn_active, bytes_sent, bytes_recv, hostname
 FROM forensic_db.conn_stats;
 
 CREATE VIEW IF NOT EXISTS forensic_db.dx_src__http_events AS
 SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
-       upid, namespace, pod, remote_addr, remote_port, req_method, req_path, req_body, resp_status, resp_body, latency, hostname
+       namespace, pod, remote_addr, remote_port, req_method, req_path, req_body, resp_status, resp_body, latency, hostname
 FROM forensic_db.http_events;
 
 CREATE VIEW IF NOT EXISTS forensic_db.dx_src__dns_events AS
 SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
-       upid, namespace, pod, remote_addr, remote_port, req_body, resp_body, latency, hostname
+       namespace, pod, remote_addr, remote_port, req_body, resp_body, latency, hostname
 FROM forensic_db.dns_events;
 
 CREATE VIEW IF NOT EXISTS forensic_db.dx_src__pgsql_events AS
 SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
-       upid, namespace, pod, remote_addr, remote_port, req, resp, latency, hostname
+       namespace, pod, remote_addr, remote_port, req, resp, latency, hostname
 FROM forensic_db.pgsql_events;
 
 CREATE VIEW IF NOT EXISTS forensic_db.dx_src__mysql_events AS
 SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
-       upid, namespace, pod, remote_addr, remote_port, req_cmd, req_body, resp_status, resp_body, latency, hostname
+       namespace, pod, remote_addr, remote_port, req_cmd, req_body, resp_status, resp_body, latency, hostname
 FROM forensic_db.mysql_events;
 
 CREATE VIEW IF NOT EXISTS forensic_db.dx_src__dc_snoop AS
 SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
        pid, comm, t, file, namespace, pod, container, hostname
 FROM forensic_db.dc_snoop;
+
+CREATE VIEW IF NOT EXISTS forensic_db.dx_src__stack_trace AS
+SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
+       namespace, pod, container, stack_trace_id, stack_trace, count, hostname
+FROM forensic_db.stack_trace;

@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/chhttp"
@@ -33,11 +34,6 @@ import (
 // reference any pixie table during creation (it does not, but the
 // invariant is cheap to keep).
 var OperatorOwnedTables = []string{
-	// kubescape_logs — normally soc-owned, but ENSURED here (CREATE TABLE IF NOT
-	// EXISTS is idempotent; whoever boots first wins, both use the canonical schema)
-	// so the two order-UUID views over it (dx_kubescape_anomalies, dx_src__kubescape_
-	// logs, appended last) can be created at boot without a fatal missing-base error.
-	"kubescape_logs",
 	// 12 pixie socket_tracer tables — created BEFORE Pixie's retention
 	// plugin gets a chance to auto-DDL them (which would omit our
 	// namespace + pod columns and break analyst JOINs).
@@ -136,6 +132,14 @@ func (a *Applier) Apply(ctx context.Context) error {
 			return fmt.Errorf("apply: get DDL for %s: %w", table, err)
 		}
 		if err := a.execute(ctx, ddl); err != nil {
+			// Views are DERIVED + best-effort: a not-yet-ready base (e.g. the
+			// soc-owned kubescape_logs before its installer has run) must NOT fatal
+			// the boot. Log + continue; the next boot retries once the base exists.
+			// Tables stay boot-critical (fatal) — a missing operator table is real.
+			if strings.Contains(ddl, "CREATE VIEW") {
+				log.Printf("[ae] deferred view %s (base not ready?): %v", table, err)
+				continue
+			}
 			return fmt.Errorf("apply: create %s: %w", table, err)
 		}
 	}

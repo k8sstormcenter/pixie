@@ -575,6 +575,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_evidence_manifest (
 -- ReplacingMergeTree ORDER BY (unique_id, rule_id) dedups re-fires but keeps
 -- co-fired rules. NOT a pixie table.
 CREATE TABLE IF NOT EXISTS forensic_db.dx_order_seeds (
+    order_id   String,
     unique_id  String,
     rule_id    String,
     pod        String,
@@ -583,6 +584,32 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_order_seeds (
     case_key   String
 ) ENGINE = ReplacingMergeTree()
   ORDER BY (unique_id, rule_id)
+  PARTITION BY toYYYYMM(fromUnixTimestamp64Nano(event_time))
+  TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
+  SETTINGS index_granularity = 8192;
+
+-- dx_order_records — the STAMPED consulted set (entlein/dx#136 stamping model). dx
+-- writes one row per (order_id, finding): each record it consulted during the workup
+-- for a primary kubescape log, stamped with that log's order_id. The panels read THIS
+-- (the exact consulted set) instead of a ±300s time window. event_time is derived from
+-- time_ so px can read it (UInt64 + hostname, no Bool cols). AE owns the DDL; dx
+-- INSERTs. ReplacingMergeTree collapses re-stamps of the same (order_id,row).
+CREATE TABLE IF NOT EXISTS forensic_db.dx_order_records (
+    order_id    String,
+    unique_id   String,
+    src_table   String,
+    vector      String,
+    source      String,
+    time_       Int64,
+    pod         String,
+    remote_addr String,
+    path        String,
+    comm        String,
+    dns_name    String,
+    hostname    String,
+    event_time  UInt64 DEFAULT toUInt64(time_)
+) ENGINE = ReplacingMergeTree()
+  ORDER BY (order_id, src_table, time_, pod, remote_addr, path, comm, dns_name)
   PARTITION BY toYYYYMM(fromUnixTimestamp64Nano(event_time))
   TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
   SETTINGS index_granularity = 8192;
@@ -719,14 +746,16 @@ CREATE TABLE IF NOT EXISTS forensic_db.creds_change (
 -- ts=toString(time_) readable, row_time Int64 ns for the PxL interval-join. Views
 -- are not pixie socket_tracer tables → absent from PixieTables().
 
--- dx_anomaly_orders: one order per anomaly (event_time ± 300s window), order_id
--- content-addressed on (pod, lo, hi). From dx_order_seeds so EVERY uniqueID gets an
--- order (no coalescing loss). rule = the seed's rule_id.
+-- dx_anomaly_orders: ONE order per primary kubescape log (#136 stamping model).
+-- order_id is dx-assigned = hash(uniqueID) — 1:1 with the log (stored on the seed),
+-- NOT the window hash that collided for same-instant anomalies. lo/hi are kept for
+-- reference (the ±300s span); the CONSULTED records for the order live in
+-- dx_order_records, stamped with this order_id.
 CREATE VIEW IF NOT EXISTS forensic_db.dx_anomaly_orders AS
 SELECT unique_id AS uniqueID, rule_id AS rule, pod,
        toInt64(event_time) - 300000000000 AS lo,
        toInt64(event_time) + 300000000000 AS hi,
-       lower(substring(hex(SHA256(concat('v1|', pod, '|', toString(toInt64(event_time) - 300000000000), '|', toString(toInt64(event_time) + 300000000000)))), 1, 32)) AS order_id,
+       order_id,
        hostname, event_time
 FROM forensic_db.dx_order_seeds
 LIMIT 1 BY unique_id;

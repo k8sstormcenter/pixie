@@ -87,6 +87,9 @@ var OperatorOwnedTables = []string{
 	// dx per-referral order seeds (#136 evidence-loss fix) — created on boot so
 	// dx's direct INSERT has a target. Not a pixie table → not in PixieTables().
 	"dx_order_seeds",
+	// consulted-records bridge (#136 stamping) — created on boot so dx's INSERT has
+	// a target. Not a pixie table → not in PixieTables().
+	"dx_order_records",
 	// order-UUID pre-correlation VIEWS (#136) — created LAST, after every base
 	// table above exists (kubescape_logs, the socket_tracer tables, dc_snoop,
 	// dx_order_seeds). Read by the px/dx_evidence_graph dashboard. Not pixie tables.

@@ -88,6 +88,10 @@ var KnownTables = []string{
 	// INSERTs one row per anomaly so dx_anomaly_orders can window every uniqueID.
 	// NOT a pixie table.
 	"dx_order_seeds",
+	// order-UUID consulted-records bridge (#136 stamping): the records dx consulted
+	// per primary kubescape log, stamped with its order_id. dx INSERTs. NOT a pixie
+	// table.
+	"dx_order_records",
 	// order-UUID pre-correlation views (#136) read by the px/dx_evidence_graph
 	// dashboard. VIEWS, created after their base tables (kubescape_logs ensured
 	// first). NOT pixie tables. Order matches schema.sql (appended at the end).

@@ -567,13 +567,13 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_evidence_manifest (
   TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
   SETTINGS index_granularity = 8192;
 
--- dx_order_seeds — one row per kubescape referral dx sees (entlein/dx#136
--- evidence-loss fix). dx coalesces same-pod anomalies into one investigation, so
--- most anomalies write no manifest; this table records EVERY anomaly's identity so
--- the dx_anomaly_orders view can give each uniqueID its own consulted window
--- (event_time ± 300s). dx INSERTs (POST-less, direct CH); AE owns the DDL.
--- ReplacingMergeTree ORDER BY (unique_id, rule_id) dedups re-fires but keeps
--- co-fired rules. NOT a pixie table.
+-- dx_order_seeds — one row per ORDER dx opens (entlein/dx#136 evidence-loss fix).
+-- dx owns the order identity: it computes order_id and decides the dedup
+-- granularity (1:1 with uniqueID today; finer — per rule/target/event — later).
+-- AE only stores and surfaces exactly what dx emits, so the key is order_id and
+-- NOTHING here assumes how many orders map to a uniqueID. dx INSERTs (POST-less,
+-- direct CH); AE owns the DDL. ReplacingMergeTree ORDER BY (order_id) dedups
+-- re-fires of the same order. NOT a pixie table.
 CREATE TABLE IF NOT EXISTS forensic_db.dx_order_seeds (
     order_id   String,
     unique_id  String,
@@ -583,7 +583,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_order_seeds (
     hostname   String,
     case_key   String
 ) ENGINE = ReplacingMergeTree()
-  ORDER BY (unique_id, rule_id)
+  ORDER BY (order_id)
   PARTITION BY toYYYYMM(fromUnixTimestamp64Nano(event_time))
   TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
   SETTINGS index_granularity = 8192;
@@ -746,11 +746,11 @@ CREATE TABLE IF NOT EXISTS forensic_db.creds_change (
 -- ts=toString(time_) readable, row_time Int64 ns for the PxL interval-join. Views
 -- are not pixie socket_tracer tables → absent from PixieTables().
 
--- dx_anomaly_orders: ONE order per primary kubescape log (#136 stamping model).
--- order_id is dx-assigned = hash(uniqueID) — 1:1 with the log (stored on the seed),
--- NOT the window hash that collided for same-instant anomalies. lo/hi are kept for
--- reference (the ±300s span); the CONSULTED records for the order live in
--- dx_order_records, stamped with this order_id.
+-- dx_anomaly_orders: ONE row per order dx opened. order_id is dx-assigned and
+-- dx owns its granularity (hash(uniqueID) = 1:1 with the log today; finer later),
+-- so the view dedups on order_id and makes NO assumption about orders-per-uniqueID.
+-- lo/hi are kept for reference (the ±300s span); the CONSULTED records for the
+-- order live in dx_order_records, stamped with this order_id.
 CREATE VIEW IF NOT EXISTS forensic_db.dx_anomaly_orders AS
 SELECT unique_id AS uniqueID, rule_id AS rule, pod,
        toInt64(event_time) - 300000000000 AS lo,
@@ -758,7 +758,7 @@ SELECT unique_id AS uniqueID, rule_id AS rule, pod,
        order_id,
        hostname, event_time
 FROM forensic_db.dx_order_seeds
-LIMIT 1 BY unique_id;
+LIMIT 1 BY order_id;
 
 -- dx_kubescape_anomalies: L1 kill-chain graph (subject_pod -> target), deduped by uniqueID.
 CREATE VIEW IF NOT EXISTS forensic_db.dx_kubescape_anomalies AS

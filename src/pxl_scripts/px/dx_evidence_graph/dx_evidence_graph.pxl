@@ -17,65 +17,60 @@
 import px
 
 
-# _consulted: interval-join one protocol's rows to a chosen order — equi-join on
-# pod + row_time within the order's [lo,hi] window. This is the pre-correlation
-# record set per protocol for the selected anomaly (order_id).
-def _consulted(start_time: str, clickhouse_dsn: str, view: str, order_id: str):
-    orders = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    orders = orders[orders.order_id == order_id]
-    orders = orders[['order_id', 'pod', 'lo', 'hi']]
-    src = px.DataFrame(view, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    j = src.merge(orders, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_ord'])
-    j = j[j.row_time >= j.lo]
-    j = j[j.row_time <= j.hi]
-    # Keep these in the views + the ORDERS panel, but hide the join/plumbing columns
-    # from the protocol panels so they don't pollute the visual (ts stays as the
-    # human-readable time; the panel is already scoped to one order_id).
-    return j.drop(['row_time', 'event_time', 'lo', 'hi', 'order_id', 'pod_ord'])
+def _stamped(start_time: str, clickhouse_dsn: str, src_table: str, order_id: str):
+    df = px.DataFrame('dx_order_records', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = df[df.order_id == order_id]
+    df = df[df.src_table == src_table]
+    return df[['vector', 'source', 'pod', 'remote_addr', 'path', 'comm', 'dns_name']]
 
 
 def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
     df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    df.from_entity = px.Pod(df.subject_pod)
+    df.from_entity = df.process
     df.to_entity = df.target
     return df[['from_entity', 'to_entity', 'uniqueID', 'rule', 'process',
                'target', 'target_kind', 'severity', 'alert', 'subject_pod']]
 
 
 def kubescape(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__kubescape_logs', order_id)
+    orders = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = orders[orders.order_id == order_id]
+    orders = orders[['order_id', 'uniqueID']]
+    k = px.DataFrame('dx_src__kubescape_logs', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    j = k.merge(orders, how='inner', left_on=['uniqueID'], right_on=['uniqueID'], suffixes=['', '_o'])
+    return j.drop(['order_id', 'uniqueID_o', 'row_time', 'event_time'])
 
 
 def redis(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__redis_events', order_id)
+    return _stamped(start_time, clickhouse_dsn, 'redis_events', order_id)
 
 
 def conn(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__conn_stats', order_id)
+    return _stamped(start_time, clickhouse_dsn, 'conn_stats', order_id)
 
 
 def http(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__http_events', order_id)
+    return _stamped(start_time, clickhouse_dsn, 'http_events', order_id)
 
 
 def dns(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__dns_events', order_id)
+    return _stamped(start_time, clickhouse_dsn, 'dns_events', order_id)
 
 
 def pgsql(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__pgsql_events', order_id)
+    return _stamped(start_time, clickhouse_dsn, 'pgsql_events', order_id)
 
 
 def mysql(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__mysql_events', order_id)
+    return _stamped(start_time, clickhouse_dsn, 'mysql_events', order_id)
 
 
 def dc_snoop(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__dc_snoop', order_id)
+    return _stamped(start_time, clickhouse_dsn, 'dc_snoop', order_id)
 
 
 def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__stack_trace', order_id)
+    return _stamped(start_time, clickhouse_dsn, 'stack_trace', order_id)
 
 
 def orders(start_time: str, clickhouse_dsn: str):

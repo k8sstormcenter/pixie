@@ -88,6 +88,19 @@ var KnownTables = []string{
 	// INSERTs one row per anomaly so dx_anomaly_orders can window every uniqueID.
 	// NOT a pixie table.
 	"dx_order_seeds",
+	// order-UUID pre-correlation views (#136) read by the px/dx_evidence_graph
+	// dashboard. VIEWS, created after their base tables (kubescape_logs ensured
+	// first). NOT pixie tables. Order matches schema.sql (appended at the end).
+	"dx_anomaly_orders",
+	"dx_kubescape_anomalies",
+	"dx_src__kubescape_logs",
+	"dx_src__redis_events",
+	"dx_src__conn_stats",
+	"dx_src__http_events",
+	"dx_src__dns_events",
+	"dx_src__pgsql_events",
+	"dx_src__mysql_events",
+	"dx_src__dc_snoop",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

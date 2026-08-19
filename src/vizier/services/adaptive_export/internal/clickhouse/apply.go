@@ -33,6 +33,11 @@ import (
 // reference any pixie table during creation (it does not, but the
 // invariant is cheap to keep).
 var OperatorOwnedTables = []string{
+	// kubescape_logs — normally soc-owned, but ENSURED here (CREATE TABLE IF NOT
+	// EXISTS is idempotent; whoever boots first wins, both use the canonical schema)
+	// so the two order-UUID views over it (dx_kubescape_anomalies, dx_src__kubescape_
+	// logs, appended last) can be created at boot without a fatal missing-base error.
+	"kubescape_logs",
 	// 12 pixie socket_tracer tables — created BEFORE Pixie's retention
 	// plugin gets a chance to auto-DDL them (which would omit our
 	// namespace + pod columns and break analyst JOINs).
@@ -86,6 +91,19 @@ var OperatorOwnedTables = []string{
 	// dx per-referral order seeds (#136 evidence-loss fix) — created on boot so
 	// dx's direct INSERT has a target. Not a pixie table → not in PixieTables().
 	"dx_order_seeds",
+	// order-UUID pre-correlation VIEWS (#136) — created LAST, after every base
+	// table above exists (kubescape_logs, the socket_tracer tables, dc_snoop,
+	// dx_order_seeds). Read by the px/dx_evidence_graph dashboard. Not pixie tables.
+	"dx_anomaly_orders",
+	"dx_kubescape_anomalies",
+	"dx_src__kubescape_logs",
+	"dx_src__redis_events",
+	"dx_src__conn_stats",
+	"dx_src__http_events",
+	"dx_src__dns_events",
+	"dx_src__pgsql_events",
+	"dx_src__mysql_events",
+	"dx_src__dc_snoop",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the

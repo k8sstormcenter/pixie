@@ -19,8 +19,7 @@
     {"outputName": "g_orders", "func": {"name": "orders", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}]}}
   ],
   "widgets": [
-    {"name": "Evidence graph (subject pod -> target)", "position": {"x": 0, "y": 0, "w": 12, "h": 4}, "globalFuncOutputName": "g_graph",
-     "displaySpec": {"@type": "types.px.dev/px.vispb.Graph", "adjacencyList": {"fromColumn": "from_entity", "toColumn": "to_entity"}, "edgeWeightColumn": "severity", "edgeColorColumn": "severity", "edgeLabelColumn": "rule", "edgeThresholds": {"mediumThreshold": 5, "highThreshold": 8}, "edgeHoverInfo": ["uniqueID", "rule", "process", "target", "severity"], "edgeLength": 500}},
+    {"name": "Evidence graph (subject pod -> target)", "position": {"x": 0, "y": 0, "w": 12, "h": 4}, "globalFuncOutputName": "g_graph", "displaySpec": {"@type": "types.px.dev/px.vispb.Graph", "adjacencyList": {"fromColumn": "from_entity", "toColumn": "to_entity"}, "edgeWeightColumn": "severity", "edgeColorColumn": "severity", "edgeLabelColumn": "rule", "edgeThresholds": {"mediumThreshold": 5, "highThreshold": 8}, "edgeHoverInfo": ["uniqueID", "rule", "process", "target", "severity"], "edgeLength": 500}},
     {"name": "kubescape_logs (anomalies) for order", "position": {"x": 0, "y": 4, "w": 12, "h": 4}, "globalFuncOutputName": "g_kube", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
     {"name": "redis_events", "position": {"x": 0, "y": 8, "w": 6, "h": 4}, "globalFuncOutputName": "g_redis", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
     {"name": "conn_stats", "position": {"x": 6, "y": 8, "w": 6, "h": 4}, "globalFuncOutputName": "g_conn", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},

@@ -17,9 +17,6 @@
 import px
 
 
-# _consulted: interval-join one protocol's rows to a chosen order — equi-join on
-# pod + row_time within the order's [lo,hi] window. This is the pre-correlation
-# record set per protocol for the selected anomaly (order_id).
 def _consulted(start_time: str, clickhouse_dsn: str, view: str, order_id: str):
     orders = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     orders = orders[orders.order_id == order_id]
@@ -28,9 +25,6 @@ def _consulted(start_time: str, clickhouse_dsn: str, view: str, order_id: str):
     j = src.merge(orders, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_ord'])
     j = j[j.row_time >= j.lo]
     j = j[j.row_time <= j.hi]
-    # Keep these in the views + the ORDERS panel, but hide the join/plumbing columns
-    # from the protocol panels so they don't pollute the visual (ts stays as the
-    # human-readable time; the panel is already scoped to one order_id).
     return j.drop(['row_time', 'event_time', 'lo', 'hi', 'order_id', 'pod_ord'])
 
 

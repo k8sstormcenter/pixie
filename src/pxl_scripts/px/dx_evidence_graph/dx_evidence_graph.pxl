@@ -28,7 +28,10 @@ def _consulted(start_time: str, clickhouse_dsn: str, view: str, order_id: str):
     j = src.merge(orders, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_ord'])
     j = j[j.row_time >= j.lo]
     j = j[j.row_time <= j.hi]
-    return j
+    # Keep these in the views + the ORDERS panel, but hide the join/plumbing columns
+    # from the protocol panels so they don't pollute the visual (ts stays as the
+    # human-readable time; the panel is already scoped to one order_id).
+    return j.drop(['row_time', 'event_time', 'lo', 'hi', 'order_id', 'pod_ord'])
 
 
 def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):

@@ -30,9 +30,19 @@ def _consulted(start_time: str, clickhouse_dsn: str, view: str, order_id: str):
 
 def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
     df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = orders[['uniqueID', 'rule', 'order_id']]
+    df = df.merge(orders, how='left', left_on=['uniqueID', 'rule'],
+                  right_on=['uniqueID', 'rule'], suffixes=['', '_ord'])
+    df.order_link = px.script_reference(df.order_id, 'px/dx_evidence_graph', {
+        'start_time': start_time,
+        'clickhouse_dsn': clickhouse_dsn,
+        'graph_table': table,
+        'order_id': df.order_id,
+    })
     df.from_entity = px.Pod(df.subject_pod)
     df.to_entity = df.target
-    return df[['from_entity', 'to_entity', 'uniqueID', 'rule', 'process',
+    return df[['from_entity', 'to_entity', 'order_link', 'uniqueID', 'rule', 'process',
                'target', 'target_kind', 'severity', 'alert', 'subject_pod']]
 
 
@@ -72,6 +82,12 @@ def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):
     return _consulted(start_time, clickhouse_dsn, 'dx_src__stack_trace', order_id)
 
 
-def orders(start_time: str, clickhouse_dsn: str):
+def orders(start_time: str, clickhouse_dsn: str, graph_table: str):
     df = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    return df[['uniqueID', 'rule', 'pod', 'order_id', 'lo', 'hi']]
+    df.order = px.script_reference(df.order_id, 'px/dx_evidence_graph', {
+        'start_time': start_time,
+        'clickhouse_dsn': clickhouse_dsn,
+        'graph_table': graph_table,
+        'order_id': df.order_id,
+    })
+    return df[['order', 'uniqueID', 'rule', 'pod']]

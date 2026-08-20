@@ -86,10 +86,14 @@ def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):
 
 def orders(start_time: str, clickhouse_dsn: str, graph_table: str):
     df = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    alerts = px.DataFrame(graph_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    alerts = alerts[['uniqueID', 'rule', 'alert']]
+    df = df.merge(alerts, how='left', left_on=['uniqueID', 'rule'],
+                  right_on=['uniqueID', 'rule'], suffixes=['', '_k'])
     df.order = px.script_reference(df.order_id, 'px/dx_evidence_graph', {
         'start_time': start_time,
         'clickhouse_dsn': clickhouse_dsn,
         'graph_table': graph_table,
         'order_id': df.order_id,
     })
-    return df[['order', 'uniqueID', 'rule', 'pod']]
+    return df[['order', 'rule', 'alert', 'pod']]

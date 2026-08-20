@@ -88,6 +88,37 @@ def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):
     return _consulted(start_time, clickhouse_dsn, 'dx_src__stack_trace', order_id)
 
 
+def stack_diff(start_time: str, clickhouse_dsn: str, order_id: str):
+    # Differential flame graph for ONE order's pod: the pod's stacks DURING the
+    # attack window [lo,hi] vs its BASELINE stacks before the attack (row_time < lo).
+    # delta = attack_count - baseline_count → the StackTraceFlameGraph widget colours
+    # frames that spiked during the attack red, quiet-baseline frames blue.
+    orders = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = orders[orders.order_id == order_id]
+    orders = orders[['pod', 'lo', 'hi']]
+    st = px.DataFrame('dx_src__stack_trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    st = st.merge(orders, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_o'])
+
+    base = st[st.row_time < st.lo]
+    base = base.groupby(['pod', 'stack_trace']).agg(count=('count', px.sum))
+
+    atk = st[st.row_time >= st.lo]
+    atk = atk[atk.row_time <= atk.hi]
+    atk = atk.groupby(['pod', 'stack_trace']).agg(count=('count', px.sum))
+
+    diff = base.merge(atk, how='right', left_on=['stack_trace'], right_on=['stack_trace'],
+                      suffixes=['_base', '_atk'])
+    diff.pod = diff.pod_atk
+    diff.stack_trace = px.replace(' ', diff.stack_trace_atk, '')
+    diff.count = diff.count_atk
+    diff.delta = diff.count_atk - diff.count_base
+
+    total = atk.groupby(['pod']).agg(total=('count', px.sum))
+    merged = diff.merge(total, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_t'])
+    merged.percent = 100 * merged.count / merged.total
+    return merged[['stack_trace', 'count', 'delta', 'percent', 'pod']]
+
+
 def orders(start_time: str, clickhouse_dsn: str, graph_table: str):
     df = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     alerts = px.DataFrame(graph_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)

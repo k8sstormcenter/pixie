@@ -125,16 +125,24 @@ def stack_diff(start_time: str, clickhouse_dsn: str, order_id: str):
     orders = px.DataFrame('dx_orders_win', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     orders = orders[orders.order_id == order_id]
     orders = orders[['pod', 'lo', 'hi']]
+    # dx_orders_win.lo = event_time - 300s. Re-center to a tight +/-30s ATTACK
+    # window [event_time-30s, event_time+30s] and a MATCHED 60s BASELINE just
+    # before it [event_time-90s, event_time-30s), as Int64 offsets from lo (no
+    # division -> stays Int64 so it compares against row_time).
+    orders.alo = orders.lo + 270000000000
+    orders.ahi = orders.lo + 330000000000
+    orders.blo = orders.lo + 210000000000
     st = px.DataFrame(table='stack_traces.beta', start_time=start_time)
     st.pod = st.ctx['pod']
     st.row_time = px.time_to_int64(st.time_)
     st = st.merge(orders, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_o'])
 
-    base = st[st.row_time < st.lo]
+    base = st[st.row_time >= st.blo]
+    base = base[base.row_time < base.alo]
     base = base.groupby(['pod', 'stack_trace']).agg(count=('count', px.sum))
 
-    atk = st[st.row_time >= st.lo]
-    atk = atk[atk.row_time <= atk.hi]
+    atk = st[st.row_time >= st.alo]
+    atk = atk[atk.row_time <= atk.ahi]
     atk = atk.groupby(['pod', 'stack_trace']).agg(count=('count', px.sum))
 
     diff = base.merge(atk, how='right', left_on=['stack_trace'], right_on=['stack_trace'],

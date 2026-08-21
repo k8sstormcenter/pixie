@@ -29,6 +29,7 @@ go_library(
         "//src/shared/services/utils",
         "//src/vizier/services/adaptive_export/internal/activeset",
         "//src/vizier/services/adaptive_export/internal/anomaly",
+        "@com_github_sirupsen_logrus//:logrus",
     ],
 )
 

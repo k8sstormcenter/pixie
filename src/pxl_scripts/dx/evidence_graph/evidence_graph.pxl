@@ -27,30 +27,15 @@ def _ord(start_time: str, clickhouse_dsn: str, view: str, order_id: str):
     return df.drop(['order_id', 'row_time', 'event_time'])
 
 
-def _bridge(start_time: str, clickhouse_dsn: str, src_name: str, base_view: str, order_id: str):
-    # Fast path for high-fan-out tables (dc_snoop): the pre-joined dx_ord__ view
-    # multiplies a base row by every order that consulted it (dc_snoop 6.3k -> 160k),
-    # and the Pixie CH connector can't push the order_id filter down, so _ord pulls
-    # the full fanned-out view (~28MB). Instead join the SMALL base rows to just
-    # this order's narrow edge set -> ~10MB. Same rows, ~2.7x less transfer.
-    # base_view is a passthrough VIEW over the base table (px infers unique_id from
-    # a view via DESCRIBE; the registered base-table relation omits it). src_name is
-    # the base table name as stored in dx_order_edges.src_table.
-    edges = px.DataFrame('dx_order_edges', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    edges = edges[edges.order_id == order_id]
-    edges = edges[edges.src_table == src_name]
-    edges = edges[['unique_id']]
-    src = px.DataFrame(base_view, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    j = src.merge(edges, how='inner', left_on=['unique_id'], right_on=['unique_id'], suffixes=['', '_e'])
-    return j.drop(['unique_id', 'event_time'])
-
-
 def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
-    df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    # Order-centric graph: start from dx_orders and INNER JOIN the anomaly detail on
+    # the order keys (kubescape_uid, rule_id), so every edge IS an order and carries a
+    # valid order_id + deep-link. subject_pod -> target, labelled ruleID + MITRE.
     orders = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    orders = orders[['kubescape_uid', 'rule_id', 'order_id']]
-    df = df.merge(orders, how='left', left_on=['uniqueID', 'rule'],
-                  right_on=['kubescape_uid', 'rule_id'], suffixes=['', '_ord'])
+    orders = orders[['order_id', 'kubescape_uid', 'rule_id', 'pod']]
+    anom = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = orders.merge(anom, how='inner', left_on=['kubescape_uid', 'rule_id'],
+                      right_on=['uniqueID', 'rule'], suffixes=['', '_a'])
     df.order_link = px.script_reference(df.order_id, 'dx/evidence_graph', {
         'start_time': start_time,
         'clickhouse_dsn': clickhouse_dsn,
@@ -60,7 +45,7 @@ def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
     df.from_entity = px.Pod(df.subject_pod)
     df.to_entity = df.target
     return df[['from_entity', 'to_entity', 'order_link', 'rule_mitre', 'mitre_tactic',
-               'mitre_technique', 'uniqueID', 'rule', 'process', 'target', 'target_kind',
+               'mitre_technique', 'order_id', 'rule', 'process', 'target', 'target_kind',
                'severity', 'alert', 'subject_pod']]
 
 
@@ -115,22 +100,34 @@ def mysql(start_time: str, clickhouse_dsn: str, order_id: str):
 
 
 def dc_snoop(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _bridge(start_time, clickhouse_dsn, 'dc_snoop', 'dx_base__dc_snoop', order_id)
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__dc_snoop', order_id)
 
 
 def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _ord(start_time, clickhouse_dsn, 'dx_ord__stack_trace', order_id)
+    # Native Pixie profiler (stack_traces.beta) is always populated, unlike the
+    # ClickHouse forensic_db.stack_trace which is only filled if the retention export
+    # runs. Scope to the order's pod (looked up from dx_orders).
+    w = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    w = w[w.order_id == order_id]
+    w = w[['pod']]
+    st = px.DataFrame(table='stack_traces.beta', start_time=start_time)
+    st.pod = st.ctx['pod']
+    st = st.merge(w, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_w'])
+    st = st.groupby(['pod', 'stack_trace']).agg(count=('count', px.sum))
+    return st[['pod', 'stack_trace', 'count']]
 
 
 def stack_diff(start_time: str, clickhouse_dsn: str, order_id: str):
     # Differential flame graph for ONE order's pod: stacks DURING the attack window
-    # [lo,hi] vs BASELINE stacks before the attack (row_time < lo). lo/hi come from
-    # dx_orders_win (event_time +/- 300s, Int64). delta = attack - baseline drives the
-    # StackTraceFlameGraph colouring (red = spiked during the attack).
+    # [lo,hi] vs BASELINE stacks before the attack. Reads the native profiler
+    # (stack_traces.beta) — never empty — and takes the order's pod + lo/hi from
+    # dx_orders_win. delta = attack - baseline drives the red/blue colouring.
     orders = px.DataFrame('dx_orders_win', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     orders = orders[orders.order_id == order_id]
     orders = orders[['pod', 'lo', 'hi']]
-    st = px.DataFrame('dx_src__stack_trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    st = px.DataFrame(table='stack_traces.beta', start_time=start_time)
+    st.pod = st.ctx['pod']
+    st.row_time = px.time_to_int64(st.time_)
     st = st.merge(orders, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_o'])
 
     base = st[st.row_time < st.lo]

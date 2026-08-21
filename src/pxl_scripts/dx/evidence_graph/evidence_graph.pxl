@@ -27,17 +27,20 @@ def _ord(start_time: str, clickhouse_dsn: str, view: str, order_id: str):
     return df.drop(['order_id', 'row_time', 'event_time'])
 
 
-def _bridge(start_time: str, clickhouse_dsn: str, base_table: str, order_id: str):
+def _bridge(start_time: str, clickhouse_dsn: str, src_name: str, base_view: str, order_id: str):
     # Fast path for high-fan-out tables (dc_snoop): the pre-joined dx_ord__ view
     # multiplies a base row by every order that consulted it (dc_snoop 6.3k -> 160k),
     # and the Pixie CH connector can't push the order_id filter down, so _ord pulls
-    # the full fanned-out view (~28MB). Instead join the SMALL base table to just
+    # the full fanned-out view (~28MB). Instead join the SMALL base rows to just
     # this order's narrow edge set -> ~10MB. Same rows, ~2.7x less transfer.
+    # base_view is a passthrough VIEW over the base table (px infers unique_id from
+    # a view via DESCRIBE; the registered base-table relation omits it). src_name is
+    # the base table name as stored in dx_order_edges.src_table.
     edges = px.DataFrame('dx_order_edges', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     edges = edges[edges.order_id == order_id]
-    edges = edges[edges.src_table == base_table]
+    edges = edges[edges.src_table == src_name]
     edges = edges[['unique_id']]
-    src = px.DataFrame(base_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    src = px.DataFrame(base_view, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     j = src.merge(edges, how='inner', left_on=['unique_id'], right_on=['unique_id'], suffixes=['', '_e'])
     return j.drop(['unique_id', 'event_time'])
 
@@ -112,7 +115,7 @@ def mysql(start_time: str, clickhouse_dsn: str, order_id: str):
 
 
 def dc_snoop(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _bridge(start_time, clickhouse_dsn, 'dc_snoop', order_id)
+    return _bridge(start_time, clickhouse_dsn, 'dc_snoop', 'dx_base__dc_snoop', order_id)
 
 
 def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):

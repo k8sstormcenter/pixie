@@ -90,6 +90,9 @@ var OperatorOwnedTables = []string{
 	// consulted-records bridge (#136 stamping) — created on boot so dx's INSERT has
 	// a target. Not a pixie table → not in PixieTables().
 	"dx_order_records",
+	// NEW identity-model tables (added alongside; dx INSERTs). Not pixie tables.
+	"dx_orders",
+	"dx_order_edges",
 	// order-UUID pre-correlation VIEWS (#136) — created LAST, after every base
 	// table above exists (kubescape_logs, the socket_tracer tables, dc_snoop,
 	// dx_order_seeds). Read by the px/dx_evidence_graph dashboard. Not pixie tables.
@@ -104,6 +107,15 @@ var OperatorOwnedTables = []string{
 	"dx_src__mysql_events",
 	"dx_src__dc_snoop",
 	"dx_src__stack_trace",
+	// NEW identity-model join views (after their base table + dx_order_edges exist).
+	"dx_ord__conn_stats",
+	"dx_ord__redis_events",
+	"dx_ord__http_events",
+	"dx_ord__dns_events",
+	"dx_ord__pgsql_events",
+	"dx_ord__mysql_events",
+	"dx_ord__dc_snoop",
+	"dx_ord__stack_trace",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the

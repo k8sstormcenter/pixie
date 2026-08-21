@@ -107,7 +107,8 @@ CREATE TABLE IF NOT EXISTS forensic_db.http_events (
     resp_body_size Int64,
     latency        Int64,
     hostname       String,
-    event_time     DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
+    event_time     DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9),
+    unique_id      String DEFAULT ''
 ) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_method, req_path);
@@ -152,7 +153,8 @@ CREATE TABLE IF NOT EXISTS forensic_db.dns_events (
     resp_body   String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
+    event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9),
+    unique_id   String DEFAULT ''
 ) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_body);
@@ -174,7 +176,8 @@ CREATE TABLE IF NOT EXISTS forensic_db.redis_events (
     resp        String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
+    event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9),
+    unique_id   String DEFAULT ''
 ) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_cmd);
@@ -197,7 +200,8 @@ CREATE TABLE IF NOT EXISTS forensic_db.mysql_events (
     resp_body   String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
+    event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9),
+    unique_id   String DEFAULT ''
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -218,7 +222,8 @@ CREATE TABLE IF NOT EXISTS forensic_db.pgsql_events (
     resp        String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
+    event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9),
+    unique_id   String DEFAULT ''
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -383,7 +388,8 @@ CREATE TABLE IF NOT EXISTS forensic_db.conn_stats (
     bytes_sent    Int64,
     bytes_recv    Int64,
     hostname      String,
-    event_time    DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
+    event_time    DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9),
+    unique_id     String DEFAULT ''
 ) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time, time_, upid, remote_addr, remote_port, trace_role);
@@ -614,6 +620,63 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_order_records (
   TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
   SETTINGS index_granularity = 8192;
 
+-- ── NEW identity model (added ALONGSIDE dx_order_seeds/records, which stay) ───
+-- dx_orders — one row per kubescape detection INSTANT. order_id is TRULY unique =
+-- hash(uniqueID|Disc|event_time_ns). kubescape_uid/disc are provenance only, NEVER
+-- keys. dx INSERTs; AE owns the DDL.
+CREATE TABLE IF NOT EXISTS forensic_db.dx_orders (
+    order_id      String,
+    kubescape_uid String,
+    rule_id       String,
+    disc          String,
+    pod           String,
+    event_time    UInt64,
+    hostname      String
+) ENGINE = ReplacingMergeTree()
+  ORDER BY (order_id)
+  PARTITION BY toYYYYMM(fromUnixTimestamp64Nano(event_time))
+  TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
+  SETTINGS index_granularity = 8192;
+
+-- dx_order_edges — the identity bridge. One row per (order, consulted pixie row):
+-- links order_id to a base-table row via unique_id = the dx-computed content hash
+-- of the row's fields (FNV-1a 64, lowercase hex String), the SAME value dx stamps
+-- onto that base row's unique_id column — so they match by construction, no
+-- CH-side hashing. String (not UInt64): a 64-bit integer does not survive a JSON
+-- decode through float64. Many-to-many: a row consulted by N orders → N edges;
+-- re-stamps collapse. dx INSERTs.
+CREATE TABLE IF NOT EXISTS forensic_db.dx_order_edges (
+    order_id   String,
+    src_table  String,
+    unique_id  String,
+    hostname   String,
+    event_time UInt64 DEFAULT 0
+) ENGINE = ReplacingMergeTree()
+  ORDER BY (order_id, src_table, unique_id)
+  SETTINGS index_granularity = 8192;
+
+-- dx_ord__conn_stats — join view: conn_stats rows consulted for an order, via the
+-- bridge (edge.unique_id = conn_stats.unique_id). Panel filters by order_id.
+CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__conn_stats AS
+SELECT
+    e.order_id AS order_id,
+    toString(c.time_) AS ts,
+    toInt64(toUnixTimestamp64Nano(c.time_)) AS row_time,
+    toUInt64(toUnixTimestamp64Nano(c.event_time)) AS event_time,
+    c.namespace AS namespace,
+    c.pod AS pod,
+    c.remote_addr AS remote_addr,
+    c.remote_port AS remote_port,
+    c.protocol AS protocol,
+    c.conn_open AS conn_open,
+    c.conn_close AS conn_close,
+    c.conn_active AS conn_active,
+    c.bytes_sent AS bytes_sent,
+    e.hostname AS hostname
+FROM forensic_db.dx_order_edges AS e
+INNER JOIN forensic_db.conn_stats AS c ON c.unique_id = e.unique_id
+WHERE e.src_table = 'conn_stats';
+
 -- ── dx dark-vector tracepoint tables (entlein/dx#126) ────────────────────────
 -- Fed by AE-owned bpftrace UpsertTracepoint probes (constantly enabled, no TTL).
 -- Emit raw kernel pid+comm (NOT upid); namespace/pod enriched at pull time via a
@@ -707,7 +770,8 @@ CREATE TABLE IF NOT EXISTS forensic_db.dc_snoop (
   pod String,
   container String,
   hostname String,
-  event_time DateTime64(9, 'UTC')
+  event_time DateTime64(9, 'UTC'),
+  unique_id String DEFAULT ''
 ) ENGINE = ReplacingMergeTree ORDER BY (time_, pid, comm, t, file, pod);
 
 -- stack_trace (native continuous profiler stack_traces.beta, V9) — OTel export.
@@ -721,7 +785,8 @@ CREATE TABLE IF NOT EXISTS forensic_db.stack_trace (
   stack_trace_id Int64,
   stack_trace String,
   count Int64,
-  event_time DateTime64(9, 'UTC')
+  event_time DateTime64(9, 'UTC'),
+  unique_id String DEFAULT ''
 ) ENGINE = ReplacingMergeTree ORDER BY (time_, upid, stack_trace_id, pod);
 
 -- creds_change (commit_creds privilege-escalation to root, V7) — OTel export.
@@ -825,3 +890,135 @@ CREATE VIEW IF NOT EXISTS forensic_db.dx_src__stack_trace AS
 SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
        namespace, pod, container, stack_trace_id, stack_trace, count, hostname
 FROM forensic_db.stack_trace;
+
+CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__redis_events AS
+SELECT
+    e.order_id AS order_id,
+    toString(c.time_) AS ts,
+    toInt64(toUnixTimestamp64Nano(c.time_)) AS row_time,
+    toUInt64(toUnixTimestamp64Nano(c.event_time)) AS event_time,
+    c.namespace AS namespace,
+    c.pod AS pod,
+    c.remote_addr AS remote_addr,
+    c.remote_port AS remote_port,
+    c.trace_role AS trace_role,
+    c.req_cmd AS req_cmd,
+    c.req_args AS req_args,
+    c.resp AS resp,
+    c.latency AS latency,
+    e.hostname AS hostname
+FROM forensic_db.dx_order_edges AS e
+INNER JOIN forensic_db.redis_events AS c ON c.unique_id = e.unique_id
+WHERE e.src_table = 'redis_events';
+
+CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__http_events AS
+SELECT
+    e.order_id AS order_id,
+    toString(c.time_) AS ts,
+    toInt64(toUnixTimestamp64Nano(c.time_)) AS row_time,
+    toUInt64(toUnixTimestamp64Nano(c.event_time)) AS event_time,
+    c.namespace AS namespace,
+    c.pod AS pod,
+    c.remote_addr AS remote_addr,
+    c.remote_port AS remote_port,
+    c.req_method AS req_method,
+    c.req_path AS req_path,
+    c.req_body AS req_body,
+    c.resp_status AS resp_status,
+    c.resp_body AS resp_body,
+    c.latency AS latency,
+    e.hostname AS hostname
+FROM forensic_db.dx_order_edges AS e
+INNER JOIN forensic_db.http_events AS c ON c.unique_id = e.unique_id
+WHERE e.src_table = 'http_events';
+
+CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__dns_events AS
+SELECT
+    e.order_id AS order_id,
+    toString(c.time_) AS ts,
+    toInt64(toUnixTimestamp64Nano(c.time_)) AS row_time,
+    toUInt64(toUnixTimestamp64Nano(c.event_time)) AS event_time,
+    c.namespace AS namespace,
+    c.pod AS pod,
+    c.remote_addr AS remote_addr,
+    c.remote_port AS remote_port,
+    c.req_body AS req_body,
+    c.resp_body AS resp_body,
+    c.latency AS latency,
+    e.hostname AS hostname
+FROM forensic_db.dx_order_edges AS e
+INNER JOIN forensic_db.dns_events AS c ON c.unique_id = e.unique_id
+WHERE e.src_table = 'dns_events';
+
+CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__pgsql_events AS
+SELECT
+    e.order_id AS order_id,
+    toString(c.time_) AS ts,
+    toInt64(toUnixTimestamp64Nano(c.time_)) AS row_time,
+    toUInt64(toUnixTimestamp64Nano(c.event_time)) AS event_time,
+    c.namespace AS namespace,
+    c.pod AS pod,
+    c.remote_addr AS remote_addr,
+    c.remote_port AS remote_port,
+    c.req AS req,
+    c.resp AS resp,
+    c.latency AS latency,
+    e.hostname AS hostname
+FROM forensic_db.dx_order_edges AS e
+INNER JOIN forensic_db.pgsql_events AS c ON c.unique_id = e.unique_id
+WHERE e.src_table = 'pgsql_events';
+
+CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__mysql_events AS
+SELECT
+    e.order_id AS order_id,
+    toString(c.time_) AS ts,
+    toInt64(toUnixTimestamp64Nano(c.time_)) AS row_time,
+    toUInt64(toUnixTimestamp64Nano(c.event_time)) AS event_time,
+    c.namespace AS namespace,
+    c.pod AS pod,
+    c.remote_addr AS remote_addr,
+    c.remote_port AS remote_port,
+    c.req_cmd AS req_cmd,
+    c.req_body AS req_body,
+    c.resp_status AS resp_status,
+    c.resp_body AS resp_body,
+    c.latency AS latency,
+    e.hostname AS hostname
+FROM forensic_db.dx_order_edges AS e
+INNER JOIN forensic_db.mysql_events AS c ON c.unique_id = e.unique_id
+WHERE e.src_table = 'mysql_events';
+
+CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__dc_snoop AS
+SELECT
+    e.order_id AS order_id,
+    toString(c.time_) AS ts,
+    toInt64(toUnixTimestamp64Nano(c.time_)) AS row_time,
+    toUInt64(toUnixTimestamp64Nano(c.event_time)) AS event_time,
+    c.pid AS pid,
+    c.comm AS comm,
+    c.t AS t,
+    c.file AS file,
+    c.namespace AS namespace,
+    c.pod AS pod,
+    c.container AS container,
+    e.hostname AS hostname
+FROM forensic_db.dx_order_edges AS e
+INNER JOIN forensic_db.dc_snoop AS c ON c.unique_id = e.unique_id
+WHERE e.src_table = 'dc_snoop';
+
+CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__stack_trace AS
+SELECT
+    e.order_id AS order_id,
+    toString(c.time_) AS ts,
+    toInt64(toUnixTimestamp64Nano(c.time_)) AS row_time,
+    toUInt64(toUnixTimestamp64Nano(c.event_time)) AS event_time,
+    c.namespace AS namespace,
+    c.pod AS pod,
+    c.container AS container,
+    c.stack_trace_id AS stack_trace_id,
+    c.stack_trace AS stack_trace,
+    c.count AS count,
+    e.hostname AS hostname
+FROM forensic_db.dx_order_edges AS e
+INNER JOIN forensic_db.stack_trace AS c ON c.unique_id = e.unique_id
+WHERE e.src_table = 'stack_trace';

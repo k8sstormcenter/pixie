@@ -34,6 +34,7 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	jwtutils "px.dev/pixie/src/shared/services/utils"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/anomaly"
@@ -90,12 +91,21 @@ type manifestWriter interface {
 	WriteEvidenceManifest(ctx context.Context, jsonEachRow []byte) error
 }
 
+// rowsWriter persists dx-handed pixie base rows (loop 1: conn_stats with a
+// pre-stamped unique_id) into forensic_db.<table> through the SAME sink the
+// controller capture path uses (sink.ClickHouseHTTP.WritePixieRows).
+// nil → /dx/rows 501s.
+type rowsWriter interface {
+	WritePixieRows(ctx context.Context, table string, rows []map[string]any) error
+}
+
 // Server is the control HTTP surface.
 type Server struct {
 	set      exporter
 	runner   queryRunner    // may be nil; /query then returns 501
 	graph    graphWriter    // may be nil; /dx/evidence_graph then returns 501
 	manifest manifestWriter // may be nil; /dx/evidence_manifest then returns 501
+	rows     rowsWriter     // may be nil; /dx/rows then returns 501
 	mux      *http.ServeMux
 	verify   func(bearer string) error // nil → auth disabled; set via SetAuth
 }
@@ -110,6 +120,7 @@ func New(set exporter, runner queryRunner) *Server {
 	s.mux.HandleFunc("/query", s.handleQuery)
 	s.mux.HandleFunc("/dx/evidence_graph", s.handleDXEvidenceGraph)
 	s.mux.HandleFunc("/dx/evidence_manifest", s.handleDXEvidenceManifest)
+	s.mux.HandleFunc("/dx/rows", s.handleDXRows)
 	return s
 }
 
@@ -118,6 +129,9 @@ func (s *Server) SetGraphWriter(g graphWriter) { s.graph = g }
 
 // SetManifestWriter wires the dx_evidence_manifest sink.
 func (s *Server) SetManifestWriter(m manifestWriter) { s.manifest = m }
+
+// SetRowsWriter wires the /dx/rows base-row sink (loop 1).
+func (s *Server) SetRowsWriter(rw rowsWriter) { s.rows = rw }
 
 // SetAuth turns on bearer-JWT auth for the control surface, verified with the
 // SAME shared lib + signing key the vizier broker/PEM use (px.dev/pixie/src/
@@ -177,6 +191,59 @@ func (s *Server) handleDXEvidenceGraph(w http.ResponseWriter, r *http.Request) {
 		buf.WriteByte('\n')
 	}
 	if err := s.graph.WriteEvidenceGraph(r.Context(), buf.Bytes()); err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// dxRowsAllowedTables guards /dx/rows against arbitrary-table writes: only the
+// bridged tables dx hands base rows for (each carries a pre-stamped unique_id and
+// a dx_ord__ view) are accepted. Mirrors evidencegraph.UIDColsByTable on the dx side.
+var dxRowsAllowedTables = map[string]bool{
+	"conn_stats":   true,
+	"redis_events": true,
+	"http_events":  true,
+	"dns_events":   true,
+	"pgsql_events": true,
+	"mysql_events": true,
+	"dc_snoop":     true,
+	"stack_trace":  true,
+}
+
+// dxRowsReq is the /dx/rows wire body: dx-handed base rows for one table.
+type dxRowsReq struct {
+	Table string           `json:"table"`
+	Rows  []map[string]any `json:"rows"`
+}
+
+// handleDXRows ingests dx-handed base rows (loop 1: conn_stats carrying a
+// pre-stamped content-hash unique_id, a hex String) and writes them to
+// forensic_db.<table> via the same sink path the controller capture uses.
+// decodeNumber (UseNumber) keeps large integer columns as json.Number so the
+// fast encoder emits exact decimal text; the shared decode() would cast them to
+// float64, and the sink's appendFloat renders large values in scientific
+// notation, which ClickHouse rejects for Int64/UInt64 columns (whole batch 502).
+func (s *Server) handleDXRows(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if s.rows == nil {
+		w.WriteHeader(http.StatusNotImplemented)
+		return
+	}
+	var req dxRowsReq
+	if !decodeNumber(w, r, &req) || !dxRowsAllowedTables[req.Table] {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if len(req.Rows) == 0 {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	if err := s.rows.WritePixieRows(r.Context(), req.Table, req.Rows); err != nil {
+		log.WithField("table", req.Table).WithField("rows", len(req.Rows)).WithError(err).Error("dx/rows: WritePixieRows failed")
 		w.WriteHeader(http.StatusBadGateway)
 		return
 	}
@@ -297,6 +364,14 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	defer r.Body.Close()
 	r.Body = http.MaxBytesReader(w, r.Body, maxControlBodyBytes)
 	return json.NewDecoder(r.Body).Decode(v) == nil
+}
+
+func decodeNumber(w http.ResponseWriter, r *http.Request, v any) bool {
+	defer r.Body.Close()
+	r.Body = http.MaxBytesReader(w, r.Body, maxControlBodyBytes)
+	dec := json.NewDecoder(r.Body)
+	dec.UseNumber()
+	return dec.Decode(v) == nil
 }
 
 // ── handlers ──────────────────────────────────────────────────────────

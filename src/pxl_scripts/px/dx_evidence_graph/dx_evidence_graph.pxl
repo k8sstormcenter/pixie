@@ -17,23 +17,18 @@
 import px
 
 
-def _consulted(start_time: str, clickhouse_dsn: str, view: str, order_id: str):
-    orders = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    orders = orders[orders.order_id == order_id]
-    orders = orders[['order_id', 'pod', 'lo', 'hi']]
-    src = px.DataFrame(view, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    j = src.merge(orders, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_ord'])
-    j = j[j.row_time >= j.lo]
-    j = j[j.row_time <= j.hi]
-    return j.drop(['row_time', 'event_time', 'lo', 'hi', 'order_id', 'pod_ord'])
+def _ord(start_time: str, clickhouse_dsn: str, view: str, order_id: str):
+    df = px.DataFrame(view, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = df[df.order_id == order_id]
+    return df.drop(['order_id', 'row_time', 'event_time'])
 
 
 def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
     df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    orders = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    orders = orders[['uniqueID', 'rule', 'order_id']]
+    orders = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = orders[['kubescape_uid', 'rule_id', 'order_id']]
     df = df.merge(orders, how='left', left_on=['uniqueID', 'rule'],
-                  right_on=['uniqueID', 'rule'], suffixes=['', '_ord'])
+                  right_on=['kubescape_uid', 'rule_id'], suffixes=['', '_ord'])
     df.order_link = px.script_reference(df.order_id, 'px/dx_evidence_graph', {
         'start_time': start_time,
         'clickhouse_dsn': clickhouse_dsn,
@@ -46,84 +41,11 @@ def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
                'target', 'target_kind', 'severity', 'alert', 'subject_pod']]
 
 
-def kubescape(start_time: str, clickhouse_dsn: str, order_id: str):
-    orders = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    orders = orders[orders.order_id == order_id]
-    orders = orders[['uniqueID', 'rule']]
-    k = px.DataFrame('dx_src__kubescape_logs', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    j = k.merge(orders, how='inner', left_on=['uniqueID', 'RuleID'],
-                right_on=['uniqueID', 'rule'], suffixes=['', '_ord'])
-    return j.drop(['row_time', 'event_time', 'uniqueID_ord', 'rule'])
-
-
-def redis(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__redis_events', order_id)
-
-
-def conn(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__conn_stats', order_id)
-
-
-def http(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__http_events', order_id)
-
-
-def dns(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__dns_events', order_id)
-
-
-def pgsql(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__pgsql_events', order_id)
-
-
-def mysql(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__mysql_events', order_id)
-
-
-def dc_snoop(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__dc_snoop', order_id)
-
-
-def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _consulted(start_time, clickhouse_dsn, 'dx_src__stack_trace', order_id)
-
-
-def stack_diff(start_time: str, clickhouse_dsn: str, order_id: str):
-    # Differential flame graph for ONE order's pod: the pod's stacks DURING the
-    # attack window [lo,hi] vs its BASELINE stacks before the attack (row_time < lo).
-    # delta = attack_count - baseline_count → the StackTraceFlameGraph widget colours
-    # frames that spiked during the attack red, quiet-baseline frames blue.
-    orders = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    orders = orders[orders.order_id == order_id]
-    orders = orders[['pod', 'lo', 'hi']]
-    st = px.DataFrame('dx_src__stack_trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    st = st.merge(orders, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_o'])
-
-    base = st[st.row_time < st.lo]
-    base = base.groupby(['pod', 'stack_trace']).agg(count=('count', px.sum))
-
-    atk = st[st.row_time >= st.lo]
-    atk = atk[atk.row_time <= atk.hi]
-    atk = atk.groupby(['pod', 'stack_trace']).agg(count=('count', px.sum))
-
-    diff = base.merge(atk, how='right', left_on=['stack_trace'], right_on=['stack_trace'],
-                      suffixes=['_base', '_atk'])
-    diff.pod = diff.pod_atk
-    diff.stack_trace = px.replace(' ', diff.stack_trace_atk, '')
-    diff.count = diff.count_atk
-    diff.delta = diff.count_atk - diff.count_base
-
-    total = atk.groupby(['pod']).agg(total=('count', px.sum))
-    merged = diff.merge(total, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_t'])
-    merged.percent = 100 * merged.count / merged.total
-    return merged[['stack_trace', 'count', 'delta', 'percent', 'pod']]
-
-
 def orders(start_time: str, clickhouse_dsn: str, graph_table: str):
-    df = px.DataFrame('dx_anomaly_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     alerts = px.DataFrame(graph_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     alerts = alerts[['uniqueID', 'rule', 'alert']]
-    df = df.merge(alerts, how='left', left_on=['uniqueID', 'rule'],
+    df = df.merge(alerts, how='left', left_on=['kubescape_uid', 'rule_id'],
                   right_on=['uniqueID', 'rule'], suffixes=['', '_k'])
     df.order = px.script_reference(df.order_id, 'px/dx_evidence_graph', {
         'start_time': start_time,
@@ -131,4 +53,46 @@ def orders(start_time: str, clickhouse_dsn: str, graph_table: str):
         'graph_table': graph_table,
         'order_id': df.order_id,
     })
-    return df[['order', 'rule', 'alert', 'pod']]
+    return df[['order', 'rule_id', 'disc', 'alert', 'pod']]
+
+
+def kubescape(start_time: str, clickhouse_dsn: str, order_id: str):
+    orders = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = orders[orders.order_id == order_id]
+    orders = orders[['kubescape_uid', 'rule_id']]
+    k = px.DataFrame('dx_src__kubescape_logs', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    j = k.merge(orders, how='inner', left_on=['uniqueID', 'RuleID'],
+                right_on=['kubescape_uid', 'rule_id'], suffixes=['', '_ord'])
+    return j.drop(['row_time', 'event_time', 'kubescape_uid', 'rule_id'])
+
+
+def conn(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__conn_stats', order_id)
+
+
+def redis(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__redis_events', order_id)
+
+
+def http(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__http_events', order_id)
+
+
+def dns(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__dns_events', order_id)
+
+
+def pgsql(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__pgsql_events', order_id)
+
+
+def mysql(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__mysql_events', order_id)
+
+
+def dc_snoop(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__dc_snoop', order_id)
+
+
+def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__stack_trace', order_id)

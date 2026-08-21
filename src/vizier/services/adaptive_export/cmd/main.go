@@ -201,6 +201,21 @@ const (
 	envReconcile = "ADAPTIVE_RECONCILE"
 )
 
+// bridgedPushSkip lists the tables dx hands directly via POST /dx/rows (pre-stamped
+// unique_id + a dx_ord__ view). They must be excluded from the ADAPTIVE_PUSH_PIXIE_ROWS
+// push path or the un-stamped push write collapses the dx-handed rows in
+// ReplacingMergeTree. Mirrors the /dx/rows allowlist and dx evidencegraph.UIDColsByTable.
+var bridgedPushSkip = map[string]bool{
+	"conn_stats":   true,
+	"redis_events": true,
+	"http_events":  true,
+	"dns_events":   true,
+	"pgsql_events": true,
+	"mysql_events": true,
+	"dc_snoop":     true,
+	"stack_trace":  true,
+}
+
 func main() {
 	// Wire AE into the shared pixie service scaffold:
 	//   - SetupService registers --version + ports.
@@ -486,6 +501,15 @@ func main() {
 				log.WithField("table", t).Info("skipping dotted-name table from push list — PxL DataFrame rejects it")
 				continue
 			}
+			// Bridged tables are dx-handed only (POST /dx/rows with a pre-stamped
+			// unique_id). A push-path write here would land rows WITHOUT unique_id,
+			// which ReplacingMergeTree collapses against the dx-handed rows
+			// (unique_id is not in the ORDER BY) — destroying the order↔row join.
+			// Skip them (mirrors dx evidencegraph.UIDColsByTable / the /dx/rows allowlist).
+			if bridgedPushSkip[t] {
+				log.WithField("table", t).Info("skipping bridged table from push list — dx-handed via /dx/rows")
+				continue
+			}
 			tables = append(tables, t)
 		}
 		ctlCfg.PushPixieTables = tables
@@ -758,6 +782,7 @@ func main() {
 			ctrlSrv := control.New(activeSet, ctl)
 			ctrlSrv.SetGraphWriter(applier)    // dx_evidence_graph ingest → ClickHouse
 			ctrlSrv.SetManifestWriter(applier) // dx_evidence_manifest ingest → ClickHouse
+			ctrlSrv.SetRowsWriter(snk)         // /dx/rows (loop-1 dx-handed base rows) → ClickHouse
 			// Bearer-JWT auth default-ON whenever a signing key is present. Same
 			// shared lib + signing key the broker/PEM use — dx attaches the service
 			// JWT it already mints. No key is only reachable with CONTROL_INSECURE.

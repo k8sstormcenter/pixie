@@ -92,6 +92,9 @@ var KnownTables = []string{
 	// per primary kubescape log, stamped with its order_id. dx INSERTs. NOT a pixie
 	// table.
 	"dx_order_records",
+	// NEW identity-model tables (added alongside dx_order_seeds/records). NOT pixie tables.
+	"dx_orders",
+	"dx_order_edges",
 	// order-UUID pre-correlation views (#136) read by the px/dx_evidence_graph
 	// dashboard. VIEWS, created after their base tables (kubescape_logs ensured
 	// first). NOT pixie tables. Order matches schema.sql (appended at the end).
@@ -106,6 +109,15 @@ var KnownTables = []string{
 	"dx_src__mysql_events",
 	"dx_src__dc_snoop",
 	"dx_src__stack_trace",
+	// NEW identity-model join view.
+	"dx_ord__conn_stats",
+	"dx_ord__redis_events",
+	"dx_ord__http_events",
+	"dx_ord__dns_events",
+	"dx_ord__pgsql_events",
+	"dx_ord__mysql_events",
+	"dx_ord__dc_snoop",
+	"dx_ord__stack_trace",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

@@ -116,6 +116,11 @@ var OperatorOwnedTables = []string{
 	"dx_ord__mysql_events",
 	"dx_ord__dc_snoop",
 	"dx_ord__stack_trace",
+	// MITRE ATT&CK enrichment (over kubescape_logs) + per-order window (over
+	// dx_orders) — VIEWS, created after their base tables. px/dx_evidence_graph reads them.
+	"dx_kubescape_mitre",
+	"dx_src__kubescape_mitre",
+	"dx_orders_win",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the

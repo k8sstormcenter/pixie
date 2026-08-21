@@ -1022,3 +1022,56 @@ SELECT
 FROM forensic_db.dx_order_edges AS e
 INNER JOIN forensic_db.stack_trace AS c ON c.unique_id = e.unique_id
 WHERE e.src_table = 'stack_trace';
+
+-- ── MITRE ATT&CK enrichment over kubescape_logs (px/dx_evidence_graph) ────────
+-- dx_kubescape_mitre: L1 graph source — one row per anomaly (LIMIT 1 BY uniqueID),
+-- MITRE tactic/technique + resolved target/target_kind from BaseRuntimeMetadata.
+CREATE VIEW IF NOT EXISTS forensic_db.dx_kubescape_mitre AS
+SELECT JSONExtractString(BaseRuntimeMetadata, 'uniqueID') AS uniqueID,
+       concat(JSONExtractString(RuntimeK8sDetails, 'podNamespace'), '/', JSONExtractString(RuntimeK8sDetails, 'podName')) AS subject_pod,
+       RuleID AS rule,
+       JSONExtractString(BaseRuntimeMetadata, 'mitreTactic') AS mitre_tactic,
+       JSONExtractString(BaseRuntimeMetadata, 'mitreTechnique') AS mitre_technique,
+       concat(RuleID, ' · ', JSONExtractString(BaseRuntimeMetadata, 'mitreTechnique')) AS rule_mitre,
+       JSONExtractString(JSONExtractRaw(JSONExtractRaw(BaseRuntimeMetadata, 'identifiers'), 'process'), 'name') AS process,
+       multiIf(JSONExtractString(JSONExtractRaw(JSONExtractRaw(BaseRuntimeMetadata, 'identifiers'), 'dns'), 'domain') != '',
+JSONExtractString(JSONExtractRaw(JSONExtractRaw(BaseRuntimeMetadata, 'identifiers'), 'dns'), 'domain'),
+JSONExtractString(JSONExtractRaw(JSONExtractRaw(BaseRuntimeMetadata, 'identifiers'), 'network'), 'dstIP') != '',
+JSONExtractString(JSONExtractRaw(JSONExtractRaw(BaseRuntimeMetadata, 'identifiers'), 'network'), 'dstIP'), JSONExtractString(JSONExtractRaw(BaseRuntimeMetadata,
+'arguments'), 'path') != '', JSONExtractString(JSONExtractRaw(BaseRuntimeMetadata, 'arguments'), 'path'),
+JSONExtractString(JSONExtractRaw(JSONExtractRaw(BaseRuntimeMetadata, 'identifiers'), 'file'), 'name') != '',
+concat(JSONExtractString(JSONExtractRaw(JSONExtractRaw(BaseRuntimeMetadata, 'identifiers'), 'file'), 'directory'), '/',
+JSONExtractString(JSONExtractRaw(JSONExtractRaw(BaseRuntimeMetadata, 'identifiers'), 'file'), 'name')), 'unknown') AS target,
+       multiIf(JSONExtractString(JSONExtractRaw(JSONExtractRaw(BaseRuntimeMetadata, 'identifiers'), 'dns'), 'domain') != '', 'domain',
+JSONExtractString(JSONExtractRaw(JSONExtractRaw(BaseRuntimeMetadata, 'identifiers'), 'network'), 'dstIP') != '', 'endpoint',
+(JSONExtractString(JSONExtractRaw(BaseRuntimeMetadata, 'arguments'), 'path') != '') OR (JSONExtractString(JSONExtractRaw(JSONExtractRaw(BaseRuntimeMetadata,
+'identifiers'), 'file'), 'name') != ''), 'file', 'other') AS target_kind,
+       toInt8OrZero(JSONExtractString(BaseRuntimeMetadata, 'severity')) AS severity,
+       message AS alert, hostname, event_time
+FROM forensic_db.kubescape_logs
+WHERE RuleID != '' AND JSONExtractString(BaseRuntimeMetadata, 'uniqueID') != ''
+LIMIT 1 BY uniqueID;
+
+-- dx_src__kubescape_mitre: kubescape detail panel — MITRE cols after RuleID, plus
+-- process tree (comm/pcomm/cmdline). ts/row_time/event_time px-connector convention.
+CREATE VIEW IF NOT EXISTS forensic_db.dx_src__kubescape_mitre AS
+SELECT toString(fromUnixTimestamp64Nano(toInt64(event_time))) AS ts, toInt64(event_time) AS row_time, event_time,
+       RuleID,
+       JSONExtractString(BaseRuntimeMetadata, 'mitreTactic') AS mitre_tactic,
+       JSONExtractString(BaseRuntimeMetadata, 'mitreTechnique') AS mitre_technique,
+       JSONExtractString(BaseRuntimeMetadata, 'uniqueID') AS uniqueID,
+       JSONExtractString(JSONExtractRaw(RuntimeProcessDetails, 'processTree'), 'comm') AS comm,
+       JSONExtractString(JSONExtractRaw(RuntimeProcessDetails, 'processTree'), 'pcomm') AS parent,
+       JSONExtractString(JSONExtractRaw(RuntimeProcessDetails, 'processTree'), 'cmdline') AS cmdline,
+       message AS alert,
+       concat(JSONExtractString(RuntimeK8sDetails, 'podNamespace'), '/', JSONExtractString(RuntimeK8sDetails, 'podName')) AS pod, hostname
+FROM forensic_db.kubescape_logs WHERE RuleID != '';
+
+-- dx_orders_win: per-order ±300s baseline/attack window for the differential
+-- flamegraph (stack_diff). hostname carried so the px node-shard resolves.
+CREATE VIEW IF NOT EXISTS forensic_db.dx_orders_win AS
+SELECT order_id, pod,
+       toInt64(event_time) - 300000000000 AS lo,
+       toInt64(event_time) + 300000000000 AS hi,
+       event_time, hostname
+FROM forensic_db.dx_orders;

@@ -118,6 +118,10 @@ var KnownTables = []string{
 	"dx_ord__mysql_events",
 	"dx_ord__dc_snoop",
 	"dx_ord__stack_trace",
+	// MITRE ATT&CK enrichment + per-order window views (px/dx_evidence_graph).
+	"dx_kubescape_mitre",
+	"dx_src__kubescape_mitre",
+	"dx_orders_win",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

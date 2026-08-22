@@ -69,10 +69,8 @@ Status ClickHouseSourceIR::ToProto(planpb::Operator* op) const {
     pb->set_end_time(time_stop_ns());
   }
 
-  // Large batch: forensic views fan out to millions of rows; 1024 forced ~2600
-  // paginated round-trips. Keyset pagination (clickhouse_source_node) keeps each
-  // page cheap, so a big batch collapses the common case to a single query.
-  pb->set_batch_size(131072);
+  // Set batch size
+  pb->set_batch_size(1024);
 
   // Set timestamp and partition columns from stored values
   pb->set_timestamp_column(timestamp_column_);

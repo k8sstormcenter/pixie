@@ -66,25 +66,6 @@ Status ClickHouseSourceNode::InitImpl(const plan::Operator& plan_node) {
   timestamp_column_ = plan_node_->timestamp_column();
   partition_column_ = plan_node_->partition_column();
 
-  // Keyset pagination requires the result ordered by the cursor column. The
-  // connector supplies ORDER BY <timestamp_column> only when the query has none;
-  // a query with its own ORDER BY (on some other column) must use OFFSET. The
-  // cursor column must also be in the projection to be read back, so inject it
-  // when the query omits it (stripped again before the batch is emitted).
-  std::string lowered_base = base_query_;
-  std::transform(lowered_base.begin(), lowered_base.end(), lowered_base.begin(), ::tolower);
-  bool base_has_order_by = lowered_base.find(" order by ") != std::string::npos;
-  use_offset_ = timestamp_column_.empty() || base_has_order_by;
-  if (!use_offset_) {
-    inject_cursor_column_ = true;
-    for (const auto& name : plan_node_->column_names()) {
-      if (name == timestamp_column_) {
-        inject_cursor_column_ = false;
-        break;
-      }
-    }
-  }
-
   // Convert start/end times from nanoseconds to seconds for ClickHouse DateTime
   if (plan_node_->start_time() > 0) {
     start_time_ = plan_node_->start_time() / 1000000000LL;  // Convert ns to seconds
@@ -170,8 +151,18 @@ StatusOr<types::DataType> ClickHouseSourceNode::ClickHouseTypeToPixieType(
 StatusOr<std::unique_ptr<RowBatch>> ClickHouseSourceNode::ConvertClickHouseBlockToRowBatch(
     const clickhouse::Block& block, bool /*is_last_block*/) {
   auto num_rows = block.GetRowCount();
-  // Ignore any trailing keyset cursor column injected past the output projection.
-  auto num_cols = std::min(block.GetColumnCount(), output_descriptor_->size());
+  auto num_cols = block.GetColumnCount();
+
+  // Create output row descriptor if this is the first block
+  if (current_block_index_ == 0) {
+    std::vector<types::DataType> col_types;
+    for (size_t i = 0; i < num_cols; ++i) {
+      PX_ASSIGN_OR_RETURN(auto pixie_type, ClickHouseTypeToPixieType(block[i]->Type()));
+      col_types.push_back(pixie_type);
+    }
+    // Note: In a real implementation, we would get column names from the plan
+    // or from ClickHouse metadata
+  }
 
   auto row_batch = std::make_unique<RowBatch>(*output_descriptor_, num_rows);
 
@@ -424,17 +415,6 @@ std::string ClickHouseSourceNode::BuildQuery() {
   std::string query = base_query_;
   std::vector<std::string> conditions;
 
-  // Append the cursor column to the projection (as a trailing column, stripped
-  // before output) so keyset pagination can read it back from returned rows.
-  if (!use_offset_ && inject_cursor_column_ && !timestamp_column_.empty()) {
-    std::string lowered = query;
-    std::transform(lowered.begin(), lowered.end(), lowered.begin(), ::tolower);
-    size_t from_pos = lowered.find(" from ");
-    if (from_pos != std::string::npos) {
-      query.insert(from_pos, absl::Substitute(", $0", timestamp_column_));
-    }
-  }
-
   // Add time filtering if start/end times are specified and timestamp column is set
   if (!timestamp_column_.empty()) {
     if (start_time_.has_value()) {
@@ -451,13 +431,6 @@ std::string ClickHouseSourceNode::BuildQuery() {
     char hostname[256];
     gethostname(hostname, sizeof(hostname));
     conditions.push_back(absl::Substitute("$0 = '$1'", partition_column_, hostname));
-  }
-
-  // Keyset cursor: seek past already-emitted rows via the ORDER BY column instead
-  // of OFFSET. '>' only in the degenerate single-timestamp-group case.
-  if (has_cursor_ && !use_offset_ && !timestamp_column_.empty()) {
-    conditions.push_back(absl::Substitute("$0 $1 $2", timestamp_column_,
-                                          cursor_strict_ ? ">" : ">=", cursor_value_));
   }
 
   // Parse the base query to find WHERE and ORDER BY positions
@@ -516,61 +489,10 @@ std::string ClickHouseSourceNode::BuildQuery() {
     }
   }
 
-  // Keyset pagination uses LIMIT alone (cursor is in WHERE); OFFSET only as the
-  // fallback for tables without an integer timestamp column. The keyset path peeks
-  // one row past the batch to tell whether the last timestamp group is complete.
-  if (use_offset_) {
-    query += absl::Substitute(" LIMIT $0 OFFSET $1", batch_size_, current_offset_);
-  } else {
-    query += absl::Substitute(" LIMIT $0", batch_size_ + 1);
-  }
+  // Add LIMIT and OFFSET for pagination
+  query += absl::Substitute(" LIMIT $0 OFFSET $1", batch_size_, current_offset_);
 
   return query;
-}
-
-int64_t ClickHouseSourceNode::TimestampValueAtGlobal(size_t global_row) {
-  size_t seen = 0;
-  for (const auto& block : current_batch_blocks_) {
-    size_t n = block.GetRowCount();
-    if (global_row < seen + n) {
-      int c = TimestampColumnIndex(block);
-      if (c < 0) return INT64_MIN;
-      return TimestampValueAt(block, c, global_row - seen);
-    }
-    seen += n;
-  }
-  return INT64_MIN;
-}
-
-int ClickHouseSourceNode::TimestampColumnIndex(const clickhouse::Block& block) {
-  for (size_t i = 0; i < block.GetColumnCount(); ++i) {
-    if (block.GetColumnName(i) == timestamp_column_) {
-      return static_cast<int>(i);
-    }
-  }
-  return -1;
-}
-
-int64_t ClickHouseSourceNode::TimestampValueAt(const clickhouse::Block& block, int col_idx,
-                                               size_t row) {
-  const auto& col = block[static_cast<size_t>(col_idx)];
-  const auto& type_name = col->Type()->GetName();
-  if (type_name == "UInt64") {
-    return static_cast<int64_t>(col->As<clickhouse::ColumnUInt64>()->At(row));
-  }
-  if (type_name == "Int64") {
-    return col->As<clickhouse::ColumnInt64>()->At(row);
-  }
-  if (type_name == "UInt32") {
-    return static_cast<int64_t>(col->As<clickhouse::ColumnUInt32>()->At(row));
-  }
-  if (type_name == "Int32") {
-    return static_cast<int64_t>(col->As<clickhouse::ColumnInt32>()->At(row));
-  }
-  if (type_name == "DateTime") {
-    return static_cast<int64_t>(col->As<clickhouse::ColumnDateTime>()->At(row));
-  }
-  return INT64_MIN;  // unsupported type -> caller falls back to OFFSET
 }
 
 Status ClickHouseSourceNode::ExecuteBatchQuery() {
@@ -598,50 +520,11 @@ Status ClickHouseSourceNode::ExecuteBatchQuery() {
 
     VLOG(1) << "Total rows received: " << rows_received << ", batch size: " << batch_size_;
 
-    // Advance pagination. The keyset path over-fetches by one (LIMIT batch+1): a
-    // short read (<= batch_size) means the table is exhausted; batch_size+1 rows
-    // means more remain and the extra row is only a peek, never emitted.
-    batch_emit_limit_ = std::numeric_limits<size_t>::max();
-    if (use_offset_ || timestamp_column_.empty() || current_batch_blocks_.empty() ||
-        TimestampColumnIndex(current_batch_blocks_.back()) < 0) {
-      // OFFSET fallback: no over-fetch, so short read is < batch_size.
-      use_offset_ = true;
-      current_offset_ += rows_received;
-      if (rows_received < batch_size_) has_more_data_ = false;
-    } else if (rows_received <= batch_size_) {
-      // Keyset last page: fewer than the peek row returned => exhausted.
+    // Update cursor state
+    current_offset_ += rows_received;
+    if (rows_received < batch_size_) {
+      // We got fewer rows than requested, so no more data available
       has_more_data_ = false;
-    } else {
-      // Keyset, more data. boundary = last emittable row's timestamp; peek = the
-      // over-fetched row. If peek advanced past boundary the group is complete —
-      // emit the full batch and seek strictly past it. Otherwise the group
-      // straddles the boundary — defer the whole trailing ==boundary group.
-      int64_t boundary = TimestampValueAtGlobal(batch_size_ - 1);
-      int64_t peek = TimestampValueAtGlobal(batch_size_);
-      has_cursor_ = true;
-      cursor_value_ = boundary;
-      if (boundary == INT64_MIN || peek == INT64_MIN) {
-        use_offset_ = true;
-        has_cursor_ = false;
-        current_offset_ += rows_received;
-      } else if (peek > boundary) {
-        cursor_strict_ = true;
-        batch_emit_limit_ = batch_size_;  // drop the peek row
-      } else {
-        // Straddle: find first row whose timestamp == boundary; emit rows below it.
-        size_t cut = batch_size_;
-        while (cut > 0 && TimestampValueAtGlobal(cut - 1) == boundary) --cut;
-        if (cut == 0) {
-          // A single timestamp group larger than the batch (never for forensic
-          // data, max group << batch); emit the batch and step strictly to avoid a
-          // loop, at the cost of that group's overflow rows.
-          cursor_strict_ = true;
-          batch_emit_limit_ = batch_size_;
-        } else {
-          cursor_strict_ = false;
-          batch_emit_limit_ = cut;
-        }
-      }
     }
   } catch (const std::exception& e) {
     return error::Internal("Failed to execute ClickHouse batch query: $0", e.what());
@@ -682,11 +565,8 @@ Status ClickHouseSourceNode::GenerateNextImpl(ExecState* exec_state) {
     total_rows += block.GetRowCount();
   }
 
-  // Keyset pagination may defer a trailing equal-timestamp group to the next page.
-  size_t emit_rows = std::min(total_rows, batch_emit_limit_);
-
   // Create a merged RowBatch
-  auto merged_batch = std::make_unique<RowBatch>(*output_descriptor_, emit_rows);
+  auto merged_batch = std::make_unique<RowBatch>(*output_descriptor_, total_rows);
 
   // Process each column
   for (size_t col_idx = 0; col_idx < output_descriptor_->size(); ++col_idx) {
@@ -719,21 +599,13 @@ Status ClickHouseSourceNode::GenerateNextImpl(ExecState* exec_state) {
         return error::InvalidArgument("Unsupported data type for column $0", col_idx);
     }
 
-    // Reserve space for the rows we will emit
-    PX_RETURN_IF_ERROR(builder->Reserve(emit_rows));
+    // Reserve space for all rows
+    PX_RETURN_IF_ERROR(builder->Reserve(total_rows));
 
-    // Append data from all blocks (capped at emit_rows for keyset trimming)
-    size_t emitted_in_col = 0;
+    // Append data from all blocks
     for (const auto& block : current_batch_blocks_) {
-      if (emitted_in_col >= emit_rows) break;
       PX_ASSIGN_OR_RETURN(auto row_batch, ConvertClickHouseBlockToRowBatch(block, false));
       auto array = row_batch->ColumnAt(col_idx);
-
-      size_t take = std::min(static_cast<size_t>(array->length()), emit_rows - emitted_in_col);
-      if (take < static_cast<size_t>(array->length())) {
-        array = array->Slice(0, static_cast<int64_t>(take));
-      }
-      emitted_in_col += take;
 
       // Append values from this block's array
       switch (data_type) {

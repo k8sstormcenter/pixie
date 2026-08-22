@@ -20,6 +20,8 @@
 
 #include <clickhouse/client.h>
 
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -69,6 +71,13 @@ class ClickHouseSourceNode : public SourceNode {
   // Build the query with time filtering and pagination
   std::string BuildQuery();
 
+  // Index of timestamp_column_ within a block (-1 if absent).
+  int TimestampColumnIndex(const clickhouse::Block& block);
+  // Value of an integer timestamp column at a row (INT64_MIN if unsupported type).
+  int64_t TimestampValueAt(const clickhouse::Block& block, int col_idx, size_t row);
+  // Timestamp value at a batch-global row index across current_batch_blocks_.
+  int64_t TimestampValueAtGlobal(size_t global_row);
+
   // Connection information
   std::string host_;
   int port_;
@@ -77,10 +86,22 @@ class ClickHouseSourceNode : public SourceNode {
   std::string database_;
   std::string base_query_;
 
-  // Batch size and cursor tracking
+  // Batch size and pagination tracking
   size_t batch_size_ = 1024;
-  size_t current_offset_ = 0;
+  size_t current_offset_ = 0;  // OFFSET fallback when no usable timestamp cursor
   bool has_more_data_ = true;
+
+  // Keyset pagination on timestamp_column_ (uint64 ns). OFFSET is O(N) per page,
+  // making million-row views unusable; keyset seeks via ORDER BY instead. A whole
+  // equal-timestamp group is deferred as a unit (batch_emit_limit_ trims the
+  // trailing group), so intra-group order — unstable across queries — never
+  // splits a group. use_offset_ is set when no integer timestamp column exists.
+  bool use_offset_ = false;
+  bool inject_cursor_column_ = false;  // cursor column appended to SELECT, stripped on output
+  bool has_cursor_ = false;
+  bool cursor_strict_ = false;
+  int64_t cursor_value_ = 0;
+  size_t batch_emit_limit_ = std::numeric_limits<size_t>::max();
 
   // Time filtering
   std::optional<int64_t> start_time_;

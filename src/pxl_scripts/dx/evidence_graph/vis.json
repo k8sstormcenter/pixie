@@ -16,7 +16,6 @@
     {"outputName": "g_pgsql", "func": {"name": "pgsql", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
     {"outputName": "g_mysql", "func": {"name": "mysql", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
     {"outputName": "g_dcsnoop", "func": {"name": "dc_snoop", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
-    {"outputName": "g_stack", "func": {"name": "stack_trace", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}},
     {"outputName": "g_stackdiff", "func": {"name": "stack_diff", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}, {"name": "order_id", "variable": "order_id"}]}}
   ],
   "widgets": [
@@ -29,8 +28,7 @@
     {"name": "dns_events", "position": {"x": 6, "y": 15, "w": 6, "h": 4}, "globalFuncOutputName": "g_dns", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
     {"name": "pgsql_events", "position": {"x": 0, "y": 19, "w": 6, "h": 4}, "globalFuncOutputName": "g_pgsql", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
     {"name": "mysql_events", "position": {"x": 6, "y": 19, "w": 6, "h": 4}, "globalFuncOutputName": "g_mysql", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
-    {"name": "dc_snoop (file access)", "position": {"x": 0, "y": 23, "w": 6, "h": 4}, "globalFuncOutputName": "g_dcsnoop", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
-    {"name": "stack_trace (profiler)", "position": {"x": 6, "y": 23, "w": 6, "h": 4}, "globalFuncOutputName": "g_stack", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
-    {"name": "Differential stack trace (attack window vs baseline; red = spiked during attack)", "position": {"x": 0, "y": 27, "w": 12, "h": 7}, "globalFuncOutputName": "g_stackdiff", "displaySpec": {"@type": "types.px.dev/px.vispb.StackTraceFlameGraph", "stacktraceColumn": "stack_trace", "countColumn": "count", "percentageColumn": "percent", "podColumn": "pod", "differenceColumn": "delta"}}
+    {"name": "dc_snoop (file access)", "position": {"x": 0, "y": 23, "w": 12, "h": 4}, "globalFuncOutputName": "g_dcsnoop", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
+    {"name": "Differential stack trace (attack window vs baseline; red = spiked during attack)", "position": {"x": 0, "y": 27, "w": 12, "h": 4}, "globalFuncOutputName": "g_stackdiff", "displaySpec": {"@type": "types.px.dev/px.vispb.StackTraceFlameGraph", "stacktraceColumn": "stack_trace", "countColumn": "count", "percentageColumn": "percent", "podColumn": "pod", "differenceColumn": "delta"}}
   ]
 }

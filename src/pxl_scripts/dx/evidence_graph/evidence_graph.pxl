@@ -103,20 +103,6 @@ def dc_snoop(start_time: str, clickhouse_dsn: str, order_id: str):
     return _ord(start_time, clickhouse_dsn, 'dx_ord__dc_snoop', order_id)
 
 
-def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):
-    # Native Pixie profiler (stack_traces.beta) is always populated, unlike the
-    # ClickHouse forensic_db.stack_trace which is only filled if the retention export
-    # runs. Scope to the order's pod (looked up from dx_orders).
-    w = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    w = w[w.order_id == order_id]
-    w = w[['pod']]
-    st = px.DataFrame(table='stack_traces.beta', start_time=start_time)
-    st.pod = st.ctx['pod']
-    st = st.merge(w, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_w'])
-    st = st.groupby(['pod', 'stack_trace']).agg(count=('count', px.sum))
-    return st[['pod', 'stack_trace', 'count']]
-
-
 def stack_diff(start_time: str, clickhouse_dsn: str, order_id: str):
     # Differential flame graph for ONE order's pod: stacks DURING the attack window
     # [lo,hi] vs BASELINE stacks before the attack. Reads the native profiler

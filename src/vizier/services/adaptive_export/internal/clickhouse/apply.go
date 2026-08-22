@@ -121,6 +121,8 @@ var OperatorOwnedTables = []string{
 	"dx_kubescape_mitre",
 	"dx_src__kubescape_mitre",
 	"dx_orders_win",
+	// dc_snoop passthrough so PxL infers unique_id — created last, after dc_snoop.
+	"dx_base__dc_snoop",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the

@@ -122,6 +122,8 @@ var KnownTables = []string{
 	"dx_kubescape_mitre",
 	"dx_src__kubescape_mitre",
 	"dx_orders_win",
+	// dc_snoop passthrough (PxL unique_id inference).
+	"dx_base__dc_snoop",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

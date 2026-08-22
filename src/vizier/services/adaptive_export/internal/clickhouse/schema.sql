@@ -667,6 +667,7 @@ SELECT
     c.pod AS pod,
     c.remote_addr AS remote_addr,
     c.remote_port AS remote_port,
+    c.trace_role AS trace_role,
     c.protocol AS protocol,
     c.conn_open AS conn_open,
     c.conn_close AS conn_close,
@@ -858,7 +859,7 @@ FROM forensic_db.redis_events;
 
 CREATE VIEW IF NOT EXISTS forensic_db.dx_src__conn_stats AS
 SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
-       namespace, pod, remote_addr, remote_port, protocol, conn_open, conn_close, conn_active, bytes_sent, bytes_recv, hostname
+       namespace, pod, remote_addr, remote_port, trace_role, protocol, conn_open, conn_close, conn_active, bytes_sent, bytes_recv, hostname
 FROM forensic_db.conn_stats;
 
 CREATE VIEW IF NOT EXISTS forensic_db.dx_src__http_events AS

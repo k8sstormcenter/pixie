@@ -23,7 +23,7 @@ spec:
         # (WITHOUT -tiny — -tiny's pclntab stripping SIGSEGV'd under load). Passes the
         # obfuscation gate AND survives the kill-chain (restarts=0, 4 rounds). Carries the
         # evidence-manifest + DX_FOREST_PUSHDOWN code.
-        image: docker.io/entlein/dx-daemon:0.5.0-keepset-rc5
+        image: docker.io/entlein/dx-daemon:0.5.0-keepset-rc6
         ports:
         - { name: findings, containerPort: 9099, hostPort: 9099 }
         env:

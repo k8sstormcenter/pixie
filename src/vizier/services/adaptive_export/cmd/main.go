@@ -279,6 +279,7 @@ func main() {
 		log.WithError(err).Fatal("failed to resolve node identity — set NODE_NAME via k8s downward API (spec.nodeName)")
 	}
 	log.WithField("hostname", hostname).Info("operator pod is node-local")
+	pxl.NodeHostname = hostname // stamp node onto pid-keyed dark tables (dc_snoop et al.)
 
 	// The AE runs as a DaemonSet (one pod per node), but the retention plugin, its
 	// cron scripts, and the bpftrace tracepoints are CLUSTER-scoped. If every pod

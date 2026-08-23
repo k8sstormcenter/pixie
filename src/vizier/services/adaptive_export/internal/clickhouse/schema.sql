@@ -537,11 +537,6 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_evidence_graph (
   TTL toDateTime(fromUnixTimestamp64Nano(event_time)) + INTERVAL 30 DAY DELETE
   SETTINGS index_granularity = 8192;
 
--- dx_evidence_graph_malignant — rule-ins-only view (condition != '') the
--- dx_evidence_graph UI reads by default so benign rows stay in ClickHouse.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_evidence_graph_malignant AS
-  SELECT * FROM forensic_db.dx_evidence_graph WHERE `condition` != '';
-
 -- dx_evidence_manifest — the §9 completeness contract: one row per verdict
 -- (ruled_in | metastasis), naming the evidence rows dx consulted so the
 -- validator can join them against what AE persisted (write⊇read, checkable).
@@ -851,42 +846,7 @@ SELECT toString(fromUnixTimestamp64Nano(toInt64(event_time))) AS ts, toInt64(eve
        concat(JSONExtractString(RuntimeK8sDetails, 'podNamespace'), '/', JSONExtractString(RuntimeK8sDetails, 'podName')) AS pod, hostname
 FROM forensic_db.kubescape_logs WHERE RuleID != '';
 
--- dx_src__<protocol>: original protocol schema + ts/row_time/event_time, encrypted/ssl dropped.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_src__redis_events AS
-SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
-       namespace, pod, remote_addr, remote_port, trace_role, req_cmd, req_args, resp, latency, hostname
-FROM forensic_db.redis_events;
-
-CREATE VIEW IF NOT EXISTS forensic_db.dx_src__conn_stats AS
-SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
-       namespace, pod, remote_addr, remote_port, trace_role, protocol, conn_open, conn_close, conn_active, bytes_sent, bytes_recv, hostname
-FROM forensic_db.conn_stats;
-
-CREATE VIEW IF NOT EXISTS forensic_db.dx_src__http_events AS
-SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
-       namespace, pod, remote_addr, remote_port, req_method, req_path, req_body, resp_status, resp_body, latency, hostname
-FROM forensic_db.http_events;
-
-CREATE VIEW IF NOT EXISTS forensic_db.dx_src__dns_events AS
-SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
-       namespace, pod, remote_addr, remote_port, req_body, resp_body, latency, hostname
-FROM forensic_db.dns_events;
-
-CREATE VIEW IF NOT EXISTS forensic_db.dx_src__pgsql_events AS
-SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
-       namespace, pod, remote_addr, remote_port, req, resp, latency, hostname
-FROM forensic_db.pgsql_events;
-
-CREATE VIEW IF NOT EXISTS forensic_db.dx_src__mysql_events AS
-SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
-       namespace, pod, remote_addr, remote_port, req_cmd, req_body, resp_status, resp_body, latency, hostname
-FROM forensic_db.mysql_events;
-
-CREATE VIEW IF NOT EXISTS forensic_db.dx_src__dc_snoop AS
-SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
-       pid, comm, t, file, namespace, pod, container, hostname
-FROM forensic_db.dc_snoop;
-
+-- dx_src__stack_trace: original schema + ts/row_time/event_time.
 CREATE VIEW IF NOT EXISTS forensic_db.dx_src__stack_trace AS
 SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
        namespace, pod, container, stack_trace_id, stack_trace, count, hostname
@@ -1079,7 +1039,25 @@ SELECT order_id, pod,
        event_time, hostname
 FROM forensic_db.dx_orders;
 
--- dx_base__dc_snoop: passthrough so PxL infers unique_id (the registered dc_snoop
--- relation omits it), enabling the dc_snoop panel's fast base+edges bridge join.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_base__dc_snoop AS
-SELECT * FROM forensic_db.dc_snoop;
+-- dx_dns_resolve: DNS resolution edges exploded from dns_events resp_body
+-- (querier->resolver, then the answer tree name->CNAME / name->A). Read by the
+-- dx/dns_resolve UI, time-windowed via dx_orders_win. Column named event_time
+-- (int64 ns) because the px ClickHouse connector defaults its cursor there.
+CREATE VIEW IF NOT EXISTS forensic_db.dx_dns_resolve AS
+SELECT toInt64(toUnixTimestamp64Nano(event_time)) AS event_time, hostname,
+       if(pod != '', pod, if(local_addr != '', concat('client:', local_addr), 'client')) AS from_node,
+       concat(remote_addr, ':', toString(remote_port)) AS to_node,
+       JSONExtractString(JSONExtractArrayRaw(req_body, 'queries')[1], 'name') AS edge_label,
+       'query' AS kind
+FROM forensic_db.dns_events
+WHERE resp_body != '' AND resp_body != '{}'
+UNION ALL
+SELECT toInt64(toUnixTimestamp64Nano(event_time)) AS event_time, hostname,
+       JSONExtractString(ans, 'name') AS from_node,
+       concat(JSONExtractString(ans, 'cname'), JSONExtractString(ans, 'addr')) AS to_node,
+       JSONExtractString(ans, 'type') AS edge_label,
+       lower(JSONExtractString(ans, 'type')) AS kind
+FROM forensic_db.dns_events
+ARRAY JOIN JSONExtractArrayRaw(resp_body, 'answers') AS ans
+WHERE resp_body != '' AND JSONExtractString(ans, 'type') != ''
+  AND concat(JSONExtractString(ans, 'cname'), JSONExtractString(ans, 'addr')) NOT IN ('', '-');

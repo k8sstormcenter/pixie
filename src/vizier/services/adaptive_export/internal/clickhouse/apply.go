@@ -78,8 +78,6 @@ var OperatorOwnedTables = []string{
 	// globally-registered table to read. dx emits edges, AE persists.
 	// Not a pixie socket_tracer table → not in PixieTables().
 	"dx_evidence_graph",
-	// rule-ins-only VIEW over dx_evidence_graph; created AFTER it (depends on it).
-	"dx_evidence_graph_malignant",
 	// dx §9 completeness manifest — one row per verdict naming the evidence rows
 	// dx consulted. Created on boot so POST /dx/evidence_manifest has a target.
 	// Independent of dx_evidence_graph. Not a pixie table → not in PixieTables().
@@ -99,13 +97,6 @@ var OperatorOwnedTables = []string{
 	"dx_anomaly_orders",
 	"dx_kubescape_anomalies",
 	"dx_src__kubescape_logs",
-	"dx_src__redis_events",
-	"dx_src__conn_stats",
-	"dx_src__http_events",
-	"dx_src__dns_events",
-	"dx_src__pgsql_events",
-	"dx_src__mysql_events",
-	"dx_src__dc_snoop",
 	"dx_src__stack_trace",
 	// NEW identity-model join views (after their base table + dx_order_edges exist).
 	"dx_ord__conn_stats",
@@ -121,8 +112,8 @@ var OperatorOwnedTables = []string{
 	"dx_kubescape_mitre",
 	"dx_src__kubescape_mitre",
 	"dx_orders_win",
-	// dc_snoop passthrough so PxL infers unique_id — created last, after dc_snoop.
-	"dx_base__dc_snoop",
+	// DNS resolution reconstruction view (dx/dns_resolve UI) — over dns_events.
+	"dx_dns_resolve",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the

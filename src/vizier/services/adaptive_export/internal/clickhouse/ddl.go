@@ -76,10 +76,6 @@ var KnownTables = []string{
 	// operator-owned dx evidence-graph edge list (read by the Pixie
 	// dx_evidence_graph UI via clickhouse_dsn). NOT a pixie table.
 	"dx_evidence_graph",
-	// rule-ins-only VIEW over dx_evidence_graph (condition != ''); the
-	// dx_evidence_graph UI reads this by default so benign rows are filtered
-	// in ClickHouse, not pulled. Must follow dx_evidence_graph (depends on it).
-	"dx_evidence_graph_malignant",
 	// operator-owned dx §9 completeness manifest — one row per verdict naming
 	// the evidence rows dx consulted (POST /dx/evidence_manifest). NOT a pixie
 	// table. Independent of dx_evidence_graph.
@@ -101,13 +97,6 @@ var KnownTables = []string{
 	"dx_anomaly_orders",
 	"dx_kubescape_anomalies",
 	"dx_src__kubescape_logs",
-	"dx_src__redis_events",
-	"dx_src__conn_stats",
-	"dx_src__http_events",
-	"dx_src__dns_events",
-	"dx_src__pgsql_events",
-	"dx_src__mysql_events",
-	"dx_src__dc_snoop",
 	"dx_src__stack_trace",
 	// NEW identity-model join view.
 	"dx_ord__conn_stats",
@@ -122,8 +111,8 @@ var KnownTables = []string{
 	"dx_kubescape_mitre",
 	"dx_src__kubescape_mitre",
 	"dx_orders_win",
-	// dc_snoop passthrough (PxL unique_id inference).
-	"dx_base__dc_snoop",
+	// DNS resolution reconstruction (dx/dns_resolve UI).
+	"dx_dns_resolve",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

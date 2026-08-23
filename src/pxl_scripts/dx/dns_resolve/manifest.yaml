@@ -1,0 +1,4 @@
+---
+short: SOC DNS Resolution
+long: >
+  SOC pixie, DNS resolution reconstruction per order; works only with clickhouse enabled.

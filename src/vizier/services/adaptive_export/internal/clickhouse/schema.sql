@@ -1044,7 +1044,8 @@ FROM forensic_db.dx_orders;
 -- dx/dns_resolve UI, time-windowed via dx_orders_win. Column named event_time
 -- (int64 ns) because the px ClickHouse connector defaults its cursor there.
 CREATE VIEW IF NOT EXISTS forensic_db.dx_dns_resolve AS
-SELECT toInt64(toUnixTimestamp64Nano(event_time)) AS event_time, hostname,
+SELECT toInt64(toUnixTimestamp64Nano(dns_events.event_time)) AS event_time,
+       toString(dns_events.event_time) AS ts, hostname,
        if(pod != '', pod, if(local_addr != '', concat('client:', local_addr), 'client')) AS from_node,
        concat(remote_addr, ':', toString(remote_port)) AS to_node,
        JSONExtractString(JSONExtractArrayRaw(req_body, 'queries')[1], 'name') AS edge_label,
@@ -1052,7 +1053,8 @@ SELECT toInt64(toUnixTimestamp64Nano(event_time)) AS event_time, hostname,
 FROM forensic_db.dns_events
 WHERE resp_body != '' AND resp_body != '{}'
 UNION ALL
-SELECT toInt64(toUnixTimestamp64Nano(event_time)) AS event_time, hostname,
+SELECT toInt64(toUnixTimestamp64Nano(dns_events.event_time)) AS event_time,
+       toString(dns_events.event_time) AS ts, hostname,
        JSONExtractString(ans, 'name') AS from_node,
        concat(JSONExtractString(ans, 'cname'), JSONExtractString(ans, 'addr')) AS to_node,
        JSONExtractString(ans, 'type') AS edge_label,

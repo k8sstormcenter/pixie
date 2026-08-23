@@ -48,5 +48,6 @@ def dns_graph(start_time: str, clickhouse_dsn: str, order_id: str):
 
     d.from_entity = px.select(d.kind == 'query', d.querier, d.from_node)
     d.to_entity = px.select(d.kind == 'query', d.resolver, d.to_node)
-    d.ts_ns = d.event_time
-    return d[['from_entity', 'to_entity', 'edge_label', 'kind', 'ts_ns']]
+    # ts: human-readable UTC datetime with ns precision (toString of the DateTime64
+    # in the dx_dns_resolve view); event_time stays int64-ns for the window filter.
+    return d[['from_entity', 'to_entity', 'edge_label', 'kind', 'ts']]

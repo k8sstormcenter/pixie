@@ -108,6 +108,10 @@ var OperatorOwnedTables = []string{
 	"dx_orders_win",
 	// DNS resolution reconstruction view (dx/dns_resolve UI) — over dns_events.
 	"dx_dns_resolve",
+	// cql/mongodb/creds_change order-bridge views — created after their base tables.
+	"dx_ord__cql_events",
+	"dx_ord__mongodb_events",
+	"dx_ord__creds_change",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the

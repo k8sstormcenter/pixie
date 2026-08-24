@@ -107,6 +107,10 @@ var KnownTables = []string{
 	"dx_orders_win",
 	// DNS resolution reconstruction (dx/dns_resolve UI).
 	"dx_dns_resolve",
+	// cql/mongodb/creds_change order-bridge views.
+	"dx_ord__cql_events",
+	"dx_ord__mongodb_events",
+	"dx_ord__creds_change",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.http_events (
     unique_id      String DEFAULT ''
 ) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_method, req_path);
+  ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_method, req_path, req_body, resp_status, resp_body);
 
 -- http2_messages.beta — http2_messages_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.`http2_messages.beta` (
@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.dns_events (
     unique_id   String DEFAULT ''
 ) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_body);
+  ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_body, resp_body);
 
 -- redis_events — redis_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.redis_events (
@@ -180,7 +180,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.redis_events (
     unique_id   String DEFAULT ''
 ) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_cmd);
+  ORDER BY (hostname, event_time, time_, upid, trace_role, remote_port, local_port, latency, req_cmd, req_args, resp);
 
 -- mysql_events — mysql_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.mysql_events (
@@ -204,7 +204,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.mysql_events (
     unique_id   String DEFAULT ''
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time);
+  ORDER BY (hostname, event_time, time_, upid, remote_addr, remote_port, latency, req_cmd, req_body, resp_status, resp_body);
 
 -- pgsql_events — pgsql_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.pgsql_events (
@@ -226,7 +226,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.pgsql_events (
     unique_id   String DEFAULT ''
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time);
+  ORDER BY (hostname, event_time, time_, upid, remote_addr, remote_port, latency, req, resp);
 
 -- cql_events — cass_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.cql_events (
@@ -250,7 +250,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.cql_events (
     unique_id   String DEFAULT ''
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time);
+  ORDER BY (hostname, event_time, time_, upid, remote_addr, remote_port, latency, req_op, req_body, resp_op, resp_body);
 
 -- mongodb_events — mongodb_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.mongodb_events (
@@ -274,7 +274,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.mongodb_events (
     unique_id   String DEFAULT ''
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
-  ORDER BY (hostname, event_time);
+  ORDER BY (hostname, event_time, time_, upid, remote_addr, remote_port, latency, req_cmd, req_body, resp_status, resp_body);
 
 -- kafka_events.beta — kafka_table.h
 CREATE TABLE IF NOT EXISTS forensic_db.`kafka_events.beta` (

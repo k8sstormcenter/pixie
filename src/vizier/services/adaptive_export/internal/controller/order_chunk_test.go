@@ -150,15 +150,18 @@ func TestCaptureSpanSubdividesOnTransientError(t *testing.T) {
 	}
 }
 
-// A NON-transient error (e.g. a missing dark-vector table) surfaces immediately —
+// A NON-transient error (e.g. a missing table) surfaces immediately —
 // no wasteful subdivision. Exactly one query per chunk, error returned.
 func TestCaptureSpanDoesNotSplitNonTransient(t *testing.T) {
 	snk := newRecordingSink()
-	q := &countingQuerier{failAll: true, failErr: errors.New("table 'dx_bpf' not found")}
+	q := &countingQuerier{failAll: true, failErr: errors.New("table 'no_such_table' not found")}
 	end := canonicalEventTime
 	start := end.Add(-30 * time.Second) // < one chunk → single chunk
+	// Uses a KNOWN table with a non-transient failure: the point is the error
+	// class, not the table. (Previously keyed on dx_bpf, which no longer exists —
+	// OrderQuery now rejects it before the querier runs, so nothing subdivided.)
 	err := chunkCtl(snk, q, reconcile.Nop{}, 60*time.Second).
-		OrderQuery(oqTarget, "dx_bpf", start, end, "qid-n")
+		OrderQuery(oqTarget, "dc_snoop", start, end, "qid-n")
 	if err == nil {
 		t.Fatal("non-transient error must surface")
 	}

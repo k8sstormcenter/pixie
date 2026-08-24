@@ -60,12 +60,6 @@ var KnownTables = []string{
 	"dc_snoop",
 	"creds_change",
 	"stack_trace",
-	"dx_vfs_events",
-	"dx_unlink",
-	"dx_dlookup",
-	"dx_mprotect",
-	"dx_bpf",
-	"dx_ptrace",
 	// operator-owned attribution table
 	"adaptive_attribution",
 	// operator-owned persistent trigger cursor
@@ -169,12 +163,6 @@ func PixieTables() []string {
 		"dc_snoop",
 		"creds_change",
 		"stack_trace",
-		"dx_vfs_events",
-		"dx_unlink",
-		"dx_dlookup",
-		"dx_mprotect",
-		"dx_bpf",
-		"dx_ptrace",
 	}
 }
 

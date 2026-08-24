@@ -220,14 +220,18 @@ func (s *Server) handleDXEvidenceGraph(w http.ResponseWriter, r *http.Request) {
 // bridged tables dx hands base rows for (each carries a pre-stamped unique_id and
 // a dx_ord__ view) are accepted. Mirrors evidencegraph.UIDColsByTable on the dx side.
 var dxRowsAllowedTables = map[string]bool{
-	"conn_stats":   true,
-	"redis_events": true,
-	"http_events":  true,
-	"dns_events":   true,
-	"pgsql_events": true,
-	"mysql_events": true,
-	"dc_snoop":     true,
-	"stack_trace":  true,
+	"conn_stats":     true,
+	"redis_events":   true,
+	"http_events":    true,
+	"dns_events":     true,
+	"pgsql_events":   true,
+	"mysql_events":   true,
+	"cql_events":     true,
+	"mongodb_events": true,
+	"dc_snoop":       true,
+	"stack_trace":    true,
+	// creds_change is dx-bridged too (dark tracepoint, keyed on its own columns).
+	"creds_change": true,
 }
 
 // dxRowsReq is the /dx/rows wire body: dx-handed base rows for one table.

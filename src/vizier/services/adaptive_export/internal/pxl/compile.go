@@ -71,8 +71,6 @@ func CompilePassthrough(table string, window time.Duration) (string, error) {
 // PodEnrichPxL.
 var darkVectorTables = map[string]bool{
 	"dc_snoop": true, "creds_change": true,
-	"dx_vfs_events": true, "dx_unlink": true, "dx_dlookup": true,
-	"dx_mprotect": true, "dx_bpf": true, "dx_ptrace": true,
 }
 
 // IsDarkVector reports whether table is a pid-keyed dx tracepoint table.

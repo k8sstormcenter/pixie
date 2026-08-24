@@ -81,12 +81,6 @@ var builtinTables = []TableSpec{
 	{Name: "dc_snoop", Protocol: "tracepoint (dentry lookup, V1/V2)"},
 	{Name: "creds_change", Protocol: "tracepoint (commit_creds priv-esc, V7)"},
 	{Name: "stack_trace", Protocol: "profiler (stack_traces.beta, V9)"},
-	{Name: "dx_vfs_events", Protocol: "tracepoint"},
-	{Name: "dx_unlink", Protocol: "tracepoint"},
-	{Name: "dx_dlookup", Protocol: "tracepoint"},
-	{Name: "dx_mprotect", Protocol: "tracepoint"},
-	{Name: "dx_bpf", Protocol: "tracepoint"},
-	{Name: "dx_ptrace", Protocol: "tracepoint"},
 }
 
 // Registry is the extension surface for users to register their own

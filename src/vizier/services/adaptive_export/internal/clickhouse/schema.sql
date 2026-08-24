@@ -246,7 +246,8 @@ CREATE TABLE IF NOT EXISTS forensic_db.cql_events (
     resp_body   String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
+    event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9),
+    unique_id   String DEFAULT ''
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -269,7 +270,8 @@ CREATE TABLE IF NOT EXISTS forensic_db.mongodb_events (
     resp_body   String,
     latency     Int64,
     hostname    String,
-    event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9)
+    event_time  DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9),
+    unique_id   String DEFAULT ''
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(event_time)
   ORDER BY (hostname, event_time);
@@ -679,80 +681,8 @@ WHERE e.src_table = 'conn_stats';
 -- process_stats join on pid. One column per line (schema-verify parser is line-oriented).
 -- (dx_dcsnoop superseded by forensic_db.dc_snoop — canonical DateTime64(9)/Int64
 --  schema with full k8s metadata; see the dark-vector section above.)
-CREATE TABLE IF NOT EXISTS forensic_db.dx_vfs_events (
-  time_ DateTime64(9, 'UTC'),
-  pid Int64,
-  comm String,
-  op String,
-  file String,
-  namespace String,
-  pod String,
-  container String,
-  hostname String,
-  event_time DateTime64(9, 'UTC')
-) ENGINE = MergeTree ORDER BY (event_time, pod);
-
-CREATE TABLE IF NOT EXISTS forensic_db.dx_unlink (
-  time_ DateTime64(9, 'UTC'),
-  pid Int64,
-  comm String,
-  op String,
-  file String,
-  namespace String,
-  pod String,
-  container String,
-  hostname String,
-  event_time DateTime64(9, 'UTC')
-) ENGINE = MergeTree ORDER BY (event_time, pod);
-
-CREATE TABLE IF NOT EXISTS forensic_db.dx_dlookup (
-  time_ DateTime64(9, 'UTC'),
-  pid Int64,
-  comm String,
-  file String,
-  namespace String,
-  pod String,
-  container String,
-  hostname String,
-  event_time DateTime64(9, 'UTC')
-) ENGINE = MergeTree ORDER BY (event_time, pod);
-
-CREATE TABLE IF NOT EXISTS forensic_db.dx_mprotect (
-  time_ DateTime64(9, 'UTC'),
-  pid Int64,
-  comm String,
-  prot UInt64,
-  namespace String,
-  pod String,
-  container String,
-  hostname String,
-  event_time DateTime64(9, 'UTC')
-) ENGINE = MergeTree ORDER BY (event_time, pod);
-
 -- (dx_creds superseded by forensic_db.creds_change — canonical schema with
 --  old_uid/new_uid + full k8s metadata.)
-CREATE TABLE IF NOT EXISTS forensic_db.dx_bpf (
-  time_ DateTime64(9, 'UTC'),
-  pid Int64,
-  comm String,
-  namespace String,
-  pod String,
-  container String,
-  hostname String,
-  event_time DateTime64(9, 'UTC')
-) ENGINE = MergeTree ORDER BY (event_time, pod);
-
-CREATE TABLE IF NOT EXISTS forensic_db.dx_ptrace (
-  time_ DateTime64(9, 'UTC'),
-  pid Int64,
-  comm String,
-  namespace String,
-  pod String,
-  container String,
-  hostname String,
-  event_time DateTime64(9, 'UTC')
-) ENGINE = MergeTree ORDER BY (event_time, pod);
-
 -- dc_snoop (dentry cache, V1/V2 process+file) — exported via the OTel/ClickHouse
 -- retention plugin (px.export). pid-keyed; t = R (reference) / M (miss).
 -- One column per line (schema-verify parser is line-oriented).
@@ -796,7 +726,8 @@ CREATE TABLE IF NOT EXISTS forensic_db.creds_change (
   pod String,
   container String,
   hostname String,
-  event_time DateTime64(9, 'UTC')
+  event_time DateTime64(9, 'UTC'),
+  unique_id String DEFAULT ''
 ) ENGINE = ReplacingMergeTree ORDER BY (time_, pid, comm, old_uid, new_uid, pod);
 
 -- ── Order-UUID pre-correlation views (entlein/dx#136) ────────────────────────
@@ -948,6 +879,67 @@ SELECT
 FROM forensic_db.dx_order_edges AS e
 INNER JOIN forensic_db.mysql_events AS c ON c.unique_id = e.unique_id
 WHERE e.src_table = 'mysql_events';
+
+-- dx_ord__cql_events / dx_ord__mongodb_events / dx_ord__creds_change — bridge
+-- views: exactly the rows dx consulted for an order, joined on the dx-stamped
+-- unique_id. Same shape as the other dx_ord__ views; the panel filters order_id.
+CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__cql_events AS
+SELECT
+    e.order_id AS order_id,
+    toString(c.time_) AS ts,
+    toInt64(toUnixTimestamp64Nano(c.time_)) AS row_time,
+    c.event_time AS event_time,
+    c.namespace AS namespace,
+    c.pod AS pod,
+    c.remote_addr AS remote_addr,
+    c.remote_port AS remote_port,
+    c.req_op AS req_op,
+    c.req_body AS req_body,
+    c.resp_op AS resp_op,
+    c.resp_body AS resp_body,
+    c.latency AS latency,
+    e.hostname AS hostname
+FROM forensic_db.dx_order_edges AS e
+INNER JOIN forensic_db.cql_events AS c ON c.unique_id = e.unique_id
+WHERE e.src_table = 'cql_events';
+
+CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__mongodb_events AS
+SELECT
+    e.order_id AS order_id,
+    toString(c.time_) AS ts,
+    toInt64(toUnixTimestamp64Nano(c.time_)) AS row_time,
+    c.event_time AS event_time,
+    c.namespace AS namespace,
+    c.pod AS pod,
+    c.remote_addr AS remote_addr,
+    c.remote_port AS remote_port,
+    c.req_cmd AS req_cmd,
+    c.req_body AS req_body,
+    c.resp_status AS resp_status,
+    c.resp_body AS resp_body,
+    c.latency AS latency,
+    e.hostname AS hostname
+FROM forensic_db.dx_order_edges AS e
+INNER JOIN forensic_db.mongodb_events AS c ON c.unique_id = e.unique_id
+WHERE e.src_table = 'mongodb_events';
+
+CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__creds_change AS
+SELECT
+    e.order_id AS order_id,
+    toString(c.time_) AS ts,
+    toInt64(toUnixTimestamp64Nano(c.time_)) AS row_time,
+    toInt64(toUnixTimestamp64Nano(c.event_time)) AS event_time,
+    c.namespace AS namespace,
+    c.pod AS pod,
+    c.pid AS pid,
+    c.comm AS comm,
+    c.old_uid AS old_uid,
+    c.new_uid AS new_uid,
+    c.container AS container,
+    e.hostname AS hostname
+FROM forensic_db.dx_order_edges AS e
+INNER JOIN forensic_db.creds_change AS c ON c.unique_id = e.unique_id
+WHERE e.src_table = 'creds_change';
 
 CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__dc_snoop AS
 SELECT

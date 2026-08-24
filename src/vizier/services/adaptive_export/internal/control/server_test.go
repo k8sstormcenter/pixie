@@ -332,12 +332,36 @@ func TestQueryWidensNarrowWindow(t *testing.T) {
 		t.Fatalf("want 202, got %d", resp.StatusCode)
 	}
 	got := rn.lastEnd.Sub(rn.lastStart)
-	if got < minControlQueryWindow {
-		t.Fatalf("narrow window must be widened to >= %v; got %v", minControlQueryWindow, got)
+	if got < minControlQueryWindow() {
+		t.Fatalf("narrow window must be widened to >= %v; got %v", minControlQueryWindow(), got)
 	}
 	// hi must be preserved (we widen the lower bound only).
 	if rn.lastEnd.UnixNano() != hi {
 		t.Errorf("hi must be preserved; want %d got %d", hi, rn.lastEnd.UnixNano())
+	}
+}
+
+// TestQueryHonoursIntentionalTightWindow — a deliberate +/-50ms span around an
+// anomaly must reach the runner UNCHANGED. kubescape's alert timestamp is the
+// kernel event time and travels as nanos end-to-end, so a millisecond window is
+// meaningful; widening it to 600s is what made a chatty protocol (pgsql/mysql)
+// return tens of thousands of rows per referral.
+func TestQueryHonoursIntentionalTightWindow(t *testing.T) {
+	rn := &fakeRunner{}
+	srv := New(&fakeExporter{}, rn)
+	hi := int64(10_000_000_000)
+	lo := hi - int64(100*time.Millisecond) // +/-50ms around the anomaly
+	resp := do(t, srv, http.MethodPost, "/query",
+		`{"pod":"p","namespace":"postgres-oss","table":"pgsql_events","query_id":"q1","window":[`+
+			itoa(lo)+`,`+itoa(hi)+`]}`)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("want 202, got %d", resp.StatusCode)
+	}
+	if got := rn.lastEnd.Sub(rn.lastStart); got != 100*time.Millisecond {
+		t.Fatalf("tight window must pass through unchanged; want 100ms got %v", got)
+	}
+	if rn.lastStart.UnixNano() != lo {
+		t.Errorf("lo must be preserved; want %d got %d", lo, rn.lastStart.UnixNano())
 	}
 }
 

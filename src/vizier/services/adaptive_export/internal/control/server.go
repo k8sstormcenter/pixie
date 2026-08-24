@@ -31,6 +31,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,9 +71,25 @@ type exportAller interface {
 // anomaly is comfortably inside the pulled slice.
 const controlExportLookback = 600 * time.Second
 
-// A /query window narrower than this is widened to controlExportLookback (a
-// point window keyed on one finding's timestamp matches no pixie rows).
-const minControlQueryWindow = 5 * time.Second
+// A DEGENERATE /query window (hi <= lo) is widened to controlExportLookback: a
+// zero-width window keyed on one finding's timestamp matches no pixie rows.
+//
+// A deliberately TIGHT window is NOT degenerate and must be honoured. kubescape's
+// alert timestamp is the kernel event time (bpf_ktime_get_boot_ns, converted to
+// wall clock once, never re-stamped) and it reaches AE as nanos end-to-end, so a
+// ±50ms span around an anomaly is meaningful — it is how a chatty protocol
+// (pgsql/mysql) stays readable instead of returning tens of thousands of rows.
+// This floor previously widened ANY sub-5s window to 600s, silently inflating an
+// intentional ±50ms request by 6000× and defeating caller-side narrowing.
+// The floor drops to 1ms: still wide enough to catch a sub-microsecond point
+// window (which matches no rows), far below any intentional millisecond span.
+// ADAPTIVE_MIN_QUERY_WINDOW_MS overrides it.
+func minControlQueryWindow() time.Duration {
+	if v, err := strconv.Atoi(os.Getenv("ADAPTIVE_MIN_QUERY_WINDOW_MS")); err == nil && v > 0 {
+		return time.Duration(v) * time.Millisecond
+	}
+	return time.Millisecond
+}
 
 // The control API carries timestamps in the pipeline's ONE unit: unix
 // NANOSECONDS — the same unit as forensic_db.*.event_time and dx's referral
@@ -435,8 +453,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	hi := time.Unix(0, req.Window[1]).UTC()
 	lo := time.Unix(0, req.Window[0]).UTC()
-	if hi.Sub(lo) < minControlQueryWindow {
-		lo = hi.Add(-controlExportLookback) // widen a point window
+	if d := hi.Sub(lo); d <= 0 || d < minControlQueryWindow() {
+		lo = hi.Add(-controlExportLookback) // widen a degenerate (or floored) window
 	}
 	err := s.runner.OrderQuery(req.target(), req.Table, lo, hi, req.QueryID)
 	if err != nil {

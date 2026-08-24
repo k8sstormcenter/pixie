@@ -7,4 +7,4 @@ resources:
 images:
   - name: vizier-adaptive_export_image
     newName: ghcr.io/k8sstormcenter/vizier-adaptive_export_image
-    newTag: 0.14.19-aeprod80
+    newTag: 0.14.19-aeprod81

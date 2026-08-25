@@ -1,0 +1,4 @@
+---
+short: SOC Breakout
+long: >
+  SOC pixie, workload-agnostic runtime-breakout story against a signed SBoB (IngressNightmare, React2Shell, redis, ...); works only with clickhouse enabled.

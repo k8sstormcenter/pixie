@@ -1,4 +1,0 @@
----
-short: SOC IngressNightmare
-long: >
-  SOC pixie, IngressNightmare (CVE-2025-1974) runtime-deviation story against a signed SBoB; works only with clickhouse enabled.

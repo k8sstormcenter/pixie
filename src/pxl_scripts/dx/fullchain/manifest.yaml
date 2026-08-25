@@ -1,0 +1,4 @@
+---
+short: SOC Full-Chain
+long: >
+  SOC pixie, cross-sensor exfil narrative graph per incident; works only with clickhouse enabled.

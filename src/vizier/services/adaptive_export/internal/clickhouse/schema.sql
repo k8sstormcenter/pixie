@@ -1000,7 +1000,8 @@ JSONExtractString(JSONExtractRaw(JSONExtractRaw(BaseRuntimeMetadata, 'identifier
 (JSONExtractString(JSONExtractRaw(BaseRuntimeMetadata, 'arguments'), 'path') != '') OR (JSONExtractString(JSONExtractRaw(JSONExtractRaw(BaseRuntimeMetadata,
 'identifiers'), 'file'), 'name') != ''), 'file', 'other') AS target_kind,
        toInt8OrZero(JSONExtractString(BaseRuntimeMetadata, 'severity')) AS severity,
-       message AS alert, hostname, event_time
+       message AS alert, hostname, event_time,
+       toString(fromUnixTimestamp64Nano(toInt64(event_time))) AS ts
 FROM forensic_db.kubescape_logs
 WHERE RuleID != '' AND JSONExtractString(BaseRuntimeMetadata, 'uniqueID') != ''
 LIMIT 1 BY uniqueID, rule;

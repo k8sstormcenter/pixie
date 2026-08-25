@@ -47,7 +47,7 @@ def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
 def orders(start_time: str, clickhouse_dsn: str, graph_table: str):
     df = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     alerts = px.DataFrame(graph_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    alerts = alerts[['uniqueID', 'rule', 'mitre_tactic', 'mitre_technique']]
+    alerts = alerts[['uniqueID', 'rule', 'mitre_tactic', 'mitre_technique', 'ts']]
     df = df.merge(alerts, how='left', left_on=['kubescape_uid', 'rule_id'],
                   right_on=['uniqueID', 'rule'], suffixes=['', '_k'])
     df.order = px.script_reference(df.order_id, 'dx/evidence_graph', {
@@ -57,7 +57,7 @@ def orders(start_time: str, clickhouse_dsn: str, graph_table: str):
         'order_id': df.order_id,
     })
     df.Alert = df.disc
-    return df[['order', 'rule_id', 'Alert', 'mitre_tactic', 'mitre_technique', 'pod']]
+    return df[['order', 'ts', 'rule_id', 'Alert', 'mitre_tactic', 'mitre_technique', 'pod']]
 
 
 def kubescape(start_time: str, clickhouse_dsn: str, order_id: str):
@@ -79,25 +79,26 @@ def redis(start_time: str, clickhouse_dsn: str, order_id: str):
 
 
 def http(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _ord(start_time, clickhouse_dsn, 'dx_ord__http_events', order_id)
+    # namespace is constant/uninformative for these protocol panels — drop it.
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__http_events', order_id).drop(['namespace'])
 
 
 def dns(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _ord(start_time, clickhouse_dsn, 'dx_ord__dns_events', order_id)
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__dns_events', order_id).drop(['namespace'])
 
 
 def pgsql(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _ord(start_time, clickhouse_dsn, 'dx_ord__pgsql_events', order_id)
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__pgsql_events', order_id).drop(['namespace'])
 
 
 def mysql(start_time: str, clickhouse_dsn: str, order_id: str):
-    return _ord(start_time, clickhouse_dsn, 'dx_ord__mysql_events', order_id)
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__mysql_events', order_id).drop(['namespace'])
 
 
 def dc_snoop(start_time: str, clickhouse_dsn: str, order_id: str):
     # dx_ord__dc_snoop carries a real hostname (from the order/edge join); the raw
     # dc_snoop table ships an empty hostname, so px hostname-sharding reads it as 0.
-    return _ord(start_time, clickhouse_dsn, 'dx_ord__dc_snoop', order_id)
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__dc_snoop', order_id).drop(['namespace'])
 
 
 def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):

@@ -1,0 +1,16 @@
+{
+  "variables": [
+    {"name": "start_time", "type": "PX_STRING", "description": "Incident window.", "defaultValue": "-90m"},
+    {"name": "clickhouse_dsn", "type": "PX_STRING", "description": "forensic_db DSN: user:pass@host:port/db.", "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"}
+  ],
+  "globalFuncs": [
+    {"outputName": "g_story", "func": {"name": "story", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}]}},
+    {"outputName": "g_beats", "func": {"name": "beats", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}]}},
+    {"outputName": "g_targets", "func": {"name": "targets", "args": [{"name": "start_time", "variable": "start_time"}, {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}]}}
+  ],
+  "widgets": [
+    {"name": "IngressNightmare breakout (signed ingress-nginx controller -> off-profile targets; edge=kind)", "position": {"x": 0, "y": 0, "w": 12, "h": 6}, "globalFuncOutputName": "g_story", "displaySpec": {"@type": "types.px.dev/px.vispb.Graph", "adjacencyList": {"fromColumn": "from_entity", "toColumn": "to_entity"}, "edgeLabelColumn": "kind", "edgeHoverInfo": ["rule", "kind", "events", "sev"], "edgeLength": 450}},
+    {"name": "Attack beats (kind x rule; events, severity)", "position": {"x": 0, "y": 6, "w": 6, "h": 4}, "globalFuncOutputName": "g_beats", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}},
+    {"name": "Targets touched off-profile", "position": {"x": 6, "y": 6, "w": 6, "h": 4}, "globalFuncOutputName": "g_targets", "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}}
+  ]
+}

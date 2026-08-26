@@ -56,7 +56,7 @@ func TestColumns_conn_stats_ExactList(t *testing.T) {
 		"time_", "upid", "namespace", "pod",
 		"remote_addr", "remote_port", "trace_role", "addr_family",
 		"protocol", "ssl", "conn_open", "conn_close", "conn_active",
-		"bytes_sent", "bytes_recv", "hostname", "event_time", "unique_id",
+		"bytes_sent", "bytes_recv", "hostname", "event_time", "remote_pod", "unique_id",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Columns(conn_stats) mismatch:\n got=%v\nwant=%v", got, want)

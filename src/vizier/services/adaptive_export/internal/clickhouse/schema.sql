@@ -391,6 +391,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.conn_stats (
     bytes_recv    Int64,
     hostname      String,
     event_time    DateTime64(9, 'UTC') DEFAULT toDateTime64(time_, 9),
+    remote_pod    String DEFAULT '',
     unique_id     String DEFAULT ''
 ) ENGINE = ReplacingMergeTree()
   PARTITION BY toYYYYMM(event_time)
@@ -962,6 +963,25 @@ FROM forensic_db.dx_orders AS o
 LEFT JOIN forensic_db.dx_kubescape_mitre AS m
        ON m.uniqueID = o.kubescape_uid AND m.rule = o.rule_id
 WHERE o.culprit_key != '';
+
+-- dx_case_links — the cross-pod bridge over cases: an order's conn_stats
+-- evidence resolves remote_pod (the peer pod), and a culprit lives on that pod.
+-- Links the sink's exfil-receipt culprit back to the attacker's culprit that
+-- opened the connection. Directed: from = this order's culprit, to = peer culprit.
+CREATE VIEW IF NOT EXISTS forensic_db.dx_case_links AS
+SELECT DISTINCT
+    a.culprit_key AS from_culprit,
+    c.remote_pod  AS peer_pod,
+    b.culprit_key AS to_culprit,
+    a.hostname    AS hostname
+FROM forensic_db.dx_orders AS a
+INNER JOIN forensic_db.dx_order_edges AS e
+        ON e.order_id = a.order_id AND e.src_table = 'conn_stats'
+INNER JOIN forensic_db.conn_stats AS c
+        ON c.unique_id = e.unique_id AND c.remote_pod != ''
+INNER JOIN forensic_db.dx_orders AS b
+        ON b.pod = c.remote_pod
+WHERE a.culprit_key != '' AND b.culprit_key != '' AND a.culprit_key != b.culprit_key;
 
 CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__dc_snoop AS
 SELECT

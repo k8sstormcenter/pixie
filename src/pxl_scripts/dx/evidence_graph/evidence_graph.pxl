@@ -44,6 +44,23 @@ def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
                'severity', 'alert', 'subject_pod']]
 
 
+def cases(start_time: str, clickhouse_dsn: str):
+    # The meta-level: one culprit (ns/pod/RootPID) fans out to each step it took.
+    # dx stamps culprit_key on every order; orders sharing it are one actor's
+    # campaign (read + exfil + spawns). from=culprit, to=the step (pod:rule).
+    df = px.DataFrame('dx_cases', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df.from_entity = df.culprit_key
+    df.to_entity = df.subject_pod + ':' + df.rule_id
+    df.order_link = px.script_reference(df.order_id, 'dx/evidence_graph', {
+        'start_time': start_time,
+        'clickhouse_dsn': clickhouse_dsn,
+        'graph_table': 'dx_kubescape_mitre',
+        'order_id': df.order_id,
+    })
+    return df[['from_entity', 'to_entity', 'culprit_key', 'rule_id', 'mitre_tactic',
+               'mitre_technique', 'severity', 'alert', 'order_id', 'order_link']]
+
+
 def orders(start_time: str, clickhouse_dsn: str, graph_table: str):
     df = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     alerts = px.DataFrame(graph_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)

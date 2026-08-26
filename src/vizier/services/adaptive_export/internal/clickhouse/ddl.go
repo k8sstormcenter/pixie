@@ -111,6 +111,7 @@ var KnownTables = []string{
 	"dx_ord__cql_events",
 	"dx_ord__mongodb_events",
 	"dx_ord__creds_change",
+	"dx_cases",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

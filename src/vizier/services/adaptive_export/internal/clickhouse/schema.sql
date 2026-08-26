@@ -628,7 +628,8 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_orders (
     disc          String,
     pod           String,
     event_time    UInt64,
-    hostname      String
+    hostname      String,
+    culprit_key   String DEFAULT ''
 ) ENGINE = ReplacingMergeTree()
   ORDER BY (order_id)
   PARTITION BY toYYYYMM(fromUnixTimestamp64Nano(event_time))
@@ -940,6 +941,27 @@ SELECT
 FROM forensic_db.dx_order_edges AS e
 INNER JOIN forensic_db.creds_change AS c ON c.unique_id = e.unique_id
 WHERE e.src_table = 'creds_change';
+
+-- dx_cases — the meta-grouping above orders: every order carries culprit_key
+-- (ns/pod/RootPID). Orders sharing a culprit_key are one actor's steps (read +
+-- exfil + spawns). Joins the kubescape mitre/severity so a case node can be
+-- coloured, and counts distinct evidence protocols the culprit touched.
+CREATE VIEW IF NOT EXISTS forensic_db.dx_cases AS
+SELECT
+    o.culprit_key                                   AS culprit_key,
+    o.order_id                                      AS order_id,
+    o.rule_id                                       AS rule_id,
+    o.pod                                           AS subject_pod,
+    o.disc                                          AS alert,
+    m.mitre_tactic                                  AS mitre_tactic,
+    m.mitre_technique                               AS mitre_technique,
+    m.severity                                      AS severity,
+    toInt64(toUnixTimestamp64Nano(fromUnixTimestamp64Nano(o.event_time))) AS event_time,
+    o.hostname                                      AS hostname
+FROM forensic_db.dx_orders AS o
+LEFT JOIN forensic_db.dx_kubescape_mitre AS m
+       ON m.uniqueID = o.kubescape_uid AND m.rule = o.rule_id
+WHERE o.culprit_key != '';
 
 CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__dc_snoop AS
 SELECT

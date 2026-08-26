@@ -236,7 +236,7 @@ func TestOperatorOwnedTables_DoesNotIncludeKubescape(t *testing.T) {
 func TestOperatorOwnedTables_TrailingOperatorTables(t *testing.T) {
 	want := []string{
 		"adaptive_attribution", "trigger_watermark", "ae_reconcile", "dx_evidence_graph", "dx_evidence_manifest", "dx_order_seeds", "dx_order_records", "dx_orders", "dx_order_edges",
-		"dx_anomaly_orders", "dx_kubescape_anomalies", "dx_src__kubescape_logs", "dx_src__stack_trace", "dx_ord__conn_stats", "dx_ord__redis_events", "dx_ord__http_events", "dx_ord__dns_events", "dx_ord__pgsql_events", "dx_ord__mysql_events", "dx_ord__dc_snoop", "dx_ord__stack_trace", "dx_kubescape_mitre", "dx_src__kubescape_mitre", "dx_orders_win", "dx_dns_resolve", "dx_ord__cql_events", "dx_ord__mongodb_events", "dx_ord__creds_change",
+		"dx_anomaly_orders", "dx_kubescape_anomalies", "dx_src__kubescape_logs", "dx_src__stack_trace", "dx_ord__conn_stats", "dx_ord__redis_events", "dx_ord__http_events", "dx_ord__dns_events", "dx_ord__pgsql_events", "dx_ord__mysql_events", "dx_ord__dc_snoop", "dx_ord__stack_trace", "dx_kubescape_mitre", "dx_src__kubescape_mitre", "dx_orders_win", "dx_dns_resolve", "dx_ord__cql_events", "dx_ord__mongodb_events", "dx_ord__creds_change", "dx_cases",
 	}
 	got := OperatorOwnedTables[len(OperatorOwnedTables)-len(want):]
 	for i, w := range want {

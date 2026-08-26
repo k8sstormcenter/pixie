@@ -112,6 +112,7 @@ var OperatorOwnedTables = []string{
 	"dx_ord__cql_events",
 	"dx_ord__mongodb_events",
 	"dx_ord__creds_change",
+	"dx_cases",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the

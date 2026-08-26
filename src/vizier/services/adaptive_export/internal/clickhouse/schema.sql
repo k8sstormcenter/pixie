@@ -656,7 +656,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.dx_order_edges (
 
 -- dx_ord__conn_stats — join view: conn_stats rows consulted for an order, via the
 -- bridge (edge.unique_id = conn_stats.unique_id). Panel filters by order_id.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__conn_stats AS
+CREATE OR REPLACE VIEW forensic_db.dx_ord__conn_stats AS
 SELECT
     e.order_id AS order_id,
     toString(c.time_) AS ts,
@@ -745,7 +745,7 @@ CREATE TABLE IF NOT EXISTS forensic_db.creds_change (
 -- so the view dedups on order_id and makes NO assumption about orders-per-uniqueID.
 -- lo/hi are kept for reference (the ±300s span); the CONSULTED records for the
 -- order live in dx_order_records, stamped with this order_id.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_anomaly_orders AS
+CREATE OR REPLACE VIEW forensic_db.dx_anomaly_orders AS
 SELECT unique_id AS uniqueID, rule_id AS rule, pod,
        toInt64(event_time) - 300000000000 AS lo,
        toInt64(event_time) + 300000000000 AS hi,
@@ -755,7 +755,7 @@ FROM forensic_db.dx_order_seeds
 LIMIT 1 BY order_id;
 
 -- dx_kubescape_anomalies: L1 kill-chain graph (subject_pod -> target), deduped by uniqueID.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_kubescape_anomalies AS
+CREATE OR REPLACE VIEW forensic_db.dx_kubescape_anomalies AS
 SELECT JSONExtractString(BaseRuntimeMetadata, 'uniqueID') AS uniqueID,
        concat(JSONExtractString(RuntimeK8sDetails, 'podNamespace'), '/', JSONExtractString(RuntimeK8sDetails, 'podName')) AS subject_pod,
        RuleID AS rule,
@@ -769,7 +769,7 @@ WHERE RuleID != '' AND JSONExtractString(BaseRuntimeMetadata, 'uniqueID') != ''
 LIMIT 1 BY uniqueID;
 
 -- dx_src__kubescape_logs: anomaly detail (process tree comm/cmdline/pcomm) per panel.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_src__kubescape_logs AS
+CREATE OR REPLACE VIEW forensic_db.dx_src__kubescape_logs AS
 SELECT toString(fromUnixTimestamp64Nano(toInt64(event_time))) AS ts, toInt64(event_time) AS row_time, event_time,
        RuleID, JSONExtractString(BaseRuntimeMetadata, 'uniqueID') AS uniqueID,
        JSONExtractString(JSONExtractRaw(RuntimeProcessDetails, 'processTree'), 'comm') AS comm,
@@ -780,12 +780,12 @@ SELECT toString(fromUnixTimestamp64Nano(toInt64(event_time))) AS ts, toInt64(eve
 FROM forensic_db.kubescape_logs WHERE RuleID != '';
 
 -- dx_src__stack_trace: original schema + ts/row_time/event_time.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_src__stack_trace AS
+CREATE OR REPLACE VIEW forensic_db.dx_src__stack_trace AS
 SELECT toString(time_) AS ts, toInt64(toUnixTimestamp64Nano(time_)) AS row_time, toUInt64(toUnixTimestamp64Nano(event_time)) AS event_time,
        namespace, pod, container, stack_trace_id, stack_trace, count, hostname
 FROM forensic_db.stack_trace;
 
-CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__redis_events AS
+CREATE OR REPLACE VIEW forensic_db.dx_ord__redis_events AS
 SELECT
     e.order_id AS order_id,
     toString(c.time_) AS ts,
@@ -805,7 +805,7 @@ FROM forensic_db.dx_order_edges AS e
 INNER JOIN forensic_db.redis_events AS c ON c.unique_id = e.unique_id
 WHERE e.src_table = 'redis_events';
 
-CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__http_events AS
+CREATE OR REPLACE VIEW forensic_db.dx_ord__http_events AS
 SELECT
     e.order_id AS order_id,
     toString(c.time_) AS ts,
@@ -826,7 +826,7 @@ FROM forensic_db.dx_order_edges AS e
 INNER JOIN forensic_db.http_events AS c ON c.unique_id = e.unique_id
 WHERE e.src_table = 'http_events';
 
-CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__dns_events AS
+CREATE OR REPLACE VIEW forensic_db.dx_ord__dns_events AS
 SELECT
     e.order_id AS order_id,
     toString(c.time_) AS ts,
@@ -844,7 +844,7 @@ FROM forensic_db.dx_order_edges AS e
 INNER JOIN forensic_db.dns_events AS c ON c.unique_id = e.unique_id
 WHERE e.src_table = 'dns_events';
 
-CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__pgsql_events AS
+CREATE OR REPLACE VIEW forensic_db.dx_ord__pgsql_events AS
 SELECT
     e.order_id AS order_id,
     toString(c.time_) AS ts,
@@ -862,7 +862,7 @@ FROM forensic_db.dx_order_edges AS e
 INNER JOIN forensic_db.pgsql_events AS c ON c.unique_id = e.unique_id
 WHERE e.src_table = 'pgsql_events';
 
-CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__mysql_events AS
+CREATE OR REPLACE VIEW forensic_db.dx_ord__mysql_events AS
 SELECT
     e.order_id AS order_id,
     toString(c.time_) AS ts,
@@ -885,7 +885,7 @@ WHERE e.src_table = 'mysql_events';
 -- dx_ord__cql_events / dx_ord__mongodb_events / dx_ord__creds_change — bridge
 -- views: exactly the rows dx consulted for an order, joined on the dx-stamped
 -- unique_id. Same shape as the other dx_ord__ views; the panel filters order_id.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__cql_events AS
+CREATE OR REPLACE VIEW forensic_db.dx_ord__cql_events AS
 SELECT
     e.order_id AS order_id,
     toString(c.time_) AS ts,
@@ -905,7 +905,7 @@ FROM forensic_db.dx_order_edges AS e
 INNER JOIN forensic_db.cql_events AS c ON c.unique_id = e.unique_id
 WHERE e.src_table = 'cql_events';
 
-CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__mongodb_events AS
+CREATE OR REPLACE VIEW forensic_db.dx_ord__mongodb_events AS
 SELECT
     e.order_id AS order_id,
     toString(c.time_) AS ts,
@@ -925,7 +925,7 @@ FROM forensic_db.dx_order_edges AS e
 INNER JOIN forensic_db.mongodb_events AS c ON c.unique_id = e.unique_id
 WHERE e.src_table = 'mongodb_events';
 
-CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__creds_change AS
+CREATE OR REPLACE VIEW forensic_db.dx_ord__creds_change AS
 SELECT
     e.order_id AS order_id,
     toString(c.time_) AS ts,
@@ -947,7 +947,7 @@ WHERE e.src_table = 'creds_change';
 -- (ns/pod/RootPID). Orders sharing a culprit_key are one actor's steps (read +
 -- exfil + spawns). Joins the kubescape mitre/severity so a case node can be
 -- coloured, and counts distinct evidence protocols the culprit touched.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_cases AS
+CREATE OR REPLACE VIEW forensic_db.dx_cases AS
 SELECT
     o.culprit_key                                   AS culprit_key,
     o.order_id                                      AS order_id,
@@ -968,7 +968,7 @@ WHERE o.culprit_key != '';
 -- evidence resolves remote_pod (the peer pod), and a culprit lives on that pod.
 -- Links the sink's exfil-receipt culprit back to the attacker's culprit that
 -- opened the connection. Directed: from = this order's culprit, to = peer culprit.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_case_links AS
+CREATE OR REPLACE VIEW forensic_db.dx_case_links AS
 SELECT DISTINCT
     a.culprit_key AS from_culprit,
     c.remote_pod  AS peer_pod,
@@ -983,7 +983,7 @@ INNER JOIN forensic_db.dx_orders AS b
         ON b.pod = c.remote_pod
 WHERE a.culprit_key != '' AND b.culprit_key != '' AND a.culprit_key != b.culprit_key;
 
-CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__dc_snoop AS
+CREATE OR REPLACE VIEW forensic_db.dx_ord__dc_snoop AS
 SELECT
     e.order_id AS order_id,
     toString(c.time_) AS ts,
@@ -1001,7 +1001,7 @@ FROM forensic_db.dx_order_edges AS e
 INNER JOIN forensic_db.dc_snoop AS c ON c.unique_id = e.unique_id
 WHERE e.src_table = 'dc_snoop';
 
-CREATE VIEW IF NOT EXISTS forensic_db.dx_ord__stack_trace AS
+CREATE OR REPLACE VIEW forensic_db.dx_ord__stack_trace AS
 SELECT
     e.order_id AS order_id,
     toString(c.time_) AS ts,
@@ -1021,7 +1021,7 @@ WHERE e.src_table = 'stack_trace';
 -- ── MITRE ATT&CK enrichment over kubescape_logs (px/dx_evidence_graph) ────────
 -- dx_kubescape_mitre: L1 graph source — one row per (uniqueID, rule) so orders
 -- keyed on (uniqueID, RuleID) all join; MITRE + resolved target from BaseRuntimeMetadata.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_kubescape_mitre AS
+CREATE OR REPLACE VIEW forensic_db.dx_kubescape_mitre AS
 SELECT JSONExtractString(BaseRuntimeMetadata, 'uniqueID') AS uniqueID,
        concat(JSONExtractString(RuntimeK8sDetails, 'podNamespace'), '/', JSONExtractString(RuntimeK8sDetails, 'podName')) AS subject_pod,
        RuleID AS rule,
@@ -1050,7 +1050,7 @@ LIMIT 1 BY uniqueID, rule;
 
 -- dx_src__kubescape_mitre: kubescape detail panel — MITRE cols after RuleID, plus
 -- process tree (comm/pcomm/cmdline). ts/row_time/event_time px-connector convention.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_src__kubescape_mitre AS
+CREATE OR REPLACE VIEW forensic_db.dx_src__kubescape_mitre AS
 SELECT toString(fromUnixTimestamp64Nano(toInt64(event_time))) AS ts, toInt64(event_time) AS row_time, event_time,
        RuleID,
        JSONExtractString(BaseRuntimeMetadata, 'mitreTactic') AS mitre_tactic,
@@ -1067,7 +1067,7 @@ FROM forensic_db.kubescape_logs WHERE RuleID != '';
 
 -- dx_orders_win: per-order ±300s baseline/attack window for the differential
 -- flamegraph (stack_diff). hostname carried so the px node-shard resolves.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_orders_win AS
+CREATE OR REPLACE VIEW forensic_db.dx_orders_win AS
 SELECT order_id, pod,
        toInt64(event_time) - 300000000000 AS lo,
        toInt64(event_time) + 300000000000 AS hi,
@@ -1078,7 +1078,7 @@ FROM forensic_db.dx_orders;
 -- (querier->resolver, then the answer tree name->CNAME / name->A). Read by the
 -- dx/dns_resolve UI, time-windowed via dx_orders_win. Column named event_time
 -- (int64 ns) because the px ClickHouse connector defaults its cursor there.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_dns_resolve AS
+CREATE OR REPLACE VIEW forensic_db.dx_dns_resolve AS
 SELECT toInt64(toUnixTimestamp64Nano(dns_events.event_time)) AS event_time,
        toString(dns_events.event_time) AS ts, hostname,
        if(pod != '', pod, if(local_addr != '', concat('client:', local_addr), 'client')) AS from_node,
@@ -1102,7 +1102,7 @@ WHERE resp_body != '' AND JSONExtractString(ans, 'type') != ''
 -- dx_alerts: GENERIC thin flatten of kubescape_logs (pod/namespace/rule/message/
 -- sev). Reusable seed for any narrative; story logic (target/kind) is derived in
 -- the PxL (dx/breakout), never here — so the DDL is portable and stays stable.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_alerts AS
+CREATE OR REPLACE VIEW forensic_db.dx_alerts AS
 SELECT
   fromUnixTimestamp64Nano(toInt64(event_time))        AS event_time,
   hostname                                            AS hostname,
@@ -1119,7 +1119,7 @@ WHERE JSONExtractString(RuntimeK8sDetails,'namespace') NOT IN
 -- dx_breakout_story: runtime-breakout edges (pod -> off-profile target, kind).
 -- Story-specific SQL kept for the shipped dashboard; newer dx/breakout PxL derives
 -- target/kind from dx_alerts in PxL instead.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_breakout_story AS
+CREATE OR REPLACE VIEW forensic_db.dx_breakout_story AS
 SELECT
   fromUnixTimestamp64Nano(toInt64(event_time)) AS event_time,
   hostname AS hostname,
@@ -1154,7 +1154,7 @@ WHERE JSONExtractString(RuntimeK8sDetails,'namespace') NOT IN
 -- dx_fullchain_edges: cross-sensor exfil edges (kubescape seed + conn egress +
 -- dns + pgsql) normalized to one edge shape. Feeds dx/fullchain. The UNION must
 -- live in SQL (PxL cannot union DataFrames); labels stay source-based, not parsed.
-CREATE VIEW IF NOT EXISTS forensic_db.dx_fullchain_edges AS
+CREATE OR REPLACE VIEW forensic_db.dx_fullchain_edges AS
 SELECT toDateTime64(fromUnixTimestamp64Nano(toInt64(event_time)),9) AS event_time, hostname AS hostname,
        JSONExtractString(RuntimeK8sDetails,'podName') AS pod, concat('alert:',RuleID) AS from_node,
        JSONExtractString(RuntimeK8sDetails,'podName') AS to_node, RuleID AS edge_label, 'flagged' AS kind,

@@ -36,10 +36,11 @@ import (
 // The reverse drift is cheaper to hit but also worth pinning: a name listed
 // with no DDL behind it fails only when DDL() is called for it.
 
-// createStmt matches the object name in `CREATE TABLE|VIEW IF NOT EXISTS
-// forensic_db.<name>`, with or without the backticks used for dotted names
-// (e.g. `http2_messages.beta`).
-var createStmt = regexp.MustCompile("(?i)CREATE\\s+(?:TABLE|VIEW)\\s+IF\\s+NOT\\s+EXISTS\\s+forensic_db\\.`?([A-Za-z0-9_.]+)`?")
+// createStmt matches the object name in `CREATE TABLE IF NOT EXISTS forensic_db.
+// <name>` (tables) or `CREATE OR REPLACE VIEW forensic_db.<name>` (views — replaced
+// on every Apply so a changed definition never needs a manual DROP), with or
+// without the backticks used for dotted names (e.g. `http2_messages.beta`).
+var createStmt = regexp.MustCompile("(?i)CREATE\\s+(?:TABLE\\s+IF\\s+NOT\\s+EXISTS|OR\\s+REPLACE\\s+VIEW)\\s+forensic_db\\.`?([A-Za-z0-9_.]+)`?")
 
 // socOwnedTables are declared in schema.sql so the operator can verify and read
 // them, but are created by the soc/clickhouse-lab installer — AE must never

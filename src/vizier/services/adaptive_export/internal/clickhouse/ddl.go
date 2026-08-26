@@ -136,7 +136,7 @@ func DDL(table string) (string, error) {
 		identifier = "`" + table + "`"
 	}
 	start := -1
-	for _, kw := range []string{"CREATE TABLE IF NOT EXISTS forensic_db.", "CREATE VIEW IF NOT EXISTS forensic_db."} {
+	for _, kw := range []string{"CREATE TABLE IF NOT EXISTS forensic_db.", "CREATE OR REPLACE VIEW forensic_db."} {
 		if start = strings.Index(canonicalSchema, kw+identifier); start >= 0 {
 			break
 		}

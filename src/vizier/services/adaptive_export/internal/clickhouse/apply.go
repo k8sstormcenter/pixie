@@ -114,6 +114,10 @@ var OperatorOwnedTables = []string{
 	"dx_ord__creds_change",
 	"dx_cases",
 	"dx_case_links",
+	// generic alert flatten (dx/breakout PxL) + story edge views (dx/breakout, dx/fullchain).
+	"dx_alerts",
+	"dx_breakout_story",
+	"dx_fullchain_edges",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the

@@ -1098,3 +1098,78 @@ FROM forensic_db.dns_events
 ARRAY JOIN JSONExtractArrayRaw(resp_body, 'answers') AS ans
 WHERE resp_body != '' AND JSONExtractString(ans, 'type') != ''
   AND concat(JSONExtractString(ans, 'cname'), JSONExtractString(ans, 'addr')) NOT IN ('', '-');
+
+-- dx_alerts: GENERIC thin flatten of kubescape_logs (pod/namespace/rule/message/
+-- sev). Reusable seed for any narrative; story logic (target/kind) is derived in
+-- the PxL (dx/breakout), never here — so the DDL is portable and stays stable.
+CREATE VIEW IF NOT EXISTS forensic_db.dx_alerts AS
+SELECT
+  fromUnixTimestamp64Nano(toInt64(event_time))        AS event_time,
+  hostname                                            AS hostname,
+  JSONExtractString(RuntimeK8sDetails,'namespace')    AS namespace,
+  JSONExtractString(RuntimeK8sDetails,'podName')      AS pod,
+  RuleID                                              AS rule,
+  message                                             AS message,
+  JSONExtractInt(BaseRuntimeMetadata,'severity')      AS sev
+FROM forensic_db.kubescape_logs
+WHERE JSONExtractString(RuntimeK8sDetails,'namespace') NOT IN
+  ('honey','pl','clickhouse','kube-system','kube-public','kube-node-lease',
+   'local-path-storage','px-operator','olm','cert-manager','');
+
+-- dx_breakout_story: runtime-breakout edges (pod -> off-profile target, kind).
+-- Story-specific SQL kept for the shipped dashboard; newer dx/breakout PxL derives
+-- target/kind from dx_alerts in PxL instead.
+CREATE VIEW IF NOT EXISTS forensic_db.dx_breakout_story AS
+SELECT
+  fromUnixTimestamp64Nano(toInt64(event_time)) AS event_time,
+  hostname AS hostname,
+  JSONExtractString(RuntimeK8sDetails,'namespace') AS namespace,
+  JSONExtractString(RuntimeK8sDetails,'podName') AS pod,
+  JSONExtractString(RuntimeK8sDetails,'podName') AS from_node,
+  multiIf(RuleID='R0002' AND position(message,'serviceaccount')>0 AND position(message,'token')>0,'serviceaccount/token (SA cred)',
+          RuleID='R0002', extractGroups(message,' to (.+)$')[1],
+          RuleID='R0001', concat('proc:',coalesce(nullIf(extractGroups(message,'([^ /]+)$')[1],''),'?')),
+          RuleID='R0012', concat('ingress<-',coalesce(nullIf(extractGroups(message,'from: ([^ ]+)')[1],''),'peer')),
+          RuleID='R0011', concat('egress->',coalesce(nullIf(extractGroups(message,'to: ([^ ]+)')[1],''),'peer')),
+          RuleID='R0005', concat('dns:',coalesce(nullIf(extractGroups(message,'([^ ]+)$')[1],''),'?')),
+          RuleID) AS to_node,
+  RuleID AS rule,
+  multiIf(RuleID='R0001','process',
+          RuleID='R0002' AND position(message,'serviceaccount')>0 AND position(message,'token')>0,'token-read',
+          RuleID='R0002' AND match(message,'\\.so'),'libload',
+          RuleID='R0002' AND position(message,'/proc/')>0,'proc-read',
+          RuleID='R0002' AND (position(message,'/etc/')>0 OR position(message,'/runc')>0 OR position(message,'/root')>0),'sensitive',
+          RuleID='R0002' AND position(message,'/tmp')>0,'tmp-write',
+          RuleID='R0002','file-access',
+          RuleID='R0012','ingress', RuleID='R0011','egress', RuleID='R0005','dns',
+          RuleID='R0004','capability', RuleID='R0003','syscall',
+          RuleID IN ('R0006','R0007','R0008'),'cred-access','alert') AS kind,
+  JSONExtractInt(BaseRuntimeMetadata,'severity') AS sev
+FROM forensic_db.kubescape_logs
+WHERE JSONExtractString(RuntimeK8sDetails,'namespace') NOT IN
+  ('honey','pl','clickhouse','kube-system','kube-public','kube-node-lease',
+   'local-path-storage','px-operator','olm','cert-manager','gmp-system',
+   'gmp-public','storm','lightening','chain-loadgen','');
+
+-- dx_fullchain_edges: cross-sensor exfil edges (kubescape seed + conn egress +
+-- dns + pgsql) normalized to one edge shape. Feeds dx/fullchain. The UNION must
+-- live in SQL (PxL cannot union DataFrames); labels stay source-based, not parsed.
+CREATE VIEW IF NOT EXISTS forensic_db.dx_fullchain_edges AS
+SELECT toDateTime64(fromUnixTimestamp64Nano(toInt64(event_time)),9) AS event_time, hostname AS hostname,
+       JSONExtractString(RuntimeK8sDetails,'podName') AS pod, concat('alert:',RuleID) AS from_node,
+       JSONExtractString(RuntimeK8sDetails,'podName') AS to_node, RuleID AS edge_label, 'flagged' AS kind,
+       toInt32(JSONExtractInt(BaseRuntimeMetadata,'severity')) AS sev
+FROM forensic_db.kubescape_logs
+WHERE JSONExtractString(RuntimeK8sDetails,'namespace') NOT IN
+  ('honey','pl','clickhouse','kube-system','kube-public','kube-node-lease',
+   'local-path-storage','px-operator','olm','cert-manager','')
+UNION ALL
+SELECT toDateTime64(time_,9), hostname, pod, pod, remote_addr,
+       concat('conn/',toString(protocol)), 'connects', toInt32(5)
+FROM forensic_db.conn_stats WHERE trace_role=1 AND remote_addr!=''
+UNION ALL
+SELECT toDateTime64(time_,9), hostname, pod, pod, req_body, 'dns', 'resolves', toInt32(5)
+FROM forensic_db.dns_events WHERE req_body!=''
+UNION ALL
+SELECT toDateTime64(time_,9), hostname, pod, pod, substring(req,1,60), 'sql', 'sql', toInt32(5)
+FROM forensic_db.pgsql_events WHERE req!='';

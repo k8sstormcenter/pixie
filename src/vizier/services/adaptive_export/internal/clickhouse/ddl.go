@@ -113,6 +113,10 @@ var KnownTables = []string{
 	"dx_ord__creds_change",
 	"dx_cases",
 	"dx_case_links",
+	// generic alert flatten + breakout/fullchain story edge views.
+	"dx_alerts",
+	"dx_breakout_story",
+	"dx_fullchain_edges",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table

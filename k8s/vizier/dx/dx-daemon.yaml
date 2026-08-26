@@ -23,7 +23,7 @@ spec:
         # (WITHOUT -tiny — -tiny's pclntab stripping SIGSEGV'd under load). Passes the
         # obfuscation gate AND survives the kill-chain (restarts=0, 4 rounds). Carries the
         # evidence-manifest + DX_FOREST_PUSHDOWN code.
-        image: docker.io/entlein/dx-daemon:0.5.0-keepset-rc11
+        image: docker.io/entlein/dx-daemon:0.5.0-keepset-rc23
         ports:
         - { name: findings, containerPort: 9099, hostPort: 9099 }
         env:
@@ -53,6 +53,8 @@ spec:
         - { name: DX_FOREST_PUSHDOWN, value: "1" }
         - { name: DX_FOREST_PUSHDOWN_DEPTH, value: "4" }
         - { name: DX_PRECORRELATE_GRAPH, value: "1" }
+        - { name: DX_NARROW_WINDOW_BEFORE_MS, value: "150" }
+        - { name: DX_NARROW_WINDOW_AFTER_MS, value: "150" }  # server-side protocol capture lands just after the anomaly
         - { name: DX_EVIDENCE_GRAPH_CH, value: "http://ingest_writer:changeme-ingest@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:8123/forensic_db" }
         readinessProbe:
           httpGet: { path: /healthz, port: 9099, scheme: HTTPS }

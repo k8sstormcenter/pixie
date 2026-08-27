@@ -14,6 +14,11 @@ manifests:
     paths:
     - k8s/operator/deployment/base/
 profiles:
+- name: sbob
+  patches:
+  - op: replace
+    path: /manifests/kustomize/paths/0
+    value: k8s/operator/deployment/sbob
 - name: minikube
   activation:
   - kubeContext: minikube

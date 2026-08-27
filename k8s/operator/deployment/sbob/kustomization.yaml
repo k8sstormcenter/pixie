@@ -1,0 +1,18 @@
+# SBoB overlay for the direct-install operator path (skaffold -p sbob). Layers the
+# vizier-operator ContainerProfile + the pod-template binding label over the base.
+# OLM-install path binds the same profile via the CSV/helm instead (see
+# k8s/operator/helm/templates/00_olm.yaml + bundle/csv.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- ../base
+- profiles/cp-vizier-operator.yaml
+
+patches:
+- target: {kind: Deployment, name: vizier-operator}
+  patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata: {name: vizier-operator}
+    spec: {template: {metadata: {labels: {kubescape.io/user-defined-profile: vizier-operator}}}}

@@ -281,6 +281,26 @@
           }
         ]
       }
+    },
+    {
+      "outputName": "g_capability",
+      "func": {
+        "name": "capability",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "order_id",
+            "variable": "order_id"
+          }
+        ]
+      }
     }
   ],
   "widgets": [
@@ -501,6 +521,19 @@
         "percentageColumn": "percent",
         "podColumn": "pod",
         "differenceColumn": "delta"
+      }
+    },
+    {
+      "name": "Capability result for order (R0004: caps acquired -> actions they enabled, same PID)",
+      "position": {
+        "x": 0,
+        "y": 35,
+        "w": 12,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_capability",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
       }
     }
   ]

@@ -87,6 +87,23 @@ def kubescape(start_time: str, clickhouse_dsn: str, order_id: str):
     return j.drop(['row_time', 'event_time', 'kubescape_uid', 'rule_id', 'uniqueID'])
 
 
+def capability(start_time: str, clickhouse_dsn: str, order_id: str):
+    # R0004 (unexpected capability) has NO protocol evidence — the meaningful result
+    # is what the offending PID DID with the capability. Seed = the order's PID(s),
+    # then every kubescape anomaly by that same PID: the caps it acquired AND the
+    # actions they enabled (e.g. CAP_SETUID -> launch cat -> read /etc/shadow).
+    orders = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = orders[orders.order_id == order_id]
+    orders = orders[['kubescape_uid']]
+    k = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    seed = k.merge(orders, how='inner', left_on=['uniqueID'], right_on=['kubescape_uid'], suffixes=['', '_o'])
+    seed = seed.groupby(['pid', 'pod']).agg(hits=('RuleID', px.count))
+    seed = seed[['pid', 'pod']]
+    allk = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    acts = allk.merge(seed, how='inner', left_on=['pid', 'pod'], right_on=['pid', 'pod'], suffixes=['', '_s'])
+    return acts[['ts', 'RuleID', 'mitre_tactic', 'mitre_technique', 'alert', 'comm', 'pid']]
+
+
 def conn(start_time: str, clickhouse_dsn: str, order_id: str):
     return _ord(start_time, clickhouse_dsn, 'dx_ord__conn_stats', order_id)
 

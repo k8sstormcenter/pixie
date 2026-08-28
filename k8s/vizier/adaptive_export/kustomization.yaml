@@ -4,6 +4,7 @@ namespace: pl
 resources:
   - ../bootstrap/adaptive_export_role.yaml
   - ../bootstrap/adaptive_export_deployment.yaml
+  - ../sbob/profiles/cp-adaptive-export.yaml
 images:
   - name: vizier-adaptive_export_image
     newName: ghcr.io/k8sstormcenter/vizier-adaptive_export_image

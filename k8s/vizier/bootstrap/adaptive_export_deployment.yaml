@@ -11,7 +11,7 @@ spec:
     matchLabels: { name: adaptive-export }
   template:
     metadata:
-      labels: { name: adaptive-export, plane: control }
+      labels: { name: adaptive-export, plane: control, kubescape.io/user-defined-profile: adaptive-export }
     spec:
       affinity:
         nodeAffinity:

@@ -66,7 +66,7 @@
   ],
   "widgets": [
     {
-      "name": "What the pod did (pod -> each kubescape alert; edge weight = times seen)",
+      "name": "What the pod did (pod -> target; edge = category; hover = full alert)",
       "position": { "x": 0, "y": 0, "w": 12, "h": 4 },
       "globalFuncOutputName": "g_killchain",
       "displaySpec": {

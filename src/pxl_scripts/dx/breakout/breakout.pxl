@@ -15,10 +15,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Breakout view — standalone forensic view of what a workload did once it
-# deviated from its profile. Independent of dx/evidence_graph. The kubescape
-# `alert` string from ClickHouse is the evidence; its prefix (text before the
-# first ':') is the human category used for the graph/summary, the full string
-# for the detail timeline. Works only with ClickHouse enabled.
+# deviated from its profile. Independent of dx/evidence_graph. Every value is
+# derived from the kubescape `alert` string in ClickHouse: `category` = the text
+# before the first ':' ("Unexpected ..."), `target` = the first token after it
+# (the object/tool). Graph edge = category, node = target, hover = full alert.
+# Works only with ClickHouse enabled.
 
 import px
 
@@ -26,15 +27,15 @@ import px
 def _dev(start_time: str, clickhouse_dsn: str, pod: str):
     df = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[px.contains(df.pod, pod)]
-    # Category = the alert text before the first ':' (e.g. "Unexpected process
-    # launched"). Derived from the alert, not a hand-written map.
     df.category = px.pluck_array(px.split(df.alert, ':'), 0)
+    # First token after the ':' — split on ':' then on ' '; index 1 skips the
+    # leading empty produced by the ": " space.
+    df.target = px.pluck_array(px.split(px.pluck_array(px.split(df.alert, ':'), 1), ' '), 1)
     return df
 
 
 def timeline(start_time: str, clickhouse_dsn: str, pod: str):
-    # Every deviation in order; `alert` is the full kubescape text (command,
-    # file, or capability + the offending child PID).
+    # Every deviation in order; `alert` is the full kubescape text.
     df = _dev(start_time, clickhouse_dsn, pod)
     return df[['ts', 'alert', 'comm', 'pid', 'ppid', 'cmdline']]
 
@@ -47,20 +48,20 @@ def summary(start_time: str, clickhouse_dsn: str, pod: str):
 
 
 def killchain(start_time: str, clickhouse_dsn: str, pod: str):
-    # Graph: the pod -> each category of thing it did. Bounded node count (one
-    # per category), edge weight = how many times.
+    # Graph: pod -> target (node). Edge label = category ("Unexpected ...").
+    # Bounded node count (one per target). Edges aggregate many alerts, so a
+    # single full alert per edge is not well-defined — the full alerts are the
+    # timeline panel; the hover shows category + count.
     df = _dev(start_time, clickhouse_dsn, pod)
-    agg = df.groupby(['pod', 'category']).agg(hits=('uniqueID', px.count))
+    agg = df.groupby(['pod', 'target', 'category']).agg(hits=('uniqueID', px.count))
     agg.from_entity = px.Pod(agg.pod)
-    agg.to_entity = agg.category
+    agg.to_entity = agg.target
     return agg[['from_entity', 'to_entity', 'category', 'hits']]
 
 
 def exfiltration(start_time: str, clickhouse_dsn: str):
     # Data-bearing HTTP correlated to the breakout: POST requests carry a body,
     # and req_body is that payload on the wire (the exfiltrated bytes).
-    # dx_ord__http_events is a forensic view (a native table name like
-    # 'http_events' would resolve to Pixie's built-in schema without pod/req_body).
     df = px.DataFrame('dx_ord__http_events', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[df.req_method == 'POST']
     return df[['ts', 'order_id', 'pod', 'remote_addr', 'req_path', 'resp_status', 'req_body']]

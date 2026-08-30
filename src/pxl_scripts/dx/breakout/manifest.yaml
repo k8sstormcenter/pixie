@@ -1,0 +1,6 @@
+---
+short: Breakout
+long: >
+  Standalone breakout view (rogue-shadow-profile evidence). Every action a
+  workload took that its profile disallowed — chronological command timeline,
+  MITRE kill-chain graph, rule tally. Works only with ClickHouse enabled.

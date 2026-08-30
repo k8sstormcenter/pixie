@@ -27,6 +27,23 @@ deploy:
                 # PL_CLOUD_ADDR must carry an explicit :443 or the AE cloud client crashloops.
                 CA=$(kubectl -n pl get cm pl-cloud-config -o jsonpath='{.data.PL_CLOUD_ADDR}' 2>/dev/null || true)
                 case "$CA" in ""|*:*) ;; *) kubectl -n pl patch cm pl-cloud-config --type merge -p "{\"data\":{\"PL_CLOUD_ADDR\":\"$CA:443\"}}";; esac
+                # Schema-drift guard: AE apply.go is CREATE-IF-NOT-EXISTS, so it cannot repair a
+                # stale forensic_db table (e.g. conn_stats without unique_id, left by an older dx
+                # line) and fatals building the dx_ord__ views. If drift is detected, drop the
+                # AE-owned tables (keep vector-owned kubescape_logs + alerts) so apply recreates
+                # them clean. No-op once the schema is current -> safe on every deploy.
+                CHPOD=$(kubectl -n clickhouse get pods -l clickhouse.altinity.com/chi=forensic-soc-db -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+                if [ -n "$CHPOD" ]; then
+                  chq(){ kubectl -n clickhouse exec -i "$CHPOD" -- clickhouse-client "$@"; }
+                  CONN=$(chq -q "EXISTS forensic_db.conn_stats" 2>/dev/null || echo 0)
+                  UID_OK=$(chq -q "SELECT count() FROM system.columns WHERE database='forensic_db' AND table='conn_stats' AND name='unique_id'" 2>/dev/null || echo 0)
+                  if [ "$CONN" = "1" ] && [ "$UID_OK" = "0" ]; then
+                    echo "AE schema drift: forensic_db.conn_stats lacks unique_id -> dropping AE-owned objects so apply recreates them"
+                    for OBJ in $(chq -q "SELECT name FROM system.tables WHERE database='forensic_db' AND name NOT IN ('kubescape_logs','alerts')" 2>/dev/null); do
+                      chq -q "DROP TABLE IF EXISTS forensic_db.\`$OBJ\`" 2>/dev/null || true
+                    done
+                  fi
+                fi
                 # Seed pl-adaptive-export-secrets ONLY when a key is supplied; never clobber a good secret with an empty one.
                 API="${PIXIE_API_KEY:-${PX_API_KEY:-}}"
                 CH_DSN="${AE_CH_DSN:-ingest_writer:changeme-ingest@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db}"

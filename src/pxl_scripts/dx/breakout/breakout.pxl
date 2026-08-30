@@ -14,11 +14,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# Breakout view — standalone forensic view of what a workload actually did once
-# it deviated from its profile (rogue-shadow-profile evidence). Independent of
-# dx/evidence_graph. Plain-English actions (no rule/MITRE codes in the graph),
-# and a real exfiltration-proof panel: the stolen bytes captured on the wire.
-# Works only with ClickHouse enabled.
+# Breakout view — standalone forensic view of what a workload did once it
+# deviated from its profile. Independent of dx/evidence_graph. The kubescape
+# `alert` string from ClickHouse is the human-readable evidence (it names the
+# exact command, file, and PID); used verbatim, no re-mapping. Plus an
+# exfiltration-proof panel: the stolen bytes captured on the wire. Works only
+# with ClickHouse enabled.
 
 import px
 
@@ -28,56 +29,37 @@ def _dev(start_time: str, clickhouse_dsn: str, pod: str):
     return df[px.contains(df.pod, pod)]
 
 
-def _action(df):
-    # RuleID -> plain-English action, so a human reads "stole ServiceAccount
-    # token" instead of "R0006 / T1528".
-    df.action = px.select(df.RuleID == 'R0001', 'spawned unexpected process',
-                px.select(df.RuleID == 'R0002', 'read unexpected file',
-                px.select(df.RuleID == 'R0004', 'used unexpected capability',
-                px.select(df.RuleID == 'R0005', 'resolved external domain',
-                px.select(df.RuleID == 'R0006', 'stole ServiceAccount token',
-                px.select(df.RuleID == 'R0011', 'sent unexpected network egress',
-                px.select(df.RuleID == 'R1030', 'ran unexpected io_uring op',
-                          df.RuleID)))))))
-    return df
-
-
 def timeline(start_time: str, clickhouse_dsn: str, pod: str):
-    # What the pod did, in order. `action` is plain English; `detail` is the raw
-    # alert (carries the actual command the exploit spawned + the child PID).
+    # What the pod did, in order. `alert` is the full kubescape text (the command,
+    # file, or capability + the offending child PID); `cmdline` the process line.
     df = _dev(start_time, clickhouse_dsn, pod)
-    df = _action(df)
-    df.detail = df.alert
-    return df[['ts', 'action', 'detail', 'comm', 'pid', 'ppid']]
-
-
-def killchain(start_time: str, clickhouse_dsn: str, pod: str):
-    # Graph: the pod -> each thing it did (plain English). Edge weight = how many
-    # times; edge label = the action. No rule/MITRE codes.
-    df = _dev(start_time, clickhouse_dsn, pod)
-    df = _action(df)
-    agg = df.groupby(['pod', 'action']).agg(hits=('uniqueID', px.count))
-    agg.from_entity = px.Pod(agg.pod)
-    agg.to_entity = agg.action
-    return agg[['from_entity', 'to_entity', 'action', 'hits']]
+    return df[['ts', 'alert', 'comm', 'pid', 'ppid', 'cmdline']]
 
 
 def summary(start_time: str, clickhouse_dsn: str, pod: str):
-    # One row per kind of thing the pod did, with a count.
+    # Distinct alerts and how often each fired.
     df = _dev(start_time, clickhouse_dsn, pod)
-    df = _action(df)
-    agg = df.groupby(['action']).agg(hits=('uniqueID', px.count))
-    return agg[['action', 'hits']]
+    agg = df.groupby(['alert', 'mitre_technique']).agg(hits=('uniqueID', px.count))
+    return agg[['alert', 'mitre_technique', 'hits']]
+
+
+def killchain(start_time: str, clickhouse_dsn: str, pod: str):
+    # Graph: the pod -> each distinct alert it raised. Node label = the alert
+    # itself; edge weight = how many times.
+    df = _dev(start_time, clickhouse_dsn, pod)
+    agg = df.groupby(['pod', 'alert']).agg(hits=('uniqueID', px.count))
+    agg.from_entity = px.Pod(agg.pod)
+    agg.to_entity = agg.alert
+    return agg[['from_entity', 'to_entity', 'alert', 'hits']]
 
 
 def exfiltration(start_time: str, clickhouse_dsn: str):
     # PROOF OF EXFILTRATION: stolen data leaving over HTTP. The captured req_body
     # IS the payload — an eyJ...-prefixed body is a JWT (the ServiceAccount token).
-    # dest_pod = where it landed, from_ip = the sender.
     df = px.DataFrame('http_events', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[df.req_method == 'POST']
     df = df[px.contains(df.req_body, 'eyJ')]
-    df.dest_pod = df.pod
     df.from_ip = df.remote_addr
+    df.dest_pod = df.pod
     df.stolen_payload = df.req_body
     return df[['time_', 'from_ip', 'dest_pod', 'req_path', 'stolen_payload']]

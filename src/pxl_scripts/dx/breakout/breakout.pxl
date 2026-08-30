@@ -49,7 +49,7 @@ def presentation(start_time: str, clickhouse_dsn: str, host: str):
     # (one representative per edge). Bounded node count (one per site).
     df = _host(start_time, clickhouse_dsn, host)
     agg = df.groupby(['pod', 'site', 'sign']).agg(
-        count=('uniqueID', px.count), symptom=('symptom', px.min))
+        count=('uniqueID', px.count), symptom=('symptom', px.any))
     agg.from_entity = px.Pod(agg.pod)
     agg.to_entity = agg.site
     return agg[['from_entity', 'to_entity', 'sign', 'symptom', 'count']]

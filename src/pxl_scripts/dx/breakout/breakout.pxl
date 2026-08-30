@@ -56,10 +56,11 @@ def killchain(start_time: str, clickhouse_dsn: str, pod: str):
 def exfiltration(start_time: str, clickhouse_dsn: str):
     # PROOF OF EXFILTRATION: stolen data leaving over HTTP. The captured req_body
     # IS the payload — an eyJ...-prefixed body is a JWT (the ServiceAccount token).
-    df = px.DataFrame('http_events', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    # Reads dx_ord__http_events (a forensic view): a native table name like
+    # 'http_events' resolves to Pixie's built-in schema (no `pod`/`req_body`),
+    # so the CH-only columns must come from a dx_ view. `pod` = sink, remote_addr
+    # = sender; order_id ties it to the breakout campaign.
+    df = px.DataFrame('dx_ord__http_events', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[df.req_method == 'POST']
     df = df[px.contains(df.req_body, 'eyJ')]
-    df.from_ip = df.remote_addr
-    df.dest_pod = df.pod
-    df.stolen_payload = df.req_body
-    return df[['time_', 'from_ip', 'dest_pod', 'req_path', 'stolen_payload']]
+    return df[['ts', 'order_id', 'pod', 'remote_addr', 'req_path', 'req_body']]

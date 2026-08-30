@@ -14,54 +14,41 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# Runtime-breakout story — workload-agnostic; ClickHouse only.
-#
-# The DB view (dx_alerts) is deliberately GENERIC: a thin flatten of
-# kubescape_logs (pod/namespace/rule/message/sev), reusable by any narrative.
-# ALL the story logic — how a message becomes a target node and a kind — lives
-# HERE in PxL, so you can fumble with it locally without touching the DB/AE.
-# Edit _alerts() to reshape the story; the DDL never has to change.
+# Breakout view — standalone. Shows the rogue-shadow-profile evidence for one
+# workload: every action it took that its profile (signed base + learned shadow)
+# did NOT allow. Each deviation's `alert` text carries the actual command the
+# exploit spawned and the offending child PID — kubescape stamps the container's
+# own pid on the structured row, so the child pid lives only in the alert string.
+# Works only with ClickHouse enabled. Independent of dx/evidence_graph.
 
 import px
 
 
-def _alerts(start_time: str, clickhouse_dsn: str, namespace: str):
-    a = px.DataFrame('dx_alerts', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    a = a[px.contains(a.namespace, namespace)]
-    # target = the tail after the last ": " or "to "/"to: " in the alert message.
-    a.target = px.replace('^.*(: |to:? )', a.message, '')
-    # collapse the timestamped serviceaccount-token path to one node.
-    a.target = px.select(px.contains(a.target, 'serviceaccount'), 'serviceaccount/token', a.target)
-    # kind = coarse rule map, refined for R0002 file sub-types. Extend freely.
-    a.kind = px.select(a.rule == 'R0001', 'process',
-             px.select(a.rule == 'R0011', 'egress',
-             px.select(a.rule == 'R0012', 'ingress',
-             px.select(a.rule == 'R0005', 'dns',
-             px.select(a.rule == 'R0004', 'capability',
-             px.select(px.contains(a.message, 'serviceaccount'), 'token-read',
-             px.select(px.contains(a.message, '.so'), 'libload',
-             px.select(px.contains(a.message, '/proc/'), 'proc-read',
-             px.select(px.contains(a.message, '/tmp'), 'tmp-write',
-             'file-access')))))))))
-    return a
+def _dev(start_time: str, clickhouse_dsn: str, pod: str):
+    df = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    return df[px.contains(df.pod, pod)]
 
 
-def story(start_time: str, clickhouse_dsn: str, namespace: str):
-    a = _alerts(start_time, clickhouse_dsn, namespace)
-    g = a.groupby(['namespace', 'pod', 'target', 'kind', 'rule']).agg(
-        events=('sev', px.count), sev=('sev', px.max))
-    g.from_entity = g.pod
-    g.to_entity = g.target
-    return g[['from_entity', 'to_entity', 'kind', 'rule', 'events', 'sev', 'namespace']]
+def timeline(start_time: str, clickhouse_dsn: str, pod: str):
+    # Chronological deviation stream — one row per flagged action. `alert` is the
+    # evidence (e.g. "Unexpected process launched: cat ... to serviceaccount/token").
+    df = _dev(start_time, clickhouse_dsn, pod)
+    return df[['ts', 'RuleID', 'mitre_tactic', 'mitre_technique', 'alert', 'comm', 'pid', 'ppid']]
 
 
-def beats(start_time: str, clickhouse_dsn: str, namespace: str):
-    a = _alerts(start_time, clickhouse_dsn, namespace)
-    s = a.groupby(['namespace', 'kind', 'rule']).agg(events=('sev', px.count), sev=('sev', px.max))
-    return s[['namespace', 'kind', 'rule', 'sev', 'events']]
+def killchain(start_time: str, clickhouse_dsn: str, pod: str):
+    # Graph: subject pod -> each MITRE step it tripped; edge weight = hit count.
+    df = _dev(start_time, clickhouse_dsn, pod)
+    df.step = df.RuleID + ' ' + df.mitre_technique
+    agg = df.groupby(['pod', 'step', 'RuleID', 'mitre_tactic', 'mitre_technique']).agg(
+        hits=('uniqueID', px.count))
+    agg.from_entity = px.Pod(agg.pod)
+    agg.to_entity = agg.step
+    return agg[['from_entity', 'to_entity', 'RuleID', 'mitre_tactic', 'mitre_technique', 'hits']]
 
 
-def targets(start_time: str, clickhouse_dsn: str, namespace: str):
-    a = _alerts(start_time, clickhouse_dsn, namespace)
-    s = a.groupby(['namespace', 'kind', 'target']).agg(events=('sev', px.count))
-    return s[['namespace', 'kind', 'target', 'events']]
+def summary(start_time: str, clickhouse_dsn: str, pod: str):
+    # Rule tally for the workload — the shape of the breakout at a glance.
+    df = _dev(start_time, clickhouse_dsn, pod)
+    agg = df.groupby(['RuleID', 'mitre_tactic', 'mitre_technique']).agg(hits=('uniqueID', px.count))
+    return agg[['RuleID', 'mitre_tactic', 'mitre_technique', 'hits']]

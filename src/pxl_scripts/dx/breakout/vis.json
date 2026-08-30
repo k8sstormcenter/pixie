@@ -1,0 +1,86 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "Window start.",
+      "defaultValue": "-6h"
+    },
+    {
+      "name": "clickhouse_dsn",
+      "type": "PX_STRING",
+      "description": "forensic_db DSN: user:pass@host:port/db.",
+      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+    },
+    {
+      "name": "pod",
+      "type": "PX_STRING",
+      "description": "Substring of the watched pod (ns/name). The breakout target.",
+      "defaultValue": "opsboard"
+    }
+  ],
+  "globalFuncs": [
+    {
+      "outputName": "g_killchain",
+      "func": {
+        "name": "killchain",
+        "args": [
+          { "name": "start_time", "variable": "start_time" },
+          { "name": "clickhouse_dsn", "variable": "clickhouse_dsn" },
+          { "name": "pod", "variable": "pod" }
+        ]
+      }
+    },
+    {
+      "outputName": "g_summary",
+      "func": {
+        "name": "summary",
+        "args": [
+          { "name": "start_time", "variable": "start_time" },
+          { "name": "clickhouse_dsn", "variable": "clickhouse_dsn" },
+          { "name": "pod", "variable": "pod" }
+        ]
+      }
+    },
+    {
+      "outputName": "g_timeline",
+      "func": {
+        "name": "timeline",
+        "args": [
+          { "name": "start_time", "variable": "start_time" },
+          { "name": "clickhouse_dsn", "variable": "clickhouse_dsn" },
+          { "name": "pod", "variable": "pod" }
+        ]
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "name": "Kill chain — pod tripped these MITRE steps (edge weight = hits)",
+      "position": { "x": 0, "y": 0, "w": 12, "h": 4 },
+      "globalFuncOutputName": "g_killchain",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Graph",
+        "adjacencyList": { "fromColumn": "from_entity", "toColumn": "to_entity" },
+        "edgeWeightColumn": "hits",
+        "edgeColorColumn": "hits",
+        "edgeLabelColumn": "RuleID",
+        "edgeThresholds": { "mediumThreshold": 3, "highThreshold": 10 },
+        "edgeHoverInfo": ["RuleID", "mitre_tactic", "mitre_technique", "hits"],
+        "edgeLength": 400
+      }
+    },
+    {
+      "name": "Rule tally (rogue-shadow-profile deviations by rule)",
+      "position": { "x": 0, "y": 4, "w": 12, "h": 3 },
+      "globalFuncOutputName": "g_summary",
+      "displaySpec": { "@type": "types.px.dev/px.vispb.Table" }
+    },
+    {
+      "name": "Breakout timeline — the actual commands (alert = spawned cmd + child PID)",
+      "position": { "x": 0, "y": 7, "w": 12, "h": 6 },
+      "globalFuncOutputName": "g_timeline",
+      "displaySpec": { "@type": "types.px.dev/px.vispb.Table" }
+    }
+  ]
+}

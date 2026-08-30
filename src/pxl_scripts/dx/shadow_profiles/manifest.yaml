@@ -1,0 +1,4 @@
+---
+short: Shadow profiles
+long: >
+  The learned (shadow) ContainerProfiles the node-agent recorded per workload, and the size of each captured behaviour set.

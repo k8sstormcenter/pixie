@@ -1,0 +1,4 @@
+---
+short: MITRE coverage
+long: >
+  The ATT&CK tactics and techniques observed across the cluster, with observation counts.

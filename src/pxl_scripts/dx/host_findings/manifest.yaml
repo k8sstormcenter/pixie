@@ -1,0 +1,4 @@
+---
+short: Host findings
+long: >
+  Which hosts are symptomatic: count of profile deviations (findings) per pod.

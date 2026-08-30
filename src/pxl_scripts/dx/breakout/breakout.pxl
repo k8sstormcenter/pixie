@@ -16,51 +16,51 @@
 #
 # Breakout view — standalone forensic view of what a workload did once it
 # deviated from its profile. Independent of dx/evidence_graph. The kubescape
-# `alert` string from ClickHouse is the human-readable evidence (it names the
-# exact command, file, and PID); used verbatim, no re-mapping. Plus an
-# exfiltration-proof panel: the stolen bytes captured on the wire. Works only
-# with ClickHouse enabled.
+# `alert` string from ClickHouse is the evidence; its prefix (text before the
+# first ':') is the human category used for the graph/summary, the full string
+# for the detail timeline. Works only with ClickHouse enabled.
 
 import px
 
 
 def _dev(start_time: str, clickhouse_dsn: str, pod: str):
     df = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    return df[px.contains(df.pod, pod)]
+    df = df[px.contains(df.pod, pod)]
+    # Category = the alert text before the first ':' (e.g. "Unexpected process
+    # launched"). Derived from the alert, not a hand-written map.
+    df.category = px.pluck_array(px.split(df.alert, ':'), 0)
+    return df
 
 
 def timeline(start_time: str, clickhouse_dsn: str, pod: str):
-    # What the pod did, in order. `alert` is the full kubescape text (the command,
-    # file, or capability + the offending child PID); `cmdline` the process line.
+    # Every deviation in order; `alert` is the full kubescape text (command,
+    # file, or capability + the offending child PID).
     df = _dev(start_time, clickhouse_dsn, pod)
     return df[['ts', 'alert', 'comm', 'pid', 'ppid', 'cmdline']]
 
 
 def summary(start_time: str, clickhouse_dsn: str, pod: str):
-    # Distinct alerts and how often each fired.
+    # Tally by category.
     df = _dev(start_time, clickhouse_dsn, pod)
-    agg = df.groupby(['alert', 'mitre_technique']).agg(hits=('uniqueID', px.count))
-    return agg[['alert', 'mitre_technique', 'hits']]
+    agg = df.groupby(['category']).agg(hits=('uniqueID', px.count))
+    return agg[['category', 'hits']]
 
 
 def killchain(start_time: str, clickhouse_dsn: str, pod: str):
-    # Graph: the pod -> each distinct alert it raised. Node label = the alert
-    # itself; edge weight = how many times.
+    # Graph: the pod -> each category of thing it did. Bounded node count (one
+    # per category), edge weight = how many times.
     df = _dev(start_time, clickhouse_dsn, pod)
-    agg = df.groupby(['pod', 'alert']).agg(hits=('uniqueID', px.count))
+    agg = df.groupby(['pod', 'category']).agg(hits=('uniqueID', px.count))
     agg.from_entity = px.Pod(agg.pod)
-    agg.to_entity = agg.alert
-    return agg[['from_entity', 'to_entity', 'alert', 'hits']]
+    agg.to_entity = agg.category
+    return agg[['from_entity', 'to_entity', 'category', 'hits']]
 
 
 def exfiltration(start_time: str, clickhouse_dsn: str):
-    # PROOF OF EXFILTRATION: stolen data leaving over HTTP. The captured req_body
-    # IS the payload — an eyJ...-prefixed body is a JWT (the ServiceAccount token).
-    # Reads dx_ord__http_events (a forensic view): a native table name like
-    # 'http_events' resolves to Pixie's built-in schema (no `pod`/`req_body`),
-    # so the CH-only columns must come from a dx_ view. `pod` = sink, remote_addr
-    # = sender; order_id ties it to the breakout campaign.
+    # Data-bearing HTTP correlated to the breakout: POST requests carry a body,
+    # and req_body is that payload on the wire (the exfiltrated bytes).
+    # dx_ord__http_events is a forensic view (a native table name like
+    # 'http_events' would resolve to Pixie's built-in schema without pod/req_body).
     df = px.DataFrame('dx_ord__http_events', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[df.req_method == 'POST']
-    df = df[px.contains(df.req_body, 'eyJ')]
-    return df[['ts', 'order_id', 'pod', 'remote_addr', 'req_path', 'req_body']]
+    return df[['ts', 'order_id', 'pod', 'remote_addr', 'req_path', 'resp_status', 'req_body']]

@@ -74,9 +74,9 @@
         "adjacencyList": { "fromColumn": "from_entity", "toColumn": "to_entity" },
         "edgeWeightColumn": "hits",
         "edgeColorColumn": "hits",
-        "edgeLabelColumn": "alert",
+        "edgeLabelColumn": "category",
         "edgeThresholds": { "mediumThreshold": 3, "highThreshold": 10 },
-        "edgeHoverInfo": ["alert", "hits"],
+        "edgeHoverInfo": ["category", "hits"],
         "edgeLength": 400
       }
     },

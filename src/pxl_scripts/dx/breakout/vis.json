@@ -43,6 +43,16 @@
       }
     },
     {
+      "outputName": "g_exfil",
+      "func": {
+        "name": "exfiltration",
+        "args": [
+          { "name": "start_time", "variable": "start_time" },
+          { "name": "clickhouse_dsn", "variable": "clickhouse_dsn" }
+        ]
+      }
+    },
+    {
       "outputName": "g_timeline",
       "func": {
         "name": "timeline",
@@ -56,7 +66,7 @@
   ],
   "widgets": [
     {
-      "name": "Kill chain — pod tripped these MITRE steps (edge weight = hits)",
+      "name": "What the pod did (plain English; edge weight = times seen)",
       "position": { "x": 0, "y": 0, "w": 12, "h": 4 },
       "globalFuncOutputName": "g_killchain",
       "displaySpec": {
@@ -64,21 +74,27 @@
         "adjacencyList": { "fromColumn": "from_entity", "toColumn": "to_entity" },
         "edgeWeightColumn": "hits",
         "edgeColorColumn": "hits",
-        "edgeLabelColumn": "RuleID",
+        "edgeLabelColumn": "action",
         "edgeThresholds": { "mediumThreshold": 3, "highThreshold": 10 },
-        "edgeHoverInfo": ["RuleID", "mitre_tactic", "mitre_technique", "hits"],
+        "edgeHoverInfo": ["action", "hits"],
         "edgeLength": 400
       }
     },
     {
-      "name": "Rule tally (rogue-shadow-profile deviations by rule)",
+      "name": "PROOF OF EXFILTRATION — stolen bytes on the wire (eyJ... = the ServiceAccount JWT)",
       "position": { "x": 0, "y": 4, "w": 12, "h": 3 },
+      "globalFuncOutputName": "g_exfil",
+      "displaySpec": { "@type": "types.px.dev/px.vispb.Table" }
+    },
+    {
+      "name": "Summary — what the pod did, by kind",
+      "position": { "x": 0, "y": 7, "w": 4, "h": 4 },
       "globalFuncOutputName": "g_summary",
       "displaySpec": { "@type": "types.px.dev/px.vispb.Table" }
     },
     {
-      "name": "Breakout timeline — the actual commands (alert = spawned cmd + child PID)",
-      "position": { "x": 0, "y": 7, "w": 12, "h": 6 },
+      "name": "Forensic timeline — every action in order (detail = the actual command + child PID)",
+      "position": { "x": 4, "y": 7, "w": 8, "h": 4 },
       "globalFuncOutputName": "g_timeline",
       "displaySpec": { "@type": "types.px.dev/px.vispb.Table" }
     }

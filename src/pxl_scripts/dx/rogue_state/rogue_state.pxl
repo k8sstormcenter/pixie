@@ -35,3 +35,21 @@ def by_ns(start_time: str, clickhouse_dsn: str):
     df.to_entity = df.container_name
     agg = df.groupby(['from_entity', 'to_entity']).agg(seen=('name', px.count))
     return agg[['from_entity', 'to_entity', 'seen']]
+
+
+def transitions(start_time: str, clickhouse_dsn: str):
+    # Every snapshot of every rogue container over time. A phase change between
+    # a container's rows is a state transition; its earliest row is when it went
+    # rogue. Order by ts to read the timeline.
+    df = px.DataFrame('kubescape_rogueartifacts', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    return df[['ts', 'namespace', 'container_name', 'workload_kind', 'rogue_phase', 'pod_name']]
+
+
+def lifecycle(start_time: str, clickhouse_dsn: str):
+    # Per rogue container: when first observed (start of the rogue state), how
+    # many snapshots have seen it, and its latest phase.
+    df = px.DataFrame('kubescape_rogueartifacts', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    agg = df.groupby(['namespace', 'container_name']).agg(
+        first_seen=('event_time', px.min), snapshots=('name', px.count),
+        phase=('rogue_phase', px.any))
+    return agg[['namespace', 'container_name', 'first_seen', 'snapshots', 'phase']]

@@ -25,4 +25,8 @@ import px
 def hosts(start_time: str, clickhouse_dsn: str):
     df = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     agg = df.groupby(['pod']).agg(findings=('uniqueID', px.count))
-    return agg[['pod', 'findings']]
+    agg.host = px.Pod(agg.pod)
+    # deeplink: click a host -> the dx/breakout presentation for that host.
+    agg.detail = px.script_reference(agg.pod, 'dx/breakout', {
+        'host': agg.pod, 'start_time': start_time, 'clickhouse_dsn': clickhouse_dsn})
+    return agg[['host', 'findings', 'detail']]

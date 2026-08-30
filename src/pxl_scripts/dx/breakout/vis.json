@@ -1,101 +1,47 @@
 {
   "variables": [
-    {
-      "name": "start_time",
-      "type": "PX_STRING",
-      "description": "Window start.",
-      "defaultValue": "-6h"
-    },
-    {
-      "name": "clickhouse_dsn",
-      "type": "PX_STRING",
-      "description": "forensic_db DSN: user:pass@host:port/db.",
-      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
-    },
-    {
-      "name": "pod",
-      "type": "PX_STRING",
-      "description": "Substring of the watched pod (ns/name). The breakout target.",
-      "defaultValue": "opsboard"
-    }
+    { "name": "start_time", "type": "PX_STRING", "description": "Window start.", "defaultValue": "-2h" },
+    { "name": "clickhouse_dsn", "type": "PX_STRING", "description": "forensic_db DSN.", "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db" },
+    { "name": "host", "type": "PX_STRING", "description": "Substring of the host under review.", "defaultValue": "opsboard" }
   ],
   "globalFuncs": [
-    {
-      "outputName": "g_killchain",
-      "func": {
-        "name": "killchain",
-        "args": [
-          { "name": "start_time", "variable": "start_time" },
-          { "name": "clickhouse_dsn", "variable": "clickhouse_dsn" },
-          { "name": "pod", "variable": "pod" }
-        ]
-      }
-    },
-    {
-      "outputName": "g_summary",
-      "func": {
-        "name": "summary",
-        "args": [
-          { "name": "start_time", "variable": "start_time" },
-          { "name": "clickhouse_dsn", "variable": "clickhouse_dsn" },
-          { "name": "pod", "variable": "pod" }
-        ]
-      }
-    },
-    {
-      "outputName": "g_exfil",
-      "func": {
-        "name": "exfiltration",
-        "args": [
-          { "name": "start_time", "variable": "start_time" },
-          { "name": "clickhouse_dsn", "variable": "clickhouse_dsn" }
-        ]
-      }
-    },
-    {
-      "outputName": "g_timeline",
-      "func": {
-        "name": "timeline",
-        "args": [
-          { "name": "start_time", "variable": "start_time" },
-          { "name": "clickhouse_dsn", "variable": "clickhouse_dsn" },
-          { "name": "pod", "variable": "pod" }
-        ]
-      }
-    }
+    { "outputName": "g_presentation", "func": { "name": "presentation", "args": [ { "name": "start_time", "variable": "start_time" }, { "name": "clickhouse_dsn", "variable": "clickhouse_dsn" }, { "name": "host", "variable": "host" } ] } },
+    { "outputName": "g_signs", "func": { "name": "signs", "args": [ { "name": "start_time", "variable": "start_time" }, { "name": "clickhouse_dsn", "variable": "clickhouse_dsn" }, { "name": "host", "variable": "host" } ] } },
+    { "outputName": "g_discharge", "func": { "name": "discharge", "args": [ { "name": "start_time", "variable": "start_time" }, { "name": "clickhouse_dsn", "variable": "clickhouse_dsn" } ] } },
+    { "outputName": "g_course", "func": { "name": "course", "args": [ { "name": "start_time", "variable": "start_time" }, { "name": "clickhouse_dsn", "variable": "clickhouse_dsn" }, { "name": "host", "variable": "host" } ] } }
   ],
   "widgets": [
     {
-      "name": "What the pod did (pod -> target; edge = category; hover = full alert)",
+      "name": "Presentation — presenting signs by site (hover shows the full finding)",
       "position": { "x": 0, "y": 0, "w": 12, "h": 4 },
-      "globalFuncOutputName": "g_killchain",
+      "globalFuncOutputName": "g_presentation",
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Graph",
         "adjacencyList": { "fromColumn": "from_entity", "toColumn": "to_entity" },
-        "edgeWeightColumn": "hits",
-        "edgeColorColumn": "hits",
-        "edgeLabelColumn": "category",
+        "edgeWeightColumn": "count",
+        "edgeColorColumn": "count",
+        "edgeLabelColumn": "sign",
         "edgeThresholds": { "mediumThreshold": 3, "highThreshold": 10 },
-        "edgeHoverInfo": ["category", "hits"],
+        "edgeHoverInfo": ["sign", "symptom", "count"],
         "edgeLength": 400
       }
     },
     {
-      "name": "PROOF OF EXFILTRATION — stolen bytes on the wire (eyJ... = the ServiceAccount JWT)",
+      "name": "Discharge — specimens leaving the host",
       "position": { "x": 0, "y": 4, "w": 12, "h": 3 },
-      "globalFuncOutputName": "g_exfil",
+      "globalFuncOutputName": "g_discharge",
       "displaySpec": { "@type": "types.px.dev/px.vispb.Table" }
     },
     {
-      "name": "Summary — what the pod did, by kind",
+      "name": "Presenting signs — frequency",
       "position": { "x": 0, "y": 7, "w": 4, "h": 4 },
-      "globalFuncOutputName": "g_summary",
+      "globalFuncOutputName": "g_signs",
       "displaySpec": { "@type": "types.px.dev/px.vispb.Table" }
     },
     {
-      "name": "Forensic timeline — every action in order (detail = the actual command + child PID)",
+      "name": "Clinical course — findings in order (full symptom text)",
       "position": { "x": 4, "y": 7, "w": 8, "h": 4 },
-      "globalFuncOutputName": "g_timeline",
+      "globalFuncOutputName": "g_course",
       "displaySpec": { "@type": "types.px.dev/px.vispb.Table" }
     }
   ]

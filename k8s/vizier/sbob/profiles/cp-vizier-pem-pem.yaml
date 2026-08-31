@@ -39,6 +39,56 @@ spec:
   - path: /etc/⋯/cert.pem
   - path: /host/etc
   - path: /host/etc/lsb-release
+  - path: /usr/src/linux-headers-⋯
+  - path: /usr/src/linux-headers-⋯/⋯
+  - path: /usr/src/linux-headers-⋯/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/⋯/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/⋯/⋯/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/build
+  - path: /usr/src/linux-headers-⋯/build/⋯
+  - path: /usr/src/linux-headers-⋯/build/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/build/⋯/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/build/⋯/⋯/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/build/⋯/⋯/⋯/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/build/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/build/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/build/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /usr/src/linux-headers-⋯/build/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /host/usr/lib/modules/⋯/build
+  - path: /host/usr/lib/modules/⋯/build/⋯
+  - path: /host/usr/lib/modules/⋯/build/⋯/⋯
+  - path: /host/usr/lib/modules/⋯/build/⋯/⋯/⋯
+  - path: /host/usr/lib/modules/⋯/build/⋯/⋯/⋯/⋯
+  - path: /host/usr/lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯
+  - path: /host/usr/lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /host/usr/lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /host/usr/lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /host/usr/lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /lib/modules/⋯/build
+  - path: /lib/modules/⋯/build/⋯
+  - path: /lib/modules/⋯/build/⋯/⋯
+  - path: /lib/modules/⋯/build/⋯/⋯/⋯
+  - path: /lib/modules/⋯/build/⋯/⋯/⋯/⋯
+  - path: /lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯
+  - path: /lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /host/lib/modules/⋯/build
+  - path: /host/lib/modules/⋯/build/⋯
+  - path: /host/lib/modules/⋯/build/⋯/⋯
+  - path: /host/lib/modules/⋯/build/⋯/⋯/⋯
+  - path: /host/lib/modules/⋯/build/⋯/⋯/⋯/⋯
+  - path: /host/lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯
+  - path: /host/lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /host/lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /host/lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /host/lib/modules/⋯/build/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
   - path: /host/usr/lib/modules/⋯/build/arch/x86/include/asm/⋯
   - path: /host/usr/lib/modules/⋯/build/arch/x86/include/asm/⋯/api.h
   - path: /host/usr/lib/modules/⋯/build/arch/x86/include/asm/⋯/io.h

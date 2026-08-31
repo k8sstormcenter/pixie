@@ -12,13 +12,15 @@ build:
 manifests:
   kustomize:
     paths:
-    - k8s/operator/deployment/base/
+    # DEFAULT ON: the sbob overlay binds the operator/OLM ContainerProfiles. Opt
+    # out with `-p no-sbob`.
+    - k8s/operator/deployment/sbob
 profiles:
-- name: sbob
+- name: no-sbob
   patches:
   - op: replace
     path: /manifests/kustomize/paths/0
-    value: k8s/operator/deployment/sbob
+    value: k8s/operator/deployment/base/
 - name: minikube
   activation:
   - kubeContext: minikube

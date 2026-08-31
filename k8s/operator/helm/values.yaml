@@ -76,7 +76,8 @@ pod:
 # Currently, only a JSON format is accepted, such as:
 # `{"spec": {"template": {"spec": { "tolerations": [{"key": "test", "operator": "Exists", "effect": "NoExecute" }]}}}}`
 patches: {}
-# Global SBoB toggle. When true, bind Pixie's own ContainerProfiles (SBoBs) to the
+# Global SBoB toggle. DEFAULT ON: bind Pixie's own ContainerProfiles (SBoBs) to the
 # operator/olm workloads via the kubescape.io/user-defined-profile pod-template label
-# and deploy the profiles themselves. Kept in lockstep with the vizier skaffold -p sbob.
-sbob: false
+# and deploy the profiles themselves. Set false to opt out; kept in lockstep with the
+# vizier skaffold default (opt out there with -p no-sbob).
+sbob: true

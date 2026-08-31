@@ -59,16 +59,18 @@ build:
 manifests:
   kustomize:
     paths:
-    - k8s/vizier/persistent_metadata/x86
+    # DEFAULT ON: the sbob overlay binds Pixie's own ContainerProfiles + labels the
+    # workloads. It includes persistent_metadata/x86 as its base, so this is a
+    # superset of the bare path. Opt out with `-p no-sbob`.
+    - k8s/vizier/sbob
 profiles:
-# SBOB=TRUE global toggle: bind Pixie's own ContainerProfiles + label the workloads.
-# Replaces the bare persistent_metadata path with the sbob overlay, which includes
-# it as a base plus the profiles and the pod-template profile labels.
-- name: sbob
+# Opt OUT of Pixie-native SBoB binding: fall back to the bare persistent_metadata
+# path (no ContainerProfiles, no profile labels).
+- name: no-sbob
   patches:
   - op: replace
     path: /manifests/kustomize/paths/0
-    value: k8s/vizier/sbob
+    value: k8s/vizier/persistent_metadata/x86
 - name: minikube
   activation:
   - kubeContext: minikube

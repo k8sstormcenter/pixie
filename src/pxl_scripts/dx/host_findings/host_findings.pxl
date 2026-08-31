@@ -35,17 +35,18 @@ def hosts(start_time: str, clickhouse_dsn: str):
     # One row per host: finding load, a representative MITRE tactic, latest activity,
     # and deeplinks to the host's breakout, its shadow profiles and its rogue state.
     df = _findings(start_time, clickhouse_dsn)
+    # px.any on ts (px.max is numeric-only; ts is a human-readable string).
     agg = df.groupby(['pod']).agg(
         findings=('uniqueID', px.count),
         tactic=('mitre_tactic', px.any),
-        latest=('ts', px.max))
+        seen=('ts', px.any))
     agg.host = px.script_reference(agg.pod, 'dx/breakout', {
         'host': agg.pod, 'start_time': start_time, 'clickhouse_dsn': clickhouse_dsn})
     agg.profiles = px.script_reference(agg.pod, 'dx/shadow_profiles', {
         'start_time': start_time, 'clickhouse_dsn': clickhouse_dsn})
     agg.rogue = px.script_reference(agg.pod, 'dx/rogue_state', {
         'start_time': start_time, 'clickhouse_dsn': clickhouse_dsn})
-    return agg[['host', 'findings', 'tactic', 'latest', 'profiles', 'rogue']]
+    return agg[['host', 'findings', 'tactic', 'seen', 'profiles', 'rogue']]
 
 
 def findings(start_time: str, clickhouse_dsn: str):

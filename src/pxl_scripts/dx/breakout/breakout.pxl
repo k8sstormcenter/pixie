@@ -64,6 +64,9 @@ def discharge(start_time: str, clickhouse_dsn: str):
     # `specimen` is the material observed in transit.
     df = px.DataFrame('dx_ord__http_events', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[df.req_method == 'POST']
+    # Exclude our own ClickHouse ingest traffic (the AE's INSERT POSTs into forensic_db).
+    df.podns = px.pluck_array(px.split(df.pod, '/'), 0)
+    df = df[df.podns != 'clickhouse']
     df.host = df.pod
     df.recipient = df.remote_addr
     df.specimen = df.req_body

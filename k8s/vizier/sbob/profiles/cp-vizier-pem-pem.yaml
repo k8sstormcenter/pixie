@@ -12,6 +12,70 @@ metadata:
     kubescape.io/status: completed
 spec:
   execs:
+  - path: /usr/bin
+  - path: /usr/bin/⋯
+  - path: /usr/bin/⋯/⋯
+  - path: /usr/sbin
+  - path: /usr/sbin/⋯
+  - path: /usr/sbin/⋯/⋯
+  - path: /usr/local/bin
+  - path: /usr/local/bin/⋯
+  - path: /usr/local/bin/⋯/⋯
+  - path: /usr/local/sbin
+  - path: /usr/local/sbin/⋯
+  - path: /usr/local/sbin/⋯/⋯
+  - path: /bin
+  - path: /bin/⋯
+  - path: /bin/⋯/⋯
+  - path: /sbin
+  - path: /sbin/⋯
+  - path: /sbin/⋯/⋯
+  - path: /usr/lib
+  - path: /usr/lib/⋯
+  - path: /usr/lib/⋯/⋯
+  - path: /usr/lib/⋯/⋯/⋯
+  - path: /usr/lib/⋯/⋯/⋯/⋯
+  - path: /usr/lib/⋯/⋯/⋯/⋯/⋯
+  - path: /usr/lib64
+  - path: /usr/lib64/⋯
+  - path: /usr/lib64/⋯/⋯
+  - path: /usr/lib64/⋯/⋯/⋯
+  - path: /usr/lib64/⋯/⋯/⋯/⋯
+  - path: /usr/lib64/⋯/⋯/⋯/⋯/⋯
+  - path: /lib
+  - path: /lib/⋯
+  - path: /lib/⋯/⋯
+  - path: /lib/⋯/⋯/⋯
+  - path: /lib/⋯/⋯/⋯/⋯
+  - path: /lib/⋯/⋯/⋯/⋯/⋯
+  - path: /lib64
+  - path: /lib64/⋯
+  - path: /lib64/⋯/⋯
+  - path: /lib64/⋯/⋯/⋯
+  - path: /lib64/⋯/⋯/⋯/⋯
+  - path: /lib64/⋯/⋯/⋯/⋯/⋯
+  - path: /app
+  - path: /app/⋯
+  - path: /app/⋯/⋯
+  - path: /app/⋯/⋯/⋯
+  - path: /app/⋯/⋯/⋯/⋯
+  - path: /app/⋯/⋯/⋯/⋯/⋯
+  - path: /app/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /app/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /app/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /app/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /app/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /app/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /app/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /opt
+  - path: /opt/⋯
+  - path: /opt/⋯/⋯
+  - path: /opt/⋯/⋯/⋯
+  - path: /opt/⋯/⋯/⋯/⋯
+  - path: /opt/⋯/⋯/⋯/⋯/⋯
+  - path: /opt/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /opt/⋯/⋯/⋯/⋯/⋯/⋯/⋯
+  - path: /opt/⋯/⋯/⋯/⋯/⋯/⋯/⋯/⋯
   - path: /app/src/vizier/services/agent/pem/pem.runfiles/px/src/vizier/services/agent/pem/pem
   opens:
   - path: /
@@ -176,7 +240,6 @@ spec:
   - path: /host/usr/lib/modules/⋯/build/src/stirling/source_connectors/socket_tracer/bcc_bpf/protocol_inference.h
   - path: /host/usr/lib/modules/⋯/build/src/stirling/source_connectors/socket_tracer/bcc_bpf/socket_trace.c
   - path: /host/usr/lib/os-release
-  - path: /lib/⋯
   - path: /lib/⋯/6.1.167/build/arch/x86/include/generated/asm/auxvec.h
   - path: /lib/⋯/6.1.167/build/arch/x86/include/generated/asm/bitsperlong.h
   - path: /lib/⋯/6.1.167/build/arch/x86/include/generated/asm/bootparam.h
@@ -219,7 +282,6 @@ spec:
   - path: /lib/⋯/x86_64/x86_64/libm.so.6
   - path: /metrics-server
   - path: /nats-server
-  - path: /opt
   - path: /proc/⋯
   - path: /proc/⋯/⋯/fd
   - path: /proc/⋯/core/somaxconn
@@ -289,7 +351,6 @@ spec:
   - path: /usr/bin/node-agent
   - path: /usr/bin/operator
   - path: /usr/bin/storage
-  - path: /usr/lib/⋯
   - path: /usr/lib/⋯/.build-id/⋯/⋯
   - path: /usr/lib/⋯/glibc-hwcaps/x86-64-v2/libunwind.so.8
   - path: /usr/lib/⋯/glibc-hwcaps/x86-64-v3/libunwind.so.8

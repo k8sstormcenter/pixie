@@ -14,42 +14,48 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# Presentation view — one host's presenting signs when it departs from its
-# established baseline. Reads the full finding text (`symptom`) from ClickHouse;
-# `sign` = the leading phrase, `site` = the first token after it. Graph edge =
-# sign, node = site, hover = the full symptom. Works only with ClickHouse enabled.
+# Rogue lifecycle. A healed rogue is DELETED upstream (no Healed phase / healedAt),
+# so healing is derived from snapshot absence in kubescape_rogue_lifecycle: still in
+# the latest snapshot => Firing, else Healed at its last-seen. started_firing /
+# stopped_firing are human-readable; the profile column deeplinks to dx/shadow_profiles.
 
 import px
 
 
-def rogue(start_time: str, clickhouse_dsn: str):
-    df = px.DataFrame('kubescape_rogueartifacts', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    agg = df.groupby(['namespace', 'container_name', 'workload_kind', 'rogue_phase']).agg(
-        seen=('name', px.count))
-    return agg[['namespace', 'container_name', 'workload_kind', 'rogue_phase', 'seen']]
-
-
-def by_ns(start_time: str, clickhouse_dsn: str):
-    df = px.DataFrame('kubescape_rogueartifacts', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    df.from_entity = df.namespace
-    df.to_entity = df.container_name
-    agg = df.groupby(['from_entity', 'to_entity']).agg(seen=('name', px.count))
-    return agg[['from_entity', 'to_entity', 'seen']]
-
-
-def transitions(start_time: str, clickhouse_dsn: str):
-    # Every snapshot of every rogue container over time. A phase change between
-    # a container's rows is a state transition; its earliest row is when it went
-    # rogue. Order by ts to read the timeline.
-    df = px.DataFrame('kubescape_rogueartifacts', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    return df[['ts', 'namespace', 'container_name', 'workload_kind', 'rogue_phase', 'pod_name']]
+def _lc(start_time: str, clickhouse_dsn: str):
+    return px.DataFrame('kubescape_rogue_lifecycle', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
 
 
 def lifecycle(start_time: str, clickhouse_dsn: str):
-    # Per rogue container: when first observed (start of the rogue state), how
-    # many snapshots have seen it, and its latest phase.
-    df = px.DataFrame('kubescape_rogueartifacts', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    agg = df.groupby(['namespace', 'container_name']).agg(
-        first_seen=('event_time', px.min), snapshots=('name', px.count),
-        phase=('rogue_phase', px.any))
-    return agg[['namespace', 'container_name', 'first_seen', 'snapshots', 'phase']]
+    # Per rogue container: started firing, current phase, stopped firing (blank while
+    # still firing), snapshots seen, and a deeplink to its shadow profile.
+    df = _lc(start_time, clickhouse_dsn)
+    df.profile = px.script_reference(df.workload_name, 'dx/shadow_profiles',
+        {'start_time': start_time, 'clickhouse_dsn': clickhouse_dsn})
+    return df[['namespace', 'workload_kind', 'workload_name', 'pod_name', 'container_name',
+               'phase', 'started_firing', 'stopped_firing', 'snapshots', 'profile']]
+
+
+def transitions(start_time: str, clickhouse_dsn: str):
+    # The firing -> healed timeline: each container's start and (if healed) stop time.
+    df = _lc(start_time, clickhouse_dsn)
+    return df[['namespace', 'container_name', 'workload_kind', 'pod_name',
+               'phase', 'started_firing', 'stopped_firing']]
+
+
+def rogue(start_time: str, clickhouse_dsn: str):
+    # Currently firing, grouped by workload.
+    df = _lc(start_time, clickhouse_dsn)
+    df = df[df.phase == 'Firing']
+    agg = df.groupby(['namespace', 'workload_kind', 'container_name']).agg(
+        firing=('name', px.count))
+    return agg[['namespace', 'workload_kind', 'container_name', 'firing']]
+
+
+def by_ns(start_time: str, clickhouse_dsn: str):
+    # Namespace -> rogue container, split by phase.
+    df = _lc(start_time, clickhouse_dsn)
+    df.from_entity = df.namespace
+    df.to_entity = df.container_name
+    agg = df.groupby(['from_entity', 'to_entity', 'phase']).agg(seen=('name', px.count))
+    return agg[['from_entity', 'to_entity', 'phase', 'seen']]

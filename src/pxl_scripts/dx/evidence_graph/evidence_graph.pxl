@@ -31,6 +31,11 @@ def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
     anom = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = orders.merge(anom, how='inner', left_on=['kubescape_uid', 'rule_id'],
                       right_on=['uniqueID', 'rule'], suffixes=['', '_a'])
+    # Exclude Pixie's own control/data plane — pl + px-operator are infrastructure
+    # (the PEM symbolization + OLM-catalog runc noise), not investigation subjects.
+    df.subject_ns = px.pluck_array(px.split(df.subject_pod, '/'), 0)
+    df = df[df.subject_ns != 'pl']
+    df = df[df.subject_ns != 'px-operator']
     df.order_link = px.script_reference(df.order_id, 'dx/evidence_graph', {
         'start_time': start_time,
         'clickhouse_dsn': clickhouse_dsn,
@@ -49,6 +54,10 @@ def cases(start_time: str, clickhouse_dsn: str):
     # dx stamps culprit_key on every order; orders sharing it are one actor's
     # campaign (read + exfil + spawns). from=culprit, to=the step (pod:rule).
     df = px.DataFrame('dx_cases', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    # Exclude Pixie's own pl + px-operator infrastructure (see evidence_graph()).
+    df.subject_ns = px.pluck_array(px.split(df.subject_pod, '/'), 0)
+    df = df[df.subject_ns != 'pl']
+    df = df[df.subject_ns != 'px-operator']
     df.from_entity = df.culprit_key
     df.to_entity = df.subject_pod + ':' + df.rule_id
     df.order_link = px.script_reference(df.order_id, 'dx/evidence_graph', {
@@ -67,6 +76,10 @@ def orders(start_time: str, clickhouse_dsn: str, graph_table: str):
     alerts = alerts[['uniqueID', 'rule', 'mitre_tactic', 'mitre_technique', 'ts']]
     df = df.merge(alerts, how='left', left_on=['kubescape_uid', 'rule_id'],
                   right_on=['uniqueID', 'rule'], suffixes=['', '_k'])
+    # Exclude Pixie's own pl + px-operator infrastructure (see evidence_graph()).
+    df.pod_ns = px.pluck_array(px.split(df.pod, '/'), 0)
+    df = df[df.pod_ns != 'pl']
+    df = df[df.pod_ns != 'px-operator']
     df.order = px.script_reference(df.order_id, 'dx/evidence_graph', {
         'start_time': start_time,
         'clickhouse_dsn': clickhouse_dsn,

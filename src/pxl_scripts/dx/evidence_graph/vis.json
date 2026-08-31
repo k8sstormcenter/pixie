@@ -23,6 +23,12 @@
       "type": "PX_STRING",
       "description": "Set by clicking an order link in the graph popup or the ORDERS panel; every panel snaps to that order.",
       "defaultValue": ""
+    },
+    {
+      "name": "case_id",
+      "type": "PX_STRING",
+      "description": "Filter the graphs to one case (culprit ns/pod/RootPID). Empty = all. Set by clicking an order or a case edge.",
+      "defaultValue": ""
     }
   ],
   "globalFuncs": [
@@ -42,6 +48,10 @@
           {
             "name": "table",
             "variable": "graph_table"
+          },
+          {
+            "name": "case_id",
+            "variable": "case_id"
           }
         ]
       }
@@ -58,6 +68,10 @@
           {
             "name": "clickhouse_dsn",
             "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "case_id",
+            "variable": "case_id"
           }
         ]
       }
@@ -78,6 +92,10 @@
           {
             "name": "graph_table",
             "variable": "graph_table"
+          },
+          {
+            "name": "case_id",
+            "variable": "case_id"
           }
         ]
       }

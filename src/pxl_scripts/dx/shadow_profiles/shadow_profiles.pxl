@@ -29,8 +29,11 @@ def learned(start_time: str, clickhouse_dsn: str):
     # not counts — px.any (px.max is numeric-only) picks a representative snapshot.
     agg = df.groupby(['namespace', 'name']).agg(
         completion=('completion', px.any), status=('status', px.any),
+        match_labels=('match_labels', px.any),
         execs=('execs', px.any), opens=('opens', px.any),
         egress=('egress', px.any), ingress=('ingress', px.any),
+        endpoints=('endpoints', px.any),
         syscalls=('syscalls', px.any), capabilities=('capabilities', px.any))
-    return agg[['namespace', 'name', 'completion', 'status', 'execs', 'opens',
-                'egress', 'ingress', 'syscalls', 'capabilities']]
+    return agg[['namespace', 'name', 'completion', 'status', 'match_labels',
+                'execs', 'opens', 'egress', 'ingress', 'endpoints',
+                'syscalls', 'capabilities']]

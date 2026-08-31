@@ -14,19 +14,61 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# Presentation view — one host's presenting signs when it departs from its
-# established baseline. Reads the full finding text (`symptom`) from ClickHouse;
-# `sign` = the leading phrase, `site` = the first token after it. Graph edge =
-# sign, node = site, hover = the full symptom. Works only with ClickHouse enabled.
+# Overview / triage entry point. Every row deeplinks into the detail views:
+# a host -> its breakout presentation; a finding -> the correlated evidence graph
+# (the order) and the host's breakout; a MITRE tactic -> the hosts exhibiting it.
+# Works only with ClickHouse enabled.
 
 import px
 
 
-def hosts(start_time: str, clickhouse_dsn: str):
+def _findings(start_time: str, clickhouse_dsn: str):
     df = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    agg = df.groupby(['pod']).agg(findings=('uniqueID', px.count))
-    agg.host = px.Pod(agg.pod)
-    # deeplink: click a host -> the dx/breakout presentation for that host.
-    agg.detail = px.script_reference(agg.pod, 'dx/breakout', {
+    # Pixie's own plane is FP noise (see breakout/evidence_graph exclusions).
+    df.podns = px.pluck_array(px.split(df.pod, '/'), 0)
+    df = df[df.podns != 'pl']
+    df = df[df.podns != 'px-operator']
+    return df
+
+
+def hosts(start_time: str, clickhouse_dsn: str):
+    # One row per host: finding load, a representative MITRE tactic, latest activity,
+    # and deeplinks to the host's breakout, its shadow profiles and its rogue state.
+    df = _findings(start_time, clickhouse_dsn)
+    agg = df.groupby(['pod']).agg(
+        findings=('uniqueID', px.count),
+        tactic=('mitre_tactic', px.any),
+        latest=('ts', px.max))
+    agg.host = px.script_reference(agg.pod, 'dx/breakout', {
         'host': agg.pod, 'start_time': start_time, 'clickhouse_dsn': clickhouse_dsn})
-    return agg[['host', 'findings', 'detail']]
+    agg.profiles = px.script_reference(agg.pod, 'dx/shadow_profiles', {
+        'start_time': start_time, 'clickhouse_dsn': clickhouse_dsn})
+    agg.rogue = px.script_reference(agg.pod, 'dx/rogue_state', {
+        'start_time': start_time, 'clickhouse_dsn': clickhouse_dsn})
+    return agg[['host', 'findings', 'tactic', 'latest', 'profiles', 'rogue']]
+
+
+def findings(start_time: str, clickhouse_dsn: str):
+    # Every finding: what ran (comm/pid/cmdline), on which host, its MITRE mapping,
+    # with a deeplink to the correlated evidence graph (the order) and to the host.
+    df = _findings(start_time, clickhouse_dsn)
+    orders = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = orders[['order_id', 'kubescape_uid', 'rule_id']]
+    j = df.merge(orders, how='left', left_on=['uniqueID', 'RuleID'],
+                 right_on=['kubescape_uid', 'rule_id'], suffixes=['', '_o'])
+    j.evidence = px.script_reference(j.order_id, 'dx/evidence_graph', {
+        'order_id': j.order_id, 'graph_table': 'dx_kubescape_mitre',
+        'start_time': start_time, 'clickhouse_dsn': clickhouse_dsn})
+    j.host = px.script_reference(j.pod, 'dx/breakout', {
+        'host': j.pod, 'start_time': start_time, 'clickhouse_dsn': clickhouse_dsn})
+    return j[['ts', 'host', 'RuleID', 'mitre_tactic', 'mitre_technique',
+              'comm', 'pid', 'ppid', 'cmdline', 'alert', 'evidence']]
+
+
+def tactics(start_time: str, clickhouse_dsn: str):
+    # Overview graph: MITRE tactic -> the hosts exhibiting it (edge weight = hits).
+    df = _findings(start_time, clickhouse_dsn)
+    agg = df.groupby(['mitre_tactic', 'pod']).agg(hits=('uniqueID', px.count))
+    agg.from_entity = agg.mitre_tactic
+    agg.to_entity = px.Pod(agg.pod)
+    return agg[['from_entity', 'to_entity', 'hits']]

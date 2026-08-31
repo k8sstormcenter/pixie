@@ -15,32 +15,60 @@
   ],
   "globalFuncs": [
     {
+      "outputName": "g_tactics",
+      "func": {
+        "name": "tactics",
+        "args": [
+          {"name": "start_time", "variable": "start_time"},
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}
+        ]
+      }
+    },
+    {
       "outputName": "g_hosts",
       "func": {
         "name": "hosts",
         "args": [
-          {
-            "name": "start_time",
-            "variable": "start_time"
-          },
-          {
-            "name": "clickhouse_dsn",
-            "variable": "clickhouse_dsn"
-          }
+          {"name": "start_time", "variable": "start_time"},
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}
+        ]
+      }
+    },
+    {
+      "outputName": "g_findings",
+      "func": {
+        "name": "findings",
+        "args": [
+          {"name": "start_time", "variable": "start_time"},
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"}
         ]
       }
     }
   ],
   "widgets": [
     {
-      "name": "Findings per host",
-      "position": {
-        "x": 0,
-        "y": 0,
-        "w": 12,
-        "h": 4
-      },
+      "name": "MITRE tactic → host (click a host cell in the tables to drill in)",
+      "position": {"x": 0, "y": 0, "w": 12, "h": 4},
+      "globalFuncOutputName": "g_tactics",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Graph",
+        "adjacencyList": {"fromColumn": "from_entity", "toColumn": "to_entity"},
+        "edgeWeightColumn": "hits",
+        "edgeLength": 400
+      }
+    },
+    {
+      "name": "Hosts (host → breakout, profiles, rogue state)",
+      "position": {"x": 0, "y": 4, "w": 12, "h": 4},
       "globalFuncOutputName": "g_hosts",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Findings (what ran, MITRE → evidence graph deeplink per finding)",
+      "position": {"x": 0, "y": 8, "w": 12, "h": 6},
+      "globalFuncOutputName": "g_findings",
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Table"
       }

@@ -25,6 +25,10 @@ import px
 def _host(start_time: str, clickhouse_dsn: str, host: str):
     df = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[px.contains(df.pod, host)]
+    # Exclude our own ClickHouse — pod is "namespace/podname"; the forensic store
+    # (clickhouse/chi-forensic-soc-db-*) is infrastructure, not a subject of investigation.
+    df.podns = px.pluck_array(px.split(df.pod, '/'), 0)
+    df = df[df.podns != 'clickhouse']
     df.symptom = df.alert
     df.sign = px.pluck_array(px.split(df.alert, ':'), 0)
     df.site = px.pluck_array(px.split(px.pluck_array(px.split(df.alert, ':'), 1), ' '), 1)

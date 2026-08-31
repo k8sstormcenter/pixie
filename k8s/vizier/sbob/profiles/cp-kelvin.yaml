@@ -33,7 +33,7 @@ spec:
   - path: /lib/⋯/tls/x86_64/x86_64/libm.so.6
   - path: /lib/⋯/x86_64/libm.so.6
   - path: /lib/⋯/x86_64/x86_64/libm.so.6
-  - path: /proc/⋯/1/fd
+  - path: /proc/⋯/⋯/fd
   - path: /proc/⋯/core/somaxconn
   - path: /sys/devices/system/cpu/cpu0/tsc_freq_khz
   - path: /sys/devices/system/cpu/online

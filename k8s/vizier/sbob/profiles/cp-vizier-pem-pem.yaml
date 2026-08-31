@@ -171,20 +171,10 @@ spec:
   - path: /nats-server
   - path: /opt
   - path: /proc/⋯
-  - path: /proc/⋯/36969/fd
-  - path: /proc/⋯/80848/fd
+  - path: /proc/⋯/⋯/fd
   - path: /proc/⋯/core/somaxconn
   - path: /proc/⋯/dev
-  - path: /proc/⋯/tmp/perf-1.map
-  - path: /proc/⋯/tmp/perf-29.map
-  - path: /proc/⋯/tmp/perf-30.map
-  - path: /proc/⋯/tmp/perf-31.map
-  - path: /proc/⋯/tmp/perf-32.map
-  - path: /proc/⋯/tmp/perf-33903.map
-  - path: /proc/⋯/tmp/perf-36969.map
-  - path: /proc/⋯/tmp/perf-7.map
-  - path: /proc/⋯/tmp/perf-76439.map
-  - path: /proc/⋯/tmp/perf-80848.map
+  - path: /proc/⋯/tmp/perf-⋯.map
   - path: /proc/⋯/⋯
   - path: /sys/devices/system/cpu/cpu0/tsc_freq_khz
   - path: /sys/devices/system/cpu/online

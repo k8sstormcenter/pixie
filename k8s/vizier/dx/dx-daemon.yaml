@@ -36,7 +36,12 @@ spec:
         - { name: PX_API_KEY, valueFrom: { secretKeyRef: { name: dx-pixie-auth, key: api-key, optional: true } } }
         - { name: PX_CLUSTER_ID, valueFrom: { secretKeyRef: { name: dx-pixie-auth, key: cluster-id, optional: true } } }
         - { name: PX_CLOUD_ADDR, valueFrom: { secretKeyRef: { name: dx-pixie-auth, key: cloud-addr, optional: true } } }
-        - { name: DX_BENCH, value: "pemdirect" }
+        # broker = pxapi gRPC to the in-cluster vizier-query-broker (dx#28). pemdirect
+        # needs the PEM's direct-query listener, which stock PEM (0.14.17) doesn't ship —
+        # it dials :50305, gets refused, and dx goes blind on every dx-owned table. The
+        # broker prerequisites below (PX_CLUSTER_ID + PL_JWT_SIGNING_KEY + the cluster.local
+        # addr + PX_DISABLE_TLS=1) are all wired and the skaffold hook mirrors the secrets.
+        - { name: DX_BENCH, value: "broker" }
         - { name: PL_JWT_SIGNING_KEY, valueFrom: { secretKeyRef: { name: dx-vizier-direct, key: jwt-signing-key, optional: true } } }
         - { name: DX_VIZIER_DIRECT_ADDR, value: "vizier-query-broker-svc.pl.svc.cluster.local:50300" }
         - { name: PX_DISABLE_TLS, value: "1" }

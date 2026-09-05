@@ -161,6 +161,12 @@ def dc_snoop(start_time: str, clickhouse_dsn: str, order_id: str):
     return _ord(start_time, clickhouse_dsn, 'dx_ord__dc_snoop', order_id).drop(['namespace'])
 
 
+def creds_change(start_time: str, clickhouse_dsn: str, order_id: str):
+    # setuid/setgid transitions (dx_ord__creds_change view already exists). Base panel;
+    # the runc:[2:INIT] 0->0 no-op-with-empty-pod noise is filtered in a later specialization.
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__creds_change', order_id).drop(['namespace'])
+
+
 def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):
     # Native profiler (never empty); the ClickHouse stack_trace export is not running.
     w = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)

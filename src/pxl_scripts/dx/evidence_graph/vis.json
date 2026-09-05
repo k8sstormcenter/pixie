@@ -319,6 +319,26 @@
           }
         ]
       }
+    },
+    {
+      "outputName": "g_credschange",
+      "func": {
+        "name": "creds_change",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "order_id",
+            "variable": "order_id"
+          }
+        ]
+      }
     }
   ],
   "widgets": [
@@ -550,6 +570,19 @@
         "h": 4
       },
       "globalFuncOutputName": "g_capability",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "creds_change (uid transitions)",
+      "position": {
+        "x": 0,
+        "y": 39,
+        "w": 6,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_credschange",
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Table"
       }

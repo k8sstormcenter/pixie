@@ -36,13 +36,14 @@ spec:
         - { name: PX_API_KEY, valueFrom: { secretKeyRef: { name: dx-pixie-auth, key: api-key, optional: true } } }
         - { name: PX_CLUSTER_ID, valueFrom: { secretKeyRef: { name: dx-pixie-auth, key: cluster-id, optional: true } } }
         - { name: PX_CLOUD_ADDR, valueFrom: { secretKeyRef: { name: dx-pixie-auth, key: cloud-addr, optional: true } } }
-        # broker = pxapi gRPC to the in-cluster vizier-query-broker (dx#28). pemdirect
-        # needs the PEM's direct-query listener, which stock PEM (0.14.17) doesn't ship —
-        # it dials :50305, gets refused, and dx goes blind on every dx-owned table. The
-        # broker prerequisites below (PX_CLUSTER_ID + PL_JWT_SIGNING_KEY + the cluster.local
-        # addr + PX_DISABLE_TLS=1) are all wired and the skaffold hook mirrors the secrets.
-        - { name: DX_BENCH, value: "broker" }
+        # pemdirect: dx queries its OWN node's vizier-pem at HOST_IP:50305 — node-local,
+        # no broker round-trip, the point of real-time detection. Needs our pem line
+        # (ships the :50305 listener, default-on since #87); stock 0.14.17 has none.
+        # Addr defaults to $HOST_IP:50305 when DX_PEM_DIRECT_ADDR is unset.
+        - { name: DX_BENCH, value: "pemdirect" }
         - { name: PL_JWT_SIGNING_KEY, valueFrom: { secretKeyRef: { name: dx-vizier-direct, key: jwt-signing-key, optional: true } } }
+        # broker addr — used by the DX_XNODE cross-node streamer (unpinned tables) and by
+        # DX_BENCH=broker if flipped back; NOT a pemdirect fallback.
         - { name: DX_VIZIER_DIRECT_ADDR, value: "vizier-query-broker-svc.pl.svc.cluster.local:50300" }
         - { name: PX_DISABLE_TLS, value: "1" }
         - { name: DX_CLUSTER_MALIGNANT_HTTP, valueFrom: { secretKeyRef: { name: dx-metastasis-ch, key: http-url, optional: true } } }

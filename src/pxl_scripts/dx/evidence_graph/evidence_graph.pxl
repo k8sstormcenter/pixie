@@ -169,6 +169,15 @@ def creds_change(start_time: str, clickhouse_dsn: str, order_id: str):
     return df[df.old_uid != df.new_uid]
 
 
+def cql(start_time: str, clickhouse_dsn: str, order_id: str):
+    # dx_ord__cql_events view already exists — panel only (base pattern, no schema).
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__cql_events', order_id).drop(['namespace'])
+
+
+def mongodb(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__mongodb_events', order_id).drop(['namespace'])
+
+
 def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):
     # Native profiler (never empty); the ClickHouse stack_trace export is not running.
     w = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)

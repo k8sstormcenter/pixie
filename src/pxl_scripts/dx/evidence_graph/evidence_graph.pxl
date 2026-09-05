@@ -162,9 +162,11 @@ def dc_snoop(start_time: str, clickhouse_dsn: str, order_id: str):
 
 
 def creds_change(start_time: str, clickhouse_dsn: str, order_id: str):
-    # setuid/setgid transitions (dx_ord__creds_change view already exists). Base panel;
-    # the runc:[2:INIT] 0->0 no-op-with-empty-pod noise is filtered in a later specialization.
-    return _ord(start_time, clickhouse_dsn, 'dx_ord__creds_change', order_id).drop(['namespace'])
+    # setuid/setgid transitions (dx_ord__creds_change view already exists). Per-protocol
+    # specialization on the _ord base: keep real credential CHANGES only (old_uid != new_uid)
+    # — drops the runc:[2:INIT] 0->0 no-op (empty-pod) noise. A real exploit setuid still shows.
+    df = _ord(start_time, clickhouse_dsn, 'dx_ord__creds_change', order_id).drop(['namespace'])
+    return df[df.old_uid != df.new_uid]
 
 
 def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):

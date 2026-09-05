@@ -339,6 +339,46 @@
           }
         ]
       }
+    },
+    {
+      "outputName": "g_cql",
+      "func": {
+        "name": "cql",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "order_id",
+            "variable": "order_id"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_mongodb",
+      "func": {
+        "name": "mongodb",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "order_id",
+            "variable": "order_id"
+          }
+        ]
+      }
     }
   ],
   "widgets": [
@@ -583,6 +623,32 @@
         "h": 4
       },
       "globalFuncOutputName": "g_credschange",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "cql (native protocol)",
+      "position": {
+        "x": 0,
+        "y": 43,
+        "w": 6,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_cql",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "mongodb (native protocol)",
+      "position": {
+        "x": 0,
+        "y": 47,
+        "w": 6,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_mongodb",
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Table"
       }

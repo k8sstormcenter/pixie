@@ -1,0 +1,202 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+
+import px
+
+
+def _latest(df):
+    last = df.groupby('shadow_id').agg(updated_at=('updated_at', px.max))
+    return df.merge(last, how='inner', left_on=['shadow_id', 'updated_at'],
+                    right_on=['shadow_id', 'updated_at'], suffixes=['', '_l'])
+
+
+def traces(start_time: str, clickhouse_dsn: str, container: str):
+    df = px.DataFrame('dx_shadow__trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = _latest(df)
+    df = df[px.contains(df.container, container)]
+    df = df.drop(['event_time'])
+    df.opened = px.int64_to_time(df.t0)
+    df.last_epoch_at = px.int64_to_time(df.last_epoch)
+    df.state = px.select(df.closed_at > 0, df.close_reason, df.rogue_state)
+    df.trace = px.script_reference(df.shadow_id, 'dx/shadow_trace', {
+        'start_time': start_time,
+        'clickhouse_dsn': clickhouse_dsn,
+        'container': df.container,
+        'shadow_id': df.shadow_id,
+    })
+    df.pod = px.Pod(df.pod)
+    return df[['trace', 'opened', 'last_epoch_at', 'pod', 'container', 'rogue_state', 'state',
+               'profile_name', 'workload_kind', 'hostname', 'shadow_id']]
+
+
+def _activity(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    df = px.DataFrame('dx_shadow__activity', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    return df[px.contains(df.shadow_id, shadow_id)]
+
+
+def graph(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    a = _activity(start_time, clickhouse_dsn, shadow_id)
+    t = _latest(px.DataFrame('dx_shadow__trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time))
+    t = t[['shadow_id', 'pod', 'container']]
+    a = a.merge(t, how='inner', left_on=['shadow_id'], right_on=['shadow_id'], suffixes=['', '_t'])
+    keys = a.groupby(['pod', 'surface', 'key']).agg(n=('n', px.sum), first_ts=('first_ts', px.min), last_ts=('last_ts', px.max))
+    keys.from_entity = keys.surface
+    keys.to_entity = keys.key
+    keys.weight = keys.n
+    surf = keys.groupby(['pod', 'surface']).agg(n=('n', px.sum))
+    surf.from_entity = surf.pod
+    surf.to_entity = surf.surface
+    surf.weight = surf.n
+    surf.key = surf.surface
+    surf.first_ts = surf.n * 0
+    surf.last_ts = surf.n * 0
+    keys = keys[['from_entity', 'to_entity', 'weight', 'surface', 'key', 'n', 'pod', 'first_ts', 'last_ts']]
+    surf = surf[['from_entity', 'to_entity', 'weight', 'surface', 'key', 'n', 'pod', 'first_ts', 'last_ts']]
+    df = keys.append(surf)
+    df.first_seen = px.int64_to_time(df.first_ts)
+    df.last_seen = px.int64_to_time(df.last_ts)
+    return df[['from_entity', 'to_entity', 'weight', 'surface', 'key', 'n', 'pod', 'first_seen', 'last_seen']]
+
+
+def timeline(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    a = _activity(start_time, clickhouse_dsn, shadow_id)
+    df = a.groupby(['epoch_start', 'surface']).agg(n=('n', px.sum), keys=('key_hash', px.count))
+    df.time_ = px.int64_to_time(df.epoch_start)
+    return df[['time_', 'surface', 'n', 'keys']]
+
+
+def keys(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    a = _activity(start_time, clickhouse_dsn, shadow_id)
+    df = a.groupby(['surface', 'key']).agg(n=('n', px.sum), bytes=('bytes', px.sum),
+                                           first_ts=('first_ts', px.min), last_ts=('last_ts', px.max))
+    df.first_seen = px.int64_to_time(df.first_ts)
+    df.last_seen = px.int64_to_time(df.last_ts)
+    return df[['surface', 'key', 'n', 'bytes', 'first_seen', 'last_seen']]
+
+
+def reconciliation(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    df = px.DataFrame('dx_shadow__trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = _latest(df)
+    df = df[px.contains(df.shadow_id, shadow_id)]
+    r = px.pluck(df.surfaces, 'reconciliation')
+    df.profile = px.pluck(r, 'profile_name')
+    df.profile_status = px.pluck(r, 'profile_status')
+    df.profile_only = px.pluck(r, 'profile_only')
+    df.trace_only = px.pluck(r, 'trace_only')
+    df.novel_paths = px.pluck(r, 'novel_paths')
+    df.unobserved_execs = px.pluck(r, 'unobserved_execs')
+    df.unobserved_opens = px.pluck(r, 'unobserved_opens')
+    df.selected = px.pluck(df.surfaces, 'surfaces')
+    df.silent = px.pluck(r, 'silent')
+    df.forest_gaps = px.pluck(r, 'forest_gaps')
+    df.runtime_parents = px.pluck(r, 'runtime_parents')
+    df.attributions = px.pluck(r, 'attributions')
+    df.profile_execs_seen = px.pluck(r, 'profile_execs_seen')
+    return df[['container', 'close_reason', 'profile', 'profile_status', 'selected', 'profile_only',
+               'trace_only', 'novel_paths', 'unobserved_execs', 'unobserved_opens',
+               'profile_execs_seen', 'silent', 'forest_gaps', 'runtime_parents', 'attributions']]
+
+
+def processes(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    df = px.DataFrame('dx_shadow__trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = _latest(df)
+    df = df[px.contains(df.shadow_id, shadow_id)]
+    r = px.pluck(df.surfaces, 'reconciliation')
+    df.processes = px.pluck(r, 'processes')
+    return df[['container', 'processes']]
+
+
+def forest(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    t = _latest(px.DataFrame('dx_shadow__trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time))
+    t = t[px.contains(t.shadow_id, shadow_id)]
+    t = t[['shadow_id', 'pod', 'hostname']]
+    f = px.DataFrame('dx_forest__process', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    f = f.merge(t, how='inner', left_on=['pod', 'hostname'], right_on=['pod', 'hostname'], suffixes=['', '_t'])
+    f.exited = px.select(f.exit_ns > 0, px.int64_to_time(f.exit_ns), px.int64_to_time(f.exit_ns * 0))
+    return f[['started_at', 'exited', 'pid', 'ppid', 'comm', 'pcomm', 'file', 'execs', 'attribution', 'depth',
+              'boundary', 'exit_code', 'upid', 'pupid', 'container']]
+
+
+def _rows(start_time: str, clickhouse_dsn: str, view: str, shadow_id: str):
+    df = px.DataFrame(view, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = df[df.shadow_id == shadow_id]
+    return df.drop(['shadow_id', 'row_time', 'event_time', 'unique_id'])
+
+
+def dc_snoop(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__dc_snoop', shadow_id)
+
+
+def http(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__http_events', shadow_id).drop(['req_headers', 'resp_headers', 'resp_body'])
+
+
+def dns(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__dns_events', shadow_id).drop(['req_header', 'resp_header'])
+
+
+def conn(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__conn_stats', shadow_id)
+
+
+def redis(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__redis_events', shadow_id)
+
+
+def pgsql(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__pgsql_events', shadow_id)
+
+
+def amqp(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__amqp_events', shadow_id)
+
+
+def stacks(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    df = _rows(start_time, clickhouse_dsn, 'dx_shadow__stack_trace', shadow_id)
+    return df.groupby(['container', 'stack_trace']).agg(samples=('count', px.sum))
+
+
+def mysql(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__mysql_events', shadow_id)
+
+
+def cql(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__cql_events', shadow_id)
+
+
+def mongodb(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__mongodb_events', shadow_id)
+
+
+def kafka(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__kafka_events', shadow_id)
+
+
+def mux(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__mux_events', shadow_id)
+
+
+def tls(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__tls_events', shadow_id)
+
+
+def http2(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__http2_messages', shadow_id)
+
+
+def creds(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    return _rows(start_time, clickhouse_dsn, 'dx_shadow__creds_change', shadow_id)

@@ -1,0 +1,748 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "-6h"
+    },
+    {
+      "name": "clickhouse_dsn",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+    },
+    {
+      "name": "container",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": ""
+    },
+    {
+      "name": "shadow_id",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": ""
+    }
+  ],
+  "globalFuncs": [
+    {
+      "outputName": "g_traces",
+      "func": {
+        "name": "traces",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "container",
+            "variable": "container"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_graph",
+      "func": {
+        "name": "graph",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_timeline",
+      "func": {
+        "name": "timeline",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_keys",
+      "func": {
+        "name": "keys",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_recon",
+      "func": {
+        "name": "reconciliation",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "name": "SHADOWS",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "g_traces",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "BEHAVIOUR GRAPH",
+      "position": {
+        "x": 0,
+        "y": 3,
+        "w": 12,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_graph",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Graph",
+        "adjacencyList": {
+          "fromColumn": "from_entity",
+          "toColumn": "to_entity"
+        },
+        "edgeWeightColumn": "weight",
+        "edgeColorColumn": "weight",
+        "edgeLabelColumn": "key",
+        "edgeHoverInfo": [
+          "surface",
+          "key",
+          "n",
+          "pod",
+          "first_seen",
+          "last_seen"
+        ],
+        "edgeLength": 400
+      }
+    },
+    {
+      "name": "TIMELINE",
+      "position": {
+        "x": 0,
+        "y": 7,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "g_timeline",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.TimeseriesChart",
+        "timeseries": [
+          {
+            "value": "n",
+            "mode": "MODE_BAR",
+            "series": "surface",
+            "stackBySeries": true
+          }
+        ],
+        "title": "events / epoch",
+        "yAxis": {
+          "label": "events"
+        },
+        "xAxis": null
+      }
+    },
+    {
+      "name": "KEYS",
+      "position": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "g_keys",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "RECONCILIATION",
+      "position": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "g_recon",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "dc_snoop",
+      "position": {
+        "x": 0,
+        "y": 16,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "dc_snoop",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "stack_trace",
+      "position": {
+        "x": 6,
+        "y": 16,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "stacks",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "conn_stats",
+      "position": {
+        "x": 0,
+        "y": 19,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "conn",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "dns",
+      "position": {
+        "x": 6,
+        "y": 19,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "dns",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "http",
+      "position": {
+        "x": 0,
+        "y": 22,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "http",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "redis",
+      "position": {
+        "x": 6,
+        "y": 22,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "redis",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "pgsql",
+      "position": {
+        "x": 0,
+        "y": 25,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "pgsql",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "amqp",
+      "position": {
+        "x": 6,
+        "y": 25,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "amqp",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "http2",
+      "position": {
+        "x": 0,
+        "y": 28,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "http2",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "mysql",
+      "position": {
+        "x": 6,
+        "y": 28,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "mysql",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "cql",
+      "position": {
+        "x": 0,
+        "y": 31,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "cql",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "mongodb",
+      "position": {
+        "x": 6,
+        "y": 31,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "mongodb",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "kafka",
+      "position": {
+        "x": 0,
+        "y": 34,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "kafka",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "mux",
+      "position": {
+        "x": 6,
+        "y": 34,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "mux",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "tls",
+      "position": {
+        "x": 0,
+        "y": 37,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "tls",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "creds_change",
+      "position": {
+        "x": 6,
+        "y": 37,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "creds",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "PROCESSES",
+      "position": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 3
+      },
+      "func": {
+        "name": "processes",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "FOREST",
+      "position": {
+        "x": 0,
+        "y": 43,
+        "w": 12,
+        "h": 4
+      },
+      "func": {
+        "name": "forest",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    }
+  ]
+}

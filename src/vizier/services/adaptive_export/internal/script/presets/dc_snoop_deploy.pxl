@@ -23,13 +23,17 @@
 
 import pxtrace
 
-# HEADER MODE ONLY — never introduce a BTF-only type here, and never let a
-# BTF-mode bpftrace program run in this PEM. The first BTF-mode compile writes
-# __btf_generated_header.h inside the PEM process; every later header-mode
-# compile in that process then fails on kernel_cap_struct/__be64 redefinitions.
-# The contamination is process-global and not necessarily ours: a third party
-# deploying a BTF-mode tracepoint breaks these presets at their next compile,
-# and the symptom surfaces in an unrelated component.
+# HEADER MODE ONLY — no BTF-only type here.
+# PROVEN: mixing BTF-generated types with kernel includes in ONE program breaks
+# it — the BTF struct nameidata layout is not the one assumed below, so the
+# lookup_fast read yields garbage while the probe reports healthy.
+# SUSPECTED, not proven: a BTF-mode program running earlier in the SAME PEM
+# process writes __btf_generated_header.h and makes later header-mode compiles
+# fail on kernel_cap_struct/__be64 redefinitions. Best explanation for compiles
+# that fail only after other tracepoints have run, but not established.
+# Includes can also clash with EACH OTHER (qspinlock redefinition seen when
+# extending this set), so keep the include set minimal and re-test any change
+# on a PEM that has compiled nothing else.
 #
 # A skipped probe does NOT fail the deploy: bpftrace warns "could not attach
 # probe ... skipping" on the PEM's stderr and continues, so the tracepoint

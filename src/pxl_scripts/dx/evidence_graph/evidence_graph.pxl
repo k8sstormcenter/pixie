@@ -82,6 +82,13 @@ def cases(start_time: str, clickhouse_dsn: str, case_id: str):
 def orders(start_time: str, clickhouse_dsn: str, graph_table: str, case_id: str):
     df = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[px.contains(df.culprit_key, case_id)]
+    # Offender identity, not the processTree root: without it a real detection renders
+    # as its entrypoint (dumb-init) and reads like a false positive. Blank when the
+    # rule carries no process identifier — never falls back to the root.
+    ks = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    ks = ks[['uniqueID', 'infected_pid', 'offender', 'profile']]
+    df = df.merge(ks, how='left', left_on=['kubescape_uid'], right_on=['uniqueID'], suffixes=['', '_ks'])
+    df = df.drop(['uniqueID'])
     alerts = px.DataFrame(graph_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     alerts = alerts[['uniqueID', 'rule', 'mitre_tactic', 'mitre_technique', 'ts']]
     df = df.merge(alerts, how='left', left_on=['kubescape_uid', 'rule_id'],
@@ -100,7 +107,8 @@ def orders(start_time: str, clickhouse_dsn: str, graph_table: str, case_id: str)
         'case_id': df.culprit_key,
     })
     df.Alert = df.disc
-    return df[['order', 'ts', 'rule_id', 'Alert', 'mitre_tactic', 'mitre_technique', 'pod', 'culprit_key']]
+    return df[['order', 'ts', 'rule_id', 'Alert', 'offender', 'infected_pid', 'profile',
+               'mitre_tactic', 'mitre_technique', 'pod', 'culprit_key']]
 
 
 def kubescape(start_time: str, clickhouse_dsn: str, order_id: str):
@@ -118,16 +126,20 @@ def capability(start_time: str, clickhouse_dsn: str, order_id: str):
     # is what the offending PID DID with the capability. Seed = the order's PID(s),
     # then every kubescape anomaly by that same PID: the caps it acquired AND the
     # actions they enabled (e.g. CAP_SETUID -> launch cat -> read /etc/shadow).
+    # Keyed on infected_pid (the process that tripped the rule), NOT pid (the
+    # processTree root) — the root is the entrypoint and shows the wrong process.
     orders = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     orders = orders[orders.order_id == order_id]
     orders = orders[['kubescape_uid']]
     k = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     seed = k.merge(orders, how='inner', left_on=['uniqueID'], right_on=['kubescape_uid'], suffixes=['', '_o'])
-    seed = seed.groupby(['pid', 'pod']).agg(hits=('RuleID', px.count))
-    seed = seed[['pid', 'pod']]
+    seed = seed.groupby(['infected_pid', 'pod']).agg(hits=('RuleID', px.count))
+    seed = seed[['infected_pid', 'pod']]
     allk = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    acts = allk.merge(seed, how='inner', left_on=['pid', 'pod'], right_on=['pid', 'pod'], suffixes=['', '_s'])
-    return acts[['ts', 'RuleID', 'mitre_tactic', 'mitre_technique', 'alert', 'comm', 'pid']]
+    acts = allk.merge(seed, how='inner', left_on=['infected_pid', 'pod'],
+                      right_on=['infected_pid', 'pod'], suffixes=['', '_s'])
+    return acts[['ts', 'RuleID', 'mitre_tactic', 'mitre_technique', 'alert',
+                 'offender', 'infected_pid', 'profile']]
 
 
 def conn(start_time: str, clickhouse_dsn: str, order_id: str):

@@ -1101,23 +1101,37 @@ func leaderNode(nodes []string) string {
 // idempotent (create-if-absent / no-op), so re-running on every boot is safe; each
 // deploy is retried because deployment can transiently fail while PEMs (re)register.
 func deployDesiredTracepoints(ctx context.Context, adapter *pixieapi.Adapter) {
+	force := strings.EqualFold(os.Getenv("ADAPTIVE_TRACEPOINT_REDEPLOY"), "true") ||
+		os.Getenv("ADAPTIVE_TRACEPOINT_REDEPLOY") == "1"
 	for _, tp := range script.DesiredTracepoints() {
+		verify := "import px\npx.display(px.DataFrame(table='" + tp.Table + "', start_time='-5s').head(1))\n"
+
+		// Skip the upsert when the tracepoint is already deployed. UpsertTracepoint
+		// is idempotent in the create-if-absent sense, but it still CYCLES the
+		// tracepoint: a new instance goes PENDING->RUNNING and the old one
+		// RUNNING->TERMINATED. That cycle drops kprobe:lookup_fast on a running
+		// PEM — bpftrace warns "could not attach probe ... skipping" on the PEM's
+		// stderr and carries on — so dc_snoop silently degrades to M-only until
+		// the PEM restarts. Re-upserting on every AE boot therefore UNDOES the
+		// deployed program's R probe on each rollout.
+		if !force {
+			if _, err := adapter.Query(ctx, verify); err == nil {
+				log.WithFields(log.Fields{"tracepoint": tp.Name, "table": tp.Table}).
+					Info("tracepoint already deployed — skipping upsert (a re-upsert cycles it and drops probes; set ADAPTIVE_TRACEPOINT_REDEPLOY=1 after changing a preset)")
+				continue
+			}
+		}
+
 		// Fire the deploy mutation. pxapi's result collector cannot decode the
 		// mutation-info response the vizier returns for a pxtrace deploy
 		// ("stream: unimplemented type"), so a Query error here is NOT a
 		// deployment failure — the UpsertTracepoint applies server-side
-		// regardless. Success is confirmed below by the tracepoint's output
-		// table becoming queryable (PENDING_STATE -> RUNNING_STATE).
+		// regardless. Success is confirmed below by the output table becoming
+		// queryable.
 		if _, err := adapter.Query(ctx, tp.Script); err != nil {
 			log.WithError(err).WithField("tracepoint", tp.Name).
 				Debug("deploy mutation returned a stream error (expected for pxtrace mutations) — confirming via table")
 		}
-		// Confirm the tracepoint reached RUNNING by polling its output table. A
-		// plain DataFrame query on a not-yet-deployed table fails PxL compilation
-		// ("Table '<t>' not found"); once the tracepoint is RUNNING the query
-		// compiles and returns (0 rows is fine — RUNNING, just no captures yet).
-		// Re-fire the deploy every few attempts in case the first didn't take.
-		verify := "import px\npx.display(px.DataFrame(table='" + tp.Table + "', start_time='-5s').head(1))\n"
 		running := false
 		for attempt := 1; attempt <= 12; attempt++ {
 			if _, err := adapter.Query(ctx, verify); err == nil {
@@ -1130,8 +1144,12 @@ func deployDesiredTracepoints(ctx context.Context, adapter *pixieapi.Adapter) {
 			time.Sleep(5 * time.Second)
 		}
 		if running {
+			// A queryable table means the tracepoint deployed, NOT that every
+			// probe in the program attached. A multi-probe program can report
+			// RUNNING with one probe silently skipped, and lookup_fast cannot be
+			// re-attached inside a running PEM — recovery needs a fresh PEM.
 			log.WithFields(log.Fields{"tracepoint": tp.Name, "table": tp.Table}).
-				Info("bpftrace tracepoint deployed + RUNNING (permanent, idempotent upsert)")
+				Info("bpftrace tracepoint deployed + table queryable (per-probe attachment NOT verified here)")
 		} else {
 			log.WithField("tracepoint", tp.Name).
 				Warn("bpftrace tracepoint not confirmed RUNNING after deploy — its dark table stays empty until it deploys")

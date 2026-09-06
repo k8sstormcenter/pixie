@@ -3,25 +3,31 @@
     {
       "name": "start_time",
       "type": "PX_STRING",
-      "description": "Window start.",
-      "defaultValue": "-6h"
+      "description": "",
+      "defaultValue": "-7d"
     },
     {
       "name": "clickhouse_dsn",
       "type": "PX_STRING",
-      "description": "forensic_db DSN: user:pass@host:port/db.",
+      "description": "",
       "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
     },
     {
       "name": "graph_table",
       "type": "PX_STRING",
-      "description": "L1 kill-chain graph source (MITRE-enriched).",
+      "description": "",
       "defaultValue": "dx_kubescape_mitre"
     },
     {
       "name": "order_id",
       "type": "PX_STRING",
-      "description": "Set by clicking an order link in the graph popup or the ORDERS panel; every panel snaps to that order.",
+      "description": "",
+      "defaultValue": ""
+    },
+    {
+      "name": "case_id",
+      "type": "PX_STRING",
+      "description": "",
       "defaultValue": ""
     }
   ],
@@ -42,6 +48,10 @@
           {
             "name": "table",
             "variable": "graph_table"
+          },
+          {
+            "name": "case_id",
+            "variable": "case_id"
           }
         ]
       }
@@ -58,6 +68,10 @@
           {
             "name": "clickhouse_dsn",
             "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "case_id",
+            "variable": "case_id"
           }
         ]
       }
@@ -78,6 +92,10 @@
           {
             "name": "graph_table",
             "variable": "graph_table"
+          },
+          {
+            "name": "case_id",
+            "variable": "case_id"
           }
         ]
       }
@@ -281,11 +299,91 @@
           }
         ]
       }
+    },
+    {
+      "outputName": "g_capability",
+      "func": {
+        "name": "capability",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "order_id",
+            "variable": "order_id"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_credschange",
+      "func": {
+        "name": "creds_change",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "order_id",
+            "variable": "order_id"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_cql",
+      "func": {
+        "name": "cql",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "order_id",
+            "variable": "order_id"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_mongodb",
+      "func": {
+        "name": "mongodb",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "order_id",
+            "variable": "order_id"
+          }
+        ]
+      }
     }
   ],
   "widgets": [
     {
-      "name": "CASES (culprit ns/pod/RootPID -> each step; one actor's campaign: read + exfil + spawns grouped)",
+      "name": "CASES",
       "position": {
         "x": 0,
         "y": 0,
@@ -320,7 +418,7 @@
       }
     },
     {
-      "name": "Evidence graph (subject pod -> target; edge = ruleID + MITRE technique; click for details + order link)",
+      "name": "Evidence graph",
       "position": {
         "x": 0,
         "y": 8,
@@ -356,7 +454,7 @@
       }
     },
     {
-      "name": "ORDERS (click an order to filter all panels)",
+      "name": "ORDERS",
       "position": {
         "x": 0,
         "y": 8,
@@ -369,7 +467,7 @@
       }
     },
     {
-      "name": "kubescape_logs for order (MITRE tactic + technique)",
+      "name": "kubescape_logs for order",
       "position": {
         "x": 0,
         "y": 11,
@@ -460,7 +558,7 @@
       }
     },
     {
-      "name": "dc_snoop (file access)",
+      "name": "dc_snoop",
       "position": {
         "x": 0,
         "y": 27,
@@ -473,7 +571,7 @@
       }
     },
     {
-      "name": "stack_trace (profiler)",
+      "name": "stack_trace",
       "position": {
         "x": 6,
         "y": 27,
@@ -486,7 +584,7 @@
       }
     },
     {
-      "name": "Differential stack trace (attack window vs baseline; red = spiked during attack)",
+      "name": "Differential stack trace",
       "position": {
         "x": 0,
         "y": 31,
@@ -501,6 +599,58 @@
         "percentageColumn": "percent",
         "podColumn": "pod",
         "differenceColumn": "delta"
+      }
+    },
+    {
+      "name": "Capability result for order",
+      "position": {
+        "x": 0,
+        "y": 35,
+        "w": 12,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_capability",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "creds_change",
+      "position": {
+        "x": 0,
+        "y": 39,
+        "w": 6,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_credschange",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "cql",
+      "position": {
+        "x": 0,
+        "y": 43,
+        "w": 6,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_cql",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "mongodb",
+      "position": {
+        "x": 0,
+        "y": 47,
+        "w": 6,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_mongodb",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
       }
     }
   ]

@@ -13,8 +13,6 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
-#
-# SOC pixie evidence graph — works only with ClickHouse enabled.
 
 import px
 
@@ -25,17 +23,22 @@ def _ord(start_time: str, clickhouse_dsn: str, view: str, order_id: str):
     return df.drop(['order_id', 'row_time', 'event_time'])
 
 
-def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
+def evidence_graph(start_time: str, clickhouse_dsn: str, table: str, case_id: str):
     orders = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    orders = orders[['order_id', 'kubescape_uid', 'rule_id', 'pod']]
+    orders = orders[['order_id', 'kubescape_uid', 'rule_id', 'pod', 'culprit_key']]
+    orders = orders[px.contains(orders.culprit_key, case_id)]
     anom = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = orders.merge(anom, how='inner', left_on=['kubescape_uid', 'rule_id'],
                       right_on=['uniqueID', 'rule'], suffixes=['', '_a'])
+    df.subject_ns = px.pluck_array(px.split(df.subject_pod, '/'), 0)
+    df = df[df.subject_ns != 'pl']
+    df = df[df.subject_ns != 'px-operator']
     df.order_link = px.script_reference(df.order_id, 'dx/evidence_graph', {
         'start_time': start_time,
         'clickhouse_dsn': clickhouse_dsn,
         'graph_table': table,
         'order_id': df.order_id,
+        'case_id': df.culprit_key,
     })
     df.from_entity = px.Pod(df.subject_pod)
     df.to_entity = df.target
@@ -44,37 +47,50 @@ def evidence_graph(start_time: str, clickhouse_dsn: str, table: str):
                'severity', 'alert', 'subject_pod']]
 
 
-def cases(start_time: str, clickhouse_dsn: str):
-    # The meta-level: one culprit (ns/pod/RootPID) fans out to each step it took.
-    # dx stamps culprit_key on every order; orders sharing it are one actor's
-    # campaign (read + exfil + spawns). from=culprit, to=the step (pod:rule).
+def cases(start_time: str, clickhouse_dsn: str, case_id: str):
     df = px.DataFrame('dx_cases', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = df[px.contains(df.culprit_key, case_id)]
+    df.subject_ns = px.pluck_array(px.split(df.subject_pod, '/'), 0)
+    df = df[df.subject_ns != 'pl']
+    df = df[df.subject_ns != 'px-operator']
     df.from_entity = df.culprit_key
     df.to_entity = df.subject_pod + ':' + df.rule_id
-    df.order_link = px.script_reference(df.order_id, 'dx/evidence_graph', {
+    df.case_link = px.script_reference(df.culprit_key, 'dx/evidence_graph', {
         'start_time': start_time,
         'clickhouse_dsn': clickhouse_dsn,
         'graph_table': 'dx_kubescape_mitre',
         'order_id': df.order_id,
+        'case_id': df.culprit_key,
     })
+    df.order_link = df.case_link
     return df[['from_entity', 'to_entity', 'culprit_key', 'rule_id', 'mitre_tactic',
                'mitre_technique', 'severity', 'alert', 'order_id', 'order_link']]
 
 
-def orders(start_time: str, clickhouse_dsn: str, graph_table: str):
+def orders(start_time: str, clickhouse_dsn: str, graph_table: str, case_id: str):
     df = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = df[px.contains(df.culprit_key, case_id)]
+    ks = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    ks = ks[['uniqueID', 'infected_pid', 'offender', 'profile']]
+    df = df.merge(ks, how='left', left_on=['kubescape_uid'], right_on=['uniqueID'], suffixes=['', '_ks'])
+    df = df.drop(['uniqueID'])
     alerts = px.DataFrame(graph_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     alerts = alerts[['uniqueID', 'rule', 'mitre_tactic', 'mitre_technique', 'ts']]
     df = df.merge(alerts, how='left', left_on=['kubescape_uid', 'rule_id'],
                   right_on=['uniqueID', 'rule'], suffixes=['', '_k'])
+    df.pod_ns = px.pluck_array(px.split(df.pod, '/'), 0)
+    df = df[df.pod_ns != 'pl']
+    df = df[df.pod_ns != 'px-operator']
     df.order = px.script_reference(df.order_id, 'dx/evidence_graph', {
         'start_time': start_time,
         'clickhouse_dsn': clickhouse_dsn,
         'graph_table': graph_table,
         'order_id': df.order_id,
+        'case_id': df.culprit_key,
     })
     df.Alert = df.disc
-    return df[['order', 'ts', 'rule_id', 'Alert', 'mitre_tactic', 'mitre_technique', 'pod']]
+    return df[['order', 'ts', 'rule_id', 'Alert', 'offender', 'infected_pid', 'profile',
+               'mitre_tactic', 'mitre_technique', 'pod', 'culprit_key']]
 
 
 def kubescape(start_time: str, clickhouse_dsn: str, order_id: str):
@@ -87,6 +103,21 @@ def kubescape(start_time: str, clickhouse_dsn: str, order_id: str):
     return j.drop(['row_time', 'event_time', 'kubescape_uid', 'rule_id', 'uniqueID'])
 
 
+def capability(start_time: str, clickhouse_dsn: str, order_id: str):
+    orders = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = orders[orders.order_id == order_id]
+    orders = orders[['kubescape_uid']]
+    k = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    seed = k.merge(orders, how='inner', left_on=['uniqueID'], right_on=['kubescape_uid'], suffixes=['', '_o'])
+    seed = seed.groupby(['infected_pid', 'pod']).agg(hits=('RuleID', px.count))
+    seed = seed[['infected_pid', 'pod']]
+    allk = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    acts = allk.merge(seed, how='inner', left_on=['infected_pid', 'pod'],
+                      right_on=['infected_pid', 'pod'], suffixes=['', '_s'])
+    return acts[['ts', 'RuleID', 'mitre_tactic', 'mitre_technique', 'alert',
+                 'offender', 'infected_pid', 'profile']]
+
+
 def conn(start_time: str, clickhouse_dsn: str, order_id: str):
     return _ord(start_time, clickhouse_dsn, 'dx_ord__conn_stats', order_id)
 
@@ -96,7 +127,6 @@ def redis(start_time: str, clickhouse_dsn: str, order_id: str):
 
 
 def http(start_time: str, clickhouse_dsn: str, order_id: str):
-    # namespace is constant/uninformative for these protocol panels — drop it.
     return _ord(start_time, clickhouse_dsn, 'dx_ord__http_events', order_id).drop(['namespace'])
 
 
@@ -113,13 +143,23 @@ def mysql(start_time: str, clickhouse_dsn: str, order_id: str):
 
 
 def dc_snoop(start_time: str, clickhouse_dsn: str, order_id: str):
-    # dx_ord__dc_snoop carries a real hostname (from the order/edge join); the raw
-    # dc_snoop table ships an empty hostname, so px hostname-sharding reads it as 0.
     return _ord(start_time, clickhouse_dsn, 'dx_ord__dc_snoop', order_id).drop(['namespace'])
 
 
+def creds_change(start_time: str, clickhouse_dsn: str, order_id: str):
+    df = _ord(start_time, clickhouse_dsn, 'dx_ord__creds_change', order_id).drop(['namespace'])
+    return df[df.old_uid != df.new_uid]
+
+
+def cql(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__cql_events', order_id).drop(['namespace'])
+
+
+def mongodb(start_time: str, clickhouse_dsn: str, order_id: str):
+    return _ord(start_time, clickhouse_dsn, 'dx_ord__mongodb_events', order_id).drop(['namespace'])
+
+
 def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):
-    # Native profiler (never empty); the ClickHouse stack_trace export is not running.
     w = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     w = w[w.order_id == order_id]
     w = w[['pod']]
@@ -131,8 +171,6 @@ def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):
 
 
 def stack_diff(start_time: str, clickhouse_dsn: str, order_id: str):
-    # ATTACK [event_time-30s, +30s] vs MATCHED 60s BASELINE before it; Int64 offsets
-    # from dx_orders_win.lo (no float division -> compares against time_to_int64).
     orders = px.DataFrame('dx_orders_win', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     orders = orders[orders.order_id == order_id]
     orders = orders[['pod', 'lo', 'hi']]

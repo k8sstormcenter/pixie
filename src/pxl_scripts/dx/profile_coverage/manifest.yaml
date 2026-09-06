@@ -1,4 +1,3 @@
 ---
 short: Profile coverage
-long: >
-  Governance coverage per namespace: how many workloads carry a signed profile vs how many are rogue.
+long: Profile coverage

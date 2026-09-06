@@ -13,17 +13,6 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
-#
-# SOC full-chain exfil narrative — works only with ClickHouse enabled.
-#
-# Cross-order/cross-sensor incident graph. Seeded from pods carrying an alert of
-# severity >= min_sev (severity is data-driven; the exfil-relevant rules can be
-# low-numeric, so min_sev is the editable knob), then overlays every sensor's
-# edges for those pods in the query window (a UNION built in the dx_fullchain_edges
-# view). Deliberately NOT keyed on a single order_id: the read (pgsql) and the send
-# (http/egress) land in different ±50ms anomaly orders, so we correlate by
-# pod + window + shared IP instead. Sparse by construction: a missing sensor just
-# drops its edges, never the graph.
 
 import px
 
@@ -45,8 +34,6 @@ def fullchain(start_time: str, clickhouse_dsn: str, min_sev: int):
 
 
 def group(start_time: str, clickhouse_dsn: str, min_sev: int):
-    # The editable preselection: which pods (and their seed alerts) are in the
-    # incident. Lower min_sev to pull in more pods, raise it to focus.
     e = px.DataFrame('dx_fullchain_edges', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     s = e[e.sev >= min_sev]
     s = s.groupby(['pod', 'from_node', 'edge_label']).agg(alerts=('sev', px.count), sev=('sev', px.max))

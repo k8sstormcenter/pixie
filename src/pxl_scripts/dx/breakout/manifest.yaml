@@ -1,6 +1,3 @@
 ---
 short: Presentation
-long: >
-  One host's presenting signs when it departs from its established baseline —
-  presenting signs by site, specimens leaving the host, and the clinical course.
-  Works only with ClickHouse enabled.
+long: Presentation

@@ -13,11 +13,6 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
-#
-# Presentation view — one host's presenting signs when it departs from its
-# established baseline. Reads the full finding text (`symptom`) from ClickHouse;
-# `sign` = the leading phrase, `site` = the first token after it. Graph edge =
-# sign, node = site, hover = the full symptom. Works only with ClickHouse enabled.
 
 import px
 
@@ -25,8 +20,6 @@ import px
 def learned(start_time: str, clickhouse_dsn: str):
     df = px.DataFrame('kubescape_profiles', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[df.kind == 'shadow']
-    # execs/opens/egress/ingress/syscalls now carry the profile CONTENT (strings),
-    # not counts — px.any (px.max is numeric-only) picks a representative snapshot.
     agg = df.groupby(['namespace', 'name']).agg(
         completion=('completion', px.any), status=('status', px.any),
         execs=('execs', px.any), opens=('opens', px.any),

@@ -13,18 +13,12 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
-#
-# Overview / triage entry point. Every row deeplinks into the detail views:
-# a host -> its breakout presentation; a finding -> the correlated evidence graph
-# (the order) and the host's breakout; a MITRE tactic -> the hosts exhibiting it.
-# Works only with ClickHouse enabled.
 
 import px
 
 
 def _findings(start_time: str, clickhouse_dsn: str):
     df = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    # Pixie's own plane is FP noise (see breakout/evidence_graph exclusions).
     df.podns = px.pluck_array(px.split(df.pod, '/'), 0)
     df = df[df.podns != 'pl']
     df = df[df.podns != 'px-operator']
@@ -32,10 +26,7 @@ def _findings(start_time: str, clickhouse_dsn: str):
 
 
 def hosts(start_time: str, clickhouse_dsn: str):
-    # One row per host: finding load, a representative MITRE tactic, latest activity,
-    # and deeplinks to the host's breakout, its shadow profiles and its rogue state.
     df = _findings(start_time, clickhouse_dsn)
-    # px.any on ts (px.max is numeric-only; ts is a human-readable string).
     agg = df.groupby(['pod']).agg(
         findings=('uniqueID', px.count),
         tactic=('mitre_tactic', px.any),
@@ -50,8 +41,6 @@ def hosts(start_time: str, clickhouse_dsn: str):
 
 
 def findings(start_time: str, clickhouse_dsn: str):
-    # Every finding: what ran (comm/pid/cmdline), on which host, its MITRE mapping,
-    # with a deeplink to the correlated evidence graph (the order) and to the host.
     df = _findings(start_time, clickhouse_dsn)
     orders = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     orders = orders[['order_id', 'kubescape_uid', 'rule_id']]
@@ -67,7 +56,6 @@ def findings(start_time: str, clickhouse_dsn: str):
 
 
 def tactics(start_time: str, clickhouse_dsn: str):
-    # Overview graph: MITRE tactic -> the hosts exhibiting it (edge weight = hits).
     df = _findings(start_time, clickhouse_dsn)
     agg = df.groupby(['mitre_tactic', 'pod']).agg(hits=('uniqueID', px.count))
     agg.from_entity = agg.mitre_tactic

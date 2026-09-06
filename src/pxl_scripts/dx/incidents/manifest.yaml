@@ -1,4 +1,3 @@
 ---
 short: Incidents
-long: >
-  Correlated incidents (orders): each rule that fired, the pod, and the finding.
+long: Incidents

@@ -13,11 +13,6 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
-#
-# Presentation view — one host's presenting signs when it departs from its
-# established baseline. Reads the full finding text (`symptom`) from ClickHouse;
-# `sign` = the leading phrase, `site` = the first token after it. Graph edge =
-# sign, node = site, hover = the full symptom. Works only with ClickHouse enabled.
 
 import px
 
@@ -25,8 +20,6 @@ import px
 def _host(start_time: str, clickhouse_dsn: str, host: str):
     df = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[px.contains(df.pod, host)]
-    # Exclude our own ClickHouse — pod is "namespace/podname"; the forensic store
-    # (clickhouse/chi-forensic-soc-db-*) is infrastructure, not a subject of investigation.
     df.podns = px.pluck_array(px.split(df.pod, '/'), 0)
     df = df[df.podns != 'clickhouse']
     df.symptom = df.alert
@@ -36,21 +29,17 @@ def _host(start_time: str, clickhouse_dsn: str, host: str):
 
 
 def course(start_time: str, clickhouse_dsn: str, host: str):
-    # Clinical course — each finding in order, full symptom text preserved.
     df = _host(start_time, clickhouse_dsn, host)
     return df[['ts', 'symptom', 'comm', 'pid', 'ppid', 'cmdline']]
 
 
 def signs(start_time: str, clickhouse_dsn: str, host: str):
-    # Presenting signs and how often each was observed.
     df = _host(start_time, clickhouse_dsn, host)
     agg = df.groupby(['sign']).agg(count=('uniqueID', px.count))
     return agg[['sign', 'count']]
 
 
 def presentation(start_time: str, clickhouse_dsn: str, host: str):
-    # host -> site (node); edge = presenting sign; hover = the full symptom
-    # (one representative per edge). Bounded node count (one per site).
     df = _host(start_time, clickhouse_dsn, host)
     agg = df.groupby(['pod', 'site', 'sign']).agg(
         count=('uniqueID', px.count), symptom=('symptom', px.any))
@@ -60,11 +49,8 @@ def presentation(start_time: str, clickhouse_dsn: str, host: str):
 
 
 def discharge(start_time: str, clickhouse_dsn: str):
-    # Specimens leaving the host — bodies carried on referred outbound requests.
-    # `specimen` is the material observed in transit.
     df = px.DataFrame('dx_ord__http_events', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[df.req_method == 'POST']
-    # Exclude our own ClickHouse ingest traffic (the AE's INSERT POSTs into forensic_db).
     df.podns = px.pluck_array(px.split(df.pod, '/'), 0)
     df = df[df.podns != 'clickhouse']
     df.host = df.pod

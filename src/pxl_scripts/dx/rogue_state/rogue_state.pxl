@@ -13,11 +13,6 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
-#
-# Rogue lifecycle. A healed rogue is DELETED upstream (no Healed phase / healedAt),
-# so healing is derived from snapshot absence in kubescape_rogue_lifecycle: still in
-# the latest snapshot => Firing, else Healed at its last-seen. started_firing /
-# stopped_firing are human-readable; the profile column deeplinks to dx/shadow_profiles.
 
 import px
 
@@ -27,8 +22,6 @@ def _lc(start_time: str, clickhouse_dsn: str):
 
 
 def lifecycle(start_time: str, clickhouse_dsn: str):
-    # Per rogue container: started firing, current phase, stopped firing (blank while
-    # still firing), snapshots seen, and a deeplink to its shadow profile.
     df = _lc(start_time, clickhouse_dsn)
     df.profile = px.script_reference(df.workload_name, 'dx/shadow_profiles',
         {'start_time': start_time, 'clickhouse_dsn': clickhouse_dsn})
@@ -37,14 +30,12 @@ def lifecycle(start_time: str, clickhouse_dsn: str):
 
 
 def transitions(start_time: str, clickhouse_dsn: str):
-    # The firing -> healed timeline: each container's start and (if healed) stop time.
     df = _lc(start_time, clickhouse_dsn)
     return df[['namespace', 'container_name', 'workload_kind', 'pod_name',
                'phase', 'started_firing', 'stopped_firing']]
 
 
 def rogue(start_time: str, clickhouse_dsn: str):
-    # Currently firing, grouped by workload.
     df = _lc(start_time, clickhouse_dsn)
     df = df[df.phase == 'Firing']
     agg = df.groupby(['namespace', 'workload_kind', 'container_name']).agg(
@@ -53,7 +44,6 @@ def rogue(start_time: str, clickhouse_dsn: str):
 
 
 def by_ns(start_time: str, clickhouse_dsn: str):
-    # Namespace -> rogue container, split by phase.
     df = _lc(start_time, clickhouse_dsn)
     df.from_entity = df.namespace
     df.to_entity = df.container_name

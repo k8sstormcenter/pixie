@@ -13,11 +13,6 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
-#
-# Presentation view — one host's presenting signs when it departs from its
-# established baseline. Reads the full finding text (`symptom`) from ClickHouse;
-# `sign` = the leading phrase, `site` = the first token after it. Graph edge =
-# sign, node = site, hover = the full symptom. Works only with ClickHouse enabled.
 
 import px
 

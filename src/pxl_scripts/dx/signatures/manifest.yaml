@@ -1,4 +1,3 @@
 ---
 short: Signatures
-long: >
-  Signature ledger: which ContainerProfiles are signed vs unsigned, by whom, and the trust keys the cluster honours.
+long: Signatures

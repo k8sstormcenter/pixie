@@ -1,4 +1,3 @@
 ---
 short: External contacts
-long: >
-  External domain communication flagged against the profile — the off-cluster contacts each host reached.
+long: External contacts

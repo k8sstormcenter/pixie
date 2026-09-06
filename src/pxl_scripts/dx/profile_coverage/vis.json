@@ -3,13 +3,13 @@
     {
       "name": "start_time",
       "type": "PX_STRING",
-      "description": "Window start.",
+      "description": "",
       "defaultValue": "-6h"
     },
     {
       "name": "clickhouse_dsn",
       "type": "PX_STRING",
-      "description": "forensic_db DSN.",
+      "description": "",
       "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
     }
   ],
@@ -49,7 +49,7 @@
   ],
   "widgets": [
     {
-      "name": "Governed \u2014 signed profiles per namespace",
+      "name": "Governed",
       "position": {
         "x": 0,
         "y": 0,
@@ -62,7 +62,7 @@
       }
     },
     {
-      "name": "Ungoverned \u2014 rogue containers per namespace",
+      "name": "Ungoverned",
       "position": {
         "x": 0,
         "y": 4,

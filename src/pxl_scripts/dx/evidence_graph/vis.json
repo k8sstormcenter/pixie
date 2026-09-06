@@ -3,31 +3,31 @@
     {
       "name": "start_time",
       "type": "PX_STRING",
-      "description": "Window start.",
+      "description": "",
       "defaultValue": "-7d"
     },
     {
       "name": "clickhouse_dsn",
       "type": "PX_STRING",
-      "description": "forensic_db DSN: user:pass@host:port/db.",
+      "description": "",
       "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
     },
     {
       "name": "graph_table",
       "type": "PX_STRING",
-      "description": "L1 kill-chain graph source (MITRE-enriched).",
+      "description": "",
       "defaultValue": "dx_kubescape_mitre"
     },
     {
       "name": "order_id",
       "type": "PX_STRING",
-      "description": "Set by clicking an order link in the graph popup or the ORDERS panel; every panel snaps to that order.",
+      "description": "",
       "defaultValue": ""
     },
     {
       "name": "case_id",
       "type": "PX_STRING",
-      "description": "Filter the graphs to one case (culprit ns/pod/RootPID). Empty = all. Set by clicking an order or a case edge.",
+      "description": "",
       "defaultValue": ""
     }
   ],
@@ -383,7 +383,7 @@
   ],
   "widgets": [
     {
-      "name": "CASES (culprit ns/pod/RootPID -> each step; one actor's campaign: read + exfil + spawns grouped)",
+      "name": "CASES",
       "position": {
         "x": 0,
         "y": 0,
@@ -418,7 +418,7 @@
       }
     },
     {
-      "name": "Evidence graph (subject pod -> target; edge = ruleID + MITRE technique; click for details + order link)",
+      "name": "Evidence graph",
       "position": {
         "x": 0,
         "y": 8,
@@ -454,7 +454,7 @@
       }
     },
     {
-      "name": "ORDERS (click an order to filter all panels)",
+      "name": "ORDERS",
       "position": {
         "x": 0,
         "y": 8,
@@ -467,7 +467,7 @@
       }
     },
     {
-      "name": "kubescape_logs for order (MITRE tactic + technique)",
+      "name": "kubescape_logs for order",
       "position": {
         "x": 0,
         "y": 11,
@@ -558,7 +558,7 @@
       }
     },
     {
-      "name": "dc_snoop (file access)",
+      "name": "dc_snoop",
       "position": {
         "x": 0,
         "y": 27,
@@ -571,7 +571,7 @@
       }
     },
     {
-      "name": "stack_trace (profiler)",
+      "name": "stack_trace",
       "position": {
         "x": 6,
         "y": 27,
@@ -584,7 +584,7 @@
       }
     },
     {
-      "name": "Differential stack trace (attack window vs baseline; red = spiked during attack)",
+      "name": "Differential stack trace",
       "position": {
         "x": 0,
         "y": 31,
@@ -602,7 +602,7 @@
       }
     },
     {
-      "name": "Capability result for order (R0004: caps acquired -> actions they enabled, same PID)",
+      "name": "Capability result for order",
       "position": {
         "x": 0,
         "y": 35,
@@ -615,7 +615,7 @@
       }
     },
     {
-      "name": "creds_change (uid transitions)",
+      "name": "creds_change",
       "position": {
         "x": 0,
         "y": 39,
@@ -628,7 +628,7 @@
       }
     },
     {
-      "name": "cql (native protocol)",
+      "name": "cql",
       "position": {
         "x": 0,
         "y": 43,
@@ -641,7 +641,7 @@
       }
     },
     {
-      "name": "mongodb (native protocol)",
+      "name": "mongodb",
       "position": {
         "x": 0,
         "y": 47,

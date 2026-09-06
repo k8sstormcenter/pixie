@@ -1,4 +1,3 @@
 ---
 short: Token access
-long: >
-  ServiceAccount token reads flagged against the profile — which host, which process, and how often.
+long: Token access

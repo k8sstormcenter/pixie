@@ -1050,6 +1050,13 @@ LIMIT 1 BY uniqueID, rule;
 
 -- dx_src__kubescape_mitre: kubescape detail panel — MITRE cols after RuleID, plus
 -- process tree (comm/pcomm/cmdline). ts/row_time/event_time px-connector convention.
+-- pid is the processTree ROOT (the entrypoint, e.g. dumb-init). The process that
+-- actually tripped the rule is infectedPID, exposed as infected_pid with its comm
+-- (offender) and violated profile. Keying evidence on pid shows the wrong process,
+-- which makes a true positive read as a false positive.
+-- NOTE: statements here are extracted by scanning to the FIRST ';' after the CREATE
+-- (ddl.go statementFor), so a ';' anywhere inside a statement — including inside a
+-- comment — truncates it and the apply fails. Keep prose above the CREATE.
 CREATE OR REPLACE VIEW forensic_db.dx_src__kubescape_mitre AS
 SELECT toString(fromUnixTimestamp64Nano(toInt64(event_time))) AS ts, toInt64(event_time) AS row_time, event_time,
        RuleID,
@@ -1061,9 +1068,6 @@ SELECT toString(fromUnixTimestamp64Nano(toInt64(event_time))) AS ts, toInt64(eve
        JSONExtractString(JSONExtractRaw(RuntimeProcessDetails, 'processTree'), 'pcomm') AS parent,
        JSONExtractInt(JSONExtractRaw(RuntimeProcessDetails, 'processTree'), 'ppid') AS ppid,
        JSONExtractString(JSONExtractRaw(RuntimeProcessDetails, 'processTree'), 'cmdline') AS cmdline,
-       -- pid above is the processTree ROOT (dumb-init/entrypoint); the process that tripped
-       -- the rule is infectedPID. Keying evidence on pid shows the wrong process, so a true
-       -- positive reads as a false positive.
        JSONExtractInt(BaseRuntimeMetadata, 'infectedPID') AS infected_pid,
        JSONExtractString(BaseRuntimeMetadata, 'identifiers', 'process', 'name') AS offender,
        JSONExtractString(BaseRuntimeMetadata, 'profileMetadata', 'name') AS profile,

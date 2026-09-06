@@ -18,6 +18,7 @@ package pxl
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -257,14 +258,15 @@ func TestEscapePxL_TableDriven(t *testing.T) {
 //	df = df[df.time_ <  ...]                  1
 //	df.namespace = px.upid_to_namespace(...)  1
 //	df.pod = px.upid_to_pod_name(...)         1
+//	df.hostname = px.upid_to_node_name(...)   1
 //	df = df[df.namespace == '...']            1
 //	df = df[df.pod == '...']                  1
 //	px.display(df, '...')                     1
-//	(trailing newline → empty 11th split)     1
+//	(trailing newline → empty 12th split)     1
 //
-// Total: 10 statements + trailing empty == strings.Split == 11 entries.
+// Total: 11 statements + trailing empty == strings.Split == 12 entries.
 func TestQueryFor_RejectsInjectionInTargetFields(t *testing.T) {
-	const wantLines = 11
+	const wantLines = 12
 
 	cases := []struct {
 		name   string
@@ -336,7 +338,105 @@ func TestQueryFor_PodOnlyRegexEscapesQuoteMetaInjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryFor: %v", err)
 	}
-	if strings.Contains(q, "exec(") || strings.Count(q, "\n") > 9 {
+	if strings.Contains(q, "exec(") || strings.Count(q, "\n") > 10 {
 		t.Fatalf("pod-only path injection succeeded:\n%s", q)
+	}
+}
+
+// TestQueryFor_EndTimeBoundsPastWindow — a window whose upper bound is in the past
+// must emit a relative end_time so the PEM scan is bounded on BOTH sides (not
+// [sliceStart, now]). The precise upper bound is still enforced by the df.time_ <
+// nanos post-filter.
+func TestQueryFor_EndTimeBoundsPastWindow(t *testing.T) {
+	// sliceEnd 2 minutes before now → end_time must appear.
+	end := fixedNow.Add(-2 * time.Minute)
+	start := fixedNow.Add(-7 * time.Minute)
+	q, err := QueryFor("dc_snoop", target, start, end, fixedNow)
+	if err != nil {
+		t.Fatalf("QueryFor: %v", err)
+	}
+	if !strings.Contains(q, "end_time='-120s'") {
+		t.Fatalf("past-window query must bound the source scan with end_time='-120s'; got:\n%s", q)
+	}
+	// exact upper bound still trimmed precisely in nanos.
+	if !strings.Contains(q, "df = df[df.time_ <  px.int64_to_time("+
+		strconv.FormatInt(end.UnixNano(), 10)+")]") {
+		t.Fatalf("precise nanos upper-bound filter must remain; got:\n%s", q)
+	}
+}
+
+// TestQueryFor_NoEndTimeAtLiveEdge — a window that reaches now must NOT emit
+// end_time (scan to the live edge), preserving the pre-chunking behavior for the
+// most-recent slice.
+func TestQueryFor_NoEndTimeAtLiveEdge(t *testing.T) {
+	q, err := QueryFor("dc_snoop", target, fixedNow.Add(-1*time.Minute), fixedNow, fixedNow)
+	if err != nil {
+		t.Fatalf("QueryFor: %v", err)
+	}
+	if strings.Contains(q, "end_time=") {
+		t.Fatalf("live-edge window must not bound end_time; got:\n%s", q)
+	}
+}
+
+// TestQueryFor_DarkNamespaceExclusion — the node-scoped dark capture (dc_snoop)
+// must drop infra namespaces (pl, kube-system, …) while KEEPING blank-namespace
+// transient rows (the attack's short-lived children). Mirrors the shipped preset.
+func TestQueryFor_DarkNamespaceExclusion(t *testing.T) {
+	q, err := QueryFor("dc_snoop", target, fixedStart, fixedEnd, fixedNow)
+	if err != nil {
+		t.Fatalf("QueryFor: %v", err)
+	}
+	// namespace drops present for infra
+	for _, ns := range []string{"pl", "kube-system", "clickhouse"} {
+		if !strings.Contains(q, "df = df[df.namespace != '"+ns+"']") {
+			t.Errorf("dark capture must drop infra namespace %q; got:\n%s", ns, q)
+		}
+	}
+	// must NOT pin to the alert pod's namespace (node-scoped keeps blank + other workloads)
+	if strings.Contains(q, "df = df[df.namespace == '") {
+		t.Errorf("dark capture must not pin df.namespace ==; got:\n%s", q)
+	}
+	// host/CNI comm drops present
+	for _, c := range []string{"host-local", "systemd-udevd", "tailscaled", "kubevuln"} {
+		if !strings.Contains(q, "df = df[df.comm != '"+c+"']") {
+			t.Errorf("dark capture must drop host/CNI comm %q; got:\n%s", c, q)
+		}
+	}
+}
+
+// TestQueryFor_DarkNamespaceExclusion_EnvOverride — DC_SNOOP_EXCLUDE_NAMESPACES
+// replaces the default list.
+func TestQueryFor_DarkNamespaceExclusion_EnvOverride(t *testing.T) {
+	t.Setenv("DC_SNOOP_EXCLUDE_NAMESPACES", "foo,bar")
+	q, err := QueryFor("dc_snoop", target, fixedStart, fixedEnd, fixedNow)
+	if err != nil {
+		t.Fatalf("QueryFor: %v", err)
+	}
+	if !strings.Contains(q, "df = df[df.namespace != 'foo']") || !strings.Contains(q, "df = df[df.namespace != 'bar']") {
+		t.Errorf("env override must emit foo/bar drops; got:\n%s", q)
+	}
+	if strings.Contains(q, "df = df[df.namespace != 'pl']") {
+		t.Errorf("env override must REPLACE the default (no 'pl'); got:\n%s", q)
+	}
+}
+
+// dc_snoop drops kernel-thread families (variable suffix) via px.logicalNot(px.contains),
+// keeps workload comms (redis-server), and doesn't pin the alert pod's namespace.
+func TestQueryFor_DarkCommSubstringExclusion(t *testing.T) {
+	q, err := QueryFor("dc_snoop", target, fixedStart, fixedEnd, fixedNow)
+	if err != nil {
+		t.Fatalf("QueryFor: %v", err)
+	}
+	for _, sub := range []string{"kworker", "ksoftirqd", "rcu_"} {
+		want := "df = df[px.logicalNot(px.contains(df.comm, '" + sub + "'))]"
+		if !strings.Contains(q, want) {
+			t.Errorf("want kernel-thread drop %q; got:\n%s", want, q)
+		}
+	}
+	if strings.Contains(q, "df.comm != 'redis-server'") || strings.Contains(q, "df.comm, 'redis") {
+		t.Errorf("workload comm redis-* must NOT be excluded; got:\n%s", q)
+	}
+	if !strings.Contains(q, "df = df[df.comm != 'pause']") {
+		t.Errorf("want exact drop of 'pause'; got:\n%s", q)
 	}
 }

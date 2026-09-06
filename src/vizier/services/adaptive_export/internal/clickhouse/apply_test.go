@@ -67,10 +67,16 @@ func TestApply_ExecutesEveryOperatorOwnedTable(t *testing.T) {
 	if !strings.Contains(bodies[len(bodies)-1], "forensic_db."+lastTable) {
 		t.Fatalf("last DDL not for %s; got: %s", lastTable, bodies[len(bodies)-1])
 	}
-	// And ensure no kubescape DDL leaked through.
+	// And ensure no kubescape DDL leaked through. Match the CREATE TABLE form,
+	// not a bare mention: the order-UUID views (dx_kubescape_anomalies,
+	// dx_src__kubescape_logs) legitimately SELECT FROM forensic_db.kubescape_logs,
+	// so a substring check on the table name alone flags reading it as creating it.
+	// Ownership is about who issues the CREATE TABLE, which is still never AE.
 	for _, b := range bodies {
-		if strings.Contains(b, "forensic_db.alerts") || strings.Contains(b, "forensic_db.kubescape_logs") {
-			t.Fatalf("operator's Apply must not create kubescape tables; got:\n%s", b)
+		for _, ks := range []string{"alerts", "kubescape_logs"} {
+			if strings.Contains(b, "CREATE TABLE IF NOT EXISTS forensic_db."+ks) {
+				t.Fatalf("operator's Apply must not create kubescape tables; got:\n%s", b)
+			}
 		}
 	}
 }
@@ -228,7 +234,10 @@ func TestOperatorOwnedTables_DoesNotIncludeKubescape(t *testing.T) {
 // plugin can auto-DDL them with the wrong schema), then the operator's
 // own write targets in declared order.
 func TestOperatorOwnedTables_TrailingOperatorTables(t *testing.T) {
-	want := []string{"adaptive_attribution", "trigger_watermark", "ae_reconcile", "dx_evidence_graph", "dx_evidence_graph_malignant", "dx_evidence_manifest"}
+	want := []string{
+		"adaptive_attribution", "trigger_watermark", "ae_reconcile", "dx_evidence_graph", "dx_evidence_manifest", "dx_order_seeds", "dx_order_records", "dx_orders", "dx_order_edges",
+		"dx_anomaly_orders", "dx_kubescape_anomalies", "dx_src__kubescape_logs", "dx_src__stack_trace", "dx_ord__conn_stats", "dx_ord__redis_events", "dx_ord__http_events", "dx_ord__dns_events", "dx_ord__pgsql_events", "dx_ord__mysql_events", "dx_ord__dc_snoop", "dx_ord__stack_trace", "dx_kubescape_mitre", "dx_src__kubescape_mitre", "dx_orders_win", "dx_dns_resolve", "dx_ord__cql_events", "dx_ord__mongodb_events", "dx_ord__creds_change", "dx_cases", "dx_case_links", "dx_alerts", "dx_breakout_story", "dx_fullchain_edges",
+	}
 	got := OperatorOwnedTables[len(OperatorOwnedTables)-len(want):]
 	for i, w := range want {
 		if got[i] != w {

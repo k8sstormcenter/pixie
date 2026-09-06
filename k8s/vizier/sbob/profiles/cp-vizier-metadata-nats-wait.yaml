@@ -1,46 +1,42 @@
-# SBoB for vizier-metadata/nats-wait — generalised from a recorded ContainerProfile.
-# opens 63 -> 9 after collapse+portability.
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
 kind: ContainerProfile
 metadata:
+  annotations:
+    kubescape.io/completion: complete
+    kubescape.io/managed-by: User
+    kubescape.io/resource-size: '13'
+    kubescape.io/status: completed
+    kubescape.io/sync-checksum: ca610d37f9cdc97c5729976f0d362e312ceb486203c126f9287067b6bd4d3fb2
   name: vizier-metadata-nats-wait
   namespace: pl
-  annotations:
-    kubescape.io/managed-by: User
-    kubescape.io/completion: complete
-    kubescape.io/status: completed
 spec:
-  execs:
-  - path: /bin/busybox
-  - path: /usr/bin/curl
-  opens:
-  - path: /.config/curlrc
-  - path: /.curlrc
-  - path: /dev/null
-  - path: /etc/⋯
-  - path: /etc/⋯/openssl.cnf
-  - path: /lib/⋯
-  - path: /proc/⋯/1/fd
-  - path: /usr/lib/⋯
-  - path: /usr/local/lib/⋯
+  architectures: null
   capabilities:
   - CAP_DAC_OVERRIDE
   - CAP_DAC_READ_SEARCH
   - CAP_SETGID
   - CAP_SETUID
   egress:
-  - identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
-    podSelector:
-      matchLabels:
-        k8s-app: kube-dns
+  - dns: ''
+    dnsNames: null
+    identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
+    ipAddress: ''
     namespaceSelector:
       matchLabels:
         kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
     ports:
     - name: UDP-53
-      protocol: UDP
       port: 53
-  - identifier: 63f25e9f7fe5fae0febfbde38ab9003eaeaedafbf0403e6ffa8e6ed956b62c4c
+      protocol: UDP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: 63f25e9f7fe5fae0febfbde38ab9003eaeaedafbf0403e6ffa8e6ed956b62c4c
+    ipAddress: ''
+    namespaceSelector: null
     podSelector:
       matchLabels:
         app: pl-monitoring
@@ -49,5 +45,40 @@ spec:
         vizier-name: pixie
     ports:
     - name: TCP-8222
-      protocol: TCP
       port: 8222
+      protocol: TCP
+    type: ''
+  endpoints: null
+  execs:
+  - path: /bin/busybox
+  - path: /usr/bin/curl
+  identifiedCallStacks: null
+  imageID: ''
+  imageTag: ''
+  ingress: null
+  opens:
+  - flags: null
+    path: /*
+  - flags: null
+    path: /*/1/fd
+  - flags: null
+    path: /*/openssl.cnf
+  - flags:
+    - O_RDONLY
+    - O_CLOEXEC
+    path: /⋯
+  - flags:
+    - O_CLOEXEC
+    - O_RDONLY
+    path: /⋯/*
+  rulePolicies:
+    R0001:
+      processAllowed:
+      - runc
+    R0002:
+      processAllowed:
+      - runc
+  seccompProfile:
+    spec:
+      defaultAction: ''
+  syscalls: null

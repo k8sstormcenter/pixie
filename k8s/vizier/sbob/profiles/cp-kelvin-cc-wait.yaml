@@ -1,35 +1,27 @@
-# SBoB for kelvin/cc-wait — generalised from a recorded ContainerProfile.
-# opens 63 -> 9 after collapse+portability.
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
 kind: ContainerProfile
 metadata:
+  annotations:
+    kubescape.io/completion: complete
+    kubescape.io/managed-by: User
+    kubescape.io/resource-size: '13'
+    kubescape.io/status: completed
+    kubescape.io/sync-checksum: b31625c901fe71245c7d71d32fa07f578332e074bc6e6c8ebdd4242ab5b81f25
   name: kelvin-cc-wait
   namespace: pl
-  annotations:
-    kubescape.io/managed-by: User
-    kubescape.io/completion: complete
-    kubescape.io/status: completed
 spec:
-  execs:
-  - path: /bin/busybox
-  - path: /usr/bin/curl
-  opens:
-  - path: /.config/curlrc
-  - path: /.curlrc
-  - path: /dev/null
-  - path: /etc/⋯
-  - path: /etc/⋯/openssl.cnf
-  - path: /lib/⋯
-  - path: /proc/⋯/1/fd
-  - path: /usr/lib/⋯
-  - path: /usr/local/lib/⋯
+  architectures: null
   capabilities:
   - CAP_DAC_OVERRIDE
   - CAP_DAC_READ_SEARCH
   - CAP_SETGID
   - CAP_SETUID
   egress:
-  - identifier: 1d2583e844b97eb29d04a65d1cb93e01802876106b2633e8a2426a53bfd75f77
+  - dns: ''
+    dnsNames: null
+    identifier: 1d2583e844b97eb29d04a65d1cb93e01802876106b2633e8a2426a53bfd75f77
+    ipAddress: ''
+    namespaceSelector: null
     podSelector:
       matchLabels:
         app: pl-monitoring
@@ -38,16 +30,55 @@ spec:
         vizier-bootstrap: 'true'
     ports:
     - name: TCP-50800
-      protocol: TCP
       port: 50800
-  - identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
-    podSelector:
-      matchLabels:
-        k8s-app: kube-dns
+      protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
+    ipAddress: ''
     namespaceSelector:
       matchLabels:
         kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
     ports:
     - name: UDP-53
-      protocol: UDP
       port: 53
+      protocol: UDP
+    type: ''
+  endpoints: null
+  execs:
+  - path: /bin/busybox
+  - path: /usr/bin/curl
+  identifiedCallStacks: null
+  imageID: ''
+  imageTag: ''
+  ingress: null
+  opens:
+  - flags: null
+    path: /*
+  - flags: null
+    path: /*/1/fd
+  - flags: null
+    path: /*/openssl.cnf
+  - flags:
+    - O_RDONLY
+    - O_CLOEXEC
+    path: /⋯
+  - flags:
+    - O_CLOEXEC
+    - O_RDONLY
+    path: /⋯/*
+  rulePolicies:
+    R0001:
+      processAllowed:
+      - runc
+    R0002:
+      processAllowed:
+      - runc
+  seccompProfile:
+    spec:
+      defaultAction: ''
+  syscalls: null

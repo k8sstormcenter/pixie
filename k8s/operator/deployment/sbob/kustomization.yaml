@@ -8,6 +8,8 @@ kind: Kustomization
 resources:
 - ../base
 - profiles/cp-vizier-operator.yaml
+- profiles/cp-olm-operator.yaml
+- profiles/cp-catalog-operator.yaml
 
 patches:
 - target: {kind: Deployment, name: vizier-operator}

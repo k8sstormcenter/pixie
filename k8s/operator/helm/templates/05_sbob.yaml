@@ -1,38 +1,115 @@
 {{- if .Values.sbob }}
-# Pixie's own operator/olm ContainerProfiles (SBoBs), deployed only when sbob=true.
-# Source of truth: k8sstormcenter/bob example/pixie/sbobs-operator (PR#209).
 ---
-# SBoB for catalog-operator/catalog-operator — generalised from a recorded ContainerProfile.
-# opens 15 -> 15 after collapse+portability.
-# NOTE: kube-apiserver ClusterIP 10.43.0.1 dropped — differs per distro (k3s 10.43/16 vs kubeadm 10.96/12)
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
 kind: ContainerProfile
 metadata:
+  annotations:
+    kubescape.io/completion: complete
+    kubescape.io/managed-by: User
+    kubescape.io/resource-size: '32'
+    kubescape.io/status: completed
+    kubescape.io/sync-checksum: 135fe10738cc5a481a12155c830a67704647029b0c078e6dda95338c9e9a4981
   name: catalog-operator
   namespace: olm
-  annotations:
-    kubescape.io/managed-by: User
-    kubescape.io/completion: complete
-    kubescape.io/status: completed
 spec:
+  architectures: null
+  capabilities:
+  - CAP_DAC_OVERRIDE
+  - CAP_DAC_READ_SEARCH
+  - CAP_NET_ADMIN
+  egress:
+  - dns: ''
+    dnsNames: null
+    identifier: 2297897752f7953edd031ddd6f824a44163c479b649d3db6fef80eff7303dcd2
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: px-operator
+    podSelector:
+      matchLabels:
+        olm.catalogSource: pixie-operator-index
+        olm.managed: 'true'
+    ports:
+    - name: TCP-50051
+      port: 50051
+      protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports:
+    - name: UDP-53
+      port: 53
+      protocol: UDP
+    type: ''
+  endpoints: null
   execs:
   - path: /bin/catalog
+  identifiedCallStacks: null
+  imageID: ''
+  imageTag: ''
+  ingress:
+  - dns: ''
+    dnsNames: null
+    identifier: 209567a3863579abd33381b8530e8ba80051db1f3ed6c9cf0672c6b27ab4e936
+    ipAddress: 10.42.1.1
+    namespaceSelector: null
+    podSelector: null
+    ports:
+    - name: TCP-8080
+      port: 8080
+      protocol: TCP
+    type: ''
   opens:
-  - path: /bin/catalog
-  - path: /etc/hosts
-  - path: /etc/localtime
-  - path: /etc/nsswitch.conf
-  - path: /etc/passwd
-  - path: /etc/resolv.conf
-  - path: /opt/hostedtoolcache/go/1.21.7/x64/lib/time/zoneinfo.zip
-  - path: /proc/⋯/kernel/cap_last_cap
-  - path: /proc/⋯/net/core/somaxconn
-  - path: /proc/⋯/task/1/fd
-  - path: /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/..2026_08_22_07_20_45.4223131352/ca.crt
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/..2026_08_22_07_20_45.4223131352/token
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/..2026_08_22_08_09_48.758221121/token
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/..2026_08_22_08_58_19.3381694492/token
+  - flags: null
+    path: /*/kernel/cap_last_cap
+  - flags: null
+    path: /*/net/core/somaxconn
+  - flags: null
+    path: /*/task/⋯/fd
+  - flags:
+    - O_RDONLY
+    - O_CLOEXEC
+    path: /⋯
+  - flags:
+    - O_CLOEXEC
+    - O_RDONLY
+    path: /⋯/*
+  rulePolicies:
+    R0001:
+      processAllowed:
+      - catalog
+      - runc
+    R0002:
+      processAllowed:
+      - catalog
+      - runc
+    R0004:
+      processAllowed:
+      - catalog
+      - runc
+    R0005:
+      processAllowed:
+      - catalog
+      - runc
+    R0006:
+      processAllowed:
+      - catalog
+      - runc
+    R1017:
+      processAllowed:
+      - catalog
+      - runc
+  seccompProfile:
+    spec:
+      defaultAction: ''
   syscalls:
   - accept4
   - close
@@ -54,72 +131,86 @@ spec:
   - setsockopt
   - tgkill
   - write
+---
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ContainerProfile
+metadata:
+  annotations:
+    kubescape.io/completion: complete
+    kubescape.io/managed-by: User
+    kubescape.io/resource-size: '76'
+    kubescape.io/status: completed
+    kubescape.io/sync-checksum: 61bedc417d5ea0fe5ad1137cf9b3ff99788bd01bf7e2b8c3800b33631f4cbd4f
+  name: olm-operator
+  namespace: olm
+spec:
+  architectures: null
   capabilities:
   - CAP_DAC_OVERRIDE
   - CAP_DAC_READ_SEARCH
   - CAP_NET_ADMIN
-  egress:
-  - identifier: 2297897752f7953edd031ddd6f824a44163c479b649d3db6fef80eff7303dcd2
-    podSelector:
-      matchLabels:
-        olm.catalogSource: pixie-operator-index
-        olm.managed: 'true'
-    namespaceSelector:
-      matchLabels:
-        kubernetes.io/metadata.name: px-operator
-    ports:
-    - name: TCP-50051
-      protocol: TCP
-      port: 50051
-  - identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
-    podSelector:
-      matchLabels:
-        k8s-app: kube-dns
-    namespaceSelector:
-      matchLabels:
-        kubernetes.io/metadata.name: kube-system
-    ports:
-    - name: UDP-53
-      protocol: UDP
-      port: 53
-  ingress:
-  - identifier: 209567a3863579abd33381b8530e8ba80051db1f3ed6c9cf0672c6b27ab4e936
-    ipAddress: 10.42.1.1
-    ports:
-    - name: TCP-8080
-      protocol: TCP
-      port: 8080
----
-# SBoB for olm-operator/olm-operator — generalised from a recorded ContainerProfile.
-# opens 14 -> 14 after collapse+portability.
-# NOTE: kube-apiserver ClusterIP 10.43.0.1 dropped — differs per distro (k3s 10.43/16 vs kubeadm 10.96/12)
-apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
-kind: ContainerProfile
-metadata:
-  name: olm-operator
-  namespace: olm
-  annotations:
-    kubescape.io/managed-by: User
-    kubescape.io/completion: complete
-    kubescape.io/status: completed
-spec:
+  egress: null
+  endpoints: null
   execs:
   - path: /bin/olm
+  identifiedCallStacks: null
+  imageID: ''
+  imageTag: ''
+  ingress:
+  - dns: ''
+    dnsNames: null
+    identifier: 0a52270744d47da0e770b43cf46a02db90adfdaed097b34c8eacf9c267793a14
+    ipAddress: 10.42.0.1
+    namespaceSelector: null
+    podSelector: null
+    ports:
+    - name: TCP-8080
+      port: 8080
+      protocol: TCP
+    type: ''
   opens:
-  - path: /bin/olm
-  - path: /etc/localtime
-  - path: /etc/passwd
-  - path: /opt/hostedtoolcache/go/1.21.7/x64/lib/time/zoneinfo.zip
-  - path: /proc/⋯/kernel/cap_last_cap
-  - path: /proc/⋯/net/core/somaxconn
-  - path: /proc/⋯/task/1/fd
-  - path: /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/..2026_08_22_07_20_46.3429272234/ca.crt
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/..2026_08_22_07_20_46.3429272234/token
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/..2026_08_22_08_08_48.2819246926/ca.crt
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/..2026_08_22_08_08_48.2819246926/token
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/..2026_08_22_08_56_54.867160750/ca.crt
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/..2026_08_22_08_56_54.867160750/token
+  - flags: null
+    path: /*/kernel/cap_last_cap
+  - flags: null
+    path: /*/net/core/somaxconn
+  - flags: null
+    path: /*/task/⋯/fd
+  - flags:
+    - O_RDONLY
+    - O_CLOEXEC
+    path: /⋯
+  - flags:
+    - O_CLOEXEC
+    - O_RDONLY
+    path: /⋯/*
+  rulePolicies:
+    R0001:
+      processAllowed:
+      - olm
+      - runc
+    R0002:
+      processAllowed:
+      - olm
+      - runc
+    R0004:
+      processAllowed:
+      - olm
+      - runc
+    R0005:
+      processAllowed:
+      - olm
+      - runc
+    R0006:
+      processAllowed:
+      - olm
+      - runc
+    R1017:
+      processAllowed:
+      - olm
+      - runc
+  seccompProfile:
+    spec:
+      defaultAction: ''
   syscalls:
   - accept4
   - arch_prctl
@@ -187,63 +278,136 @@ spec:
   - uname
   - unknown
   - write
-  capabilities:
-  - CAP_DAC_OVERRIDE
-  - CAP_DAC_READ_SEARCH
-  - CAP_NET_ADMIN
-  ingress:
-  - identifier: 0a52270744d47da0e770b43cf46a02db90adfdaed097b34c8eacf9c267793a14
-    ipAddress: 10.42.0.1
-    ports:
-    - name: TCP-8080
-      protocol: TCP
-      port: 8080
 ---
-# SBoB for vizier-operator/app — generalised from a recorded ContainerProfile.
-# opens 29 -> 29 after collapse+portability.
-# NOTE: kube-apiserver ClusterIP 10.43.0.1 dropped — differs per distro (k3s 10.43/16 vs kubeadm 10.96/12)
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
 kind: ContainerProfile
 metadata:
+  annotations:
+    kubescape.io/completion: complete
+    kubescape.io/managed-by: User
+    kubescape.io/resource-size: '53'
+    kubescape.io/status: completed
+    kubescape.io/sync-checksum: 199567bf56bed19ecc7edd4a9af3dabc08177247a9665cab2ed5973c7cf617db
   name: vizier-operator
   namespace: px-operator
-  annotations:
-    kubescape.io/managed-by: User
-    kubescape.io/completion: complete
-    kubescape.io/status: completed
 spec:
+  architectures: null
+  capabilities:
+  - CAP_NET_ADMIN
+  egress:
+  - dns: ''
+    dnsNames: null
+    identifier: da8e219b26f6e8ddd6c74e3e35355a97a0528bf150772dbbe21aa771733fe958
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: pl
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+        cluster-id: 6a59ca82-ebaa-4bcd-88b2-41ae2678d72f
+        component: vizier
+        name: vizier-cloud-connector
+        plane: control
+        vizier-bootstrap: 'true'
+        vizier-name: pixie
+    ports:
+    - name: TCP-50800
+      port: 50800
+      protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports:
+    - name: UDP-53
+      port: 53
+      protocol: UDP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: 284d617ca3e493147f79f2c7f185037100a9c2636930eec7995122394206e7fe
+    ipAddress: 100.103.139.51
+    namespaceSelector: null
+    podSelector: null
+    ports:
+    - name: TCP-443
+      port: 443
+      protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: 2ecd1f4c02e1461f6029b18d649c33cf593473ef52be42e8826414c52906b784
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: pl
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+        name: pl-nats
+        plane: control
+        vizier-name: pixie
+    ports:
+    - name: TCP-8222
+      port: 8222
+      protocol: TCP
+    type: ''
+  endpoints: null
   execs:
   - path: /app/src/operator/operator.runfiles/px/src/operator/operator_/operator
+  identifiedCallStacks: null
+  imageID: ''
+  imageTag: ''
+  ingress: null
   opens:
-  - path: /app/src/operator/operator.runfiles/px/GOROOT/lib/time/zoneinfo.zip
-  - path: /app/src/operator/operator.runfiles/px/src/operator/operator_/operator
-  - path: /etc/host.conf
-  - path: /etc/hosts
-  - path: /etc/ld.so.cache
-  - path: /etc/localtime
-  - path: /etc/nsswitch.conf
-  - path: /etc/pki/tls/certs
-  - path: /etc/resolv.conf
-  - path: /etc/ssl/certs
-  - path: /etc/ssl/certs/ca-certificates.crt
-  - path: /lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v2/libm.so.6
-  - path: /lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v3/libm.so.6
-  - path: /lib/x86_64-linux-gnu/libc.so.6
-  - path: /lib/x86_64-linux-gnu/libm.so.6
-  - path: /lib/x86_64-linux-gnu/libresolv.so.2
-  - path: /lib/x86_64-linux-gnu/tls/libm.so.6
-  - path: /lib/x86_64-linux-gnu/tls/x86_64/libm.so.6
-  - path: /lib/x86_64-linux-gnu/tls/x86_64/x86_64/libm.so.6
-  - path: /lib/x86_64-linux-gnu/x86_64/libm.so.6
-  - path: /lib/x86_64-linux-gnu/x86_64/x86_64/libm.so.6
-  - path: /proc/⋯/net/core/somaxconn
-  - path: /proc/⋯/task/1/fd
-  - path: /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
-  - path: /system/etc/security/cacerts
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/..2026_08_22_07_21_27.331718744/ca.crt
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/..2026_08_22_07_21_27.331718744/token
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/..2026_08_22_08_09_31.611390655/token
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/..2026_08_22_08_58_10.819696579/token
+  - flags: null
+    path: /*/net/core/somaxconn
+  - flags: null
+    path: /*/task/⋯/fd
+  - flags:
+    - O_RDONLY
+    - O_CLOEXEC
+    path: /⋯
+  - flags:
+    - O_CLOEXEC
+    - O_RDONLY
+    path: /⋯/*
+  rulePolicies:
+    R0001:
+      processAllowed:
+      - operator
+      - runc
+    R0002:
+      processAllowed:
+      - operator
+      - runc
+    R0004:
+      processAllowed:
+      - operator
+      - runc
+    R0005:
+      processAllowed:
+      - operator
+      - runc
+    R0006:
+      processAllowed:
+      - operator
+      - runc
+    R1017:
+      processAllowed:
+      - operator
+      - runc
+  seccompProfile:
+    spec:
+      defaultAction: ''
   syscalls:
   - access
   - clone3
@@ -288,55 +452,4 @@ spec:
   - tgkill
   - uname
   - write
-  capabilities:
-  - CAP_NET_ADMIN
-  egress:
-  - identifier: da8e219b26f6e8ddd6c74e3e35355a97a0528bf150772dbbe21aa771733fe958
-    podSelector:
-      matchLabels:
-        app: pl-monitoring
-        cluster-id: 6a59ca82-ebaa-4bcd-88b2-41ae2678d72f
-        component: vizier
-        name: vizier-cloud-connector
-        plane: control
-        vizier-bootstrap: 'true'
-        vizier-name: pixie
-    namespaceSelector:
-      matchLabels:
-        kubernetes.io/metadata.name: pl
-    ports:
-    - name: TCP-50800
-      protocol: TCP
-      port: 50800
-  - identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
-    podSelector:
-      matchLabels:
-        k8s-app: kube-dns
-    namespaceSelector:
-      matchLabels:
-        kubernetes.io/metadata.name: kube-system
-    ports:
-    - name: UDP-53
-      protocol: UDP
-      port: 53
-  - identifier: 284d617ca3e493147f79f2c7f185037100a9c2636930eec7995122394206e7fe
-    ipAddress: 100.103.139.51
-    ports:
-    - name: TCP-443
-      protocol: TCP
-      port: 443
-  - identifier: 2ecd1f4c02e1461f6029b18d649c33cf593473ef52be42e8826414c52906b784
-    podSelector:
-      matchLabels:
-        app: pl-monitoring
-        name: pl-nats
-        plane: control
-        vizier-name: pixie
-    namespaceSelector:
-      matchLabels:
-        kubernetes.io/metadata.name: pl
-    ports:
-    - name: TCP-8222
-      protocol: TCP
-      port: 8222
 {{- end }}

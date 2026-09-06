@@ -1,30 +1,53 @@
-# SBoB for vizier-pem/qb-wait — generalised from a recorded ContainerProfile.
-# opens 63 -> 9 after collapse+portability.
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
 kind: ContainerProfile
 metadata:
+  annotations:
+    kubescape.io/completion: complete
+    kubescape.io/managed-by: User
+    kubescape.io/resource-size: '11'
+    kubescape.io/status: completed
+    kubescape.io/sync-checksum: a5aef773b93227c9582abaa75510629f6f7d740cd0c7cfd62b503c758e8fff5e
   name: vizier-pem-qb-wait
   namespace: pl
-  annotations:
-    kubescape.io/managed-by: User
-    kubescape.io/completion: complete
-    kubescape.io/status: completed
 spec:
-  execs:
-  - path: /bin/busybox
-  - path: /usr/bin/curl
-  opens:
-  - path: /dev/null
-  - path: /etc/⋯
-  - path: /etc/⋯/openssl.cnf
-  - path: /home/curl_user/.config/curlrc
-  - path: /home/curl_user/.curlrc
-  - path: /lib/⋯
-  - path: /proc/⋯/79458/fd
-  - path: /usr/lib/⋯
-  - path: /usr/local/lib/⋯
+  architectures: null
   capabilities:
   - CAP_DAC_OVERRIDE
   - CAP_DAC_READ_SEARCH
   - CAP_SETGID
   - CAP_SETUID
+  egress: null
+  endpoints: null
+  execs:
+  - path: /bin/busybox
+  - path: /usr/bin/curl
+  identifiedCallStacks: null
+  imageID: ''
+  imageTag: ''
+  ingress: null
+  opens:
+  - flags: null
+    path: /*
+  - flags: null
+    path: /*/79458/fd
+  - flags: null
+    path: /*/openssl.cnf
+  - flags:
+    - O_RDONLY
+    - O_CLOEXEC
+    path: /⋯
+  - flags:
+    - O_CLOEXEC
+    - O_RDONLY
+    path: /⋯/*
+  rulePolicies:
+    R0001:
+      processAllowed:
+      - runc
+    R0002:
+      processAllowed:
+      - runc
+  seccompProfile:
+    spec:
+      defaultAction: ''
+  syscalls: null

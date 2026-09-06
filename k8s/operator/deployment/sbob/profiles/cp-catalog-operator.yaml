@@ -1,0 +1,131 @@
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ContainerProfile
+metadata:
+  annotations:
+    kubescape.io/completion: complete
+    kubescape.io/managed-by: User
+    kubescape.io/resource-size: '32'
+    kubescape.io/status: completed
+    kubescape.io/sync-checksum: 135fe10738cc5a481a12155c830a67704647029b0c078e6dda95338c9e9a4981
+  name: catalog-operator
+  namespace: olm
+spec:
+  architectures: null
+  capabilities:
+  - CAP_DAC_OVERRIDE
+  - CAP_DAC_READ_SEARCH
+  - CAP_NET_ADMIN
+  egress:
+  - dns: ''
+    dnsNames: null
+    identifier: 2297897752f7953edd031ddd6f824a44163c479b649d3db6fef80eff7303dcd2
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: px-operator
+    podSelector:
+      matchLabels:
+        olm.catalogSource: pixie-operator-index
+        olm.managed: 'true'
+    ports:
+    - name: TCP-50051
+      port: 50051
+      protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports:
+    - name: UDP-53
+      port: 53
+      protocol: UDP
+    type: ''
+  endpoints: null
+  execs:
+  - path: /bin/catalog
+  identifiedCallStacks: null
+  imageID: ''
+  imageTag: ''
+  ingress:
+  - dns: ''
+    dnsNames: null
+    identifier: 209567a3863579abd33381b8530e8ba80051db1f3ed6c9cf0672c6b27ab4e936
+    ipAddress: 10.42.1.1
+    namespaceSelector: null
+    podSelector: null
+    ports:
+    - name: TCP-8080
+      port: 8080
+      protocol: TCP
+    type: ''
+  opens:
+  - flags: null
+    path: /*/kernel/cap_last_cap
+  - flags: null
+    path: /*/net/core/somaxconn
+  - flags: null
+    path: /*/task/⋯/fd
+  - flags:
+    - O_RDONLY
+    - O_CLOEXEC
+    path: /⋯
+  - flags:
+    - O_CLOEXEC
+    - O_RDONLY
+    path: /⋯/*
+  rulePolicies:
+    R0001:
+      processAllowed:
+      - catalog
+      - runc
+    R0002:
+      processAllowed:
+      - catalog
+      - runc
+    R0004:
+      processAllowed:
+      - catalog
+      - runc
+    R0005:
+      processAllowed:
+      - catalog
+      - runc
+    R0006:
+      processAllowed:
+      - catalog
+      - runc
+    R1017:
+      processAllowed:
+      - catalog
+      - runc
+  seccompProfile:
+    spec:
+      defaultAction: ''
+  syscalls:
+  - accept4
+  - close
+  - epoll_ctl
+  - epoll_pwait
+  - fcntl
+  - fstat
+  - futex
+  - getpid
+  - getrandom
+  - getsockname
+  - ioctl
+  - madvise
+  - nanosleep
+  - openat
+  - read
+  - rt_sigreturn
+  - sched_yield
+  - setsockopt
+  - tgkill
+  - write

@@ -1,28 +1,86 @@
-# SBoB for vizier-query-broker/cc-wait — generalised from a recorded ContainerProfile.
-# opens 63 -> 9 after collapse+portability.
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
 kind: ContainerProfile
 metadata:
+  annotations:
+    kubescape.io/completion: complete
+    kubescape.io/managed-by: User
+    kubescape.io/resource-size: '62'
+    kubescape.io/status: completed
+    kubescape.io/sync-checksum: bff56c9727e2b45ed0669f04efe9891a8e7503a6342fac84e4caf8245ba7b3c6
   name: vizier-query-broker-cc-wait
   namespace: pl
-  annotations:
-    kubescape.io/managed-by: User
-    kubescape.io/completion: complete
-    kubescape.io/status: completed
 spec:
+  architectures: null
+  capabilities:
+  - CAP_DAC_OVERRIDE
+  - CAP_DAC_READ_SEARCH
+  - CAP_SETGID
+  - CAP_SETUID
+  egress:
+  - dns: ''
+    dnsNames: null
+    identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports:
+    - name: UDP-53
+      port: 53
+      protocol: UDP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: 1d2583e844b97eb29d04a65d1cb93e01802876106b2633e8a2426a53bfd75f77
+    ipAddress: ''
+    namespaceSelector: null
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+        component: vizier
+        name: vizier-cloud-connector
+        vizier-bootstrap: 'true'
+    ports:
+    - name: TCP-50800
+      port: 50800
+      protocol: TCP
+    type: ''
+  endpoints: null
   execs:
   - path: /bin/busybox
   - path: /usr/bin/curl
+  identifiedCallStacks: null
+  imageID: ''
+  imageTag: ''
+  ingress: null
   opens:
-  - path: /.config/curlrc
-  - path: /.curlrc
-  - path: /dev/null
-  - path: /etc/⋯
-  - path: /etc/⋯/openssl.cnf
-  - path: /lib/⋯
-  - path: /proc/⋯/1/fd
-  - path: /usr/lib/⋯
-  - path: /usr/local/lib/⋯
+  - flags: null
+    path: /*
+  - flags: null
+    path: /*/1/fd
+  - flags: null
+    path: /*/openssl.cnf
+  - flags:
+    - O_RDONLY
+    - O_CLOEXEC
+    path: /⋯
+  - flags:
+    - O_CLOEXEC
+    - O_RDONLY
+    path: /⋯/*
+  rulePolicies:
+    R0001:
+      processAllowed:
+      - runc
+    R0002:
+      processAllowed:
+      - runc
+  seccompProfile:
+    spec:
+      defaultAction: ''
   syscalls:
   - brk
   - close
@@ -73,31 +131,3 @@ spec:
   - wait4
   - write
   - writev
-  capabilities:
-  - CAP_DAC_OVERRIDE
-  - CAP_DAC_READ_SEARCH
-  - CAP_SETGID
-  - CAP_SETUID
-  egress:
-  - identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
-    podSelector:
-      matchLabels:
-        k8s-app: kube-dns
-    namespaceSelector:
-      matchLabels:
-        kubernetes.io/metadata.name: kube-system
-    ports:
-    - name: UDP-53
-      protocol: UDP
-      port: 53
-  - identifier: 1d2583e844b97eb29d04a65d1cb93e01802876106b2633e8a2426a53bfd75f77
-    podSelector:
-      matchLabels:
-        app: pl-monitoring
-        component: vizier
-        name: vizier-cloud-connector
-        vizier-bootstrap: 'true'
-    ports:
-    - name: TCP-50800
-      protocol: TCP
-      port: 50800

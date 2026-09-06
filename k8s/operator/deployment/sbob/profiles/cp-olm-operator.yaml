@@ -4,65 +4,43 @@ metadata:
   annotations:
     kubescape.io/completion: complete
     kubescape.io/managed-by: User
-    kubescape.io/resource-size: '78'
+    kubescape.io/resource-size: '76'
     kubescape.io/status: completed
-    kubescape.io/sync-checksum: ed4644489ccde4159fc585d6e93cee7650c071ff53910ad2f83d72d95921eb72
-  name: vizier-cloud-connector-nats-wait
-  namespace: pl
+    kubescape.io/sync-checksum: 61bedc417d5ea0fe5ad1137cf9b3ff99788bd01bf7e2b8c3800b33631f4cbd4f
+  name: olm-operator
+  namespace: olm
 spec:
   architectures: null
   capabilities:
   - CAP_DAC_OVERRIDE
   - CAP_DAC_READ_SEARCH
-  - CAP_SETGID
-  - CAP_SETUID
-  egress:
-  - dns: ''
-    dnsNames: null
-    identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
-    ipAddress: ''
-    namespaceSelector:
-      matchLabels:
-        kubernetes.io/metadata.name: kube-system
-    podSelector:
-      matchLabels:
-        k8s-app: kube-dns
-    ports:
-    - name: UDP-53
-      port: 53
-      protocol: UDP
-    type: ''
-  - dns: ''
-    dnsNames: null
-    identifier: 63f25e9f7fe5fae0febfbde38ab9003eaeaedafbf0403e6ffa8e6ed956b62c4c
-    ipAddress: ''
-    namespaceSelector: null
-    podSelector:
-      matchLabels:
-        app: pl-monitoring
-        name: pl-nats
-        plane: control
-        vizier-name: pixie
-    ports:
-    - name: TCP-8222
-      port: 8222
-      protocol: TCP
-    type: ''
+  - CAP_NET_ADMIN
+  egress: null
   endpoints: null
   execs:
-  - path: /bin/busybox
-  - path: /usr/bin/curl
+  - path: /bin/olm
   identifiedCallStacks: null
   imageID: ''
   imageTag: ''
-  ingress: null
+  ingress:
+  - dns: ''
+    dnsNames: null
+    identifier: 0a52270744d47da0e770b43cf46a02db90adfdaed097b34c8eacf9c267793a14
+    ipAddress: 10.42.0.1
+    namespaceSelector: null
+    podSelector: null
+    ports:
+    - name: TCP-8080
+      port: 8080
+      protocol: TCP
+    type: ''
   opens:
   - flags: null
-    path: /*
+    path: /*/kernel/cap_last_cap
   - flags: null
-    path: /*/1/fd
+    path: /*/net/core/somaxconn
   - flags: null
-    path: /*/openssl.cnf
+    path: /*/task/⋯/fd
   - flags:
     - O_RDONLY
     - O_CLOEXEC
@@ -74,17 +52,35 @@ spec:
   rulePolicies:
     R0001:
       processAllowed:
+      - olm
       - runc
     R0002:
       processAllowed:
+      - olm
+      - runc
+    R0004:
+      processAllowed:
+      - olm
+      - runc
+    R0005:
+      processAllowed:
+      - olm
+      - runc
+    R0006:
+      processAllowed:
+      - olm
+      - runc
+    R1017:
+      processAllowed:
+      - olm
       - runc
   seccompProfile:
     spec:
       defaultAction: ''
   syscalls:
+  - accept4
   - arch_prctl
   - bind
-  - brk
   - capget
   - capset
   - chdir
@@ -92,58 +88,59 @@ spec:
   - close
   - close_range
   - connect
-  - dup2
-  - eventfd2
+  - epoll_create1
+  - epoll_ctl
+  - epoll_pwait
   - execve
   - exit
-  - exit_group
   - faccessat2
   - fchown
   - fcntl
-  - fork
   - fstat
   - fstatfs
   - futex
   - getcwd
-  - getegid
-  - geteuid
+  - getdents64
   - getgid
+  - getpeername
   - getpid
   - getppid
+  - getrandom
+  - getrlimit
+  - getsockname
+  - getsockopt
   - gettid
   - getuid
   - ioctl
-  - membarrier
+  - listen
+  - madvise
   - mmap
-  - mprotect
   - munmap
   - nanosleep
   - newfstatat
-  - open
   - openat
   - openat2
-  - pipe
   - pipe2
-  - poll
   - prctl
+  - pread64
   - read
+  - readlinkat
   - recvfrom
-  - recvmsg
   - rt_sigaction
   - rt_sigprocmask
   - rt_sigreturn
+  - sched_getaffinity
   - sched_yield
-  - sendto
   - setgid
   - setgroups
+  - setsockopt
   - setuid
   - sigaltstack
   - socket
-  - stat
+  - statfs
   - statx
   - tgkill
   - tkill
+  - uname
   - unknown
-  - wait4
   - write
-  - writev

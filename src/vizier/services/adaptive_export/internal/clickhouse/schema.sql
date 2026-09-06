@@ -1061,6 +1061,12 @@ SELECT toString(fromUnixTimestamp64Nano(toInt64(event_time))) AS ts, toInt64(eve
        JSONExtractString(JSONExtractRaw(RuntimeProcessDetails, 'processTree'), 'pcomm') AS parent,
        JSONExtractInt(JSONExtractRaw(RuntimeProcessDetails, 'processTree'), 'ppid') AS ppid,
        JSONExtractString(JSONExtractRaw(RuntimeProcessDetails, 'processTree'), 'cmdline') AS cmdline,
+       -- pid above is the processTree ROOT (dumb-init/entrypoint); the process that tripped
+       -- the rule is infectedPID. Keying evidence on pid shows the wrong process, so a true
+       -- positive reads as a false positive.
+       JSONExtractInt(BaseRuntimeMetadata, 'infectedPID') AS infected_pid,
+       JSONExtractString(BaseRuntimeMetadata, 'identifiers', 'process', 'name') AS offender,
+       JSONExtractString(BaseRuntimeMetadata, 'profileMetadata', 'name') AS profile,
        message AS alert,
        concat(JSONExtractString(RuntimeK8sDetails, 'podNamespace'), '/', JSONExtractString(RuntimeK8sDetails, 'podName')) AS pod, hostname
 FROM forensic_db.kubescape_logs WHERE RuleID != '';

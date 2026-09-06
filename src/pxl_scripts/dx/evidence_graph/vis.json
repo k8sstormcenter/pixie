@@ -4,7 +4,7 @@
       "name": "start_time",
       "type": "PX_STRING",
       "description": "Window start.",
-      "defaultValue": "-6h"
+      "defaultValue": "-7d"
     },
     {
       "name": "clickhouse_dsn",

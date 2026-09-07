@@ -267,9 +267,9 @@ export const Graph = React.memo<GraphProps>(({
             // Script-reference columns become the deep link in the pinned popup,
             // not a line in the hover text (a hover tooltip can't be clicked).
             if (info.semType === SemanticType.ST_SCRIPT_REFERENCE) {
-              const ref = d[info.name];
-              if (ref && ref.script) {
-                scriptRefMap.set(edgeId, { label: ref.label, script: ref.script, args: ref.args });
+              const scriptRef = d[info.name];
+              if (scriptRef && scriptRef.script) {
+                scriptRefMap.set(edgeId, { label: scriptRef.label, script: scriptRef.script, args: scriptRef.args });
               }
               return;
             }

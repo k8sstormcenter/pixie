@@ -5,46 +5,46 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: adaptive-export
-  labels: { name: adaptive-export, plane: control }
+  labels: {name: adaptive-export, plane: control}
 spec:
   selector:
-    matchLabels: { name: adaptive-export }
+    matchLabels: {name: adaptive-export}
   template:
     metadata:
-      labels: { name: adaptive-export, plane: control }
+      labels: {name: adaptive-export, plane: control}
     spec:
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - { key: kubernetes.io/os, operator: In, values: [linux] }
+              - {key: kubernetes.io/os, operator: In, values: [linux]}
       serviceAccountName: pl-adaptive-export-service-account
       containers:
       - name: adaptive-export
         image: vizier-adaptive_export_image:latest
         ports:
-        - { name: control, containerPort: 9100, hostPort: 9100 }
+        - {name: control, containerPort: 9100, hostPort: 9100}
         resources:
-          requests: { cpu: 100m, memory: 128Mi }
-          limits:   { cpu: "1",  memory: 1Gi }
+          requests: {cpu: 100m, memory: 128Mi}
+          limits: {cpu: "1", memory: 1Gi}
         env:
         - name: HOST_IP
-          valueFrom: { fieldRef: { fieldPath: status.hostIP } }
+          valueFrom: {fieldRef: {fieldPath: status.hostIP}}
         - name: ADAPTIVE_VIZIER_DIRECT_ADDR
           value: "$(HOST_IP):50305"
         - name: PL_JWT_SIGNING_KEY
-          valueFrom: { secretKeyRef: { name: pl-cluster-secrets, key: jwt-signing-key } }
+          valueFrom: {secretKeyRef: {name: pl-cluster-secrets, key: jwt-signing-key}}
         - name: PX_DISABLE_TLS
           value: "1"
         - name: PL_NAMESPACE
-          valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+          valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
         - name: NODE_NAME
-          valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+          valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
         - name: PIXIE_API_KEY
-          valueFrom: { secretKeyRef: { name: pl-adaptive-export-secrets, key: pixie-api-key } }
+          valueFrom: {secretKeyRef: {name: pl-adaptive-export-secrets, key: pixie-api-key}}
         - name: CLICKHOUSE_DSN
-          valueFrom: { secretKeyRef: { name: pl-adaptive-export-secrets, key: clickhouse-dsn } }
+          valueFrom: {secretKeyRef: {name: pl-adaptive-export-secrets, key: clickhouse-dsn}}
         - name: KUBESCAPE_TABLE
           value: "kubescape_logs"
         - name: EXPORT_MODE
@@ -71,27 +71,27 @@ spec:
         - name: VERBOSE
           value: "true"
         volumeMounts:
-        - { name: certs, mountPath: /certs, readOnly: true }
+        - {name: certs, mountPath: /certs, readOnly: true}
         securityContext:
           allowPrivilegeEscalation: false
-          capabilities: { drop: [ALL] }
-          seccompProfile: { type: RuntimeDefault }
+          capabilities: {drop: [ALL]}
+          seccompProfile: {type: RuntimeDefault}
       volumes:
       - name: certs
-        secret: { secretName: service-tls-certs }
+        secret: {secretName: service-tls-certs}
       securityContext:
         runAsUser: 10100
         runAsGroup: 10100
         fsGroup: 10100
         runAsNonRoot: true
-        seccompProfile: { type: RuntimeDefault }
+        seccompProfile: {type: RuntimeDefault}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: adaptive-export-control
 spec:
-  selector: { name: adaptive-export }
+  selector: {name: adaptive-export}
   internalTrafficPolicy: Local   # dx reaches its co-located (same-node) AE
   ports:
-  - { name: control, port: 9100, targetPort: 9100 }
+  - {name: control, port: 9100, targetPort: 9100}

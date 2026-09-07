@@ -184,7 +184,7 @@
         "timeseries": [
           {
             "value": "n",
-            "mode": "MODE_BAR",
+            "mode": "MODE_AREA",
             "series": "surface",
             "stackBySeries": true
           }

@@ -1,18 +1,322 @@
-# SBoB for vizier-operator/app — generalised from a recorded ContainerProfile.
-# opens 29 -> 29 after collapse+portability.
-# NOTE: kube-apiserver ClusterIP 10.43.0.1 dropped — differs per distro (k3s 10.43/16 vs kubeadm 10.96/12)
 apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
 kind: ContainerProfile
 metadata:
+  annotations:
+    kubescape.io/completion: complete
+    kubescape.io/managed-by: User
+    kubescape.io/status: completed
   name: vizier-operator
   namespace: px-operator
-  annotations:
-    kubescape.io/managed-by: User
-    kubescape.io/completion: complete
-    kubescape.io/status: completed
 spec:
+  capabilities:
+  - CAP_NET_ADMIN
+  egress:
+  - identifier: da8e219b26f6e8ddd6c74e3e35355a97a0528bf150772dbbe21aa771733fe958
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: pl
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+        cluster-id: 6a59ca82-ebaa-4bcd-88b2-41ae2678d72f
+        component: vizier
+        name: vizier-cloud-connector
+        plane: control
+        vizier-bootstrap: 'true'
+        vizier-name: pixie
+    ports:
+    - name: TCP-50800
+      port: 50800
+      protocol: TCP
+  - identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports:
+    - name: UDP-53
+      port: 53
+      protocol: UDP
+  - identifier: 284d617ca3e493147f79f2c7f185037100a9c2636930eec7995122394206e7fe
+    ipAddress: 100.103.139.51
+    ports:
+    - name: TCP-443
+      port: 443
+      protocol: TCP
+  - identifier: 2ecd1f4c02e1461f6029b18d649c33cf593473ef52be42e8826414c52906b784
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: pl
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+        name: pl-nats
+        plane: control
+        vizier-name: pixie
+    ports:
+    - name: TCP-8222
+      port: 8222
+      protocol: TCP
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: pl
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: honey
+    podSelector:
+      matchLabels:
+        app: node-agent
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: catalog-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: olm-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kubernetes
+    serviceRefNamespace: default
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kube-dns
+    serviceRefNamespace: kube-system
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-metadata-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-query-broker-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-cloud-connector-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats-mgmt
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kelvin-service
+    serviceRefNamespace: pl
+    type: ''
   execs:
   - path: /app/src/operator/operator.runfiles/px/src/operator/operator_/operator
+  ingress:
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: pl
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: honey
+    podSelector:
+      matchLabels:
+        app: node-agent
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: catalog-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: olm-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kubernetes
+    serviceRefNamespace: default
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kube-dns
+    serviceRefNamespace: kube-system
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-metadata-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-query-broker-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-cloud-connector-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats-mgmt
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kelvin-service
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    entity: host
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    type: ''
   opens:
   - path: /app/src/operator/operator.runfiles/px/GOROOT/lib/time/zoneinfo.zip
   - path: /etc/host.conf
@@ -34,12 +338,12 @@ spec:
   - path: /lib/x86_64-linux-gnu/tls/x86_64/x86_64/libm.so.6
   - path: /lib/x86_64-linux-gnu/x86_64/libm.so.6
   - path: /lib/x86_64-linux-gnu/x86_64/x86_64/libm.so.6
-  - path: /proc/⋯/net/core/somaxconn
-  - path: /proc/⋯/task/1/fd
+  - path: "/proc/\u22EF/net/core/somaxconn"
+  - path: "/proc/\u22EF/task/1/fd"
   - path: /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
   - path: /system/etc/security/cacerts
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/⋯/ca.crt
-  - path: /var/run/secrets/kubernetes.io/serviceaccount/⋯/token
+  - path: "/var/run/secrets/kubernetes.io/serviceaccount/\u22EF/ca.crt"
+  - path: "/var/run/secrets/kubernetes.io/serviceaccount/\u22EF/token"
   syscalls:
   - access
   - clone3
@@ -84,54 +388,3 @@ spec:
   - tgkill
   - uname
   - write
-  capabilities:
-  - CAP_NET_ADMIN
-  egress:
-  - identifier: da8e219b26f6e8ddd6c74e3e35355a97a0528bf150772dbbe21aa771733fe958
-    podSelector:
-      matchLabels:
-        app: pl-monitoring
-        cluster-id: 6a59ca82-ebaa-4bcd-88b2-41ae2678d72f
-        component: vizier
-        name: vizier-cloud-connector
-        plane: control
-        vizier-bootstrap: 'true'
-        vizier-name: pixie
-    namespaceSelector:
-      matchLabels:
-        kubernetes.io/metadata.name: pl
-    ports:
-    - name: TCP-50800
-      protocol: TCP
-      port: 50800
-  - identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
-    podSelector:
-      matchLabels:
-        k8s-app: kube-dns
-    namespaceSelector:
-      matchLabels:
-        kubernetes.io/metadata.name: kube-system
-    ports:
-    - name: UDP-53
-      protocol: UDP
-      port: 53
-  - identifier: 284d617ca3e493147f79f2c7f185037100a9c2636930eec7995122394206e7fe
-    ipAddress: 100.103.139.51
-    ports:
-    - name: TCP-443
-      protocol: TCP
-      port: 443
-  - identifier: 2ecd1f4c02e1461f6029b18d649c33cf593473ef52be42e8826414c52906b784
-    podSelector:
-      matchLabels:
-        app: pl-monitoring
-        name: pl-nats
-        plane: control
-        vizier-name: pixie
-    namespaceSelector:
-      matchLabels:
-        kubernetes.io/metadata.name: pl
-    ports:
-    - name: TCP-8222
-      protocol: TCP
-      port: 8222

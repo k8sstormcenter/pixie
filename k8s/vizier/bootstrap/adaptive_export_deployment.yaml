@@ -31,6 +31,9 @@ spec:
         env:
         - name: HOST_IP
           valueFrom: { fieldRef: { fieldPath: status.hostIP } }
+        # Profiling listener, bound to loopback: unreachable from the cluster,
+        # reachable through `kubectl port-forward` for a heap or CPU sample.
+        - {name: AE_PPROF_ADDR, value: "127.0.0.1:6061"}
         - name: ADAPTIVE_VIZIER_DIRECT_ADDR
           value: "$(HOST_IP):50305"
         - name: PL_JWT_SIGNING_KEY

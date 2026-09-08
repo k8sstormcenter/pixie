@@ -40,6 +40,7 @@ spec:
         # no broker round-trip, the point of real-time detection. Needs our pem line
         # (ships the :50305 listener, default-on since #87); stock 0.14.17 has none.
         # Addr defaults to $HOST_IP:50305 when DX_PEM_DIRECT_ADDR is unset.
+        - { name: DX_PPROF_ADDR, value: "127.0.0.1:6060" }
         - { name: DX_BENCH, value: "pemdirect" }
         - { name: PL_JWT_SIGNING_KEY, valueFrom: { secretKeyRef: { name: dx-vizier-direct, key: jwt-signing-key, optional: true } } }
         # broker addr — used by the DX_XNODE cross-node streamer (unpinned tables) and by

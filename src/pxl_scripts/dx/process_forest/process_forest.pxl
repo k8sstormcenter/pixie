@@ -51,10 +51,11 @@ def summary(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm
         lineage=('is_lineage', px.sum),
         runtime=('is_runtime', px.sum),
         comms=('comm', px.count),
+        max_tree_depth=('tree_depth', px.max),
         first_started=('started_at', px.min),
         last_update=('event_time', px.max),
     )
-    return df[['namespace', 'pod', 'container', 'hostname', 'processes', 'execs', 'exited',
+    return df[['namespace', 'pod', 'container', 'hostname', 'processes', 'execs', 'exited', 'max_tree_depth',
                'pixie', 'cgroup', 'lineage', 'runtime', 'first_started', 'last_update']]
 
 
@@ -62,15 +63,17 @@ def forest(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm:
     df = _scoped(start_time, clickhouse_dsn, namespace, pod, comm, scope)
     df.weight = 1
     df = df.head(2000)
-    return df[['parent', 'node', 'weight', 'attr_code', 'attribution', 'namespace', 'pod', 'container',
-               'file', 'execs', 'origin', 'depth', 'boundary', 'started_at', 'exited', 'exit_code', 'signal']]
+    return df[['path', 'tree_depth', 'parent', 'node', 'weight', 'attr_code', 'attribution', 'started_at',
+               'exited', 'hostname', 'namespace', 'pod', 'container', 'pid', 'ppid', 'comm', 'pcomm', 'file',
+               'execs', 'origin', 'anchor_pid', 'depth', 'boundary', 'gap', 'runtime', 'exit_code', 'signal',
+               'upid', 'pupid', 'root_upid']]
 
 
 def processes(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm: str, scope: str):
     df = _scoped(start_time, clickhouse_dsn, namespace, pod, comm, scope)
-    return df[['started_at', 'exited', 'hostname', 'namespace', 'pod', 'container', 'pid', 'ppid',
-               'comm', 'pcomm', 'file', 'execs', 'origin', 'attribution', 'depth', 'boundary', 'runtime',
-               'exit_code', 'signal', 'upid', 'pupid']]
+    return df[['path', 'tree_depth', 'started_at', 'exited', 'hostname', 'namespace', 'pod', 'container', 'pid',
+               'ppid', 'comm', 'pcomm', 'file', 'execs', 'origin', 'attribution', 'depth', 'boundary', 'runtime',
+               'exit_code', 'signal', 'upid', 'pupid', 'root_upid']]
 
 
 def _events(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm: str, scope: str):
@@ -94,8 +97,8 @@ def timeline(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, com
 def execs(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm: str, scope: str):
     df = _scoped(start_time, clickhouse_dsn, namespace, pod, comm, scope)
     df = df[df.origin == 'exec']
-    return df[['started_at', 'exited', 'hostname', 'namespace', 'pod', 'container', 'comm', 'pcomm', 'file',
-               'execs', 'pid', 'ppid', 'attribution', 'exit_code']]
+    return df[['path', 'started_at', 'exited', 'hostname', 'namespace', 'pod', 'container', 'comm', 'pcomm', 'file',
+               'execs', 'pid', 'ppid', 'tree_depth', 'attribution', 'exit_code']]
 
 
 def exits(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm: str, scope: str):

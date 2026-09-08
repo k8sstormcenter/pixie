@@ -165,6 +165,8 @@
           "highThreshold": 3
         },
         "edgeHoverInfo": [
+          "path",
+          "tree_depth",
           "attribution",
           "pod",
           "container",
@@ -216,38 +218,10 @@
         "w": 12,
         "h": 4
       },
-      "func": {
-        "name": "processes",
-        "args": [
-          {
-            "name": "start_time",
-            "variable": "start_time"
-          },
-          {
-            "name": "clickhouse_dsn",
-            "variable": "clickhouse_dsn"
-          },
-          {
-            "name": "namespace",
-            "variable": "namespace"
-          },
-          {
-            "name": "pod",
-            "variable": "pod"
-          },
-          {
-            "name": "comm",
-            "variable": "comm"
-          },
-          {
-            "name": "scope",
-            "variable": "scope"
-          }
-        ]
-      },
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Table"
-      }
+      },
+      "globalFuncOutputName": "g_forest"
     },
     {
       "name": "EXECS",
@@ -259,88 +233,6 @@
       },
       "func": {
         "name": "execs",
-        "args": [
-          {
-            "name": "start_time",
-            "variable": "start_time"
-          },
-          {
-            "name": "clickhouse_dsn",
-            "variable": "clickhouse_dsn"
-          },
-          {
-            "name": "namespace",
-            "variable": "namespace"
-          },
-          {
-            "name": "pod",
-            "variable": "pod"
-          },
-          {
-            "name": "comm",
-            "variable": "comm"
-          },
-          {
-            "name": "scope",
-            "variable": "scope"
-          }
-        ]
-      },
-      "displaySpec": {
-        "@type": "types.px.dev/px.vispb.Table"
-      }
-    },
-    {
-      "name": "LINEAGE",
-      "position": {
-        "x": 0,
-        "y": 16,
-        "w": 12,
-        "h": 3
-      },
-      "func": {
-        "name": "lineage",
-        "args": [
-          {
-            "name": "start_time",
-            "variable": "start_time"
-          },
-          {
-            "name": "clickhouse_dsn",
-            "variable": "clickhouse_dsn"
-          },
-          {
-            "name": "namespace",
-            "variable": "namespace"
-          },
-          {
-            "name": "pod",
-            "variable": "pod"
-          },
-          {
-            "name": "comm",
-            "variable": "comm"
-          },
-          {
-            "name": "scope",
-            "variable": "scope"
-          }
-        ]
-      },
-      "displaySpec": {
-        "@type": "types.px.dev/px.vispb.Table"
-      }
-    },
-    {
-      "name": "ABNORMAL EXITS",
-      "position": {
-        "x": 0,
-        "y": 19,
-        "w": 12,
-        "h": 2
-      },
-      "func": {
-        "name": "exits",
         "args": [
           {
             "name": "start_time",

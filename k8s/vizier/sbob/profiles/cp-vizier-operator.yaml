@@ -201,6 +201,11 @@ spec:
     - '*.io'
     - '*.dev'
     - '*.arpa'
+    - '*.pod.cluster.local'
+    - '*.svc.cluster.local'
+    - '*.in-addr.arpa'
+    - '*.ip6.arpa'
+    - '*.cluster.local.'
     identifier: wildcard-any-dns
     ports: null
     type: ''
@@ -379,6 +384,11 @@ spec:
     - '*.io'
     - '*.dev'
     - '*.arpa'
+    - '*.pod.cluster.local'
+    - '*.svc.cluster.local'
+    - '*.in-addr.arpa'
+    - '*.ip6.arpa'
+    - '*.cluster.local.'
     identifier: wildcard-any-dns
     ports: null
     type: ''

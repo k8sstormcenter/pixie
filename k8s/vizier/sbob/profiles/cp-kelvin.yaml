@@ -201,6 +201,27 @@ spec:
     serviceRefName: kelvin-service
     serviceRefNamespace: pl
     type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    identifier: wildcard-any-dns
+    ports: null
+    type: ''
   endpoints: null
   execs:
   - path: /app/src/vizier/services/agent/kelvin/kelvin.runfiles/px/src/vizier/services/agent/kelvin/kelvin
@@ -355,6 +376,27 @@ spec:
     - name: TCP-59300
       port: 59300
       protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    identifier: wildcard-any-dns
+    ports: null
     type: ''
   opens:
   - flags: null

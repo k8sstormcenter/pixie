@@ -169,6 +169,27 @@ spec:
     serviceRefName: kelvin-service
     serviceRefNamespace: pl
     type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    identifier: wildcard-any-dns
+    ports: null
+    type: ''
   endpoints: null
   execs:
   - path: /app/src/vizier/services/metadata/metadata.runfiles/px/src/vizier/services/metadata/metadata_/metadata
@@ -387,6 +408,27 @@ spec:
     - name: TCP-50400
       port: 50400
       protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    identifier: wildcard-any-dns
+    ports: null
     type: ''
   opens:
   - flags: null

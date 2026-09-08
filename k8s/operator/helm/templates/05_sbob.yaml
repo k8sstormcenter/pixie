@@ -162,6 +162,27 @@ spec:
     serviceRefName: kelvin-service
     serviceRefNamespace: pl
     type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    identifier: wildcard-any-dns
+    ports: null
+    type: ''
   execs:
   - path: /bin/catalog
   ingress:
@@ -321,6 +342,27 @@ spec:
     - name: TCP-8081
       port: 8081
       protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    identifier: wildcard-any-dns
+    ports: null
     type: ''
   opens:
   - path: /etc/hosts
@@ -496,6 +538,27 @@ spec:
     serviceRefName: kelvin-service
     serviceRefNamespace: pl
     type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    identifier: wildcard-any-dns
+    ports: null
+    type: ''
   execs:
   - path: /bin/olm
   ingress:
@@ -655,6 +718,27 @@ spec:
     - name: TCP-8081
       port: 8081
       protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    identifier: wildcard-any-dns
+    ports: null
     type: ''
   opens:
   - path: /etc/localtime
@@ -919,6 +1003,27 @@ spec:
     serviceRefName: kelvin-service
     serviceRefNamespace: pl
     type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    identifier: wildcard-any-dns
+    ports: null
+    type: ''
   execs:
   - path: /app/src/operator/operator.runfiles/px/src/operator/operator_/operator
   ingress:
@@ -1075,6 +1180,27 @@ spec:
     - name: TCP-9443
       port: 9443
       protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    identifier: wildcard-any-dns
+    ports: null
     type: ''
   opens:
   - path: /app/src/operator/operator.runfiles/px/GOROOT/lib/time/zoneinfo.zip

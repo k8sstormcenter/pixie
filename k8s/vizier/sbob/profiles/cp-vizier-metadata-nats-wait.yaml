@@ -172,6 +172,27 @@ spec:
     serviceRefName: kelvin-service
     serviceRefNamespace: pl
     type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    identifier: wildcard-any-dns
+    ports: null
+    type: ''
   endpoints: null
   execs:
   - path: /bin/busybox
@@ -309,6 +330,27 @@ spec:
     entity: host
     identifier: ''
     ipAddress: ''
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    identifier: wildcard-any-dns
     ports: null
     type: ''
   opens:

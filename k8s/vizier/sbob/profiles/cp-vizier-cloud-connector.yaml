@@ -229,6 +229,27 @@ spec:
     serviceRefName: kelvin-service
     serviceRefNamespace: pl
     type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    identifier: wildcard-any-dns
+    ports: null
+    type: ''
   endpoints: null
   execs:
   - path: /app/src/vizier/services/cloud_connector/cloud_connector_server.runfiles/px/src/vizier/services/cloud_connector/cloud_connector_server_/cloud_connector_server
@@ -446,6 +467,27 @@ spec:
     - name: TCP-50800
       port: 50800
       protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    identifier: wildcard-any-dns
+    ports: null
     type: ''
   opens:
   - flags: null

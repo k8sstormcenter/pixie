@@ -5,7 +5,7 @@ metadata:
     kubescape.io/completion: complete
     kubescape.io/managed-by: User
     kubescape.io/status: completed
-  name: olm-operator
+  name: catalog-operator
   namespace: olm
 spec:
   capabilities:
@@ -13,6 +13,29 @@ spec:
   - CAP_DAC_READ_SEARCH
   - CAP_NET_ADMIN
   egress:
+  - identifier: 2297897752f7953edd031ddd6f824a44163c479b649d3db6fef80eff7303dcd2
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: px-operator
+    podSelector:
+      matchLabels:
+        olm.catalogSource: pixie-operator-index
+        olm.managed: 'true'
+    ports:
+    - name: TCP-50051
+      port: 50051
+      protocol: TCP
+  - identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports:
+    - name: UDP-53
+      port: 53
+      protocol: UDP
   - dns: ''
     dnsNames: null
     identifier: ''
@@ -138,10 +161,10 @@ spec:
     serviceRefNamespace: pl
     type: ''
   execs:
-  - path: /bin/olm
+  - path: /bin/catalog
   ingress:
-  - identifier: 0a52270744d47da0e770b43cf46a02db90adfdaed097b34c8eacf9c267793a14
-    ipAddress: 10.42.0.1
+  - identifier: 209567a3863579abd33381b8530e8ba80051db1f3ed6c9cf0672c6b27ab4e936
+    ipAddress: 10.42.1.1
     ports:
     - name: TCP-8080
       port: 8080
@@ -277,9 +300,32 @@ spec:
     ipAddress: ''
     ports: null
     type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddresses:
+    - 10.42.0.1
+    - 10.42.1.1
+    - 10.42.2.1
+    - 10.42.3.1
+    - 10.42.4.1
+    - 10.42.5.1
+    - 10.42.6.1
+    - 10.42.7.1
+    ports:
+    - name: TCP-8080
+      port: 8080
+      protocol: TCP
+    - name: TCP-8081
+      port: 8081
+      protocol: TCP
+    type: ''
   opens:
+  - path: /etc/hosts
   - path: /etc/localtime
+  - path: /etc/nsswitch.conf
   - path: /etc/passwd
+  - path: /etc/resolv.conf
   - path: /opt/hostedtoolcache/go/1.21.7/x64/lib/time/zoneinfo.zip
   - path: "/proc/\u22EF/kernel/cap_last_cap"
   - path: "/proc/\u22EF/net/core/somaxconn"
@@ -289,68 +335,22 @@ spec:
   - path: "/var/run/secrets/kubernetes.io/serviceaccount/\u22EF/token"
   syscalls:
   - accept4
-  - arch_prctl
-  - bind
-  - capget
-  - capset
-  - chdir
-  - clone
   - close
-  - close_range
-  - connect
-  - epoll_create1
   - epoll_ctl
   - epoll_pwait
-  - execve
-  - exit
-  - faccessat2
-  - fchown
   - fcntl
   - fstat
-  - fstatfs
   - futex
-  - getcwd
-  - getdents64
-  - getgid
-  - getpeername
   - getpid
-  - getppid
   - getrandom
-  - getrlimit
   - getsockname
-  - getsockopt
-  - gettid
-  - getuid
   - ioctl
-  - listen
   - madvise
-  - mmap
-  - munmap
   - nanosleep
-  - newfstatat
   - openat
-  - openat2
-  - pipe2
-  - prctl
-  - pread64
   - read
-  - readlinkat
-  - recvfrom
-  - rt_sigaction
-  - rt_sigprocmask
   - rt_sigreturn
-  - sched_getaffinity
   - sched_yield
-  - setgid
-  - setgroups
   - setsockopt
-  - setuid
-  - sigaltstack
-  - socket
-  - statfs
-  - statx
   - tgkill
-  - tkill
-  - uname
-  - unknown
   - write

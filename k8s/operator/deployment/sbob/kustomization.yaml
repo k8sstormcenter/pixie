@@ -5,11 +5,14 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+# Profiles come from the single canonical set in k8s/vizier/sbob/profiles/ —
+# there is no second copy to keep in sync. Reaching outside this overlay's root
+# needs --load-restrictor=LoadRestrictionsNone, which skaffold_operator.yaml passes.
 resources:
 - ../base
-- profiles/cp-vizier-operator.yaml
-- profiles/cp-olm-operator.yaml
-- profiles/cp-catalog-operator.yaml
+- ../../../vizier/sbob/profiles/cp-vizier-operator.yaml
+- ../../../vizier/sbob/profiles/cp-olm-operator.yaml
+- ../../../vizier/sbob/profiles/cp-catalog-operator.yaml
 
 patches:
 - target: {kind: Deployment, name: vizier-operator}

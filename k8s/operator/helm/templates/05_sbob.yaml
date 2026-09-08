@@ -6,22 +6,16 @@ metadata:
   annotations:
     kubescape.io/completion: complete
     kubescape.io/managed-by: User
-    kubescape.io/resource-size: '32'
     kubescape.io/status: completed
-    kubescape.io/sync-checksum: 135fe10738cc5a481a12155c830a67704647029b0c078e6dda95338c9e9a4981
   name: catalog-operator
   namespace: olm
 spec:
-  architectures: null
   capabilities:
   - CAP_DAC_OVERRIDE
   - CAP_DAC_READ_SEARCH
   - CAP_NET_ADMIN
   egress:
-  - dns: ''
-    dnsNames: null
-    identifier: 2297897752f7953edd031ddd6f824a44163c479b649d3db6fef80eff7303dcd2
-    ipAddress: ''
+  - identifier: 2297897752f7953edd031ddd6f824a44163c479b649d3db6fef80eff7303dcd2
     namespaceSelector:
       matchLabels:
         kubernetes.io/metadata.name: px-operator
@@ -33,11 +27,7 @@ spec:
     - name: TCP-50051
       port: 50051
       protocol: TCP
-    type: ''
-  - dns: ''
-    dnsNames: null
-    identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
-    ipAddress: ''
+  - identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
     namespaceSelector:
       matchLabels:
         kubernetes.io/metadata.name: kube-system
@@ -48,68 +38,303 @@ spec:
     - name: UDP-53
       port: 53
       protocol: UDP
-    type: ''
-  endpoints: null
-  execs:
-  - path: /bin/catalog
-  identifiedCallStacks: null
-  imageID: ''
-  imageTag: ''
-  ingress:
   - dns: ''
     dnsNames: null
-    identifier: 209567a3863579abd33381b8530e8ba80051db1f3ed6c9cf0672c6b27ab4e936
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: pl
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: honey
+    podSelector:
+      matchLabels:
+        app: node-agent
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: catalog-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: olm-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kubernetes
+    serviceRefNamespace: default
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kube-dns
+    serviceRefNamespace: kube-system
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-metadata-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-query-broker-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-cloud-connector-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats-mgmt
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kelvin-service
+    serviceRefNamespace: pl
+    type: ''
+  execs:
+  - path: /bin/catalog
+  ingress:
+  - identifier: 209567a3863579abd33381b8530e8ba80051db1f3ed6c9cf0672c6b27ab4e936
     ipAddress: 10.42.1.1
-    namespaceSelector: null
-    podSelector: null
     ports:
     - name: TCP-8080
       port: 8080
       protocol: TCP
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: pl
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: honey
+    podSelector:
+      matchLabels:
+        app: node-agent
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: catalog-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: olm-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kubernetes
+    serviceRefNamespace: default
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kube-dns
+    serviceRefNamespace: kube-system
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-metadata-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-query-broker-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-cloud-connector-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats-mgmt
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kelvin-service
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    entity: host
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddresses:
+    - 10.42.0.1
+    - 10.42.1.1
+    - 10.42.2.1
+    - 10.42.3.1
+    - 10.42.4.1
+    - 10.42.5.1
+    - 10.42.6.1
+    - 10.42.7.1
+    ports:
+    - name: TCP-8080
+      port: 8080
+      protocol: TCP
+    - name: TCP-8081
+      port: 8081
+      protocol: TCP
     type: ''
   opens:
-  - flags: null
-    path: /*/kernel/cap_last_cap
-  - flags: null
-    path: /*/net/core/somaxconn
-  - flags: null
-    path: /*/task/⋯/fd
-  - flags:
-    - O_RDONLY
-    - O_CLOEXEC
-    path: /⋯
-  - flags:
-    - O_CLOEXEC
-    - O_RDONLY
-    path: /⋯/*
-  rulePolicies:
-    R0001:
-      processAllowed:
-      - catalog
-      - runc
-    R0002:
-      processAllowed:
-      - catalog
-      - runc
-    R0004:
-      processAllowed:
-      - catalog
-      - runc
-    R0005:
-      processAllowed:
-      - catalog
-      - runc
-    R0006:
-      processAllowed:
-      - catalog
-      - runc
-    R1017:
-      processAllowed:
-      - catalog
-      - runc
-  seccompProfile:
-    spec:
-      defaultAction: ''
+  - path: /etc/hosts
+  - path: /etc/localtime
+  - path: /etc/nsswitch.conf
+  - path: /etc/passwd
+  - path: /etc/resolv.conf
+  - path: /opt/hostedtoolcache/go/1.21.7/x64/lib/time/zoneinfo.zip
+  - path: "/proc/\u22EF/kernel/cap_last_cap"
+  - path: "/proc/\u22EF/net/core/somaxconn"
+  - path: "/proc/\u22EF/task/1/fd"
+  - path: /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
+  - path: "/var/run/secrets/kubernetes.io/serviceaccount/\u22EF/ca.crt"
+  - path: "/var/run/secrets/kubernetes.io/serviceaccount/\u22EF/token"
   syscalls:
   - accept4
   - close
@@ -138,79 +363,309 @@ metadata:
   annotations:
     kubescape.io/completion: complete
     kubescape.io/managed-by: User
-    kubescape.io/resource-size: '76'
     kubescape.io/status: completed
-    kubescape.io/sync-checksum: 61bedc417d5ea0fe5ad1137cf9b3ff99788bd01bf7e2b8c3800b33631f4cbd4f
   name: olm-operator
   namespace: olm
 spec:
-  architectures: null
   capabilities:
   - CAP_DAC_OVERRIDE
   - CAP_DAC_READ_SEARCH
   - CAP_NET_ADMIN
-  egress: null
-  endpoints: null
-  execs:
-  - path: /bin/olm
-  identifiedCallStacks: null
-  imageID: ''
-  imageTag: ''
-  ingress:
+  egress:
   - dns: ''
     dnsNames: null
-    identifier: 0a52270744d47da0e770b43cf46a02db90adfdaed097b34c8eacf9c267793a14
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: pl
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: honey
+    podSelector:
+      matchLabels:
+        app: node-agent
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: catalog-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: olm-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kubernetes
+    serviceRefNamespace: default
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kube-dns
+    serviceRefNamespace: kube-system
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-metadata-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-query-broker-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-cloud-connector-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats-mgmt
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kelvin-service
+    serviceRefNamespace: pl
+    type: ''
+  execs:
+  - path: /bin/olm
+  ingress:
+  - identifier: 0a52270744d47da0e770b43cf46a02db90adfdaed097b34c8eacf9c267793a14
     ipAddress: 10.42.0.1
-    namespaceSelector: null
-    podSelector: null
     ports:
     - name: TCP-8080
       port: 8080
       protocol: TCP
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: pl
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: honey
+    podSelector:
+      matchLabels:
+        app: node-agent
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: catalog-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: olm-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kubernetes
+    serviceRefNamespace: default
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kube-dns
+    serviceRefNamespace: kube-system
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-metadata-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-query-broker-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-cloud-connector-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats-mgmt
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kelvin-service
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    entity: host
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddresses:
+    - 10.42.0.1
+    - 10.42.1.1
+    - 10.42.2.1
+    - 10.42.3.1
+    - 10.42.4.1
+    - 10.42.5.1
+    - 10.42.6.1
+    - 10.42.7.1
+    ports:
+    - name: TCP-8080
+      port: 8080
+      protocol: TCP
+    - name: TCP-8081
+      port: 8081
+      protocol: TCP
     type: ''
   opens:
-  - flags: null
-    path: /*/kernel/cap_last_cap
-  - flags: null
-    path: /*/net/core/somaxconn
-  - flags: null
-    path: /*/task/⋯/fd
-  - flags:
-    - O_RDONLY
-    - O_CLOEXEC
-    path: /⋯
-  - flags:
-    - O_CLOEXEC
-    - O_RDONLY
-    path: /⋯/*
-  rulePolicies:
-    R0001:
-      processAllowed:
-      - olm
-      - runc
-    R0002:
-      processAllowed:
-      - olm
-      - runc
-    R0004:
-      processAllowed:
-      - olm
-      - runc
-    R0005:
-      processAllowed:
-      - olm
-      - runc
-    R0006:
-      processAllowed:
-      - olm
-      - runc
-    R1017:
-      processAllowed:
-      - olm
-      - runc
-  seccompProfile:
-    spec:
-      defaultAction: ''
+  - path: /etc/localtime
+  - path: /etc/passwd
+  - path: /opt/hostedtoolcache/go/1.21.7/x64/lib/time/zoneinfo.zip
+  - path: "/proc/\u22EF/kernel/cap_last_cap"
+  - path: "/proc/\u22EF/net/core/somaxconn"
+  - path: "/proc/\u22EF/task/1/fd"
+  - path: /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
+  - path: "/var/run/secrets/kubernetes.io/serviceaccount/\u22EF/ca.crt"
+  - path: "/var/run/secrets/kubernetes.io/serviceaccount/\u22EF/token"
   syscalls:
   - accept4
   - arch_prctl
@@ -285,20 +740,14 @@ metadata:
   annotations:
     kubescape.io/completion: complete
     kubescape.io/managed-by: User
-    kubescape.io/resource-size: '53'
     kubescape.io/status: completed
-    kubescape.io/sync-checksum: 199567bf56bed19ecc7edd4a9af3dabc08177247a9665cab2ed5973c7cf617db
   name: vizier-operator
   namespace: px-operator
 spec:
-  architectures: null
   capabilities:
   - CAP_NET_ADMIN
   egress:
-  - dns: ''
-    dnsNames: null
-    identifier: da8e219b26f6e8ddd6c74e3e35355a97a0528bf150772dbbe21aa771733fe958
-    ipAddress: ''
+  - identifier: da8e219b26f6e8ddd6c74e3e35355a97a0528bf150772dbbe21aa771733fe958
     namespaceSelector:
       matchLabels:
         kubernetes.io/metadata.name: pl
@@ -315,11 +764,7 @@ spec:
     - name: TCP-50800
       port: 50800
       protocol: TCP
-    type: ''
-  - dns: ''
-    dnsNames: null
-    identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
-    ipAddress: ''
+  - identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
     namespaceSelector:
       matchLabels:
         kubernetes.io/metadata.name: kube-system
@@ -330,22 +775,13 @@ spec:
     - name: UDP-53
       port: 53
       protocol: UDP
-    type: ''
-  - dns: ''
-    dnsNames: null
-    identifier: 284d617ca3e493147f79f2c7f185037100a9c2636930eec7995122394206e7fe
+  - identifier: 284d617ca3e493147f79f2c7f185037100a9c2636930eec7995122394206e7fe
     ipAddress: 100.103.139.51
-    namespaceSelector: null
-    podSelector: null
     ports:
     - name: TCP-443
       port: 443
       protocol: TCP
-    type: ''
-  - dns: ''
-    dnsNames: null
-    identifier: 2ecd1f4c02e1461f6029b18d649c33cf593473ef52be42e8826414c52906b784
-    ipAddress: ''
+  - identifier: 2ecd1f4c02e1461f6029b18d649c33cf593473ef52be42e8826414c52906b784
     namespaceSelector:
       matchLabels:
         kubernetes.io/metadata.name: pl
@@ -359,55 +795,314 @@ spec:
     - name: TCP-8222
       port: 8222
       protocol: TCP
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: pl
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+    ports: null
     type: ''
-  endpoints: null
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: honey
+    podSelector:
+      matchLabels:
+        app: node-agent
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: catalog-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: olm-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kubernetes
+    serviceRefNamespace: default
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kube-dns
+    serviceRefNamespace: kube-system
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-metadata-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-query-broker-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-cloud-connector-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats-mgmt
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kelvin-service
+    serviceRefNamespace: pl
+    type: ''
   execs:
   - path: /app/src/operator/operator.runfiles/px/src/operator/operator_/operator
-  identifiedCallStacks: null
-  imageID: ''
-  imageTag: ''
-  ingress: null
+  ingress:
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: pl
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: honey
+    podSelector:
+      matchLabels:
+        app: node-agent
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: catalog-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: olm-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kubernetes
+    serviceRefNamespace: default
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kube-dns
+    serviceRefNamespace: kube-system
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-metadata-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-query-broker-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-cloud-connector-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats-mgmt
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kelvin-service
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    entity: host
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddresses:
+    - 10.42.0.1
+    - 10.42.1.1
+    - 10.42.2.1
+    - 10.42.3.1
+    - 10.42.4.1
+    - 10.42.5.1
+    - 10.42.6.1
+    - 10.42.7.1
+    ports:
+    - name: TCP-8080
+      port: 8080
+      protocol: TCP
+    - name: TCP-8081
+      port: 8081
+      protocol: TCP
+    - name: TCP-9443
+      port: 9443
+      protocol: TCP
+    type: ''
   opens:
-  - flags: null
-    path: /*/net/core/somaxconn
-  - flags: null
-    path: /*/task/⋯/fd
-  - flags:
-    - O_RDONLY
-    - O_CLOEXEC
-    path: /⋯
-  - flags:
-    - O_CLOEXEC
-    - O_RDONLY
-    path: /⋯/*
-  rulePolicies:
-    R0001:
-      processAllowed:
-      - operator
-      - runc
-    R0002:
-      processAllowed:
-      - operator
-      - runc
-    R0004:
-      processAllowed:
-      - operator
-      - runc
-    R0005:
-      processAllowed:
-      - operator
-      - runc
-    R0006:
-      processAllowed:
-      - operator
-      - runc
-    R1017:
-      processAllowed:
-      - operator
-      - runc
-  seccompProfile:
-    spec:
-      defaultAction: ''
+  - path: /app/src/operator/operator.runfiles/px/GOROOT/lib/time/zoneinfo.zip
+  - path: /etc/host.conf
+  - path: /etc/hosts
+  - path: /etc/ld.so.cache
+  - path: /etc/localtime
+  - path: /etc/nsswitch.conf
+  - path: /etc/pki/tls/certs
+  - path: /etc/resolv.conf
+  - path: /etc/ssl/certs
+  - path: /etc/ssl/certs/ca-certificates.crt
+  - path: /lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v2/libm.so.6
+  - path: /lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v3/libm.so.6
+  - path: /lib/x86_64-linux-gnu/libc.so.6
+  - path: /lib/x86_64-linux-gnu/libm.so.6
+  - path: /lib/x86_64-linux-gnu/libresolv.so.2
+  - path: /lib/x86_64-linux-gnu/tls/libm.so.6
+  - path: /lib/x86_64-linux-gnu/tls/x86_64/libm.so.6
+  - path: /lib/x86_64-linux-gnu/tls/x86_64/x86_64/libm.so.6
+  - path: /lib/x86_64-linux-gnu/x86_64/libm.so.6
+  - path: /lib/x86_64-linux-gnu/x86_64/x86_64/libm.so.6
+  - path: "/proc/\u22EF/net/core/somaxconn"
+  - path: "/proc/\u22EF/task/1/fd"
+  - path: /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
+  - path: /system/etc/security/cacerts
+  - path: "/var/run/secrets/kubernetes.io/serviceaccount/\u22EF/ca.crt"
+  - path: "/var/run/secrets/kubernetes.io/serviceaccount/\u22EF/token"
   syscalls:
   - access
   - clone3

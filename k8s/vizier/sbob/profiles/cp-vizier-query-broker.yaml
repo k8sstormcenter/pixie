@@ -379,6 +379,26 @@ spec:
     ipAddress: ''
     ports: null
     type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddresses:
+    - 10.42.0.1
+    - 10.42.1.1
+    - 10.42.2.1
+    - 10.42.3.1
+    - 10.42.4.1
+    - 10.42.5.1
+    - 10.42.6.1
+    - 10.42.7.1
+    ports:
+    - name: TCP-50300
+      port: 50300
+      protocol: TCP
+    - name: TCP-50305
+      port: 50305
+      protocol: TCP
+    type: ''
   opens:
   - flags: null
     path: /*

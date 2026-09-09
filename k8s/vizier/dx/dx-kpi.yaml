@@ -7,7 +7,7 @@ kind: ClusterRole
 metadata: { name: dx-kpi }
 rules:
 - apiGroups: [""]
-  resources: [nodes, pods, services]
+  resources: [nodes, pods, services, namespaces]
   verbs: [list, get]
 - apiGroups: [cilium.io]
   resources: [ciliumnodes]

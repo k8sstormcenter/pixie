@@ -7,5 +7,5 @@ resources:
   - ../sbob/profiles/cp-adaptive-export.yaml
 images:
   - name: vizier-adaptive_export_image
-    newName: ghcr.io/k8sstormcenter/vizier-adaptive_export_image
-    newTag: 0.14.19-aeprod95
+    newName: docker.io/tanzeee/adaptive-export
+    newTag: 0.15.1-rc1

@@ -39,4 +39,8 @@ deploy:
                 kubectl -n honey create secret generic dx-metastasis-ch \
                   --from-literal=http-url="$CH_URL" \
                   --dry-run=client -o yaml | kubectl apply -f -
+                kubectl -n honey create configmap dx-kpi \
+                  --from-literal=cluster="${DX_CLUSTER:-$(kubectl config current-context)}" \
+                  --from-literal=oracle="${DX_KPI_ORACLE:-}" \
+                  --dry-run=client -o yaml | kubectl apply -f -
             os: [linux, darwin]

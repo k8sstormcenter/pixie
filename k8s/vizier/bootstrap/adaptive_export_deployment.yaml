@@ -66,6 +66,10 @@ spec:
         # Capture is driven by the control surface only; no kubescape_logs poll.
         - name: ADAPTIVE_TRIGGER_POLL
           value: "false"
+        # Convert any evidence table still on a plain MergeTree. Leader-only,
+        # and a no-op once every table has been converted.
+        - name: ADAPTIVE_MIGRATE_ENGINES
+          value: "true"
         - name: ADAPTIVE_RECONCILE
           value: "true"
         - name: DEPLOY_TRACEPOINTS

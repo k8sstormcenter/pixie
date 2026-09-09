@@ -12,6 +12,9 @@ rules:
 - apiGroups: [cilium.io]
   resources: [ciliumnodes]
   verbs: [list, get]
+- apiGroups: [spdx.softwarecomposition.kubescape.io]
+  resources: [containerprofiles, rogueartifacts]
+  verbs: [list, get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

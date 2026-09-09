@@ -20,6 +20,8 @@ spec:
             - matchExpressions:
               - { key: kubernetes.io/os, operator: In, values: [linux] }
       serviceAccountName: pl-adaptive-export-service-account
+      imagePullSecrets:
+      - name: adaptive-export-pull
       containers:
       - name: adaptive-export
         image: vizier-adaptive_export_image:latest

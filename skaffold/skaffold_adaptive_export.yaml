@@ -24,6 +24,25 @@ deploy:
           - -c
           - |
             set -e
+            # The adaptive-export image is pulled from a private repository.
+            # Create the pull secret in pl from the operator's own registry
+            # config; nothing is read from or written to this repository.
+            CFG="${AE_PULL_CONFIG:-$HOME/.registry-pull/tanzeee/config.json}"
+            if [ -f "$CFG" ]; then
+              kubectl -n pl create secret generic adaptive-export-pull \
+                --type=kubernetes.io/dockerconfigjson \
+                --from-file=.dockerconfigjson="$CFG" \
+                --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+              echo "adaptive-export-pull secret applied in pl"
+            else
+              echo "WARNING: $CFG not found; adaptive-export will not be able to pull its image" >&2
+            fi
+      - host:
+          command:
+          - bash
+          - -c
+          - |
+            set -e
             # PL_CLOUD_ADDR must carry an explicit :443 or the AE cloud client crashloops.
             CA=$(kubectl -n pl get cm pl-cloud-config -o jsonpath='{.data.PL_CLOUD_ADDR}' 2>/dev/null || true)
             case "$CA" in

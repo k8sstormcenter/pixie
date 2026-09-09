@@ -63,6 +63,9 @@ spec:
           value: ":9100"
         - name: ADAPTIVE_PUSH_PIXIE_ROWS
           value: "true"
+        # Capture is driven by the control surface only; no kubescape_logs poll.
+        - name: ADAPTIVE_TRIGGER_POLL
+          value: "false"
         - name: ADAPTIVE_RECONCILE
           value: "true"
         - name: DEPLOY_TRACEPOINTS

@@ -18,12 +18,24 @@ import px
 
 
 def learned(start_time: str, clickhouse_dsn: str):
-    df = px.DataFrame('kubescape_profiles', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    df = df[df.kind == 'shadow']
-    agg = df.groupby(['namespace', 'name']).agg(
-        completion=('completion', px.any), status=('status', px.any),
-        execs=('execs', px.any), opens=('opens', px.any),
-        egress=('egress', px.any), ingress=('ingress', px.any),
-        syscalls=('syscalls', px.any), capabilities=('capabilities', px.any))
-    return agg[['namespace', 'name', 'completion', 'status', 'execs', 'opens',
-                'egress', 'ingress', 'syscalls', 'capabilities']]
+    # Reads dx_profiles__latest, a view that resolves the newest generation per
+    # (namespace, name) over event_time ALONE and only then projects the wide
+    # columns. Do not go back to kubescape_profiles directly.
+    #
+    # This function used to pull the base table and groupby/px.any over execs,
+    # opens, egress, ingress, syscalls and capabilities. Those columns hold a
+    # container's entire learned behaviour as newline-joined text, so the query
+    # materialised every generation of every profile in the window to compute an
+    # arbitrary "any" of the newest. Measured on edge4: ~1.95 GiB per run against
+    # a 501 MB / 631k-row table, re-run every 10-40s by the panel's own
+    # auto-refresh. Concurrent runs crossed the server's 5.40 GiB total budget and
+    # the ClickHouse container was OOMKilled (exit 137) at 09:39:19Z on
+    # 2026-09-10. It also cost the KPI series a tick — the single gap in edge4's
+    # 220 ticks is this outage — so the panel put a hole in the measurement that
+    # is supposed to evidence completeness.
+    #
+    # The failure needs no attacker and no unusual state: one open tab.
+    df = px.DataFrame('dx_profiles__latest', clickhouse_dsn=clickhouse_dsn,
+                      start_time=start_time)
+    return df[['namespace', 'name', 'completion', 'status', 'execs', 'opens',
+               'egress', 'ingress', 'syscalls', 'capabilities']]

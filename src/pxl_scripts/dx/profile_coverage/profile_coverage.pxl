@@ -18,13 +18,13 @@ import px
 
 
 def governed(start_time: str, clickhouse_dsn: str):
-    df = px.DataFrame('kubescape_profiles', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = px.DataFrame('dx_profiles__latest', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[df.signed == 1]
     agg = df.groupby(['namespace']).agg(signed_profiles=('name', px.count))
     return agg[['namespace', 'signed_profiles']]
 
 
 def ungoverned(start_time: str, clickhouse_dsn: str):
-    df = px.DataFrame('kubescape_rogueartifacts', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = px.DataFrame('dx_rogueartifacts__latest', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     agg = df.groupby(['namespace']).agg(rogue=('name', px.count))
     return agg[['namespace', 'rogue']]

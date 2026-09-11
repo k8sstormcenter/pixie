@@ -18,13 +18,18 @@ spec:
       serviceAccountName: dx-daemon
       tolerations: [{operator: Exists}]
       terminationGracePeriodSeconds: 35
+      # The image lives in a private repository. dx-pull is built by the
+      # skaffold_dx.yaml before-hook from the operator's local registry config
+      # (DX_PULL_CONFIG); without it the pod goes ImagePullBackOff.
+      imagePullSecrets:
+      - name: dx-pull
       containers:
       - name: dx-daemon
         # OBFUSCATED release rc13 (entlein/dx#138 fault 2 RESOLVED): garble -literals
         # (WITHOUT -tiny — -tiny's pclntab stripping SIGSEGV'd under load). Passes the
         # obfuscation gate AND survives the kill-chain (restarts=0, 4 rounds). Carries the
         # evidence-manifest + DX_FOREST_PUSHDOWN code.
-        image: docker.io/entlein/dx-daemon:0.5.0-keepset-rc23
+        image: docker.io/tanzeee/dx-daemon:0.6.0-shadow-rc42
         ports:
         - {name: findings, containerPort: 9099, hostPort: 9099}
         env:

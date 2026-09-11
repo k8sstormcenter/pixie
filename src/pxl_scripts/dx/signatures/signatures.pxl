@@ -18,7 +18,7 @@ import px
 
 
 def ledger(start_time: str, clickhouse_dsn: str):
-    df = px.DataFrame('kubescape_profiles', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = px.DataFrame('dx_profiles__latest', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     latest = df.groupby(['namespace', 'name']).agg(
         kind=('kind', px.any), signed=('signed', px.max),
         identity=('signer_identity', px.any), issuer=('signer_issuer', px.any))
@@ -26,6 +26,6 @@ def ledger(start_time: str, clickhouse_dsn: str):
 
 
 def keys(start_time: str, clickhouse_dsn: str):
-    df = px.DataFrame('kubescape_trust', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = px.DataFrame('dx_trust__latest', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     agg = df.groupby(['class', 'signer_key', 'allowed_paths']).agg(seen=('class', px.count))
     return agg[['class', 'signer_key', 'allowed_paths']]

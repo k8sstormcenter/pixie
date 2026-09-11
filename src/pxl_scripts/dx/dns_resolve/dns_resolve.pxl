@@ -25,8 +25,8 @@ def dns_graph(start_time: str, clickhouse_dsn: str, order_id: str):
     d = px.DataFrame('dx_dns_resolve', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     d.k = 1
     d = d.merge(win, how='inner', left_on=['k'], right_on=['k'], suffixes=['', '_w'])
-    d = d[d.event_time >= d.lo]
-    d = d[d.event_time <= d.hi]
+    d = d[d.row_time >= d.lo]
+    d = d[d.row_time <= d.hi]
 
     d.resolver_ip = px.replace(':53', d.to_node, '')
     d.r_svc = px.service_id_to_service_name(px.ip_to_service_id(d.resolver_ip))

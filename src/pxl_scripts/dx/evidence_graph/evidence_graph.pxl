@@ -24,7 +24,7 @@ def _ord(start_time: str, clickhouse_dsn: str, view: str, order_id: str):
 
 
 def evidence_graph(start_time: str, clickhouse_dsn: str, table: str, case_id: str):
-    orders = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = px.DataFrame('dx_src__orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     orders = orders[['order_id', 'kubescape_uid', 'rule_id', 'pod', 'culprit_key']]
     orders = orders[px.contains(orders.culprit_key, case_id)]
     anom = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
@@ -68,7 +68,7 @@ def cases(start_time: str, clickhouse_dsn: str, case_id: str):
 
 
 def orders(start_time: str, clickhouse_dsn: str, graph_table: str, case_id: str):
-    df = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = px.DataFrame('dx_src__orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[px.contains(df.culprit_key, case_id)]
     ks = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     ks = ks[['uniqueID', 'infected_pid', 'offender', 'profile']]
@@ -94,7 +94,7 @@ def orders(start_time: str, clickhouse_dsn: str, graph_table: str, case_id: str)
 
 
 def kubescape(start_time: str, clickhouse_dsn: str, order_id: str):
-    orders = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = px.DataFrame('dx_src__orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     orders = orders[orders.order_id == order_id]
     orders = orders[['kubescape_uid', 'rule_id']]
     k = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
@@ -104,7 +104,7 @@ def kubescape(start_time: str, clickhouse_dsn: str, order_id: str):
 
 
 def capability(start_time: str, clickhouse_dsn: str, order_id: str):
-    orders = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = px.DataFrame('dx_src__orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     orders = orders[orders.order_id == order_id]
     orders = orders[['kubescape_uid']]
     k = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
@@ -160,7 +160,7 @@ def mongodb(start_time: str, clickhouse_dsn: str, order_id: str):
 
 
 def stack_trace(start_time: str, clickhouse_dsn: str, order_id: str):
-    w = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    w = px.DataFrame('dx_src__orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     w = w[w.order_id == order_id]
     w = w[['pod']]
     st = px.DataFrame(table='stack_traces.beta', start_time=start_time)
@@ -201,3 +201,15 @@ def stack_diff(start_time: str, clickhouse_dsn: str, order_id: str):
     merged = diff.merge(total, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_t'])
     merged.percent = 100 * merged.count / merged.total
     return merged[['stack_trace', 'count', 'delta', 'percent', 'pod']]
+
+
+def freshness(start_time: str, clickhouse_dsn: str):
+    # Seconds since the newest order. Distinguishes "quiet" from "dead": an empty
+    # panel with a small age means nothing happened; a large age means nothing is
+    # arriving. Without it both render as an empty table.
+    df = px.DataFrame('dx_src__orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df.one = 1
+    agg = df.groupby(['one']).agg(newest=('row_time', px.max), orders=('order_id', px.count))
+    agg.age_seconds = (px.now() - agg.newest) / 1000000000
+    agg.source = 'dx_src__orders'
+    return agg[['source', 'orders', 'age_seconds']]

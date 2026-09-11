@@ -200,3 +200,13 @@ def http2(start_time: str, clickhouse_dsn: str, shadow_id: str):
 
 def creds(start_time: str, clickhouse_dsn: str, shadow_id: str):
     return _rows(start_time, clickhouse_dsn, 'dx_shadow__creds_change', shadow_id)
+
+
+def freshness(start_time: str, clickhouse_dsn: str):
+    # Seconds since the newest trace update. Quiet and dead read differently here.
+    df = px.DataFrame('dx_shadow__trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df.one = 1
+    agg = df.groupby(['one']).agg(newest=('updated_at', px.max), traces=('shadow_id', px.count))
+    agg.age_seconds = (px.now() - agg.newest) / 1000000000
+    agg.source = 'dx_shadow__trace'
+    return agg[['source', 'traces', 'age_seconds']]

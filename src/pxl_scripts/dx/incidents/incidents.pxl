@@ -18,6 +18,6 @@ import px
 
 
 def orders(start_time: str, clickhouse_dsn: str):
-    df = px.DataFrame('dx_orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = px.DataFrame('dx_src__orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     agg = df.groupby(['pod', 'rule_id']).agg(orders=('order_id', px.count))
     return agg[['pod', 'rule_id', 'orders']]

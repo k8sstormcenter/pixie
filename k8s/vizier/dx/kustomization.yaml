@@ -3,4 +3,3 @@ kind: Kustomization
 namespace: honey
 resources:
   - dx-daemon.yaml
-  - dx-kpi.yaml

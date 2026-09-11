@@ -49,6 +49,30 @@ rules:
   verbs:
   - get
   - list
+# kssync (internal/ae/kssync) mirrors kubescape state into ClickHouse, replacing
+# soc's ks-ch-sync CronJob. It LISTs both CRDs for metadata and GETs the objects
+# whose resourceVersion moved — the storage apiserver truncates spec on a LIST,
+# so only a GET carries the behaviour set. Read-only, cluster-scoped because the
+# CRDs are.
+- apiGroups:
+  - spdx.softwarecomposition.kubescape.io
+  resources:
+  - containerprofiles
+  - rogueartifacts
+  verbs:
+  - get
+  - list
+# The node-agent trust policy, by name only: kssync reads exactly one ConfigMap
+# and a blanket configmaps grant would let it read every secret-adjacent config
+# in the cluster.
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  resourceNames:
+  - node-agent-bundle-policy
+  verbs:
+  - get
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

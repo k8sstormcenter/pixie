@@ -3,7 +3,7 @@
     {
       "name": "start_time",
       "type": "PX_STRING",
-      "description": "",
+      "description": "Ignored by this panel. It shows the CURRENT profile set: one row per profile at its newest generation, stamped with the read instant rather than when the profile was learned. Use the learned_at column to see how old each profile is.",
       "defaultValue": "-6h"
     },
     {
@@ -33,7 +33,7 @@
   ],
   "widgets": [
     {
-      "name": "Shadow profiles",
+      "name": "Shadow profiles (current set \u2014 the time picker does not filter this panel)",
       "position": {
         "x": 0,
         "y": 0,

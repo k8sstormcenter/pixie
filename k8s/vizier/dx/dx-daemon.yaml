@@ -18,10 +18,9 @@ spec:
       serviceAccountName: dx-daemon
       tolerations: [{operator: Exists}]
       terminationGracePeriodSeconds: 35
-      # The image is pulled from a private repository. dx-pull is created in honey
-      # by skaffold_dx.yaml's before-hook from the operator's local registry config;
-      # without this reference the pod goes ImagePullBackOff on a fresh cluster —
-      # the trap k8sstormcenter/pixie#104 hit on the KPI CronJob.
+      # The image lives in a private repository. dx-pull is built by the
+      # skaffold_dx.yaml before-hook from the operator's local registry config
+      # (DX_PULL_CONFIG); without it the pod goes ImagePullBackOff.
       imagePullSecrets:
       - name: dx-pull
       containers:

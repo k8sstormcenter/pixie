@@ -28,8 +28,14 @@ _WINDOW = '-720h'
 
 
 def _all(clickhouse_dsn: str):
-    return px.DataFrame('dx_profiles__compare', clickhouse_dsn=clickhouse_dsn,
-                        start_time=_WINDOW)
+    df = px.DataFrame('dx_profiles__compare', clickhouse_dsn=clickhouse_dsn,
+                      start_time=_WINDOW)
+    # completion is set at container START; status only after the sniffing
+    # window closes. So completion=complete with status!=completed is a profile
+    # still being written, and a divergence against it is provisional rather
+    # than a finding. The two columns are shown together for that reason.
+    df.baseline = px.select(df.status == 'completed', 'settled', 'still learning')
+    return df
 
 
 def pairings(start_time: str, clickhouse_dsn: str):
@@ -48,10 +54,13 @@ def pairings(start_time: str, clickhouse_dsn: str):
     # report every unbound container as drifting from a profile it does not
     # have. Undefined is reported as zero and the pairing column says why.
     df.differs = px.select(df.pairing == 'paired',
-                           px.select(df.only_in_shadow_total + df.only_in_sbob_total > 0, 1, 0),
+                           px.select(df.status == 'completed',
+                                     px.select(df.only_in_shadow_total + df.only_in_sbob_total > 0, 1, 0),
+                                     0),
                            0)
-    return df.groupby(['pairing']).agg(profiles=('namespace', px.count),
-                                       paired_and_diverging=('differs', px.sum))
+    return df.groupby(['pairing', 'baseline']).agg(
+        profiles=('namespace', px.count),
+        paired_and_diverging=('differs', px.sum))
 
 
 def profiles(start_time: str, clickhouse_dsn: str, pairing: str, workload: str):
@@ -65,7 +74,7 @@ def profiles(start_time: str, clickhouse_dsn: str, pairing: str, workload: str):
     df = df[px.contains(df.pairing, pairing)]
     df = df[px.contains(df.workload, workload)]
     return df[['namespace', 'workload', 'workload_kind', 'workload_container',
-               'pairing', 'only_in_shadow_total', 'only_in_sbob_total',
+               'pairing', 'baseline', 'only_in_shadow_total', 'only_in_sbob_total',
                'signed', 'completion', 'status', 'learned_name', 'sbob_name',
                'mirror_version', 'hostname']]
 
@@ -88,7 +97,7 @@ def divergence(start_time: str, clickhouse_dsn: str, pairing: str, workload: str
     df = _all(clickhouse_dsn)
     df = df[px.contains(df.pairing, pairing)]
     df = df[px.contains(df.workload, workload)]
-    return df[['namespace', 'workload', 'workload_container', 'pairing',
+    return df[['namespace', 'workload', 'workload_container', 'pairing', 'baseline',
                'only_in_shadow_execs', 'only_in_sbob_execs',
                'only_in_shadow_opens', 'only_in_sbob_opens',
                'only_in_shadow_egress', 'only_in_sbob_egress',

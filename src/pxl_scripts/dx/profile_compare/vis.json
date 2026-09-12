@@ -28,7 +28,7 @@
   "globalFuncs": [],
   "widgets": [
     {
-      "name": "Profiles by pairing (learned_only is not ungoverned)",
+      "name": "Profiles by pairing and baseline (learned_only is not ungoverned)",
       "position": {
         "x": 0,
         "y": 0,

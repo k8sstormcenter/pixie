@@ -90,6 +90,14 @@ def divergence(start_time: str, clickhouse_dsn: str, pairing: str, workload: str
     A divergence is a finding for an entlein/bob issue stating the desired
     YAML. Nothing in this panel edits anything.
 
+    Known false positive until entlein/node-agent#22 lands: a learned profile
+    can hold the same command twice, once as the exec tracer saw it and once
+    shredded on spaces into many fields. The mirror keeps both deliberately —
+    they are different vectors and collapsing them would hide the defect — so
+    the shredded copy appears here as in shadow, not in SBoB. A many-field line
+    whose fields concatenate to a shorter line on the same path is that defect,
+    not divergence. It is not special-cased here on purpose.
+
     If argv is ever rendered from these sets: an exec entry with empty or
     missing args FAILS OPEN, argv checking is off for that path entirely. Show
     such an entry as unchecked, never as tighter than the learned side.

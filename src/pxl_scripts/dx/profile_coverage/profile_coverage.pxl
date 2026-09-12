@@ -24,6 +24,10 @@ def governed(start_time: str, clickhouse_dsn: str):
     # This counted signed == 1 and so reported zero for containers that are
     # governed today. signed stays a column beside kind, never the definition.
     df = px.DataFrame('dx_profiles__latest', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    # Authored profiles are governed at adoption. Never key this on
+    # completion: completion is set when the container starts, and a learned
+    # profile is only projected once status is terminal. completion means
+    # nothing about whether anything governs.
     df = df[df.kind == 'user']
     df.verified = px.select(df.signed == 1, 1, 0)
     df.unsigned = px.select(df.signed == 1, 0, 1)

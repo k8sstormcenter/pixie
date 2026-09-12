@@ -204,10 +204,12 @@ def stack_diff(start_time: str, clickhouse_dsn: str, order_id: str):
 
 
 def freshness(start_time: str, clickhouse_dsn: str):
-    # Seconds since the newest order. Distinguishes "quiet" from "dead": an empty
-    # panel with a small age means nothing happened; a large age means nothing is
-    # arriving. Without it both render as an empty table.
-    df = px.DataFrame('dx_src__orders', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    # Deliberately ignores start_time. Freshness is a property of the store, not
+    # of the picker: asked over the picker's window this returned an empty table
+    # whenever the window held nothing, which is the exact reading it exists to
+    # rule out. The lookback is the retention period, so an empty result here
+    # means the store holds nothing at all rather than nothing recently.
+    df = px.DataFrame('dx_src__orders', clickhouse_dsn=clickhouse_dsn, start_time='-720h')
     df.one = 1
     agg = df.groupby(['one']).agg(newest=('row_time', px.max), orders=('order_id', px.count))
     agg.age_seconds = (px.now() - agg.newest) / 1000000000

@@ -1,0 +1,128 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+import px
+
+# Every profile, however it was created: a learned profile beside the authored
+# profile that governs the same workload. dx_profiles__compare pins one row per
+# profile and does the set difference in ClickHouse; nothing here re-aggregates
+# the text columns.
+#
+# The window is deliberately wide. This is state, not a stream: event_time is
+# the read instant, so a narrow picker would not select recent profiles, it
+# would select nothing.
+_WINDOW = '-720h'
+
+
+def _all(clickhouse_dsn: str):
+    df = px.DataFrame('dx_profiles__compare', clickhouse_dsn=clickhouse_dsn,
+                      start_time=_WINDOW)
+    # completion is set at container START; status only after the sniffing
+    # window closes. So completion=complete with status!=completed is a profile
+    # still being written, and a divergence against it is provisional rather
+    # than a finding. The two columns are shown together for that reason.
+    df.baseline = px.select(df.status == 'completed', 'settled', 'still learning')
+    return df
+
+
+def pairings(start_time: str, clickhouse_dsn: str):
+    """How many profiles of each pairing. Read this first.
+
+    paired          a learned profile and an authored one for the same workload
+    learned_only    learned, with no authored profile keyed to it. Every
+                    container has a learned profile whether or not it is bound,
+                    so this is not the same as ungoverned.
+    sbob_only       authored, matching no learned profile by workload name
+    learned_unkeyed learned, carrying no workload labels to key on
+    """
+    df = _all(clickhouse_dsn)
+    # Divergence is only meaningful where both sides exist. A learned_only profile
+    # has nothing to differ from, so counting its whole content would
+    # report every unbound container as drifting from a profile it does not
+    # have. Undefined is reported as zero and the pairing column says why.
+    df.differs = px.select(df.pairing == 'paired',
+                           px.select(df.status == 'completed',
+                                     px.select(df.only_in_shadow_total + df.only_in_sbob_total > 0, 1, 0),
+                                     0),
+                           0)
+    return df.groupby(['pairing', 'baseline']).agg(
+        profiles=('namespace', px.count),
+        paired_and_diverging=('differs', px.sum))
+
+
+def profiles(start_time: str, clickhouse_dsn: str, pairing: str, workload: str):
+    """One row per profile with the size of the difference, no text.
+
+    Both filters match on substring and both default to empty, which matches
+    everything. There is no predicate here that can empty the panel on a healthy
+    cluster.
+    """
+    df = _all(clickhouse_dsn)
+    df = df[px.contains(df.pairing, pairing)]
+    df = df[px.contains(df.workload, workload)]
+    return df[['namespace', 'workload', 'workload_kind', 'workload_container',
+               'pairing', 'baseline', 'only_in_shadow_total', 'only_in_sbob_total',
+               'signed', 'completion', 'status', 'learned_name', 'sbob_name',
+               'mirror_version', 'hostname']]
+
+
+def divergence(start_time: str, clickhouse_dsn: str, pairing: str, workload: str):
+    """What the two sides do not share. A report, never an instruction to edit.
+
+    in shadow, not in SBoB  the container did this and the SBoB does not allow
+                            it, so expect alerts for it
+    in SBoB, not seen       the SBoB allows this and the container never did it
+
+    The SBoB side changes through bobctl, the only tool that shapes a profile.
+    A divergence is a finding for an entlein/bob issue stating the desired
+    YAML. Nothing in this panel edits anything.
+
+    Known false positive until entlein/node-agent#22 lands: a learned profile
+    can hold the same command twice, once as the exec tracer saw it and once
+    shredded on spaces into many fields. The mirror keeps both deliberately —
+    they are different vectors and collapsing them would hide the defect — so
+    the shredded copy appears here as in shadow, not in SBoB. A many-field line
+    whose fields concatenate to a shorter line on the same path is that defect,
+    not divergence. It is not special-cased here on purpose.
+
+    If argv is ever rendered from these sets: an exec entry with empty or
+    missing args FAILS OPEN, argv checking is off for that path entirely. Show
+    such an entry as unchecked, never as tighter than the learned side.
+    """
+    df = _all(clickhouse_dsn)
+    df = df[px.contains(df.pairing, pairing)]
+    df = df[px.contains(df.workload, workload)]
+    return df[['namespace', 'workload', 'workload_container', 'pairing', 'baseline',
+               'only_in_shadow_execs', 'only_in_sbob_execs',
+               'only_in_shadow_opens', 'only_in_sbob_opens',
+               'only_in_shadow_egress', 'only_in_sbob_egress',
+               'only_in_shadow_ingress', 'only_in_sbob_ingress',
+               'only_in_shadow_syscalls', 'only_in_sbob_syscalls',
+               'only_in_shadow_capabilities', 'only_in_sbob_capabilities']]
+
+
+def freshness(start_time: str, clickhouse_dsn: str):
+    """Seconds since the newest profile was mirrored, over the retention period.
+
+    Always one row. An empty result means the store holds no profiles at all,
+    never that none were mirrored recently.
+    """
+    df = _all(clickhouse_dsn)
+    df.one = 1
+    agg = df.groupby(['one']).agg(newest=('event_time', px.max),
+                                  profiles=('namespace', px.count))
+    agg.source = 'dx_profiles__compare'
+    return agg[['source', 'profiles', 'newest']]

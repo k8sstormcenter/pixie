@@ -18,10 +18,23 @@ import px
 
 
 def governed(start_time: str, clickhouse_dsn: str):
+    # Governed means an authored profile governs the container. It does NOT mean
+    # signed: signature verification is off on these clusters, so an unsigned
+    # authored profile is adopted and governs exactly as a signed one would.
+    # This counted signed == 1 and so reported zero for containers that are
+    # governed today. signed stays a column beside kind, never the definition.
     df = px.DataFrame('dx_profiles__latest', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    df = df[df.signed == 1]
-    agg = df.groupby(['namespace']).agg(signed_profiles=('name', px.count))
-    return agg[['namespace', 'signed_profiles']]
+    # Authored profiles are governed at adoption. Never key this on
+    # completion: completion is set when the container starts, and a learned
+    # profile is only projected once status is terminal. completion means
+    # nothing about whether anything governs.
+    df = df[df.kind == 'user']
+    df.verified = px.select(df.signed == 1, 1, 0)
+    df.unsigned = px.select(df.signed == 1, 0, 1)
+    agg = df.groupby(['namespace']).agg(governed=('name', px.count),
+                                        verified=('verified', px.sum),
+                                        unsigned=('unsigned', px.sum))
+    return agg[['namespace', 'governed', 'verified', 'unsigned']]
 
 
 def ungoverned(start_time: str, clickhouse_dsn: str):

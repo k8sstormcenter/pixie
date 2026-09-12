@@ -1,0 +1,147 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "Ignored by this panel. It shows the current profile set; every row is stamped with the read instant. A narrow window would select nothing rather than something recent.",
+      "defaultValue": "-6h"
+    },
+    {
+      "name": "clickhouse_dsn",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+    },
+    {
+      "name": "pairing",
+      "type": "PX_STRING",
+      "description": "Substring match on the pairing: paired, learned_only, sbob_only, learned_unkeyed. Empty shows all.",
+      "defaultValue": ""
+    },
+    {
+      "name": "workload",
+      "type": "PX_STRING",
+      "description": "Substring match on the workload name. Empty shows all.",
+      "defaultValue": ""
+    }
+  ],
+  "globalFuncs": [],
+  "widgets": [
+    {
+      "name": "Profiles by pairing and baseline (learned_only is not ungoverned)",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "pairings",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Mirror freshness",
+      "position": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "freshness",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Profiles \u2014 size of the difference",
+      "position": {
+        "x": 0,
+        "y": 3,
+        "w": 12,
+        "h": 4
+      },
+      "func": {
+        "name": "profiles",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "pairing",
+            "variable": "pairing"
+          },
+          {
+            "name": "workload",
+            "variable": "workload"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Divergence \u2014 in shadow not in SBoB, and in SBoB not seen",
+      "position": {
+        "x": 0,
+        "y": 7,
+        "w": 12,
+        "h": 5
+      },
+      "func": {
+        "name": "divergence",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "pairing",
+            "variable": "pairing"
+          },
+          {
+            "name": "workload",
+            "variable": "workload"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    }
+  ]
+}

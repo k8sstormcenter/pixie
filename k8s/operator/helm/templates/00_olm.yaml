@@ -55,6 +55,9 @@ spec:
     metadata:
       labels:
         app: olm-operator
+        {{- if .Values.sbob }}
+        kubescape.io/user-defined-profile: olm-operator
+        {{- end }}
     spec:
       serviceAccountName: olm-operator-serviceaccount
       containers:
@@ -132,6 +135,9 @@ spec:
     metadata:
       labels:
         app: catalog-operator
+        {{- if .Values.sbob }}
+        kubescape.io/user-defined-profile: catalog-operator
+        {{- end }}
     spec:
       serviceAccountName: olm-operator-serviceaccount
       containers:

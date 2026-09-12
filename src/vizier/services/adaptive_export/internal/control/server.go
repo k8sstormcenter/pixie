@@ -31,8 +31,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	jwtutils "px.dev/pixie/src/shared/services/utils"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset"
@@ -67,6 +71,26 @@ type exportAller interface {
 // anomaly is comfortably inside the pulled slice.
 const controlExportLookback = 600 * time.Second
 
+// A DEGENERATE /query window (hi <= lo) is widened to controlExportLookback: a
+// zero-width window keyed on one finding's timestamp matches no pixie rows.
+//
+// A deliberately TIGHT window is NOT degenerate and must be honoured. kubescape's
+// alert timestamp is the kernel event time (bpf_ktime_get_boot_ns, converted to
+// wall clock once, never re-stamped) and it reaches AE as nanos end-to-end, so a
+// ±50ms span around an anomaly is meaningful — it is how a chatty protocol
+// (pgsql/mysql) stays readable instead of returning tens of thousands of rows.
+// This floor previously widened ANY sub-5s window to 600s, silently inflating an
+// intentional ±50ms request by 6000× and defeating caller-side narrowing.
+// The floor drops to 1ms: still wide enough to catch a sub-microsecond point
+// window (which matches no rows), far below any intentional millisecond span.
+// ADAPTIVE_MIN_QUERY_WINDOW_MS overrides it.
+func minControlQueryWindow() time.Duration {
+	if v, err := strconv.Atoi(os.Getenv("ADAPTIVE_MIN_QUERY_WINDOW_MS")); err == nil && v > 0 {
+		return time.Duration(v) * time.Millisecond
+	}
+	return time.Millisecond
+}
+
 // The control API carries timestamps in the pipeline's ONE unit: unix
 // NANOSECONDS — the same unit as forensic_db.*.event_time and dx's referral
 // windows. Read them with time.Unix(0, ns). (This spot previously did
@@ -86,12 +110,21 @@ type manifestWriter interface {
 	WriteEvidenceManifest(ctx context.Context, jsonEachRow []byte) error
 }
 
+// rowsWriter persists dx-handed pixie base rows (loop 1: conn_stats with a
+// pre-stamped unique_id) into forensic_db.<table> through the SAME sink the
+// controller capture path uses (sink.ClickHouseHTTP.WritePixieRows).
+// nil → /dx/rows 501s.
+type rowsWriter interface {
+	WritePixieRows(ctx context.Context, table string, rows []map[string]any) error
+}
+
 // Server is the control HTTP surface.
 type Server struct {
 	set      exporter
 	runner   queryRunner    // may be nil; /query then returns 501
 	graph    graphWriter    // may be nil; /dx/evidence_graph then returns 501
 	manifest manifestWriter // may be nil; /dx/evidence_manifest then returns 501
+	rows     rowsWriter     // may be nil; /dx/rows then returns 501
 	mux      *http.ServeMux
 	verify   func(bearer string) error // nil → auth disabled; set via SetAuth
 }
@@ -106,6 +139,7 @@ func New(set exporter, runner queryRunner) *Server {
 	s.mux.HandleFunc("/query", s.handleQuery)
 	s.mux.HandleFunc("/dx/evidence_graph", s.handleDXEvidenceGraph)
 	s.mux.HandleFunc("/dx/evidence_manifest", s.handleDXEvidenceManifest)
+	s.mux.HandleFunc("/dx/rows", s.handleDXRows)
 	return s
 }
 
@@ -114,6 +148,9 @@ func (s *Server) SetGraphWriter(g graphWriter) { s.graph = g }
 
 // SetManifestWriter wires the dx_evidence_manifest sink.
 func (s *Server) SetManifestWriter(m manifestWriter) { s.manifest = m }
+
+// SetRowsWriter wires the /dx/rows base-row sink (loop 1).
+func (s *Server) SetRowsWriter(rw rowsWriter) { s.rows = rw }
 
 // SetAuth turns on bearer-JWT auth for the control surface, verified with the
 // SAME shared lib + signing key the vizier broker/PEM use (px.dev/pixie/src/
@@ -173,6 +210,63 @@ func (s *Server) handleDXEvidenceGraph(w http.ResponseWriter, r *http.Request) {
 		buf.WriteByte('\n')
 	}
 	if err := s.graph.WriteEvidenceGraph(r.Context(), buf.Bytes()); err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// dxRowsAllowedTables guards /dx/rows against arbitrary-table writes: only the
+// bridged tables dx hands base rows for (each carries a pre-stamped unique_id and
+// a dx_ord__ view) are accepted. Mirrors evidencegraph.UIDColsByTable on the dx side.
+var dxRowsAllowedTables = map[string]bool{
+	"conn_stats":     true,
+	"redis_events":   true,
+	"http_events":    true,
+	"dns_events":     true,
+	"pgsql_events":   true,
+	"mysql_events":   true,
+	"cql_events":     true,
+	"mongodb_events": true,
+	"dc_snoop":       true,
+	"stack_trace":    true,
+	// creds_change is dx-bridged too (dark tracepoint, keyed on its own columns).
+	"creds_change": true,
+}
+
+// dxRowsReq is the /dx/rows wire body: dx-handed base rows for one table.
+type dxRowsReq struct {
+	Table string           `json:"table"`
+	Rows  []map[string]any `json:"rows"`
+}
+
+// handleDXRows ingests dx-handed base rows (loop 1: conn_stats carrying a
+// pre-stamped content-hash unique_id, a hex String) and writes them to
+// forensic_db.<table> via the same sink path the controller capture uses.
+// decodeNumber (UseNumber) keeps large integer columns as json.Number so the
+// fast encoder emits exact decimal text; the shared decode() would cast them to
+// float64, and the sink's appendFloat renders large values in scientific
+// notation, which ClickHouse rejects for Int64/UInt64 columns (whole batch 502).
+func (s *Server) handleDXRows(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if s.rows == nil {
+		w.WriteHeader(http.StatusNotImplemented)
+		return
+	}
+	var req dxRowsReq
+	if !decodeNumber(w, r, &req) || !dxRowsAllowedTables[req.Table] {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if len(req.Rows) == 0 {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	if err := s.rows.WritePixieRows(r.Context(), req.Table, req.Rows); err != nil {
+		log.WithField("table", req.Table).WithField("rows", len(req.Rows)).WithError(err).Error("dx/rows: WritePixieRows failed")
 		w.WriteHeader(http.StatusBadGateway)
 		return
 	}
@@ -295,6 +389,14 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	return json.NewDecoder(r.Body).Decode(v) == nil
 }
 
+func decodeNumber(w http.ResponseWriter, r *http.Request, v any) bool {
+	defer r.Body.Close()
+	r.Body = http.MaxBytesReader(w, r.Body, maxControlBodyBytes)
+	dec := json.NewDecoder(r.Body)
+	dec.UseNumber()
+	return dec.Decode(v) == nil
+}
+
 // ── handlers ──────────────────────────────────────────────────────────
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
@@ -353,8 +455,12 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	err := s.runner.OrderQuery(req.target(), req.Table,
-		time.Unix(0, req.Window[0]).UTC(), time.Unix(0, req.Window[1]).UTC(), req.QueryID)
+	hi := time.Unix(0, req.Window[1]).UTC()
+	lo := time.Unix(0, req.Window[0]).UTC()
+	if d := hi.Sub(lo); d <= 0 || d < minControlQueryWindow() {
+		lo = hi.Add(-controlExportLookback) // widen a degenerate (or floored) window
+	}
+	err := s.runner.OrderQuery(req.target(), req.Table, lo, hi, req.QueryID)
 	if err != nil {
 		w.WriteHeader(http.StatusBadGateway)
 		return

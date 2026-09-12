@@ -1,0 +1,268 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "defaultValue": "-1h"
+    },
+    {
+      "name": "clickhouse_dsn",
+      "type": "PX_STRING",
+      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+    },
+    {
+      "name": "namespace",
+      "type": "PX_STRING",
+      "defaultValue": ""
+    },
+    {
+      "name": "pod",
+      "type": "PX_STRING",
+      "defaultValue": ""
+    },
+    {
+      "name": "comm",
+      "type": "PX_STRING",
+      "defaultValue": ""
+    },
+    {
+      "name": "scope",
+      "type": "PX_STRING",
+      "defaultValue": "pods",
+      "validValues": [
+        "pods",
+        "all"
+      ]
+    }
+  ],
+  "globalFuncs": [
+    {
+      "outputName": "g_forest",
+      "func": {
+        "name": "forest",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "namespace",
+            "variable": "namespace"
+          },
+          {
+            "name": "pod",
+            "variable": "pod"
+          },
+          {
+            "name": "comm",
+            "variable": "comm"
+          },
+          {
+            "name": "scope",
+            "variable": "scope"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_timeline",
+      "func": {
+        "name": "timeline",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "namespace",
+            "variable": "namespace"
+          },
+          {
+            "name": "pod",
+            "variable": "pod"
+          },
+          {
+            "name": "comm",
+            "variable": "comm"
+          },
+          {
+            "name": "scope",
+            "variable": "scope"
+          }
+        ]
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "name": "SUMMARY",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 2
+      },
+      "func": {
+        "name": "summary",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "namespace",
+            "variable": "namespace"
+          },
+          {
+            "name": "pod",
+            "variable": "pod"
+          },
+          {
+            "name": "comm",
+            "variable": "comm"
+          },
+          {
+            "name": "scope",
+            "variable": "scope"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "FOREST",
+      "position": {
+        "x": 0,
+        "y": 2,
+        "w": 12,
+        "h": 5
+      },
+      "globalFuncOutputName": "g_forest",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Graph",
+        "adjacencyList": {
+          "fromColumn": "parent",
+          "toColumn": "node"
+        },
+        "edgeWeightColumn": "weight",
+        "edgeColorColumn": "attr_code",
+        "edgeThresholds": {
+          "mediumThreshold": 2,
+          "highThreshold": 3
+        },
+        "edgeHoverInfo": [
+          "path",
+          "tree_depth",
+          "attribution",
+          "pod",
+          "container",
+          "file",
+          "execs",
+          "origin",
+          "depth",
+          "boundary",
+          "started_at",
+          "exited",
+          "exit_code",
+          "signal"
+        ],
+        "edgeLength": 120,
+        "enableDefaultHierarchy": true
+      }
+    },
+    {
+      "name": "TIMELINE",
+      "position": {
+        "x": 0,
+        "y": 7,
+        "w": 12,
+        "h": 2
+      },
+      "globalFuncOutputName": "g_timeline",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.TimeseriesChart",
+        "timeseries": [
+          {
+            "value": "n",
+            "mode": "MODE_AREA",
+            "series": "kind",
+            "stackBySeries": true
+          }
+        ],
+        "title": "events / minute",
+        "yAxis": {
+          "label": "events"
+        },
+        "xAxis": null
+      }
+    },
+    {
+      "name": "PROCESSES",
+      "position": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 4
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      },
+      "globalFuncOutputName": "g_forest"
+    },
+    {
+      "name": "EXECS",
+      "position": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 3
+      },
+      "func": {
+        "name": "execs",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "namespace",
+            "variable": "namespace"
+          },
+          {
+            "name": "pod",
+            "variable": "pod"
+          },
+          {
+            "name": "comm",
+            "variable": "comm"
+          },
+          {
+            "name": "scope",
+            "variable": "scope"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    }
+  ]
+}

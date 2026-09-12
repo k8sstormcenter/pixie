@@ -1,0 +1,647 @@
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ContainerProfile
+metadata:
+  annotations:
+    kubescape.io/completion: complete
+    kubescape.io/managed-by: User
+    kubescape.io/resource-size: '96'
+    kubescape.io/status: completed
+    kubescape.io/sync-checksum: f6739eb44d84e018d464f30cb9eb2c684b8a314df5b010779a79725242719f5e
+  name: vizier-pem-pem
+  namespace: pl
+spec:
+  architectures: null
+  capabilities:
+  - CAP_BPF
+  - CAP_IPC_LOCK
+  - CAP_NET_ADMIN
+  - CAP_PERFMON
+  - CAP_SYSLOG
+  - CAP_SYS_ADMIN
+  - CAP_SYS_PTRACE
+  egress:
+  - dns: ''
+    dnsNames: null
+    identifier: f8ea565a95536d30bb1ba20dccafb845ea3d15d1516356d5185529c706d4e64b
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: honey
+    podSelector:
+      matchLabels:
+        app: node-agent
+        app.kubernetes.io/component: node-agent
+        app.kubernetes.io/name: kubescape-operator
+        app.kubernetes.io/part-of: kubescape
+        kubescape.io/ignore: 'true'
+        kubescape.io/tier: core
+        tier: ks-control-plane
+    ports:
+    - name: TCP-7888
+      port: 7888
+      protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: e5e8ca3d76f701a19b7478fdc1c8c24ccc6cef9902b52c8c7e015439e2a1ddf3
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports:
+    - name: TCP-8181
+      port: 8181
+      protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: be971f99ebb4711c4b6e7c0c841a69031c22bcf1b3a3c0195b23f7cefc76a653
+    ipAddress: ''
+    namespaceSelector: null
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+        component: vizier
+        name: vizier-metadata
+        plane: control
+        vizier-name: pixie
+    ports:
+    - name: TCP-50400
+      port: 50400
+      protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: 63f25e9f7fe5fae0febfbde38ab9003eaeaedafbf0403e6ffa8e6ed956b62c4c
+    ipAddress: ''
+    namespaceSelector: null
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+        name: pl-nats
+        plane: control
+        vizier-name: pixie
+    ports:
+    - name: TCP-8222
+      port: 8222
+      protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ae875b5c4a88ff3ebe7a06717c1b1114b0b579be7e507bab1fd70e0af666a26e
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: catalog-operator
+    ports:
+    - name: TCP-8080
+      port: 8080
+      protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: c46150dd8f613da582a6de01611c631d866f1f6566191aa88f5807ec76f2c26e
+    ipAddress: ''
+    namespaceSelector: null
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+        cluster-id: 6a59ca82-ebaa-4bcd-88b2-41ae2678d72f
+        component: vizier
+        name: vizier-cloud-connector
+        plane: control
+        vizier-bootstrap: 'true'
+        vizier-name: pixie
+    ports:
+    - name: TCP-50800
+      port: 50800
+      protocol: TCP
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: pl
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: honey
+    podSelector:
+      matchLabels:
+        app: node-agent
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: catalog-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: olm-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kubernetes
+    serviceRefNamespace: default
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kube-dns
+    serviceRefNamespace: kube-system
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-metadata-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-query-broker-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-cloud-connector-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats-mgmt
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kelvin-service
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    - '*.pod.cluster.local'
+    - '*.svc.cluster.local'
+    - '*.in-addr.arpa'
+    - '*.ip6.arpa'
+    - '*.cluster.local.'
+    - '*.pl.pod.cluster.local'
+    - '*.honey.pod.cluster.local'
+    - '*.olm.pod.cluster.local'
+    - '*.px-operator.pod.cluster.local'
+    - '*.shop.pod.cluster.local'
+    - '*.kube-system.pod.cluster.local'
+    - '*.clickhouse.pod.cluster.local'
+    - '*.default.pod.cluster.local'
+    - '*.kube-public.pod.cluster.local'
+    - '*.kube-node-lease.pod.cluster.local'
+    - '*.pl.svc.cluster.local'
+    - '*.honey.svc.cluster.local'
+    - '*.olm.svc.cluster.local'
+    - '*.px-operator.svc.cluster.local'
+    - '*.shop.svc.cluster.local'
+    - '*.kube-system.svc.cluster.local'
+    - '*.clickhouse.svc.cluster.local'
+    - '*.default.svc.cluster.local'
+    - '*.kube-public.svc.cluster.local'
+    - '*.kube-node-lease.svc.cluster.local'
+    - '*.pl.pod.cluster.local.'
+    - '*.honey.pod.cluster.local.'
+    - '*.olm.pod.cluster.local.'
+    - '*.px-operator.pod.cluster.local.'
+    - '*.shop.pod.cluster.local.'
+    - '*.kube-system.pod.cluster.local.'
+    - '*.clickhouse.pod.cluster.local.'
+    - '*.default.pod.cluster.local.'
+    - '*.kube-public.pod.cluster.local.'
+    - '*.kube-node-lease.pod.cluster.local.'
+    - '*.pl.svc.cluster.local.'
+    - '*.honey.svc.cluster.local.'
+    - '*.olm.svc.cluster.local.'
+    - '*.px-operator.svc.cluster.local.'
+    - '*.shop.svc.cluster.local.'
+    - '*.kube-system.svc.cluster.local.'
+    - '*.clickhouse.svc.cluster.local.'
+    - '*.default.svc.cluster.local.'
+    - '*.kube-public.svc.cluster.local.'
+    - '*.kube-node-lease.svc.cluster.local.'
+    identifier: wildcard-any-dns
+    ports: null
+    type: ''
+  endpoints: null
+  execs:
+  - path: /app/src/vizier/services/agent/pem/pem.runfiles/px/src/vizier/services/agent/pem/pem
+  identifiedCallStacks: null
+  imageID: ''
+  imageTag: ''
+  ingress:
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: pl
+    podSelector:
+      matchLabels:
+        app: pl-monitoring
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: honey
+    podSelector:
+      matchLabels:
+        app: node-agent
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: catalog-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: olm
+    podSelector:
+      matchLabels:
+        app: olm-operator
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kubernetes
+    serviceRefNamespace: default
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kube-dns
+    serviceRefNamespace: kube-system
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-metadata-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-query-broker-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: vizier-cloud-connector-svc
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: pl-nats-mgmt
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    serviceRefName: kelvin-service
+    serviceRefNamespace: pl
+    type: ''
+  - dns: ''
+    dnsNames: null
+    entity: host
+    identifier: ''
+    ipAddress: ''
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    - '*.pod.cluster.local'
+    - '*.svc.cluster.local'
+    - '*.in-addr.arpa'
+    - '*.ip6.arpa'
+    - '*.cluster.local.'
+    - '*.pl.pod.cluster.local'
+    - '*.honey.pod.cluster.local'
+    - '*.olm.pod.cluster.local'
+    - '*.px-operator.pod.cluster.local'
+    - '*.shop.pod.cluster.local'
+    - '*.kube-system.pod.cluster.local'
+    - '*.clickhouse.pod.cluster.local'
+    - '*.default.pod.cluster.local'
+    - '*.kube-public.pod.cluster.local'
+    - '*.kube-node-lease.pod.cluster.local'
+    - '*.pl.svc.cluster.local'
+    - '*.honey.svc.cluster.local'
+    - '*.olm.svc.cluster.local'
+    - '*.px-operator.svc.cluster.local'
+    - '*.shop.svc.cluster.local'
+    - '*.kube-system.svc.cluster.local'
+    - '*.clickhouse.svc.cluster.local'
+    - '*.default.svc.cluster.local'
+    - '*.kube-public.svc.cluster.local'
+    - '*.kube-node-lease.svc.cluster.local'
+    - '*.pl.pod.cluster.local.'
+    - '*.honey.pod.cluster.local.'
+    - '*.olm.pod.cluster.local.'
+    - '*.px-operator.pod.cluster.local.'
+    - '*.shop.pod.cluster.local.'
+    - '*.kube-system.pod.cluster.local.'
+    - '*.clickhouse.pod.cluster.local.'
+    - '*.default.pod.cluster.local.'
+    - '*.kube-public.pod.cluster.local.'
+    - '*.kube-node-lease.pod.cluster.local.'
+    - '*.pl.svc.cluster.local.'
+    - '*.honey.svc.cluster.local.'
+    - '*.olm.svc.cluster.local.'
+    - '*.px-operator.svc.cluster.local.'
+    - '*.shop.svc.cluster.local.'
+    - '*.kube-system.svc.cluster.local.'
+    - '*.clickhouse.svc.cluster.local.'
+    - '*.default.svc.cluster.local.'
+    - '*.kube-public.svc.cluster.local.'
+    - '*.kube-node-lease.svc.cluster.local.'
+    identifier: wildcard-any-dns
+    ports: null
+    type: ''
+  opens:
+  - flags: null
+    path: /*
+  - flags: null
+    path: /*/build/*
+  - flags: null
+    path: /*/fd
+  - flags: null
+    path: /*/libm.so.6
+  - flags: null
+    path: "/*/perf-\u22EF.map"
+  - flags: null
+    path: /*/somaxconn
+  - flags: null
+    path: /*/x86-64-v2/libm.so.6
+  - flags: null
+    path: /*/x86-64-v3/libm.so.6
+  - flags: null
+    path: /*/x86_64/libm.so.6
+  - flags: null
+    path: /*/x86_64/x86_64/libm.so.6
+  - flags:
+    - O_RDONLY
+    - O_CLOEXEC
+    path: "/\u22EF"
+  - flags:
+    - O_CLOEXEC
+    - O_RDONLY
+    path: "/\u22EF/*"
+  rulePolicies:
+    R0001:
+      processAllowed:
+      - pem
+      - runc
+    R0002:
+      processAllowed:
+      - pem
+      - runc
+    R0004:
+      processAllowed:
+      - pem
+      - runc
+    R0005:
+      processAllowed:
+      - pem
+      - runc
+    R0006:
+      processAllowed:
+      - pem
+      - runc
+    R1017:
+      processAllowed:
+      - pem
+      - runc
+  seccompProfile:
+    spec:
+      defaultAction: ''
+  syscalls:
+  - accept
+  - access
+  - bind
+  - bpf
+  - brk
+  - chdir
+  - clock_nanosleep
+  - clone3
+  - close
+  - connect
+  - dup2
+  - epoll_create1
+  - epoll_ctl
+  - epoll_wait
+  - eventfd2
+  - exit
+  - fcntl
+  - fork
+  - futex
+  - getcwd
+  - getdents64
+  - geteuid
+  - getpid
+  - getrandom
+  - getsockname
+  - getsockopt
+  - gettid
+  - ioctl
+  - listen
+  - lseek
+  - madvise
+  - membarrier
+  - mincore
+  - mkdir
+  - mmap
+  - mprotect
+  - munmap
+  - newfstatat
+  - open
+  - openat
+  - perf_event_open
+  - pipe
+  - pipe2
+  - poll
+  - prctl
+  - pread64
+  - read
+  - readlink
+  - recvfrom
+  - rseq
+  - rt_sigaction
+  - rt_sigprocmask
+  - sched_getparam
+  - sched_getscheduler
+  - sched_yield
+  - sendmmsg
+  - sendmsg
+  - sendto
+  - set_robust_list
+  - setns
+  - setsockopt
+  - socket
+  - stat
+  - statfs
+  - symlink
+  - sysinfo
+  - uname
+  - unknown
+  - write
+  - writev

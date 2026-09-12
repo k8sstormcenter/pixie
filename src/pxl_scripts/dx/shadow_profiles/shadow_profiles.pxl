@@ -1,0 +1,45 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+import px
+
+
+def learned(start_time: str, clickhouse_dsn: str):
+    # Reads dx_profiles__latest, a view that resolves the newest generation per
+    # (namespace, name) over event_time ALONE and only then projects the wide
+    # columns. Do not go back to kubescape_profiles directly.
+    #
+    # This function used to pull the base table and groupby/px.any over execs,
+    # opens, egress, ingress, syscalls and capabilities. Those columns hold a
+    # container's entire learned behaviour as newline-joined text, so the query
+    # materialised every generation of every profile in the window to compute an
+    # arbitrary "any" of the newest. Measured on edge4: ~1.95 GiB per run against
+    # a 501 MB / 631k-row table, re-run every 10-40s by the panel's own
+    # auto-refresh. Concurrent runs crossed the server's 5.40 GiB total budget and
+    # the ClickHouse container was OOMKilled (exit 137) at 09:39:19Z on
+    # 2026-09-10. It also cost the KPI series a tick — the single gap in edge4's
+    # 220 ticks is this outage — so the panel put a hole in the measurement that
+    # is supposed to evidence completeness.
+    #
+    # The failure needs no attacker and no unusual state: one open tab.
+    df = px.DataFrame('dx_profiles__latest', clickhouse_dsn=clickhouse_dsn,
+                      start_time=start_time)
+    # The view carries authored and learned profiles together; this panel is the
+    # learned set. Rows written before the mirror read the authored marker carry
+    # neither value and are excluded rather than assumed learned.
+    df = df[df.kind == 'learned']
+    return df[['namespace', 'name', 'completion', 'status', 'execs', 'opens',
+               'egress', 'ingress', 'syscalls', 'capabilities']]

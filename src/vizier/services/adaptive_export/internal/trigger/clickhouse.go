@@ -84,13 +84,48 @@ type Config struct {
 	// hardcoded to 5s, which under any backlog caused every poll to
 	// time out mid-stream → watermark never advanced.
 	HTTPTimeout time.Duration
+
+	// Lookback (#97 / F8 / AE-9): when > 0, each poll re-scans
+	// [watermark-Lookback, ∞) instead of the strict [watermark, ∞) and
+	// dedupes re-seen rows by content fingerprint, so an out-of-order /
+	// clock-skewed / restart-buried row that lands within the window is
+	// still processed EXACTLY ONCE (no drop, no duplicate). Rows below
+	// watermark-Lookback stay dropped — the documented bound. 0 keeps
+	// the legacy strict high-water-mark behavior (anything below the
+	// watermark is dropped forever). Production default is 300s via
+	// ADAPTIVE_TRIGGER_LOOKBACK_SEC in cmd/main.go; the zero value here
+	// is legacy so existing callers/tests are unchanged.
+	Lookback time.Duration
+
+	// MaxSkew is the wall-clock poison clamp (#97): a row whose
+	// NORMALIZED event_time is more than MaxSkew past now is still
+	// emitted once, but never advances the watermark, so a single
+	// corrupted/oversized timestamp (the 1.78e18 leftover of loadtest
+	// E8) cannot jump the cursor past all real data and silently halt
+	// the trigger. Also applied to the persisted watermark at load, so
+	// an ALREADY-poisoned cursor self-recovers on restart without the
+	// manual `ALTER TABLE trigger_watermark DELETE`. <=0 → 1h.
+	MaxSkew time.Duration
+
+	// DedupMaxEntries caps the lookback dedup set (memory bound). An
+	// in-window fingerprint evicted by capacity may re-emit once, so
+	// size it >= the max rows expected per lookback window.
+	// <=0 → 4*PollLimit.
+	DedupMaxEntries int
 }
+
+// defaultMaxSkew is the default wall-clock poison-clamp bound (#97):
+// an event_time more than this far in the future is implausible.
+const defaultMaxSkew = time.Hour
 
 // ClickHouseHTTP polls forensic_db.<table> over the ClickHouse HTTP
 // interface, scoped to a single node.
 type ClickHouseHTTP struct {
 	cfg    Config
 	client *http.Client
+	// now is the wall clock used by the poison clamp (#97).
+	// Injectable for deterministic tests; time.Now in production.
+	now func() time.Time
 }
 
 // New validates Config and returns a ready trigger.
@@ -143,9 +178,19 @@ func New(cfg Config) (*ClickHouseHTTP, error) {
 	if cfg.HTTPTimeout <= 0 {
 		cfg.HTTPTimeout = 30 * time.Second
 	}
+	if cfg.Lookback < 0 {
+		return nil, fmt.Errorf("trigger: Lookback must be >= 0 (got %v)", cfg.Lookback)
+	}
+	if cfg.MaxSkew <= 0 {
+		cfg.MaxSkew = defaultMaxSkew
+	}
+	if cfg.DedupMaxEntries <= 0 {
+		cfg.DedupMaxEntries = 4 * cfg.PollLimit
+	}
 	return &ClickHouseHTTP{
 		cfg:    cfg,
 		client: &http.Client{Timeout: cfg.HTTPTimeout},
+		now:    time.Now,
 	}, nil
 }
 
@@ -169,11 +214,15 @@ func (t *ClickHouseHTTP) Subscribe(ctx context.Context) (<-chan kubescape.Event,
 func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 	defer close(out)
 	// Watermark uses event_time as the cursor PLUS a set of row
-	// fingerprints already pushed at that exact event_time. This
-	// closes the race where two kubescape rows share the same
-	// event_time but the second arrives after our previous poll: the
-	// query is `event_time >= watermark` (inclusive) and we skip rows
-	// whose fingerprint we have already seen at the boundary.
+	// fingerprints already pushed. In legacy strict mode (Lookback==0)
+	// the query is `event_time >= watermark` (inclusive) and the
+	// fingerprint set covers only the exact boundary event_time —
+	// closing the race where two kubescape rows share the same
+	// event_time but the second arrives after our previous poll. With
+	// a bounded lookback (#97, the F8/AE-9 fix) the query starts at
+	// max(0, watermark-Lookback) and the fingerprint set is a bounded
+	// LRU over the whole re-scanned window, so out-of-order / skewed /
+	// restart-buried rows inside the window are captured exactly once.
 	//
 	// Cold-start order: persistent store > InitialWatermark > 0.
 	// The persistent store is the production answer to "operator
@@ -203,7 +252,39 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 	// pre-fix persisted seconds watermark (or a non-seconds InitialWatermark)
 	// is interpreted on the same scale as chNormEventTimeNanos in the SQL.
 	watermark = normalizeEventTimeNanos(watermark)
+	maxSkewNS := uint64(t.cfg.MaxSkew.Nanoseconds())
+	lookbackNS := uint64(t.cfg.Lookback.Nanoseconds())
+	// Self-recovery from an ALREADY-poisoned persisted cursor (#97 T1):
+	// a pre-fix deployment could have persisted a far-future watermark
+	// (loadtest E8's leftover 1.78e18-style value). Clamp it to
+	// wall-clock so fresh rows flow again on restart WITHOUT the manual
+	// `ALTER TABLE trigger_watermark DELETE WHERE 1=1` + redeploy.
+	if nowNS := uint64(t.now().UnixNano()); watermark > nowNS+maxSkewNS {
+		log.WithFields(log.Fields{"watermark": watermark, "clamped_to": nowNS}).
+			Warn("trigger: persisted watermark is implausibly far in the future — clamping to wall-clock (poison recovery, #97)")
+		watermark = nowNS
+	}
+	wmGauge := metricWatermarkNS.WithLabelValues(t.cfg.Table, t.cfg.Hostname)
+	wmGauge.Set(float64(watermark))
+	// Dedup state. Strict mode (Lookback==0) keeps the legacy exact
+	// boundary set; lookback mode dedupes the whole re-scanned window
+	// with a bounded LRU (#97). rejectedSeen exists only in strict mode:
+	// a clamp-rejected row never falls below the cursor, so without a
+	// fingerprint record it would re-emit on every poll.
 	seenAtBoundary := map[string]bool{}
+	var seenInWindow *dedupLRU
+	var rejectedSeen *dedupLRU
+	if lookbackNS > 0 {
+		seenInWindow = newDedupLRU(t.cfg.DedupMaxEntries)
+	} else {
+		rejectedSeen = newDedupLRU(t.cfg.DedupMaxEntries)
+	}
+	// catchup lifts a poll's lower bound above the sliding lookback
+	// floor while an in-window backlog is wider than PollLimit: without
+	// it every poll would re-fetch the same fully-deduped first
+	// PollLimit rows and never reach deeper into the window. Cleared as
+	// soon as a poll returns under capacity (back to full-window scans).
+	var catchup uint64
 	ticker := time.NewTicker(t.cfg.PollInterval)
 	defer ticker.Stop()
 
@@ -253,7 +334,21 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 	}()
 
 	pollOnce := func() {
-		rows, maxSeen, err := t.fetchSince(ctx, watermark)
+		// Bounded lookback (#97): scan from max(0, watermark-Lookback)
+		// so rows that landed BELOW the cursor (out-of-order, clock
+		// skew, restart burial) are still fetched; the dedup LRU makes
+		// re-seen rows exactly-once. Lookback==0 → legacy strict HWM.
+		queryFrom := watermark
+		if lookbackNS > 0 {
+			queryFrom = 0
+			if watermark > lookbackNS {
+				queryFrom = watermark - lookbackNS
+			}
+			if catchup > queryFrom {
+				queryFrom = catchup
+			}
+		}
+		rows, maxFetched, err := t.fetchSince(ctx, queryFrom)
 		// Partial-read tolerance: when the body read is cut short by
 		// HTTP timeout / connection reset, fetchSince returns the rows
 		// it managed to parse + err. We still process those rows so
@@ -267,6 +362,19 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 			log.WithError(err).WithField("partial_rows", len(rows)).
 				Warn("trigger: poll partial — advancing on what parsed")
 		}
+		// Wall-clock poison clamp (#97): any normalized event_time past
+		// now+MaxSkew must never advance the cursor. acceptedMax is the
+		// advancement target — the max normalized event_time among rows
+		// that PASS the clamp. With no poison rows it equals maxFetched,
+		// so the monotonic happy path is byte-identical to before.
+		skewLimit := uint64(t.now().UnixNano()) + maxSkewNS
+		acceptedMax := uint64(0)
+		for _, row := range rows {
+			if evn := normalizeEventTimeNanos(row.EventTime); evn <= skewLimit && evn > acceptedMax {
+				acceptedMax = evn
+			}
+		}
+		wmAtPollStart := watermark
 		nextSeen := map[string]bool{}
 		// Periodic in-loop save: when pollOnce is draining a large
 		// initial backlog, the watermark advances long before the
@@ -276,45 +384,122 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 		// with the time-based throttle inside flushWatermark, this
 		// produces at most one persistent INSERT per WatermarkSaveInterval.
 		const saveEveryN = 256
-		skippedAtBoundary := 0
+		skippedSeen := 0
+		emitted := 0
 		for i, row := range rows {
 			fp := rowFingerprint(row)
 			// Cursor comparisons are in NORMALIZED nanos (F8): the raw
 			// event_time unit is not enforced, so compare on the same scale
-			// as the SQL filter (chNormEventTimeNanos) and maxSeen.
+			// as the SQL filter (chNormEventTimeNanos) and acceptedMax.
 			evn := normalizeEventTimeNanos(row.EventTime)
-			if evn == watermark && seenAtBoundary[fp] {
-				skippedAtBoundary++
-				continue // already pushed in a prior poll at this exact boundary
+			if lookbackNS > 0 {
+				if seenInWindow.Contains(fp) {
+					skippedSeen++
+					continue // already pushed in a prior scan of this window
+				}
+			} else {
+				if evn == watermark && seenAtBoundary[fp] {
+					skippedSeen++
+					continue // already pushed in a prior poll at this exact boundary
+				}
+				if rejectedSeen.Contains(fp) {
+					continue // clamp-rejected row re-fetched (it never sinks below the cursor)
+				}
 			}
-			ev, err := kubescape.Extract(row)
-			if err != nil {
-				log.WithError(err).Debug("trigger: skip incomplete row")
+			poison := evn > skewLimit
+			ev, exErr := kubescape.Extract(row)
+			if exErr != nil {
+				log.WithError(exErr).Debug("trigger: skip incomplete row")
+				// Register the fingerprint anyway (lookback / poison):
+				// the row can never become extractable, and without a
+				// record it would be re-fetched + re-logged every poll
+				// for as long as it stays above the scan floor.
+				if lookbackNS > 0 {
+					seenInWindow.Add(fp, evn)
+				} else if poison {
+					rejectedSeen.Add(fp, evn)
+				}
 				continue
 			}
-			// Promote the per-row (normalized) event_time into the watermark
-			// immediately so flushWatermark below can persist mid-drain.
-			if evn > watermark {
-				watermark = evn
-				dirty = true
+			if poison {
+				// Emit the row once (it may be a real anomaly with a
+				// mangled timestamp) but do NOT let it advance the
+				// cursor: one 1.78e18 row must not jump the watermark
+				// past all real seconds rows (F8 halt).
+				metricEventTimeRejected.Inc()
+				log.WithFields(log.Fields{
+					"event_time": row.EventTime,
+					"normalized": evn,
+					"skew_limit": skewLimit,
+				}).Warn("trigger: event_time beyond wall-clock skew bound — processing row WITHOUT advancing watermark (poison clamp, #97)")
+			} else {
+				if evn < wmAtPollStart {
+					// A row the legacy strict HWM would have dropped —
+					// captured via the lookback (T2). Observable proof
+					// the fix is doing work (T3).
+					metricBelowWatermark.Inc()
+				}
+				// Promote the per-row (normalized) event_time into the watermark
+				// immediately so flushWatermark below can persist mid-drain.
+				if evn > watermark {
+					watermark = evn
+					dirty = true
+					wmGauge.Set(float64(watermark))
+				}
+			}
+			if lookbackNS > 0 {
+				seenInWindow.Add(fp, evn)
+			} else if poison {
+				rejectedSeen.Add(fp, evn)
 			}
 			select {
 			case out <- ev:
 			case <-ctx.Done():
 				return
 			}
-			if evn == maxSeen {
+			emitted++
+			if !poison && evn == acceptedMax {
 				nextSeen[fp] = true
 			}
 			if i > 0 && i%saveEveryN == 0 {
 				flushWatermark()
 			}
 		}
-		if maxSeen > watermark {
-			watermark = maxSeen
+		if lookbackNS > 0 {
+			if acceptedMax > watermark {
+				watermark = acceptedMax
+				dirty = true
+				wmGauge.Set(float64(watermark))
+			}
+			// Paging within the window: a saturated response means the
+			// window holds more rows than PollLimit — lift the floor so
+			// the next poll pages FORWARD instead of re-fetching the
+			// same deduped prefix forever.
+			if len(rows) >= t.cfg.PollLimit {
+				if emitted == 0 && skippedSeen == len(rows) {
+					// Every row in the saturated page was already seen —
+					// step past the page entirely (lookback analog of the
+					// legacy 1ns boundary escape).
+					catchup = maxFetched + 1
+				} else if acceptedMax > catchup {
+					catchup = acceptedMax
+				}
+			} else {
+				catchup = 0
+			}
+			// Entries below the sliding floor can never be re-fetched;
+			// evict them so the LRU stays at ~window size.
+			floor := uint64(0)
+			if watermark > lookbackNS {
+				floor = watermark - lookbackNS
+			}
+			seenInWindow.EvictBelow(floor)
+		} else if acceptedMax > watermark {
+			watermark = acceptedMax
 			seenAtBoundary = nextSeen
 			dirty = true
-		} else if maxSeen == watermark {
+			wmGauge.Set(float64(watermark))
+		} else if acceptedMax == watermark {
 			// no progress this tick — preserve boundary set, optionally extend
 			for fp := range nextSeen {
 				seenAtBoundary[fp] = true
@@ -329,10 +514,11 @@ func (t *ClickHouseHTTP) run(ctx context.Context, out chan<- kubescape.Event) {
 			// the next poll, which is acceptable: the fingerprint dedup already
 			// tolerates boundary overlap, and we prefer forward progress over
 			// an infinite loop.
-			if skippedAtBoundary > 0 && len(nextSeen) == 0 && len(rows) >= t.cfg.PollLimit {
+			if skippedSeen > 0 && len(nextSeen) == 0 && len(rows) >= t.cfg.PollLimit {
 				watermark++
 				seenAtBoundary = map[string]bool{}
 				dirty = true
+				wmGauge.Set(float64(watermark))
 				log.WithField("watermark", watermark).
 					Warn("trigger: boundary paging escape — advanced watermark by 1ns to unblock poll")
 			}

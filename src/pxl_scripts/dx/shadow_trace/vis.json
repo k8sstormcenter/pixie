@@ -15,13 +15,13 @@
     {
       "name": "container",
       "type": "PX_STRING",
-      "description": "",
+      "description": "Substring match on the container name. Empty shows all.",
       "defaultValue": ""
     },
     {
       "name": "shadow_id",
       "type": "PX_STRING",
-      "description": "",
+      "description": "The sixteen per-protocol tabs fill only after a trace is selected: click a shadow_id in the traces table, or paste one here. They match this id exactly, so they are empty while it is. The summary tables above them \u2014 traces, graph, timeline, keys, reconciliation, processes, forest \u2014 match on substring and are always populated. Note what the tabs mean: the dark surfaces (dc_snoop, creds_change, stack_trace) hold FIRST-APPEARANCE content, one row per distinct key per session, so a long-open trace shows none of them in a recent window however busy it is. They answer what this trace has ever seen. For whether a surface is still collecting, read the timeline and keys tables, which come from the per-epoch activity and count recurrences.",
       "defaultValue": ""
     }
   ],

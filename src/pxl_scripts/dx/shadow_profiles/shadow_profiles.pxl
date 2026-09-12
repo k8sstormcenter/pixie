@@ -37,5 +37,9 @@ def learned(start_time: str, clickhouse_dsn: str):
     # The failure needs no attacker and no unusual state: one open tab.
     df = px.DataFrame('dx_profiles__latest', clickhouse_dsn=clickhouse_dsn,
                       start_time=start_time)
+    # The view carries authored and learned profiles together; this panel is the
+    # learned set. Rows written before the mirror read the authored marker carry
+    # neither value and are excluded rather than assumed learned.
+    df = df[df.kind == 'learned']
     return df[['namespace', 'name', 'completion', 'status', 'execs', 'opens',
                'egress', 'ingress', 'syscalls', 'capabilities']]

@@ -1,0 +1,103 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "-90m"
+    },
+    {
+      "name": "clickhouse_dsn",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+    },
+    {
+      "name": "min_sev",
+      "type": "PX_INT64",
+      "description": "",
+      "defaultValue": "5"
+    }
+  ],
+  "globalFuncs": [
+    {
+      "outputName": "g_fc",
+      "func": {
+        "name": "fullchain",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "min_sev",
+            "variable": "min_sev"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_grp",
+      "func": {
+        "name": "group",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "min_sev",
+            "variable": "min_sev"
+          }
+        ]
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "name": "Full-chain incident graph",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 6
+      },
+      "globalFuncOutputName": "g_fc",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Graph",
+        "adjacencyList": {
+          "fromColumn": "from_entity",
+          "toColumn": "to_entity"
+        },
+        "edgeLabelColumn": "edge_label",
+        "edgeHoverInfo": [
+          "kind",
+          "edge_label",
+          "pod"
+        ],
+        "edgeLength": 500
+      }
+    },
+    {
+      "name": "Incident group",
+      "position": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "g_grp",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    }
+  ]
+}

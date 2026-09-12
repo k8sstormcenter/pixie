@@ -1,0 +1,83 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "-6h"
+    },
+    {
+      "name": "clickhouse_dsn",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+    },
+    {
+      "name": "order_id",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": ""
+    }
+  ],
+  "globalFuncs": [
+    {
+      "outputName": "g_dns",
+      "func": {
+        "name": "dns_graph",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "order_id",
+            "variable": "order_id"
+          }
+        ]
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "name": "DNS resolution",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 5
+      },
+      "globalFuncOutputName": "g_dns",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Graph",
+        "adjacencyList": {
+          "fromColumn": "from_entity",
+          "toColumn": "to_entity"
+        },
+        "edgeLabelColumn": "edge_label",
+        "edgeHoverInfo": [
+          "edge_label",
+          "kind",
+          "ts"
+        ],
+        "edgeLength": 400
+      }
+    },
+    {
+      "name": "DNS edges",
+      "position": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_dns",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    }
+  ]
+}

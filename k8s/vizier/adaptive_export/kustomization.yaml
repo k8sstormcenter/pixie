@@ -1,0 +1,11 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: pl
+resources:
+- ../bootstrap/adaptive_export_role.yaml
+- ../bootstrap/adaptive_export_deployment.yaml
+images:
+- name: vizier-adaptive_export_image
+  newName: docker.io/tanzeee/adaptive-export
+  newTag: 0.16.36-rc1

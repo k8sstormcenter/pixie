@@ -36,20 +36,22 @@ def pairings(start_time: str, clickhouse_dsn: str):
     """How many profiles of each pairing. Read this first.
 
     paired          a learned profile and an authored one for the same workload
-    learned_only    learned, with no authored profile governing it
+    learned_only    learned, with no authored profile keyed to it. Every
+                    container has a learned profile whether or not it is bound,
+                    so this is not the same as ungoverned.
     sbob_only       authored, matching no learned profile by workload name
     learned_unkeyed learned, carrying no workload labels to key on
     """
     df = _all(clickhouse_dsn)
-    # Drift is only meaningful where both sides exist. A learned_only profile
-    # has nothing to differ from, so counting its whole content as drift would
+    # Divergence is only meaningful where both sides exist. A learned_only profile
+    # has nothing to differ from, so counting its whole content would
     # report every unbound container as drifting from a profile it does not
     # have. Undefined is reported as zero and the pairing column says why.
     df.differs = px.select(df.pairing == 'paired',
                            px.select(df.only_in_shadow_total + df.only_in_sbob_total > 0, 1, 0),
                            0)
     return df.groupby(['pairing']).agg(profiles=('namespace', px.count),
-                                       paired_and_differing=('differs', px.sum))
+                                       paired_and_diverging=('differs', px.sum))
 
 
 def profiles(start_time: str, clickhouse_dsn: str, pairing: str, workload: str):
@@ -68,13 +70,20 @@ def profiles(start_time: str, clickhouse_dsn: str, pairing: str, workload: str):
                'mirror_version', 'hostname']]
 
 
-def drift(start_time: str, clickhouse_dsn: str, pairing: str, workload: str):
-    """What the container did that the authored profile does not permit, and
-    what the authored profile permits that the container never did.
+def divergence(start_time: str, clickhouse_dsn: str, pairing: str, workload: str):
+    """What the two sides do not share. A report, never an instruction to edit.
 
-    only_in_shadow is behaviour outside the authored profile. only_in_sbob is
-    authorisation the workload has never used. Both are newline-joined sets
-    produced by the view.
+    in shadow, not in SBoB  the container did this and the SBoB does not allow
+                            it, so expect alerts for it
+    in SBoB, not seen       the SBoB allows this and the container never did it
+
+    The SBoB side changes through bobctl, the only tool that shapes a profile.
+    A divergence is a finding for an entlein/bob issue stating the desired
+    YAML. Nothing in this panel edits anything.
+
+    If argv is ever rendered from these sets: an exec entry with empty or
+    missing args FAILS OPEN, argv checking is off for that path entirely. Show
+    such an entry as unchecked, never as tighter than the learned side.
     """
     df = _all(clickhouse_dsn)
     df = df[px.contains(df.pairing, pairing)]

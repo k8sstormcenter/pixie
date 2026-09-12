@@ -28,7 +28,7 @@
   "globalFuncs": [],
   "widgets": [
     {
-      "name": "Profiles by pairing",
+      "name": "Profiles by pairing (learned_only is not ungoverned)",
       "position": {
         "x": 0,
         "y": 0,
@@ -111,7 +111,7 @@
       }
     },
     {
-      "name": "Drift \u2014 behaviour outside the profile, and unused authorisation",
+      "name": "Divergence \u2014 in shadow not in SBoB, and in SBoB not seen",
       "position": {
         "x": 0,
         "y": 7,
@@ -119,7 +119,7 @@
         "h": 5
       },
       "func": {
-        "name": "drift",
+        "name": "divergence",
         "args": [
           {
             "name": "start_time",

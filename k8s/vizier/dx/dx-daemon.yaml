@@ -29,7 +29,7 @@ spec:
         # (WITHOUT -tiny — -tiny's pclntab stripping SIGSEGV'd under load). Passes the
         # obfuscation gate AND survives the kill-chain (restarts=0, 4 rounds). Carries the
         # evidence-manifest + DX_FOREST_PUSHDOWN code.
-        image: docker.io/tanzeee/dx-daemon:0.6.0-shadow-rc66
+        image: docker.io/tanzeee/dx-daemon:0.6.0-shadow-rc67
         ports:
         - {name: findings, containerPort: 9099, hostPort: 9099}
         env:
@@ -58,8 +58,6 @@ spec:
         # FOREST_PUSHDOWN (entlein/dx#138 fault 3): push the dc_snoop ppid-lineage filter
         # INTO the PxL so dx pulls only the alert pod's subtree, not the whole node —
         # frees the node-local PEM so AE can export dc_snoop under load (validated: 0→1777).
-        - {name: DX_FOREST_PUSHDOWN, value: "1"}
-        - {name: DX_FOREST_PUSHDOWN_DEPTH, value: "4"}
         - {name: DX_PRECORRELATE_GRAPH, value: "1"}
         - {name: DX_NARROW_WINDOW_BEFORE_MS, value: "150"}
         - {name: DX_NARROW_WINDOW_AFTER_MS, value: "150"}  # server-side protocol capture lands just after the anomaly

@@ -23,8 +23,28 @@
 
 import pxtrace
 
+# HEADER MODE ONLY — no BTF-only type here.
+# PROVEN: mixing BTF-generated types with kernel includes in ONE program breaks
+# it — the BTF struct nameidata layout is not the one assumed below, so the
+# lookup_fast read yields garbage while the probe reports healthy.
+# SUSPECTED, not proven: a BTF-mode program running earlier in the SAME PEM
+# process writes __btf_generated_header.h and makes later header-mode compiles
+# fail on kernel_cap_struct/__be64 redefinitions. Best explanation for compiles
+# that fail only after other tracepoints have run, but not established.
+# Includes can also clash with EACH OTHER (qspinlock redefinition seen when
+# extending this set), so keep the include set minimal and re-test any change
+# on a PEM that has compiled nothing else.
+#
+# A skipped probe does NOT fail the deploy: bpftrace warns "could not attach
+# probe ... skipping" on the PEM's stderr and continues, so the tracepoint
+# reports RUNNING with half the program dead. lookup_fast also cannot be
+# re-attached inside a running PEM, so this cannot be repaired by re-upserting
+# — confirm capture per probe type (t=R and t=M), and recover with a fresh PEM.
 program = """
 #include <linux/fs.h>
+#include <linux/sched.h>
+#include <linux/nsproxy.h>
+#include <linux/pid_namespace.h>
 
 // from fs/namei.c:
 struct nameidata {
@@ -33,21 +53,32 @@ struct nameidata {
                 // [...]
 };
 
-// comment out this block to avoid showing hits:
+// 4026531836 = PROC_PID_INIT_INO, the init pid namespace (constant across
+// kernels). Guarding in kprobe context drops host processes before the printf
+// and before the map write, so they never reach the perf ring at all. Without
+// it the ring overflows and takes the rows we WANT down with the noise.
 kprobe:lookup_fast,
 kprobe:lookup_fast.constprop.*
 {
-        $nd = (struct nameidata *)arg0;
-        printf("time_:%llu pid:%d comm:%s t:%s file:%s",
-                     nsecs, pid, comm, "R", str($nd->last.name));
+        $t = (struct task_struct *)curtask;
+        if ($t->nsproxy->pid_ns_for_children->ns.inum != 4026531836) {
+                $nd = (struct nameidata *)arg0;
+                printf("time_:%llu pid:%d comm:%s t:%s file:%s",
+                             nsecs, pid, comm, "R", str($nd->last.name));
+        }
 }
 
 kprobe:d_lookup
 {
-        $name = (struct qstr *)arg1;
-        @fname[tid] = $name->name;
+        $t = (struct task_struct *)curtask;
+        if ($t->nsproxy->pid_ns_for_children->ns.inum != 4026531836) {
+                $name = (struct qstr *)arg1;
+                @fname[tid] = $name->name;
+        }
 }
 
+// Deliberately unguarded: the map is only ever populated by the guarded kprobe
+// above, so a host process can never reach this block.
 kretprobe:d_lookup
 /@fname[tid]/
 {

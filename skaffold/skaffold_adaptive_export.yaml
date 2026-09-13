@@ -1,0 +1,114 @@
+---
+# Deploy-only Skaffold for the adaptive_export DaemonSet using a prebuilt image
+# (lab / review), overlaying an already-running vizier. Run from the repo root:
+#   skaffold deploy -f skaffold/skaffold_adaptive_export.yaml
+# Bump the image via newTag in k8s/vizier/adaptive_export/kustomization.yaml.
+apiVersion: skaffold/v4beta11
+kind: Config
+metadata:
+  name: adaptive-export
+manifests:
+  kustomize:
+    paths:
+    - k8s/vizier/adaptive_export
+    buildArgs:
+    - --load-restrictor=LoadRestrictionsNone
+deploy:
+  kubectl:
+    defaultNamespace: pl
+    hooks:
+      before:
+      - host:
+          command:
+          - bash
+          - -c
+          - |
+            set -e
+            # The adaptive-export-control Service routes dx's row hand-off to the pods.
+            # On a cluster first bootstrapped by px-deploy, a Service of this name already
+            # exists with the generic vizier selector, which matches no adaptive-export pod.
+            # kubectl apply will not repair it: the object carries no last-applied
+            # annotation, so the selector map is merged into rather than replaced, and the
+            # endpoints stay empty. AE listens, nothing reaches it, and dx logs a hand-off
+            # failure per batch with no retry. On k3s-1 that discarded every row for hours.
+            # Assert the selector this manifest declares. A JSON patch replaces the map; a
+            # merge patch would not.
+            WANT='{"name":"adaptive-export"}'
+            HAVE=$(kubectl -n pl get svc adaptive-export-control -o jsonpath='{.spec.selector}' 2>/dev/null || true)
+            if [ -n "$HAVE" ] && [ "$HAVE" != "$WANT" ]; then
+              echo "adaptive-export-control: selector is $HAVE, replacing with $WANT"
+              kubectl -n pl patch svc adaptive-export-control --type=json \
+                -p='[{"op":"replace","path":"/spec/selector","value":{"name":"adaptive-export"}}]' >/dev/null
+            fi
+      - host:
+          command:
+          - bash
+          - -c
+          - |
+            set -e
+            # The adaptive-export image is pulled from a private repository.
+            # Create the pull secret in pl from the operator's own registry
+            # config; nothing is read from or written to this repository.
+            CFG="${AE_PULL_CONFIG:-$HOME/.registry-pull/tanzeee/config.json}"
+            if [ -f "$CFG" ]; then
+              kubectl -n pl create secret generic adaptive-export-pull \
+                --type=kubernetes.io/dockerconfigjson \
+                --from-file=.dockerconfigjson="$CFG" \
+                --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+              echo "adaptive-export-pull secret applied in pl"
+            else
+              echo "WARNING: $CFG not found; adaptive-export will not be able to pull its image" >&2
+            fi
+      - host:
+          command:
+          - bash
+          - -c
+          - |
+            set -e
+            # PL_CLOUD_ADDR must carry an explicit :443 or the AE cloud client crashloops.
+            CA=$(kubectl -n pl get cm pl-cloud-config -o jsonpath='{.data.PL_CLOUD_ADDR}' 2>/dev/null || true)
+            case "$CA" in
+              ""|*:*) ;;
+              *) kubectl -n pl patch cm pl-cloud-config --type merge -p "{\"data\":{\"PL_CLOUD_ADDR\":\"$CA:443\"}}" ;;
+            esac
+            # Seed pl-adaptive-export-secrets only when a key is supplied; never clobber a good secret.
+            API="${PIXIE_API_KEY:-${PX_API_KEY:-}}"
+            CH_HOST=clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000
+            CH_DSN="${AE_CH_DSN:-ingest_writer:changeme-ingest@$CH_HOST/forensic_db}"
+            if [ -n "$API" ]; then
+              kubectl -n pl create secret generic pl-adaptive-export-secrets \
+                --from-literal=pixie-api-key="$API" \
+                --from-literal=clickhouse-dsn="$CH_DSN" \
+                --dry-run=client -o yaml | kubectl apply -f -
+            elif ! kubectl -n pl get secret pl-adaptive-export-secrets >/dev/null 2>&1; then
+              echo "ERROR: set PIXIE_API_KEY (or source keys.env) to seed pl-adaptive-export-secrets" >&2
+              exit 1
+            else
+              echo "pl-adaptive-export-secrets exists; PIXIE_API_KEY unset -> leaving it untouched"
+            fi
+          os: [linux, darwin]
+
+      after:
+      - host:
+          command:
+          - bash
+          - -c
+          - |
+            set -e
+            # Fail loudly if the Service resolves to nothing. An empty endpoint list here
+            # means every dx row hand-off is dropped, and the only symptom is a log line on
+            # the other side, which is how this went unnoticed for hours.
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              N=$(kubectl -n pl get endpointslice -l kubernetes.io/service-name=adaptive-export-control \
+                    -o jsonpath='{range .items[*]}{range .endpoints[*]}{.addresses[0]}{"\n"}{end}{end}' 2>/dev/null | grep -c . || true)
+              [ "${N:-0}" -gt 0 ] && break
+              sleep 3
+            done
+            if [ "${N:-0}" -gt 0 ]; then
+              echo "adaptive-export-control: $N endpoint(s) — dx can reach AE"
+            else
+              echo "FATAL: adaptive-export-control has NO endpoints; every dx row hand-off will be dropped" >&2
+              kubectl -n pl get svc adaptive-export-control -o jsonpath='{.spec.selector}' >&2; echo >&2
+              kubectl -n pl get pods -l name=adaptive-export --show-labels >&2
+              exit 1
+            fi

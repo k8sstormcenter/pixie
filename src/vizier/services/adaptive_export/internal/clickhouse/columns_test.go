@@ -37,7 +37,7 @@ func TestColumns_http_events_ExactList(t *testing.T) {
 		"content_type", "req_headers", "req_method", "req_path",
 		"req_body", "req_body_size", "resp_headers", "resp_status",
 		"resp_message", "resp_body", "resp_body_size", "latency",
-		"hostname", "event_time",
+		"hostname", "event_time", "unique_id",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Columns(http_events) mismatch:\n got=%v\nwant=%v", got, want)
@@ -56,7 +56,7 @@ func TestColumns_conn_stats_ExactList(t *testing.T) {
 		"time_", "upid", "namespace", "pod",
 		"remote_addr", "remote_port", "trace_role", "addr_family",
 		"protocol", "ssl", "conn_open", "conn_close", "conn_active",
-		"bytes_sent", "bytes_recv", "hostname", "event_time",
+		"bytes_sent", "bytes_recv", "hostname", "event_time", "remote_pod", "unique_id",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Columns(conn_stats) mismatch:\n got=%v\nwant=%v", got, want)

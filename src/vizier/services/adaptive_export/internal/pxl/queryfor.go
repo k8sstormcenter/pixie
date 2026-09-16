@@ -134,7 +134,8 @@ func pixieSourceFor(table string) string {
 
 // Dark-vector tables carrying a comm column (so the comm exclusion applies).
 var darkVectorHasComm = map[string]bool{
-	"dc_snoop": true, "creds_change": true}
+	"dc_snoop": true, "creds_change": true,
+}
 
 // Own-stack + node/system comms dropped from the node-scoped dark capture; workload
 // comms (redis-*, etc.) are never listed. Override via DC_SNOOP_EXCLUDE_COMMS (csv).

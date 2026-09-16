@@ -4,3 +4,12 @@ kind: Kustomization
 namespace: honey
 resources:
 - dx-daemon.yaml
+# Bump the deployed dx-daemon here, the same way adaptive_export is bumped in
+# k8s/vizier/adaptive_export/kustomization.yaml:
+#   kustomize edit set image dx-daemon_image=docker.io/tanzeee/dx-daemon:<version>
+# The DaemonSet carries the logical name only, so the manifest never has to be
+# edited to change a version and the two deploys move the same way.
+images:
+- name: dx-daemon_image
+  newName: docker.io/tanzeee/dx-daemon
+  newTag: 0.6.0-shadow-rc82

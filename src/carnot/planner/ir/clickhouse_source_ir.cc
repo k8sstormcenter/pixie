@@ -74,6 +74,7 @@ Status ClickHouseSourceIR::ToProto(planpb::Operator* op) const {
 
   // Set timestamp and partition columns from stored values
   pb->set_timestamp_column(timestamp_column_);
+  pb->set_timestamp_column_type(timestamp_column_type_);
   pb->set_partition_column("hostname");
 
   return Status::OK();
@@ -122,6 +123,8 @@ Status ClickHouseSourceIR::CopyFromNodeImpl(const IRNode* node,
   const ClickHouseSourceIR* source_ir = static_cast<const ClickHouseSourceIR*>(node);
 
   table_name_ = source_ir->table_name_;
+  timestamp_column_ = source_ir->timestamp_column_;
+  timestamp_column_type_ = source_ir->timestamp_column_type_;
   time_start_ns_ = source_ir->time_start_ns_;
   time_stop_ns_ = source_ir->time_stop_ns_;
   column_names_ = source_ir->column_names_;
@@ -268,6 +271,16 @@ Status ClickHouseSourceIR::ResolveType(CompilerState* compiler_state) {
     table_relation = relation_it->second;
     existing_relation = true;
   }
+  // Capture the timestamp column's type now: PruneOutputColumnsTo() may drop the
+  // column from the projection later, and the exec node needs the type to push the
+  // time window down in the right units. A column the underlying table does not
+  // carry is the one ClickHouse adds itself (DateTime64 -> TIME64NS).
+  if (!timestamp_column_.empty()) {
+    timestamp_column_type_ = table_relation.HasColumn(timestamp_column_)
+                                 ? table_relation.GetColumnType(timestamp_column_)
+                                 : types::DataType::TIME64NS;
+  }
+
   auto full_table_type = TableType::Create(table_relation);
   if (select_all()) {
     // For select_all, add all table columns plus ClickHouse-added columns (hostname, event_time)

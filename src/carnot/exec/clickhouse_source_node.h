@@ -19,6 +19,7 @@
 #pragma once
 
 #include <clickhouse/client.h>
+#include <gtest/gtest_prod.h>
 
 #include <memory>
 #include <optional>
@@ -56,6 +57,10 @@ class ClickHouseSourceNode : public SourceNode {
   Status GenerateNextImpl(ExecState* exec_state) override;
 
  private:
+  FRIEND_TEST(ClickHouseSourceNodeTest, TimePushdownUsesDateTimeSeconds);
+  FRIEND_TEST(ClickHouseSourceNodeTest, TimePushdownUsesNanosForIntegerColumn);
+  FRIEND_TEST(ClickHouseSourceNodeTest, TimePushdownDefaultsToDateTimeSeconds);
+
   // Convert ClickHouse column types to Pixie data types
   StatusOr<types::DataType> ClickHouseTypeToPixieType(const clickhouse::TypeRef& ch_type);
 
@@ -68,6 +73,9 @@ class ClickHouseSourceNode : public SourceNode {
 
   // Build the query with time filtering and pagination
   std::string BuildQuery();
+
+  // Renders a nanosecond bound as a literal comparable with timestamp_column_.
+  std::string TimeLiteral(int64_t time_ns) const;
 
   // Connection information
   std::string host_;
@@ -82,10 +90,14 @@ class ClickHouseSourceNode : public SourceNode {
   size_t current_offset_ = 0;
   bool has_more_data_ = true;
 
-  // Time filtering
-  std::optional<int64_t> start_time_;
-  std::optional<int64_t> end_time_;
+  // Time filtering. Held in nanoseconds; TimeLiteral() renders them in the units
+  // timestamp_column_ uses.
+  std::optional<int64_t> start_time_ns_;
+  std::optional<int64_t> end_time_ns_;
   std::string timestamp_column_;  // Column to use for timestamp-based filtering and ordering
+  // Resolved type of timestamp_column_. INT64 means unix-epoch nanoseconds;
+  // TIME64NS (or unset) means a ClickHouse DateTime/DateTime64.
+  types::DataType timestamp_column_type_ = types::DataType::DATA_TYPE_UNKNOWN;
   std::string partition_column_;  // Column used for partitioning
 
   // ClickHouse client

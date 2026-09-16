@@ -400,6 +400,13 @@ message ClickHouseSourceOperator {
 
   // End time for time-based filtering (nanoseconds since epoch)
   int64 end_time = 14;
+
+  // Resolved type of timestamp_column, captured before column pruning.
+  // Decides how start_time/end_time are rendered into the WHERE clause:
+  // TIME64NS (DateTime/DateTime64) compares against a seconds literal, while
+  // INT64 columns carry unix-epoch NANOSECONDS by px-connector convention.
+  // Unset means the column type was never resolved; treat it as TIME64NS.
+  px.types.DataType timestamp_column_type = 15;
 }
 
 // OTelLog maps operator columns to each field in the OpenTelemetry Log configuration.

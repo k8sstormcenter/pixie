@@ -68,6 +68,7 @@ class ClickHouseSourceIR : public OperatorIR {
   std::string password() const { return password_; }
   std::string database() const { return database_; }
   std::string timestamp_column() const { return timestamp_column_; }
+  types::DataType timestamp_column_type() const { return timestamp_column_type_; }
 
   void SetTimeStartNS(int64_t time_start_ns) { time_start_ns_ = time_start_ns; }
   void SetTimeStopNS(int64_t time_stop_ns) { time_stop_ns_ = time_stop_ns; }
@@ -127,6 +128,10 @@ class ClickHouseSourceIR : public OperatorIR {
 
   // ClickHouse column configuration
   std::string timestamp_column_ = "event_time";
+  // Resolved type of timestamp_column_, captured in ResolveType() before column
+  // pruning can drop the column from the projection. Governs the units used when
+  // start/end times are pushed into the WHERE clause.
+  types::DataType timestamp_column_type_ = types::DataType::DATA_TYPE_UNKNOWN;
 
   std::optional<int64_t> time_start_ns_;
   std::optional<int64_t> time_stop_ns_;

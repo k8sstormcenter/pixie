@@ -391,6 +391,9 @@ class ClickHouseSourceOperator : public Operator {
     return types;
   }
   std::string timestamp_column() const { return pb_.timestamp_column(); }
+  types::DataType timestamp_column_type() const {
+    return static_cast<types::DataType>(pb_.timestamp_column_type());
+  }
   std::string partition_column() const { return pb_.partition_column(); }
   int64_t start_time() const { return pb_.start_time(); }
   int64_t end_time() const { return pb_.end_time(); }

@@ -64,14 +64,16 @@ Status ClickHouseSourceNode::InitImpl(const plan::Operator& plan_node) {
 
   // Extract time filtering parameters from plan node
   timestamp_column_ = plan_node_->timestamp_column();
+  timestamp_column_type_ = plan_node_->timestamp_column_type();
   partition_column_ = plan_node_->partition_column();
 
-  // Convert start/end times from nanoseconds to seconds for ClickHouse DateTime
+  // Kept in nanoseconds; BuildQuery() renders them in the units the timestamp
+  // column actually uses.
   if (plan_node_->start_time() > 0) {
-    start_time_ = plan_node_->start_time() / 1000000000LL;  // Convert ns to seconds
+    start_time_ns_ = plan_node_->start_time();
   }
   if (plan_node_->end_time() > 0) {
-    end_time_ = plan_node_->end_time() / 1000000000LL;  // Convert ns to seconds
+    end_time_ns_ = plan_node_->end_time();
   }
 
   return Status::OK();
@@ -411,17 +413,31 @@ StatusOr<std::unique_ptr<RowBatch>> ClickHouseSourceNode::ConvertClickHouseBlock
   return row_batch;
 }
 
+std::string ClickHouseSourceNode::TimeLiteral(int64_t time_ns) const {
+  // An integer timestamp column carries unix-epoch NANOSECONDS by px-connector
+  // convention (kubescape_logs.event_time and the dx_* views over it), so the bound
+  // goes in as-is. A DateTime/DateTime64 column compares correctly against a plain
+  // seconds literal, which ClickHouse reads as a unix timestamp; handing it
+  // nanoseconds instead silently overflows the Decimal comparison.
+  if (timestamp_column_type_ == types::DataType::INT64) {
+    return absl::StrCat(time_ns);
+  }
+  return absl::StrCat(time_ns / 1000000000LL);
+}
+
 std::string ClickHouseSourceNode::BuildQuery() {
   std::string query = base_query_;
   std::vector<std::string> conditions;
 
   // Add time filtering if start/end times are specified and timestamp column is set
   if (!timestamp_column_.empty()) {
-    if (start_time_.has_value()) {
-      conditions.push_back(absl::Substitute("$0 >= $1", timestamp_column_, start_time_.value()));
+    if (start_time_ns_.has_value()) {
+      conditions.push_back(
+          absl::Substitute("$0 >= $1", timestamp_column_, TimeLiteral(start_time_ns_.value())));
     }
-    if (end_time_.has_value()) {
-      conditions.push_back(absl::Substitute("$0 <= $1", timestamp_column_, end_time_.value()));
+    if (end_time_ns_.has_value()) {
+      conditions.push_back(
+          absl::Substitute("$0 <= $1", timestamp_column_, TimeLiteral(end_time_ns_.value())));
     }
   }
 

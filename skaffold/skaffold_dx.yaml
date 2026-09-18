@@ -41,7 +41,11 @@ deploy:
             kubectl -n honey create secret generic dx-metastasis-ch \
               --from-literal=http-url="$CH_URL" \
               --dry-run=client -o yaml | kubectl apply -f -
-            PULL="${DX_PULL_CONFIG:-$HOME/.registry-pull/config.json}"
+            # Resolve the registry config the way the deploy step is invoked:
+            # explicit DX_PULL_CONFIG, else the DOCKER_CONFIG the caller already exports,
+            # else the default location. No registry is named here.
+            PULL="${DX_PULL_CONFIG:-${DOCKER_CONFIG:+$DOCKER_CONFIG/config.json}}"
+            PULL="${PULL:-$HOME/.registry-pull/config.json}"
             [ -r "$PULL" ] || { echo "dx-pull: registry config $PULL not readable (set DX_PULL_CONFIG)" >&2; exit 1; }
             kubectl -n honey create secret generic dx-pull \
               --type=kubernetes.io/dockerconfigjson \

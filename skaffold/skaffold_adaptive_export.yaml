@@ -49,7 +49,11 @@ deploy:
             # Create the adaptive-export pull secret in pl from the operator's
             # own local registry config. Nothing is read from or written to this
             # repository. Point AE_PULL_CONFIG at that config.
-            CFG="${AE_PULL_CONFIG:-$HOME/.registry-pull/config.json}"
+            # Resolve the registry config the way the deploy step is invoked:
+            # explicit AE_PULL_CONFIG, else the DOCKER_CONFIG the caller already exports,
+            # else the default location. No registry is named here.
+            CFG="${AE_PULL_CONFIG:-${DOCKER_CONFIG:+$DOCKER_CONFIG/config.json}}"
+            CFG="${CFG:-$HOME/.registry-pull/config.json}"
             if [ -f "$CFG" ]; then
               kubectl -n pl create secret generic adaptive-export-pull \
                 --type=kubernetes.io/dockerconfigjson \

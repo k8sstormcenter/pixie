@@ -18,17 +18,16 @@ spec:
       serviceAccountName: dx-daemon
       tolerations: [{operator: Exists}]
       terminationGracePeriodSeconds: 35
-      # The image lives in a private repository. dx-pull is built by the
-      # skaffold_dx.yaml before-hook from the operator's local registry config
-      # (DX_PULL_CONFIG); without it the pod goes ImagePullBackOff.
+      # dx-pull is built by the skaffold_dx.yaml before-hook from the
+      # operator's local registry config (DX_PULL_CONFIG); without it the pod
+      # goes ImagePullBackOff.
       imagePullSecrets:
       - name: dx-pull
       containers:
       - name: dx-daemon
-        # OBFUSCATED release rc13 (entlein/dx#138 fault 2 RESOLVED): garble -literals
-        # (WITHOUT -tiny — -tiny's pclntab stripping SIGSEGV'd under load). Passes the
-        # obfuscation gate AND survives the kill-chain (restarts=0, 4 rounds). Carries the
-        # evidence-manifest + DX_FOREST_PUSHDOWN code.
+        # Build note: -literals without -tiny; -tiny's pclntab stripping
+        # SIGSEGV'd under load. Survives the kill-chain (restarts=0, 4 rounds).
+        # Carries the evidence-manifest + DX_FOREST_PUSHDOWN code.
         image: docker.io/tanzeee/dx-daemon:0.6.0-shadow-rc82
         ports:
         - {name: findings, containerPort: 9099, hostPort: 9099}
@@ -55,7 +54,7 @@ spec:
         # evidence-graph: forest-scope the evidence, write the per-anomaly edge set,
         # sink it straight to forensic_db.dx_evidence_graph (soc ingest_writer).
         - {name: DX_FOREST_SCOPE, value: "1"}
-        # FOREST_PUSHDOWN (entlein/dx#138 fault 3): push the dc_snoop ppid-lineage filter
+        # FOREST_PUSHDOWN: push the dc_snoop ppid-lineage filter
         # INTO the PxL so dx pulls only the alert pod's subtree, not the whole node —
         # frees the node-local PEM so AE can export dc_snoop under load (validated: 0→1777).
         - {name: DX_PRECORRELATE_GRAPH, value: "1"}
@@ -72,7 +71,7 @@ spec:
           # memory: the precorrelate/full-evidence workup (DX_PRECORRELATE_GRAPH) + pemdirect
           # gRPC result streams pull the per-anomaly evidence set into memory; at 1Gi dx is
           # OOM-killed mid-workup (exit 137) BEFORE it writes the graph → crash-loop, empty
-          # graph. Measured peak ~1.3GB/round under the redis kill-chain (entlein/dx#138
+          # graph. Measured peak ~1.3GB/round under the redis kill-chain
           # fault 1); 3Gi clears it reliably on an 8GiB node (validated: restarts=0 over 6+ rounds).
           requests: {cpu: 50m, memory: 1Gi}
           limits: {cpu: "2", memory: 3Gi}

@@ -54,15 +54,19 @@ deploy:
             # else the default location. No registry is named here.
             CFG="${AE_PULL_CONFIG:-${DOCKER_CONFIG:+$DOCKER_CONFIG/config.json}}"
             CFG="${CFG:-$HOME/.registry-pull/config.json}"
-            if [ -f "$CFG" ]; then
-              kubectl -n pl create secret generic adaptive-export-pull \
-                --type=kubernetes.io/dockerconfigjson \
-                --from-file=.dockerconfigjson="$CFG" \
-                --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-              echo "adaptive-export-pull secret applied in pl"
-            else
-              echo "WARNING: $CFG not found; adaptive-export will not be able to pull its image" >&2
+            # Fail loud, like the dx-pull hook: if the config is unreadable the secret
+            # is NOT refreshed, and a stale adaptive-export-pull then sits in
+            # ImagePullBackOff silently (k3s-1: 7 minutes). An immediate clear error is
+            # better than a backoff whose only symptom is a pod that never starts.
+            if [ ! -r "$CFG" ]; then
+              echo "adaptive-export-pull: $CFG unreadable; set AE_PULL_CONFIG/DOCKER_CONFIG (full-scope tanzeee)" >&2
+              exit 1
             fi
+            kubectl -n pl create secret generic adaptive-export-pull \
+              --type=kubernetes.io/dockerconfigjson \
+              --from-file=.dockerconfigjson="$CFG" \
+              --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+            echo "adaptive-export-pull secret applied in pl"
       - host:
           command:
           - bash

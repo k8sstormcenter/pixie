@@ -72,13 +72,17 @@ spec:
         # Build note: -literals without -tiny; -tiny's pclntab stripping
         # SIGSEGV'd under load. Survives the kill-chain (restarts=0, 4 rounds).
         # Carries the evidence-manifest + DX_FOREST_PUSHDOWN code.
-        image: docker.io/tanzeee/dx-daemon:0.6.0-shadow-rc90
+        image: docker.io/tanzeee/dx-daemon:0.6.0-shadow-rc91
         ports:
         - {name: findings, containerPort: 9099, hostPort: 9099}
         env:
         - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
         - {name: HOST_IP, valueFrom: {fieldRef: {fieldPath: status.hostIP}}}
         - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
+        # #164: the capture policy is the experiment's one variable. adaptive_base is
+        # the shipped behaviour; a static-arm lab sets "static" here and dx pulls the
+        # node's trailing window every DX_STATIC_WINDOW_S instead of following referrals.
+        - {name: DX_CAPTURE_POLICY, value: "adaptive_base"}
         - {name: DX_RECEIVER_TLS, value: "1"}
         # AE control surface is TLS-by-default (#96); the dx client TLS-skip-verifies
         # the in-cluster (self-signed/shared) cert and attaches its bearer JWT.

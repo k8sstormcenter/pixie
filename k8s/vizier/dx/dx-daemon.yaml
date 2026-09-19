@@ -28,7 +28,7 @@ spec:
         # Build note: -literals without -tiny; -tiny's pclntab stripping
         # SIGSEGV'd under load. Survives the kill-chain (restarts=0, 4 rounds).
         # Carries the evidence-manifest + DX_FOREST_PUSHDOWN code.
-        image: docker.io/tanzeee/dx-daemon:0.6.0-shadow-rc82
+        image: docker.io/tanzeee/dx-daemon:0.6.0-shadow-rc88
         ports:
         - {name: findings, containerPort: 9099, hostPort: 9099}
         env:

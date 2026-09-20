@@ -60,12 +60,6 @@ var KnownTables = []string{
 	"dc_snoop",
 	"creds_change",
 	"stack_trace",
-	"dx_vfs_events",
-	"dx_unlink",
-	"dx_dlookup",
-	"dx_mprotect",
-	"dx_bpf",
-	"dx_ptrace",
 	// operator-owned attribution table
 	"adaptive_attribution",
 	// operator-owned persistent trigger cursor
@@ -76,14 +70,53 @@ var KnownTables = []string{
 	// operator-owned dx evidence-graph edge list (read by the Pixie
 	// dx_evidence_graph UI via clickhouse_dsn). NOT a pixie table.
 	"dx_evidence_graph",
-	// rule-ins-only VIEW over dx_evidence_graph (condition != ''); the
-	// dx_evidence_graph UI reads this by default so benign rows are filtered
-	// in ClickHouse, not pulled. Must follow dx_evidence_graph (depends on it).
-	"dx_evidence_graph_malignant",
 	// operator-owned dx §9 completeness manifest — one row per verdict naming
 	// the evidence rows dx consulted (POST /dx/evidence_manifest). NOT a pixie
 	// table. Independent of dx_evidence_graph.
 	"dx_evidence_manifest",
+	// operator-owned dx per-referral order seeds (#136 evidence-loss fix). dx
+	// INSERTs one row per anomaly so dx_anomaly_orders can window every uniqueID.
+	// NOT a pixie table.
+	"dx_order_seeds",
+	// order-UUID consulted-records bridge (#136 stamping): the records dx consulted
+	// per primary kubescape log, stamped with its order_id. dx INSERTs. NOT a pixie
+	// table.
+	"dx_order_records",
+	// NEW identity-model tables (added alongside dx_order_seeds/records). NOT pixie tables.
+	"dx_orders",
+	"dx_order_edges",
+	// order-UUID pre-correlation views (#136) read by the px/dx_evidence_graph
+	// dashboard. VIEWS, created after their base tables (kubescape_logs ensured
+	// first). NOT pixie tables. Order matches schema.sql (appended at the end).
+	"dx_anomaly_orders",
+	"dx_kubescape_anomalies",
+	"dx_src__kubescape_logs",
+	"dx_src__stack_trace",
+	// NEW identity-model join view.
+	"dx_ord__conn_stats",
+	"dx_ord__redis_events",
+	"dx_ord__http_events",
+	"dx_ord__dns_events",
+	"dx_ord__pgsql_events",
+	"dx_ord__mysql_events",
+	"dx_ord__dc_snoop",
+	"dx_ord__stack_trace",
+	// MITRE ATT&CK enrichment + per-order window views (px/dx_evidence_graph).
+	"dx_kubescape_mitre",
+	"dx_src__kubescape_mitre",
+	"dx_orders_win",
+	// DNS resolution reconstruction (dx/dns_resolve UI).
+	"dx_dns_resolve",
+	// cql/mongodb/creds_change order-bridge views.
+	"dx_ord__cql_events",
+	"dx_ord__mongodb_events",
+	"dx_ord__creds_change",
+	"dx_cases",
+	"dx_case_links",
+	// generic alert flatten + breakout/fullchain story edge views.
+	"dx_alerts",
+	"dx_breakout_story",
+	"dx_fullchain_edges",
 }
 
 // ErrUnknownTable is returned by DDL / Columns when asked for a table
@@ -103,7 +136,7 @@ func DDL(table string) (string, error) {
 		identifier = "`" + table + "`"
 	}
 	start := -1
-	for _, kw := range []string{"CREATE TABLE IF NOT EXISTS forensic_db.", "CREATE VIEW IF NOT EXISTS forensic_db."} {
+	for _, kw := range []string{"CREATE TABLE IF NOT EXISTS forensic_db.", "CREATE OR REPLACE VIEW forensic_db."} {
 		if start = strings.Index(canonicalSchema, kw+identifier); start >= 0 {
 			break
 		}
@@ -140,12 +173,6 @@ func PixieTables() []string {
 		"dc_snoop",
 		"creds_change",
 		"stack_trace",
-		"dx_vfs_events",
-		"dx_unlink",
-		"dx_dlookup",
-		"dx_mprotect",
-		"dx_bpf",
-		"dx_ptrace",
 	}
 }
 

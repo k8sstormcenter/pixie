@@ -1,0 +1,154 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "-7d"
+    },
+    {
+      "name": "clickhouse_dsn",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+    },
+    {
+      "name": "suite",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": ""
+    }
+  ],
+  "globalFuncs": [
+    {
+      "outputName": "g_cov",
+      "func": {
+        "name": "coverage",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "suite",
+            "variable": "suite"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_class",
+      "func": {
+        "name": "by_class",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "suite",
+            "variable": "suite"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_gaps",
+      "func": {
+        "name": "gaps",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "suite",
+            "variable": "suite"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_fresh",
+      "func": {
+        "name": "freshness",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          }
+        ]
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "name": "COVERAGE BY CLASS",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "g_class",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "PROOF COVERAGE",
+      "position": {
+        "x": 0,
+        "y": 3,
+        "w": 12,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_cov",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "GAPS (unproven parts)",
+      "position": {
+        "x": 0,
+        "y": 7,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "g_gaps",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "FRESHNESS",
+      "position": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 2
+      },
+      "globalFuncOutputName": "g_fresh",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    }
+  ]
+}

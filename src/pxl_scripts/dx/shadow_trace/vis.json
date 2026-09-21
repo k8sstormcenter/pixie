@@ -23,6 +23,18 @@
       "type": "PX_STRING",
       "description": "The sixteen per-protocol tabs fill only after a trace is selected: click a shadow_id in the traces table, or paste one here. They match this id exactly, so they are empty while it is. The summary tables above them \u2014 traces, graph, timeline, keys, reconciliation, processes, forest \u2014 match on substring and are always populated. Note what the tabs mean: the dark surfaces (dc_snoop, creds_change, stack_trace) hold FIRST-APPEARANCE content, one row per distinct key per session, so a long-open trace shows none of them in a recent window however busy it is. They answer what this trace has ever seen. For whether a surface is still collecting, read the timeline and keys tables, which come from the per-epoch activity and count recurrences.",
       "defaultValue": ""
+    },
+    {
+      "name": "host_net_ns",
+      "type": "PX_INT64",
+      "description": "",
+      "defaultValue": "4026531840"
+    },
+    {
+      "name": "host_mnt_ns",
+      "type": "PX_INT64",
+      "description": "",
+      "defaultValue": "0"
     }
   ],
   "globalFuncs": [
@@ -125,6 +137,30 @@
           }
         ]
       }
+    },
+    {
+      "outputName": "g_nssw",
+      "func": {
+        "name": "ns_switches",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "host_net_ns",
+            "variable": "host_net_ns"
+          },
+          {
+            "name": "host_mnt_ns",
+            "variable": "host_mnt_ns"
+          }
+        ]
+      }
     }
   ],
   "widgets": [
@@ -137,6 +173,19 @@
         "h": 3
       },
       "globalFuncOutputName": "g_traces",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "NS SWITCHES",
+      "position": {
+        "x": 0,
+        "y": 3,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "g_nssw",
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Table"
       }
@@ -737,6 +786,43 @@
           {
             "name": "shadow_id",
             "variable": "shadow_id"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "nsswitch",
+      "position": {
+        "x": 0,
+        "y": 46,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "nsswitch",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          },
+          {
+            "name": "host_net_ns",
+            "variable": "host_net_ns"
+          },
+          {
+            "name": "host_mnt_ns",
+            "variable": "host_mnt_ns"
           }
         ]
       },

@@ -1,0 +1,78 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+
+import px
+
+
+def _summary(start_time: str, clickhouse_dsn: str):
+    # part == '' is the per-suspicion roll-up row; the lettered parts are its drill-down
+    # and would double-count every suspicion if mixed in here.
+    df = px.DataFrame('dx_src__kpi_proof', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    return df[df.part == '']
+
+
+def coverage(start_time: str, clickhouse_dsn: str, suite: str):
+    df = _summary(start_time, clickhouse_dsn)
+    df = df[px.contains(df.suite, suite)]
+    df.coverage = 100.0 * df.pc
+    df.unproven = px.select(df.verdict == 'gap', 'GAP', '')
+    df.measured_at = px.int64_to_time(df.row_time)
+    # A coverage row carries no order_id until an order finalizes, and an empty label
+    # renders as a blank clickable that looks broken rather than inapplicable.
+    df.order_label = px.select(df.order_id == '', 'no order', df.order_id)
+    df.order = px.script_reference(df.order_label, 'dx/evidence_graph', {
+        'start_time': start_time,
+        'clickhouse_dsn': clickhouse_dsn,
+        'graph_table': 'dx_kubescape_mitre',
+        'order_id': df.order_id,
+        'case_id': '',
+    })
+    return df[['measured_at', 'suspicion', 'class', 'coverage', 'verdict', 'unproven', 'order',
+               'minimal', 'policy', 'suite', 'scope', 'hostname']]
+
+
+def gaps(start_time: str, clickhouse_dsn: str, suite: str):
+    # Narrowed to the unproven ones. The full list stays on the panel above, so this
+    # hides nothing — an empty table here means every suspicion proved, which the
+    # coverage widget corroborates rather than a reader having to assume it.
+    df = coverage(start_time, clickhouse_dsn, suite)
+    return df[df.verdict == 'gap']
+
+
+def by_class(start_time: str, clickhouse_dsn: str, suite: str):
+    df = _summary(start_time, clickhouse_dsn)
+    df = df[px.contains(df.suite, suite)]
+    df.is_gap = px.select(df.verdict == 'gap', 1, 0)
+    agg = df.groupby(['class']).agg(suspicions=('suspicion', px.count),
+                                    mean_pc=('pc', px.mean),
+                                    worst_pc=('pc', px.min),
+                                    gaps=('is_gap', px.sum))
+    agg.mean_coverage = 100.0 * agg.mean_pc
+    agg.worst_coverage = 100.0 * agg.worst_pc
+    return agg[['class', 'suspicions', 'mean_coverage', 'worst_coverage', 'gaps']]
+
+
+def freshness(start_time: str, clickhouse_dsn: str):
+    # Deliberately ignores start_time. dx-proofkpi is run on demand, not by a daemon,
+    # so an empty panel usually means nobody has run it rather than that coverage is
+    # zero. Those two readings are opposite and must not look alike.
+    df = px.DataFrame('dx_src__kpi_proof', clickhouse_dsn=clickhouse_dsn, start_time='-720h')
+    df.one = 1
+    agg = df.groupby(['one']).agg(newest=('row_time', px.max), rows=('suspicion', px.count))
+    agg.since_last_measured_s = (px.now() - agg.newest) / 1000000000
+    agg.source = 'dx_src__kpi_proof'
+    return agg[['source', 'rows', 'since_last_measured_s']]

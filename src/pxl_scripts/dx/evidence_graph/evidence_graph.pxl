@@ -215,3 +215,78 @@ def freshness(start_time: str, clickhouse_dsn: str):
     agg.age_seconds = (px.now() - agg.newest) / 1000000000
     agg.source = 'dx_src__orders'
     return agg[['source', 'orders', 'age_seconds']]
+
+
+def _proof(start_time: str, clickhouse_dsn: str, order_id: str):
+    # dx_src__kpi_proof, not dx_kpi_proof: the base carries UInt16/UInt32/Float32 columns
+    # that the clickhouse_dsn type mapper rejects outright, and its event_time is
+    # MATERIALIZED so it does not survive a SELECT *.
+    df = px.DataFrame('dx_src__kpi_proof', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    return df[df.order_id == order_id]
+
+
+def proof(start_time: str, clickhouse_dsn: str, order_id: str):
+    # part == '' is the per-suspicion roll-up; the lettered parts are its drill-down.
+    df = _proof(start_time, clickhouse_dsn, order_id)
+    df = df[df.part == '']
+    df.coverage = 100.0 * df.pc
+    df.unproven = px.select(df.verdict == 'gap', 'GAP', '')
+    # measured_at is when dx-proofkpi ran, NOT when the attack happened. The picker on
+    # these widgets therefore selects measurement time; naming the column for it is the
+    # only thing that stops a -6h window being read as "the last six hours of attacks".
+    df.measured_at = px.int64_to_time(df.row_time)
+    return df[['measured_at', 'suspicion', 'class', 'coverage', 'verdict', 'unproven', 'minimal',
+               'excess_forest', 'excess_wire', 'excess_dc_snoop', 'excess_stack_trace',
+               'policy', 'suite', 'hostname']]
+
+
+def proof_parts(start_time: str, clickhouse_dsn: str, order_id: str):
+    # E existence, C content, O outcome, A attribution. Which are required varies by
+    # class, so an absent part is not an unproven one — only proven=0 is.
+    df = _proof(start_time, clickhouse_dsn, order_id)
+    df = df[df.part != '']
+    # pc is unset on part rows (it reads as the denormal minimum, ~2.2e-308); the
+    # per-part figure is `proven`. Deriving a coverage column from pc here renders 0.0
+    # on every row while proven says 0.89, which reads as "nothing proved".
+    df.proven_pct = 100.0 * df.proven
+    return df[['suspicion', 'part', 'source', 'proven_pct', 'rows', 'num', 'den',
+               'predicate', 'class', 'policy']]
+
+
+def verdicts(start_time: str, clickhouse_dsn: str, investigation_id: str):
+    # The five JSON columns are rendered as text: they are payloads, not predicates,
+    # and filtering on them server-side is not something the connector can push.
+    df = px.DataFrame('dx_src__evidence_manifest', clickhouse_dsn=clickhouse_dsn,
+                      start_time=start_time)
+    df = df[px.contains(df.investigation_id, investigation_id)]
+    df.when = px.int64_to_time(df.row_time)
+    return df[['when', 'condition', 'verdict', 'confidence', 'posterior',
+               'investigation_id', 'catalog_version', 'evidence_hash',
+               'case_window', 'chain', 'orders', 'findings', 'seeds', 'hostname']]
+
+
+def evidence_hops(start_time: str, clickhouse_dsn: str, investigation_id: str):
+    df = px.DataFrame('dx_src__evidence_graph', clickhouse_dsn=clickhouse_dsn,
+                      start_time=start_time)
+    df = df[px.contains(df.investigation_id, investigation_id)]
+    df.from_entity = px.Pod(df.requestor_pod)
+    df.to_entity = px.Pod(df.responder_pod)
+    df.when = px.int64_to_time(df.row_time)
+    return df[['from_entity', 'to_entity', 'edge_kind', 'condition', 'criteria',
+               'weight', 'max_severity', 'confidence', 'num_findings', 'when',
+               'requestor_service', 'responder_service', 'requestor_ip', 'responder_ip',
+               'investigation_id', 'hostname']]
+
+
+def evidence_freshness(start_time: str, clickhouse_dsn: str):
+    # Deliberately ignores start_time, and counts both surfaces. Verdicts and hops only
+    # exist once an order finalizes, so empty is the normal state and reads identically
+    # to a broken pipeline unless the store itself is reported separately.
+    man = px.DataFrame('dx_src__evidence_manifest', clickhouse_dsn=clickhouse_dsn,
+                       start_time='-720h')
+    man.one = 1
+    agg = man.groupby(['one']).agg(newest=('row_time', px.max),
+                                   verdicts=('investigation_id', px.count))
+    agg.age_seconds = (px.now() - agg.newest) / 1000000000
+    agg.source = 'dx_src__evidence_manifest'
+    return agg[['source', 'verdicts', 'age_seconds']]

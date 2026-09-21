@@ -214,3 +214,40 @@ def freshness(start_time: str, clickhouse_dsn: str):
     agg.age_seconds = (px.now() - agg.newest) / 1000000000
     agg.source = 'dx_shadow__trace'
     return agg[['source', 'traces', 'age_seconds']]
+
+
+def _nsswitch(start_time: str, clickhouse_dsn: str, host_net_ns: int, host_mnt_ns: int):
+    # host_mnt_ns defaults to 0, which matches nothing: mount and network namespaces
+    # are different inode spaces, so reusing the net inode here would either never
+    # fire or mislabel a benign mount move as an escape. Set it per node or leave it off.
+    df = px.DataFrame('dx_shadow__nsswitch', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df.to_host = px.select(df.net_new == host_net_ns, True, df.mnt_new == host_mnt_ns)
+    df.verdict = px.select(df.to_host, 'HOST ESCAPE (T1611)',
+                           px.select(df.net_old != df.net_new, 'net ns change',
+                                     px.select(df.mnt_old != df.mnt_new, 'mnt ns change', 'no change')))
+    df.when = px.int64_to_time(df.row_time)
+    return df
+
+
+def nsswitch(start_time: str, clickhouse_dsn: str, shadow_id: str,
+             host_net_ns: int, host_mnt_ns: int):
+    df = _nsswitch(start_time, clickhouse_dsn, host_net_ns, host_mnt_ns)
+    df = df[df.shadow_id == shadow_id]
+    return df[['when', 'verdict', 'comm', 'pid', 'cgroup', 'net_old', 'net_new',
+               'mnt_old', 'mnt_new', 'attribution', 'pod', 'container', 'hostname']]
+
+
+def ns_switches(start_time: str, clickhouse_dsn: str, host_net_ns: int, host_mnt_ns: int):
+    # Every transition, not just the escapes. A CNI plugin entering a pod netns and a
+    # `kubectl exec` are both setns, so a filtered-to-escapes table would read as empty
+    # whether nothing escaped or the probe stopped attaching. Those must not look alike.
+    df = _nsswitch(start_time, clickhouse_dsn, host_net_ns, host_mnt_ns)
+    df.trace = px.script_reference(df.shadow_id, 'dx/shadow_trace', {
+        'start_time': start_time,
+        'clickhouse_dsn': clickhouse_dsn,
+        'container': df.container,
+        'shadow_id': df.shadow_id,
+    })
+    df.pod = px.Pod(df.pod)
+    return df[['when', 'verdict', 'trace', 'pod', 'container', 'comm', 'pid', 'cgroup',
+               'net_old', 'net_new', 'mnt_old', 'mnt_new', 'attribution', 'hostname']]

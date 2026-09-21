@@ -60,6 +60,11 @@ spec:
       labels: {app: dx-daemon}
     spec:
       serviceAccountName: dx-daemon
+      volumes:
+      # The canned test's own AttackSuite, staged by the skaffold hook. Optional:
+      # without it dx logs "proof KPI OFF" and dx/proof-coverage stays empty.
+      - name: proof-suite
+        configMap: {name: dx-proof-suite, optional: true}
       tolerations: [{operator: Exists}]
       terminationGracePeriodSeconds: 35
       # dx-pull is built by the skaffold_dx.yaml before-hook from the
@@ -76,6 +81,7 @@ spec:
         ports:
         - {name: findings, containerPort: 9099, hostPort: 9099}
         env:
+        - {name: DX_PROOF_SUITE, value: "/etc/dx/proof/suite.yaml"}
         - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
         - {name: HOST_IP, valueFrom: {fieldRef: {fieldPath: status.hostIP}}}
         - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
@@ -112,6 +118,8 @@ spec:
         - name: DX_EVIDENCE_GRAPH_CH
           value: >-
             http://ingest_writer:changeme-ingest@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:8123/forensic_db
+        volumeMounts:
+        - {name: proof-suite, mountPath: /etc/dx/proof, readOnly: true}
         readinessProbe:
           httpGet: {path: /healthz, port: 9099, scheme: HTTPS}
           initialDelaySeconds: 3

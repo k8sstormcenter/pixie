@@ -41,6 +41,18 @@ deploy:
             kubectl -n honey create secret generic dx-metastasis-ch \
               --from-literal=http-url="$CH_URL" \
               --dry-run=client -o yaml | kubectl apply -f -
+            # The canned test's AttackSuite, so dx can score dx/proof-coverage for
+            # each closed shadow trace. DX_PROOF_SUITE_FILE names it; the default is
+            # bob's redis-oss suite where the runner keeps its checkout. Absent, the
+            # ConfigMap is not created and dx reports the KPI as off.
+            SUITE="${DX_PROOF_SUITE_FILE:-$HOME/bob/example/redis/distros/attacks/redis-oss.yaml}"
+            if [ -r "$SUITE" ]; then
+              kubectl -n honey create configmap dx-proof-suite \
+                --from-file=suite.yaml="$SUITE" \
+                --dry-run=client -o yaml | kubectl apply -f -
+            else
+              echo "dx-proof: no suite at $SUITE (set DX_PROOF_SUITE_FILE) — proof KPI stays off" >&2
+            fi
             # Resolve the registry config the way the deploy step is invoked:
             # explicit DX_PULL_CONFIG, else the DOCKER_CONFIG the caller already exports,
             # else the default location. No registry is named here.

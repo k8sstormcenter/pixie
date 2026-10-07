@@ -7,6 +7,13 @@ apiVersion: skaffold/v4beta11
 kind: Config
 metadata:
   name: dx-daemon
+# Same reason as adaptive-export: skaffold stamps a fresh skaffold.dev/run-id into the pod
+# template on every deploy, which is a template change, so an unchanged tree rolled every
+# pod. Denied on that path only — a new image tag still rolls.
+resourceSelector:
+  deny:
+    - groupKind: DaemonSet.apps
+      labels: [".spec.template.metadata.labels"]
 manifests:
   kustomize:
     paths:
@@ -51,4 +58,26 @@ deploy:
               --type=kubernetes.io/dockerconfigjson \
               --from-file=.dockerconfigjson="$PULL" \
               --dry-run=client -o yaml | kubectl apply -f -
+          os: [linux, darwin]
+      after:
+      - host:
+          command:
+          - bash
+          - -c
+          - |
+            set -e
+            # Wait for the rollout before judging anything, or this reads the state of the
+            # pods being replaced and reports success while they terminate.
+            kubectl -n honey rollout status ds/dx-daemon --timeout=120s
+            # dx hands every row to adaptive-export. If that Service has no endpoints the
+            # hand-off is dropped with nothing but a line in dx's own log to show for it.
+            N=$(kubectl -n pl get endpointslice -l kubernetes.io/service-name=adaptive-export-control \
+                  -o jsonpath='{range .items[*]}{range .endpoints[*]}{.addresses[0]}{"\n"}{end}{end}' \
+                  2>/dev/null | grep -c . || true)
+            if [ "${N:-0}" -gt 0 ]; then
+              echo "dx-daemon: up, and adaptive-export-control has $N endpoint(s)"
+            else
+              echo "FATAL: adaptive-export-control has NO endpoints; dx will drop every hand-off" >&2
+              exit 1
+            fi
           os: [linux, darwin]

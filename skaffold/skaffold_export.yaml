@@ -1,0 +1,21 @@
+---
+# The evidence export path, in one install.
+#
+#   skaffold deploy -f skaffold/skaffold_export.yaml
+#
+# adaptive-export and dx-daemon are defined once each, in their own files; this config
+# only states that they belong together and in which order. dx reads
+# pl-adaptive-export-secrets and hands every row to adaptive-export-control, so AE has to
+# exist first — an ordering people used to have to know and apply by hand.
+#
+# Both halves are idempotent: deploying an unchanged tree changes nothing and restarts no
+# pods. A new image tag still rolls, which is the only thing that should.
+apiVersion: skaffold/v4beta11
+kind: Config
+metadata:
+  name: export
+requires:
+  - path: ./skaffold_adaptive_export.yaml
+    configs: [adaptive-export]
+  - path: ./skaffold_dx.yaml
+    configs: [dx-daemon]

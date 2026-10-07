@@ -1,21 +1,225 @@
 ---
-# The evidence export path, in one install.
+# The evidence export path: adaptive-export and dx-daemon, defined once each, installed
+# together.
 #
-#   skaffold deploy -f skaffold/skaffold_export.yaml
+#   skaffold deploy -f skaffold/skaffold_export.yaml           # both, in order
+#   skaffold deploy -f skaffold/skaffold_export.yaml -m dx-daemon   # just one
 #
-# adaptive-export and dx-daemon are defined once each, in their own files; this config
-# only states that they belong together and in which order. dx reads
-# pl-adaptive-export-secrets and hands every row to adaptive-export-control, so AE has to
-# exist first — an ordering people used to have to know and apply by hand.
+# Ordering is declared, not remembered: dx reads pl-adaptive-export-secrets and hands every
+# row to adaptive-export-control, so adaptive-export has to exist first.
 #
-# Both halves are idempotent: deploying an unchanged tree changes nothing and restarts no
-# pods. A new image tag still rolls, which is the only thing that should.
+# Both halves are idempotent. Deploying an unchanged tree changes nothing and restarts no
+# pods; a new image tag rolls, which is the only thing that should. Both pin their image in
+# their kustomization, so that is the one place a version changes.
 apiVersion: skaffold/v4beta11
 kind: Config
 metadata:
-  name: export
+  name: adaptive-export
+# skaffold stamps a fresh skaffold.dev/run-id into whatever it deploys. In a pod template
+# that is a template change, so an unchanged tree still rolled every pod on every deploy.
+# Denying it on that one path leaves the image path alone: a new tag still rolls, a
+# repeated deploy does not.
+resourceSelector:
+  deny:
+    - groupKind: DaemonSet.apps
+      labels: [".spec.template.metadata.labels"]
+manifests:
+  kustomize:
+    paths:
+    - k8s/vizier/adaptive_export
+deploy:
+  kubectl:
+    defaultNamespace: pl
+    hooks:
+      before:
+      - host:
+          command:
+          - bash
+          - -c
+          - |
+            set -e
+            # The adaptive-export-control Service routes dx's row hand-off to the pods.
+            # On a cluster first bootstrapped by px-deploy, a Service of this name already
+            # exists with the generic vizier selector, which matches no adaptive-export pod.
+            # kubectl apply will not repair it: the object carries no last-applied
+            # annotation, so the selector map is merged into rather than replaced, and the
+            # endpoints stay empty. AE listens, nothing reaches it, and dx logs a hand-off
+            # failure per batch with no retry. On k3s-1 that discarded every row for hours.
+            # Assert the selector this manifest declares. A JSON patch replaces the map; a
+            # merge patch would not.
+            WANT='{"name":"adaptive-export"}'
+            HAVE=$(kubectl -n pl get svc adaptive-export-control -o jsonpath='{.spec.selector}' 2>/dev/null || true)
+            if [ -n "$HAVE" ] && [ "$HAVE" != "$WANT" ]; then
+              echo "adaptive-export-control: selector is $HAVE, replacing with $WANT"
+              kubectl -n pl patch svc adaptive-export-control --type=json \
+                -p='[{"op":"replace","path":"/spec/selector","value":{"name":"adaptive-export"}}]' >/dev/null
+            fi
+      - host:
+          command:
+          - bash
+          - -c
+          - |
+            set -e
+            # Create the adaptive-export pull secret in pl from the operator's
+            # own local registry config. Nothing is read from or written to this
+            # repository. Point AE_PULL_CONFIG at that config.
+            # Resolve the registry config the way the deploy step is invoked:
+            # explicit AE_PULL_CONFIG, else the DOCKER_CONFIG the caller already exports,
+            # else the default location. No registry is named here.
+            CFG="${AE_PULL_CONFIG:-${DOCKER_CONFIG:+$DOCKER_CONFIG/config.json}}"
+            CFG="${CFG:-$HOME/.registry-pull/config.json}"
+            if [ -f "$CFG" ]; then
+              kubectl -n pl create secret generic adaptive-export-pull \
+                --type=kubernetes.io/dockerconfigjson \
+                --from-file=.dockerconfigjson="$CFG" \
+                --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+              echo "adaptive-export-pull applied in pl (from $CFG)"
+            elif kubectl -n pl get secret adaptive-export-pull >/dev/null 2>&1; then
+              echo "adaptive-export-pull already in the cluster; no local config needed"
+            else
+              echo "ERROR: no registry config at $CFG and no adaptive-export-pull secret in pl." >&2
+              echo "       The image is private, so the pods would sit in ImagePullBackOff." >&2
+              echo "       Set AE_PULL_CONFIG or DOCKER_CONFIG, or create the secret once by hand." >&2
+              exit 1
+            fi
+      - host:
+          command:
+          - bash
+          - -c
+          - |
+            set -e
+            # PL_CLOUD_ADDR must carry an explicit :443 or the AE cloud client crashloops.
+            CA=$(kubectl -n pl get cm pl-cloud-config -o jsonpath='{.data.PL_CLOUD_ADDR}' 2>/dev/null || true)
+            case "$CA" in
+              ""|*:*) ;;
+              *) kubectl -n pl patch cm pl-cloud-config --type merge -p "{\"data\":{\"PL_CLOUD_ADDR\":\"$CA:443\"}}" ;;
+            esac
+            # Seed pl-adaptive-export-secrets only when a key is supplied; never clobber a good secret.
+            API="${PIXIE_API_KEY:-${PX_API_KEY:-}}"
+            CH_HOST=clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000
+            CH_DSN="${AE_CH_DSN:-ingest_writer:changeme-ingest@$CH_HOST/forensic_db}"
+            if [ -n "$API" ]; then
+              kubectl -n pl create secret generic pl-adaptive-export-secrets \
+                --from-literal=pixie-api-key="$API" \
+                --from-literal=clickhouse-dsn="$CH_DSN" \
+                --dry-run=client -o yaml | kubectl apply -f -
+            elif ! kubectl -n pl get secret pl-adaptive-export-secrets >/dev/null 2>&1; then
+              echo "ERROR: set PIXIE_API_KEY (or source keys.env) to seed pl-adaptive-export-secrets" >&2
+              exit 1
+            else
+              echo "pl-adaptive-export-secrets exists; PIXIE_API_KEY unset -> leaving it untouched"
+            fi
+          os: [linux, darwin]
+
+      after:
+      - host:
+          command:
+          - bash
+          - -c
+          - |
+            set -e
+            # Fail loudly if the Service resolves to nothing. An empty endpoint list here
+            # means every dx row hand-off is dropped, and the only symptom is a log line on
+            # the other side, which is how this went unnoticed for hours.
+            #
+            # Wait for the rollout FIRST. This check used to run straight after apply and
+            # read the endpoints of the pods being replaced, so it reported success at the
+            # exact moment the new pods were still Terminating — a green gate over a broken
+            # cluster. Nothing after the rollout is stale.
+            kubectl -n pl rollout status ds/adaptive-export --timeout=120s
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              N=$(kubectl -n pl get endpointslice -l kubernetes.io/service-name=adaptive-export-control \
+                    -o jsonpath='{range .items[*]}{range .endpoints[*]}{.addresses[0]}{"\n"}{end}{end}' \
+                    2>/dev/null | grep -c . || true)
+              [ "${N:-0}" -gt 0 ] && break
+              sleep 3
+            done
+            if [ "${N:-0}" -gt 0 ]; then
+              echo "adaptive-export-control: $N endpoint(s) — dx can reach AE"
+            else
+              echo "FATAL: adaptive-export-control has NO endpoints; every dx row hand-off will be dropped" >&2
+              kubectl -n pl get svc adaptive-export-control -o jsonpath='{.spec.selector}' >&2; echo >&2
+              kubectl -n pl get pods -l name=adaptive-export --show-labels >&2
+              exit 1
+            fi
+---
+apiVersion: skaffold/v4beta11
+kind: Config
+metadata:
+  name: dx-daemon
 requires:
-  - path: ./skaffold_adaptive_export.yaml
-    configs: [adaptive-export]
-  - path: ./skaffold_dx.yaml
-    configs: [dx-daemon]
+  - configs: [adaptive-export]
+# Same reason as adaptive-export: skaffold stamps a fresh skaffold.dev/run-id into the pod
+# template on every deploy, which is a template change, so an unchanged tree rolled every
+# pod. Denied on that path only — a new image tag still rolls.
+resourceSelector:
+  deny:
+    - groupKind: DaemonSet.apps
+      labels: [".spec.template.metadata.labels"]
+manifests:
+  kustomize:
+    paths:
+    - k8s/vizier/dx
+deploy:
+  kubectl:
+    defaultNamespace: honey
+    hooks:
+      before:
+      - host:
+          command:
+          - bash
+          - -c
+          - |
+            set -e
+            kubectl create namespace honey --dry-run=client -o yaml | kubectl apply -f -
+            JWT=$(kubectl -n pl get secret pl-cluster-secrets -o jsonpath='{.data.jwt-signing-key}' | base64 -d)
+            CID=$(kubectl -n pl get secret pl-cluster-secrets -o jsonpath='{.data.cluster-id}' | base64 -d)
+            CA=$(kubectl -n pl get cm pl-cloud-config -o jsonpath='{.data.PL_CLOUD_ADDR}')
+            API=$(kubectl -n pl get secret pl-adaptive-export-secrets \
+              -o jsonpath='{.data.pixie-api-key}' 2>/dev/null | base64 -d)
+            CH_HOST=clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:8123
+            CH_URL="${DX_CH_HTTP_URL:-http://ingest_writer:changeme-ingest@$CH_HOST/?database=forensic_db}"
+            kubectl -n honey create secret generic dx-vizier-direct \
+              --from-literal=jwt-signing-key="$JWT" \
+              --dry-run=client -o yaml | kubectl apply -f -
+            kubectl -n honey create secret generic dx-pixie-auth \
+              --from-literal=api-key="$API" \
+              --from-literal=cluster-id="$CID" \
+              --from-literal=cloud-addr="$CA" \
+              --dry-run=client -o yaml | kubectl apply -f -
+            kubectl -n honey create secret generic dx-metastasis-ch \
+              --from-literal=http-url="$CH_URL" \
+              --dry-run=client -o yaml | kubectl apply -f -
+            # Resolve the registry config the way the deploy step is invoked:
+            # explicit DX_PULL_CONFIG, else the DOCKER_CONFIG the caller already exports,
+            # else the default location. No registry is named here.
+            PULL="${DX_PULL_CONFIG:-${DOCKER_CONFIG:+$DOCKER_CONFIG/config.json}}"
+            PULL="${PULL:-$HOME/.registry-pull/config.json}"
+            [ -r "$PULL" ] || { echo "dx-pull: registry config $PULL not readable (set DX_PULL_CONFIG)" >&2; exit 1; }
+            kubectl -n honey create secret generic dx-pull \
+              --type=kubernetes.io/dockerconfigjson \
+              --from-file=.dockerconfigjson="$PULL" \
+              --dry-run=client -o yaml | kubectl apply -f -
+          os: [linux, darwin]
+      after:
+      - host:
+          command:
+          - bash
+          - -c
+          - |
+            set -e
+            # Wait for the rollout before judging anything, or this reads the state of the
+            # pods being replaced and reports success while they terminate.
+            kubectl -n honey rollout status ds/dx-daemon --timeout=120s
+            # dx hands every row to adaptive-export. If that Service has no endpoints the
+            # hand-off is dropped with nothing but a line in dx's own log to show for it.
+            N=$(kubectl -n pl get endpointslice -l kubernetes.io/service-name=adaptive-export-control \
+                  -o jsonpath='{range .items[*]}{range .endpoints[*]}{.addresses[0]}{"\n"}{end}{end}' \
+                  2>/dev/null | grep -c . || true)
+            if [ "${N:-0}" -gt 0 ]; then
+              echo "dx-daemon: up, and adaptive-export-control has $N endpoint(s)"
+            else
+              echo "FATAL: adaptive-export-control has NO endpoints; dx will drop every hand-off" >&2
+              exit 1
+            fi
+          os: [linux, darwin]

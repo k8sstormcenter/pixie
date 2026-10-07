@@ -10,6 +10,12 @@ to be remembered twice.
 skaffold deploy -f skaffold/skaffold_export.yaml
 ```
 
+Two things have to exist first: a running Vizier, and the ClickHouse that holds
+`forensic_db`. adaptive-export applies its own schema at startup and exits rather than run
+against tables it cannot verify, so without ClickHouse it installs correctly and then
+crashloops on `schema apply failed; refusing to proceed with possibly drifted tables`. That
+is adaptive-export being careful, not a broken install. Install ClickHouse, then this.
+
 That is the whole install, on an empty cluster or on top of a running one. It is
 idempotent: a second run with no change touches nothing and restarts nothing. A pod is
 replaced only when an image pin changes. The file holds two Skaffold configs,

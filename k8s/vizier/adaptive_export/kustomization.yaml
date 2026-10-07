@@ -8,9 +8,12 @@ namespace: pl
 # selector written by one did not match the pods written by the other, and a deploy on top
 # of a vizier-installed AE left adaptive-export-control with no endpoints at all — dx's
 # hand-off silently going nowhere. One definition, one label set, no divergence possible.
-# secrets.example.yaml is deliberately NOT a resource here: it is a template holding real
-# credentials, applied once by hand. Bundling it meant every re-apply clobbered the live
-# key with the placeholder.
+# The pl-adaptive-export-secrets secret is NOT a resource here. It is created by the
+# before-deploy hook in skaffold/skaffold_export.yaml, which seeds it only when a key is
+# supplied and otherwise leaves a live secret untouched. There used to be a second
+# definition of the same secret in this directory (secrets.example.yaml); whenever it was
+# applied it clobbered the real pixie-api-key with its placeholder, which is the recurring
+# "AE unauthenticated / writes 0" bug. One definition, in the installer. See README.md.
 resources:
 - rbac.yaml
 - daemonset.yaml

@@ -40,7 +40,7 @@ ignored_dirs = [
     # stay pinned; fork-only k8s additions are protected via fork_only_files below.
     "k8s/cloud/dev/plugin_db_updater_job.yaml",      # fork PL_PLUGIN_REPO override
     "k8s/cloud/overlays/plugin_job/plugin_job.yaml", # fork PL_PLUGIN_REPO override
-    "k8s/vizier/BUILD.bazel",                        # fork adaptive_export image entry
+    "k8s/vizier/BUILD.bazel",                        # fork kustomize_build glob divergence
     "k8s/cloud/overlays/exposed_services_traefik/**", # To be upstreamed
     "scripts/create_cloud_secrets.sh", # cert-manager support (upstream)
     "skaffold/**",
@@ -144,8 +144,9 @@ fork_only_files = [
     ".sops.yaml",                     # fork SOPS encryption config
     "PLATFORM.md",
     "ci/private/**",
-    "k8s/vizier/bootstrap/adaptive_export_*",
+    "k8s/vizier/adaptive_export/**",   # fork export path: AE manifests + RBAC
     "k8s/vizier/bootstrap/kustomization.yaml",
+    "k8s/vizier/dx/**",                # fork export path: dx-daemon manifests
     "private/**",                     # fork cloud deploy config (cockpit/, skaffold_cloud.yaml)
     "src/carnot/planner/ir/clickhouse_*",
     "src/e2e_test/adaptive_export_loadtest/**",        # fork AE load-test harness

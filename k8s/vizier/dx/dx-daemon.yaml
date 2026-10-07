@@ -62,7 +62,7 @@ spec:
       serviceAccountName: dx-daemon
       tolerations: [{operator: Exists}]
       terminationGracePeriodSeconds: 35
-      # dx-pull is built by the skaffold_dx.yaml before-hook from the
+      # dx-pull is built by the skaffold_export.yaml before-hook from the
       # operator's local registry config (DX_PULL_CONFIG); without it the pod
       # goes ImagePullBackOff.
       imagePullSecrets:

@@ -2,9 +2,18 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: pl
+# Everything adaptive-export needs lives in this directory. It used to reach back into
+# ../bootstrap, which meant the same two files were rendered by two kustomizations: this
+# one and the vizier bootstrap. The two applied different commonLabels, so the Service
+# selector written by one did not match the pods written by the other, and a deploy on top
+# of a vizier-installed AE left adaptive-export-control with no endpoints at all — dx's
+# hand-off silently going nowhere. One definition, one label set, no divergence possible.
+# secrets.example.yaml is deliberately NOT a resource here: it is a template holding real
+# credentials, applied once by hand. Bundling it meant every re-apply clobbered the live
+# key with the placeholder.
 resources:
-- ../bootstrap/adaptive_export_role.yaml
-- ../bootstrap/adaptive_export_deployment.yaml
+- rbac.yaml
+- daemonset.yaml
 images:
 - name: vizier-adaptive_export_image
   newName: docker.io/tanzeee/adaptive-export

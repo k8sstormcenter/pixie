@@ -7,6 +7,14 @@ apiVersion: skaffold/v4beta11
 kind: Config
 metadata:
   name: adaptive-export
+# skaffold stamps a fresh skaffold.dev/run-id into whatever it deploys. In a pod template
+# that is a template change, so an unchanged tree still rolled every pod on every deploy.
+# Denying it on that one path leaves the image path alone: a new tag still rolls, a
+# repeated deploy does not.
+resourceSelector:
+  deny:
+    - groupKind: DaemonSet.apps
+      labels: [".spec.template.metadata.labels"]
 manifests:
   kustomize:
     paths:
@@ -59,9 +67,14 @@ deploy:
                 --type=kubernetes.io/dockerconfigjson \
                 --from-file=.dockerconfigjson="$CFG" \
                 --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-              echo "adaptive-export-pull secret applied in pl"
+              echo "adaptive-export-pull applied in pl (from $CFG)"
+            elif kubectl -n pl get secret adaptive-export-pull >/dev/null 2>&1; then
+              echo "adaptive-export-pull already in the cluster; no local config needed"
             else
-              echo "WARNING: $CFG not found; adaptive-export will not be able to pull its image" >&2
+              echo "ERROR: no registry config at $CFG and no adaptive-export-pull secret in pl." >&2
+              echo "       The image is private, so the pods would sit in ImagePullBackOff." >&2
+              echo "       Set AE_PULL_CONFIG or DOCKER_CONFIG, or create the secret once by hand." >&2
+              exit 1
             fi
       - host:
           command:
@@ -102,6 +115,12 @@ deploy:
             # Fail loudly if the Service resolves to nothing. An empty endpoint list here
             # means every dx row hand-off is dropped, and the only symptom is a log line on
             # the other side, which is how this went unnoticed for hours.
+            #
+            # Wait for the rollout FIRST. This check used to run straight after apply and
+            # read the endpoints of the pods being replaced, so it reported success at the
+            # exact moment the new pods were still Terminating — a green gate over a broken
+            # cluster. Nothing after the rollout is stale.
+            kubectl -n pl rollout status ds/adaptive-export --timeout=120s
             for i in 1 2 3 4 5 6 7 8 9 10; do
               N=$(kubectl -n pl get endpointslice -l kubernetes.io/service-name=adaptive-export-control \
                     -o jsonpath='{range .items[*]}{range .endpoints[*]}{.addresses[0]}{"\n"}{end}{end}' \

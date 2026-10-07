@@ -21,8 +21,13 @@ metadata:
 # repeated deploy does not.
 resourceSelector:
   deny:
+    # Skaffold stamps a fresh run-id label on everything it deploys. On a pod template that
+    # rewrites the DaemonSet spec and rolls every pod on every run; on a Service it rewrites
+    # the object for nothing. Deny both, so a run with no image change changes nothing.
     - groupKind: DaemonSet.apps
-      labels: [".spec.template.metadata.labels"]
+      labels: [".spec.template.metadata.labels", ".metadata.labels"]
+    - groupKind: Service
+      labels: [".metadata.labels"]
 manifests:
   kustomize:
     paths:
@@ -154,8 +159,13 @@ requires:
 # pod. Denied on that path only — a new image tag still rolls.
 resourceSelector:
   deny:
+    # Skaffold stamps a fresh run-id label on everything it deploys. On a pod template that
+    # rewrites the DaemonSet spec and rolls every pod on every run; on a Service it rewrites
+    # the object for nothing. Deny both, so a run with no image change changes nothing.
     - groupKind: DaemonSet.apps
-      labels: [".spec.template.metadata.labels"]
+      labels: [".spec.template.metadata.labels", ".metadata.labels"]
+    - groupKind: Service
+      labels: [".metadata.labels"]
 manifests:
   kustomize:
     paths:

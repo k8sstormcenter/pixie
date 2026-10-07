@@ -203,10 +203,68 @@ def creds(start_time: str, clickhouse_dsn: str, shadow_id: str):
 
 
 def freshness(start_time: str, clickhouse_dsn: str):
-    # Seconds since the newest trace update. Quiet and dead read differently here.
-    df = px.DataFrame('dx_shadow__trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    # Deliberately ignores start_time. Freshness is a property of the store, not
+    # of the picker: asked over the picker's window this returned an empty table
+    # whenever the window held nothing, which is the exact reading it exists to
+    # rule out. The lookback is the retention period, so an empty result here
+    # means the store holds nothing at all rather than nothing recently.
+    df = px.DataFrame('dx_shadow__trace', clickhouse_dsn=clickhouse_dsn, start_time='-720h')
     df.one = 1
     agg = df.groupby(['one']).agg(newest=('updated_at', px.max), traces=('shadow_id', px.count))
     agg.age_seconds = (px.now() - agg.newest) / 1000000000
     agg.source = 'dx_shadow__trace'
     return agg[['source', 'traces', 'age_seconds']]
+
+
+def _nsswitch(start_time: str, clickhouse_dsn: str):
+    # PxL has no bitwise AND ("Operator '&' not handled") and modulo has no FLOAT64
+    # overload, so each bit of `changed` is px.floor(changed / N) % 2. N doubles per
+    # namespace: mnt 1, net 2, pid 4, uts 8, ipc 16, cgroupns 32, time 64.
+    df = px.DataFrame('dx_shadow__nsswitch', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df.changed_ns = (
+        px.select(px.floor(df.changed / 1) % 2 == 1, 'mnt ', '')
+        + px.select(px.floor(df.changed / 2) % 2 == 1, 'net ', '')
+        + px.select(px.floor(df.changed / 4) % 2 == 1, 'pid ', '')
+        + px.select(px.floor(df.changed / 8) % 2 == 1, 'uts ', '')
+        + px.select(px.floor(df.changed / 16) % 2 == 1, 'ipc ', '')
+        + px.select(px.floor(df.changed / 32) % 2 == 1, 'cgroupns ', '')
+        + px.select(px.floor(df.changed / 64) % 2 == 1, 'time ', ''))
+    # 'pod' means process_stats attributed the pid; 'comm' means the pid was too
+    # short-lived to sample and the row was claimed through the session's comm set.
+    # Those are not equally strong claims, and the weaker one lands precisely on the
+    # case that matters — an nsenter escape is usually too brief to attribute. Any
+    # unexpected value passes through rather than being flattened into one of the two.
+    df.attributed_by = px.select(df.attribution == 'pod', 'attributed (pod)',
+                                 px.select(df.attribution == 'comm', 'claimed (comm)',
+                                           df.attribution))
+    df.when = px.int64_to_time(df.row_time)
+    return df
+
+
+def nsswitch(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    df = _nsswitch(start_time, clickhouse_dsn)
+    df = df[df.shadow_id == shadow_id]
+    return df[['when', 'changed_ns', 'comm', 'pid', 'cgroup',
+               'mnt_new', 'net_new', 'pid_new', 'uts_new', 'ipc_new', 'cgroupns_new',
+               'time_new', 'attributed_by', 'pod', 'container', 'hostname']]
+
+
+def ns_switches(start_time: str, clickhouse_dsn: str):
+    # The inodes are reported, not judged. Deciding which target namespace is the host's
+    # needs the node's own init-ns inums, which this panel cannot read; a wrong constant
+    # labels a real escape as an ordinary change, which reads as reassurance. That
+    # verdict belongs upstream as a stamped field.
+    # Every transition is listed, not only the interesting ones: a container start moves
+    # uts/ipc/cgroupns and looks identical in shape to an escape, so filtering here would
+    # make "nothing escaped" and "probe not attaching" render the same.
+    df = _nsswitch(start_time, clickhouse_dsn)
+    df.trace = px.script_reference(df.shadow_id, 'dx/shadow_trace', {
+        'start_time': start_time,
+        'clickhouse_dsn': clickhouse_dsn,
+        'container': df.container,
+        'shadow_id': df.shadow_id,
+    })
+    df.pod = px.Pod(df.pod)
+    return df[['when', 'changed_ns', 'trace', 'pod', 'container', 'comm', 'pid', 'cgroup',
+               'mnt_new', 'net_new', 'pid_new', 'uts_new', 'ipc_new', 'cgroupns_new',
+               'time_new', 'attributed_by', 'hostname']]

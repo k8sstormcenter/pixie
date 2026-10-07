@@ -29,6 +29,12 @@
       "type": "PX_STRING",
       "description": "",
       "defaultValue": ""
+    },
+    {
+      "name": "investigation_id",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": ""
     }
   ],
   "globalFuncs": [
@@ -379,6 +385,122 @@
           }
         ]
       }
+    },
+    {
+      "outputName": "g_proof",
+      "func": {
+        "name": "proof",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "order_id",
+            "variable": "order_id"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_proofparts",
+      "func": {
+        "name": "proof_parts",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "order_id",
+            "variable": "order_id"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_verdicts",
+      "func": {
+        "name": "verdicts",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "investigation_id",
+            "variable": "investigation_id"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_hops",
+      "func": {
+        "name": "evidence_hops",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "investigation_id",
+            "variable": "investigation_id"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_hops2",
+      "func": {
+        "name": "evidence_hops",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "investigation_id",
+            "variable": "investigation_id"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_evfresh",
+      "func": {
+        "name": "evidence_freshness",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          }
+        ]
+      }
     }
   ],
   "widgets": [
@@ -649,6 +771,105 @@
         "h": 4
       },
       "globalFuncOutputName": "g_mongodb",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "PROOF COVERAGE for order",
+      "position": {
+        "x": 0,
+        "y": 48,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "g_proof",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "PROOF PARTS (E/C/O/A)",
+      "position": {
+        "x": 0,
+        "y": 51,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "g_proofparts",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "VERDICTS",
+      "position": {
+        "x": 0,
+        "y": 54,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "g_verdicts",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "EVIDENCE CHAIN",
+      "position": {
+        "x": 0,
+        "y": 57,
+        "w": 12,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_hops",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Graph",
+        "adjacencyList": {
+          "fromColumn": "from_entity",
+          "toColumn": "to_entity"
+        },
+        "edgeWeightColumn": "weight",
+        "edgeColorColumn": "max_severity",
+        "edgeLabelColumn": "edge_kind",
+        "edgeThresholds": {
+          "mediumThreshold": 5,
+          "highThreshold": 8
+        },
+        "edgeHoverInfo": [
+          "condition",
+          "criteria",
+          "confidence",
+          "num_findings",
+          "requestor_service",
+          "responder_service",
+          "investigation_id"
+        ],
+        "edgeLength": 500
+      }
+    },
+    {
+      "name": "EVIDENCE HOPS",
+      "position": {
+        "x": 0,
+        "y": 61,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "g_hops2",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "EVIDENCE FRESHNESS",
+      "position": {
+        "x": 0,
+        "y": 64,
+        "w": 12,
+        "h": 2
+      },
+      "globalFuncOutputName": "g_evfresh",
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Table"
       }

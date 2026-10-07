@@ -34,7 +34,9 @@ manifests:
     - k8s/vizier/adaptive_export
 deploy:
   kubectl:
-    defaultNamespace: pl
+    # No defaultNamespace here. Every object's namespace comes from the kustomization
+    # (pl), so setting it again only produced a "multiple defaultNamespace values set"
+    # warning on every run and a second place to keep in sync.
     hooks:
       before:
       - host:
@@ -172,7 +174,9 @@ manifests:
     - k8s/vizier/dx
 deploy:
   kubectl:
-    defaultNamespace: honey
+    # No defaultNamespace here. Every object's namespace comes from the kustomization
+    # (honey), so setting it again only produced a "multiple defaultNamespace values set"
+    # warning on every run and a second place to keep in sync.
     hooks:
       before:
       - host:

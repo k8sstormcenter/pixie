@@ -112,6 +112,10 @@ spec:
         - name: DX_EVIDENCE_GRAPH_CH
           value: >-
             http://ingest_writer:changeme-ingest@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:8123/forensic_db
+        # Direct alert intake key (ES256 private). Optional: without the secret
+        # dx logs "direct alerts OFF" and /findings stays the only intake.
+        volumeMounts:
+        - {name: alert-key, mountPath: /etc/dx/node-agent-direct-jwt, readOnly: true}
         readinessProbe:
           httpGet: {path: /healthz, port: 9099, scheme: HTTPS}
           initialDelaySeconds: 3
@@ -124,6 +128,9 @@ spec:
           # fault 1); 3Gi clears it reliably on an 8GiB node (validated: restarts=0 over 6+ rounds).
           requests: {cpu: 50m, memory: 1Gi}
           limits: {cpu: "2", memory: 3Gi}
+      volumes:
+      - name: alert-key
+        secret: {secretName: node-agent-direct-jwt, optional: true, items: [{key: key.pem, path: key.pem}]}
 ---
 apiVersion: v1
 kind: Service

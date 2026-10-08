@@ -7,4 +7,4 @@ resources:
 images:
 - name: vizier-dx_daemon_image
   newName: docker.io/tanzeee/dx-daemon
-  newTag: 0.6.0-shadow-rc99
+  newTag: 0.6.0-shadow-rc100

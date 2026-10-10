@@ -107,7 +107,15 @@ create_manifest_update() {
   tag_name="release/${component}/v${version}"
   # actions/checkout doesn't get the tag annotation properly.
   git fetch origin tag "${tag_name}" -f
-  timestamp="$(git tag -l --format "%(taggerdate:raw)" "${tag_name}"  | awk '{print $1}' | jq '. | todate')"
+  # taggerdate is empty for a LIGHTWEIGHT tag → produces `timestamp: ,` → jq syntax
+  # error → release-metadata step fails even though the image built fine. Fall back to
+  # the tagged commit's committer date so the manifest is well-formed regardless of how
+  # the release tag was cut (annotated vs lightweight).
+  raw_ts="$(git tag -l --format "%(taggerdate:raw)" "${tag_name}" | awk '{print $1}')"
+  if [ -z "${raw_ts}" ]; then
+    raw_ts="$(git log -1 --format="%ct" "${tag_name}")"
+  fi
+  timestamp="$(printf '%s' "${raw_ts}" | jq '. | todate')"
 
   jq -s \
     "[{name: \"${component}\", artifact: [{timestamp: ${timestamp}, commitHash: \"${commit_hash}\", versionStr: \"${version}\", availableArtifactMirrors: .}]}]" \

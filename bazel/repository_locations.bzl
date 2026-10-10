@@ -456,7 +456,10 @@ REPOSITORY_LOCATIONS = dict(
     org_libc_musl = dict(
         sha256 = "7d5b0b6062521e4627e099e4c9dc8248d32a30285e959b7eecaa780cf8cfd4a4",
         strip_prefix = "musl-1.2.3",
-        urls = ["http://musl.libc.org/releases/musl-1.2.3.tar.gz"],
+        urls = [
+            "https://sources.openwrt.org/musl-1.2.3.tar.gz",
+            "http://musl.libc.org/releases/musl-1.2.3.tar.gz",
+        ],
         manual_license_name = "libc/musl",
     ),
     rules_cc = dict(

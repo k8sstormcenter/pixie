@@ -32,7 +32,7 @@ func TestDDL_ReturnsCanonicalForKnownTables(t *testing.T) {
 				t.Fatalf("DDL(%q): %v", name, err)
 			}
 			if !strings.HasPrefix(ddl, "CREATE TABLE IF NOT EXISTS forensic_db.") &&
-				!strings.HasPrefix(ddl, "CREATE VIEW IF NOT EXISTS forensic_db.") {
+				!strings.HasPrefix(ddl, "CREATE OR REPLACE VIEW forensic_db.") {
 				t.Fatalf("DDL(%q) wrong prefix: %q", name, ddl[:minInt(70, len(ddl))])
 			}
 			if !strings.HasSuffix(ddl, ";") {

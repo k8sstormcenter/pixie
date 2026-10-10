@@ -1,0 +1,10 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: honey
+resources:
+- dx-daemon.yaml
+images:
+- name: vizier-dx_daemon_image
+  newName: docker.io/tanzeee/dx-daemon
+  newTag: 0.6.0-shadow-rc102

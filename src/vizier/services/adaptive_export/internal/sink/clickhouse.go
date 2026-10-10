@@ -289,7 +289,9 @@ func (s *ClickHouseHTTP) Write(ctx context.Context, rows []AttributionRow) error
 		return fmt.Errorf("sink: encode %d attribution rows: %w", len(rows), err)
 	}
 	if _, err := s.c.Insert(ctx,
-		fmt.Sprintf("INSERT INTO %s.adaptive_attribution FORMAT JSONEachRow", s.cfg.Database),
+		// One row per anomaly snapshot -> one part per INSERT; merges cannot keep up
+		// (34k parts for 15 KiB observed). wait_for_async_insert keeps it synchronous.
+		fmt.Sprintf("INSERT INTO %s.adaptive_attribution SETTINGS async_insert=1, wait_for_async_insert=1 FORMAT JSONEachRow", s.cfg.Database),
 		body, chhttp.InsertOptions{FailLoud: true}); err != nil {
 		return fmt.Errorf("sink: POST: %w", err)
 	}

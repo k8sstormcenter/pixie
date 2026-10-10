@@ -19,6 +19,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -178,9 +179,9 @@ func setUpConfig() error {
 		log.SetLevel(log.DebugLevel)
 	}
 
-	log.Debugf("Config from environment - ClickHouse DSN: %s", clickhouseDSN)
+	log.Debugf("Config from environment - ClickHouse DSN: %s", redactDSN(clickhouseDSN))
 	log.Debugf("Config from environment - Pixie Cluster ID: %s", pixieClusterID)
-	log.Debugf("Config from environment - Pixie API Key: %s", pixieAPIKey)
+	log.Debugf("Config from environment - Pixie API Key: %s", redactSecret(pixieAPIKey))
 	log.Debugf("Config from environment - Cluster Name: %s", clusterName)
 	log.Debugf("Config from environment - Pixie Host: %s", pixieHost)
 
@@ -209,10 +210,10 @@ func setUpConfig() error {
 	}
 
 	log.Debugf("Final config - Pixie Cluster ID: %s", pixieClusterID)
-	log.Debugf("Final config - Pixie API Key: %s", pixieAPIKey)
+	log.Debugf("Final config - Pixie API Key: %s", redactSecret(pixieAPIKey))
 	log.Debugf("Final config - Cluster Name: %s", clusterName)
 	log.Debugf("Final config - Pixie Host: %s", pixieHost)
-	log.Debugf("Final config - ClickHouse DSN: %s", clickhouseDSN)
+	log.Debugf("Final config - ClickHouse DSN: %s", redactDSN(clickhouseDSN))
 
 	collectInterval, err := getIntEnvWithDefault(envCollectInterval, defCollectInterval)
 	if err != nil {
@@ -548,3 +549,30 @@ func (a *worker) DetectionInterval() int64 { return a.detectionInterval }
 func (a *worker) DetectionLookback() int64 { return a.detectionLookback }
 func (a *worker) ExportMode() string       { return a.exportMode }
 func (a *worker) ExportQuietTicks() int64  { return a.exportQuietTicks }
+
+// Debug logs land in pod logs, readable by anyone with cluster read access, so
+// secrets must never be printed verbatim. Length is kept because "set but wrong
+// length" distinguishes a real key from a PLACEHOLDER without disclosing it.
+func redactSecret(s string) string {
+	if s == "" {
+		return "<unset>"
+	}
+	return fmt.Sprintf("<set,%dch>", len(s))
+}
+
+// The DSN carries a password in its userinfo, but the host/database are the
+// first thing to check when AE comes up Running and writes nothing — so mask
+// only the credentials and keep the rest legible.
+func redactDSN(dsn string) string {
+	if dsn == "" {
+		return "<unset>"
+	}
+	u, err := url.Parse(dsn)
+	if err != nil || u.User == nil {
+		return redactSecret(dsn)
+	}
+	if _, hasPW := u.User.Password(); hasPW {
+		u.User = url.UserPassword(u.User.Username(), "***")
+	}
+	return u.String()
+}

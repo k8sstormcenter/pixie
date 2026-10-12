@@ -33,7 +33,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -135,6 +137,10 @@ type Config struct {
 	// captures over overlapping windows. Defaulted to 30s in defaulted().
 	ExportAllFloor time.Duration
 
+	// OrderChunk is the sub-window the ordered path walks the capture window in.
+	// Defaulted in defaulted(); env ADAPTIVE_ORDER_CHUNK_SEC overrides.
+	OrderChunk time.Duration
+
 	// === Throughput-protection knobs ===
 	//
 	// At high anomaly rates (many concurrent active hashes), the default
@@ -207,8 +213,19 @@ func (c *Config) defaulted() Config {
 	if out.ExportAllFloor == 0 {
 		out.ExportAllFloor = 30 * time.Second
 	}
+	if out.OrderChunk == 0 {
+		out.OrderChunk = defaultOrderChunk
+	}
 	return out
 }
+
+const (
+	// defaultOrderChunk = the full control lookback: one query per table, subdividing
+	// only on timeout (pre-chunking every table 10x-amplifies queries on one PEM).
+	defaultOrderChunk = 600 * time.Second
+	// orderMinChunk is the adaptive-subdivision floor; a span this small that still fails is surfaced.
+	orderMinChunk = 1 * time.Second
+)
 
 // Controller is the live orchestrator. One instance per operator process.
 type Controller struct {
@@ -243,7 +260,16 @@ type Controller struct {
 
 	exportAllMu sync.Mutex
 	exportAllAt map[string]time.Time // per-target floor for OrderExportAll (steer-all)
+
+	// Consecutive transient failures on the ordered path; any success resets it. Above
+	// orderBreakerTrip captureSpan stops subdividing so a saturated PEM isn't flooded.
+	orderTimeoutStreak atomic.Int32
 }
+
+const (
+	maxOrderSplitDepth = 3 // cap captureSpan recursion (≤2^depth leaves/chunk)
+	orderBreakerTrip   = 8 // consecutive timeouts above which subdivision stops
+)
 
 // New wires a Controller. nil clock falls through to RealClock.
 // nil querier disables the rev-1 push path (controller will only
@@ -295,23 +321,78 @@ func (c *Controller) OrderQuery(target anomaly.Target, table string, start, end 
 		return errors.New("controller: no pixie querier (operator-side push disabled)")
 	}
 	now := c.clock.Now()
-	q, err := pxl.QueryFor(table, target, start, end, now)
-	if err != nil {
-		return err
+	chunk := c.cfg.OrderChunk
+	if chunk <= 0 {
+		chunk = defaultOrderChunk
 	}
-	// Background ctx with per-op timeouts mirroring pushPixieRows: a control-ordered
-	// capture must complete independently of any anomaly window's lifecycle.
-	var readCount, wroteCount int
-	var recErr string
-	defer func() {
-		c.cfg.Rec.Record(context.Background(), reconcile.Row{
-			TS: now, Mode: "ordered", Table: table,
-			Namespace: target.Namespace, Pod: target.Pod,
-			WinStart: start, WinEnd: end,
-			ReadCount: int64(readCount), WroteCount: int64(wroteCount),
-			WriteErr: recErr, Hostname: c.cfg.Hostname,
-		})
-	}()
+	// Walk the window in OrderChunk sub-windows; captureSpan subdivides any that time out.
+	var readTotal, wroteTotal int
+	var firstErr error
+	for s := start; s.Before(end); s = s.Add(chunk) {
+		e := s.Add(chunk)
+		if e.After(end) {
+			e = end
+		}
+		qid := fmt.Sprintf("%s:%d-%d", queryID, s.Unix(), e.Unix())
+		r, w, err := c.captureSpan(target, table, s, e, qid, 0)
+		readTotal += r
+		wroteTotal += w
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	recErr := ""
+	if firstErr != nil {
+		recErr = firstErr.Error()
+	}
+	// One reconcile row per table, aggregating every chunk.
+	c.cfg.Rec.Record(context.Background(), reconcile.Row{
+		TS: now, Mode: "ordered", Table: table,
+		Namespace: target.Namespace, Pod: target.Pod,
+		WinStart: start, WinEnd: end,
+		ReadCount: int64(readTotal), WroteCount: int64(wroteTotal),
+		WriteErr: recErr, Hostname: c.cfg.Hostname,
+	})
+	return firstErr
+}
+
+// captureSpan captures [start,end) for one table, subdividing a transient failure into
+// half-spans down to orderMinChunk. Bounded by maxOrderSplitDepth + the breaker so a
+// saturated PEM isn't stormed; overlapping retries dedupe in the ReplacingMergeTree tables.
+func (c *Controller) captureSpan(target anomaly.Target, table string, start, end time.Time, queryID string, depth int) (int, int, error) {
+	r, w, e := c.orderQuerySlice(target, table, start, end, queryID)
+	if e == nil || !isRetriableSpanErr(e) || end.Sub(start) <= orderMinChunk {
+		return r, w, e
+	}
+	if depth >= maxOrderSplitDepth {
+		return r, w, e // depth-capped: don't amplify a persistently-failing span
+	}
+	if c.orderTimeoutStreak.Load() > orderBreakerTrip {
+		// PEM saturated (sustained timeouts) — splitting would only add load.
+		log.WithFields(log.Fields{"table": table, "pod": target.Pod}).
+			Warn("ordered capture: circuit-breaker open (PEM saturated), not subdividing")
+		return r, w, e
+	}
+	log.WithError(e).WithFields(log.Fields{
+		"table": table, "pod": target.Pod, "span": end.Sub(start).String(), "depth": depth,
+	}).Warn("ordered capture: transient failure, subdividing span")
+	mid := start.Add(end.Sub(start) / 2)
+	r1, w1, e1 := c.captureSpan(target, table, start, mid, queryID+".l", depth+1)
+	r2, w2, e2 := c.captureSpan(target, table, mid, end, queryID+".r", depth+1)
+	if e1 != nil {
+		return r1 + r2, w1 + w2, e1
+	}
+	return r1 + r2, w1 + w2, e2
+}
+
+// orderQuerySlice runs one (target, table, [start,end)) capture and writes the rows.
+// It records no reconcile row — the OrderQuery driver aggregates and records once.
+func (c *Controller) orderQuerySlice(target anomaly.Target, table string, start, end time.Time, queryID string) (int, int, error) {
+	now := c.clock.Now()
+	q, qerr := pxl.QueryFor(table, target, start, end, now)
+	if qerr != nil {
+		return 0, 0, qerr
+	}
 	if c.globalSem != nil {
 		c.globalSem <- struct{}{}
 		defer func() { <-c.globalSem }()
@@ -320,25 +401,46 @@ func (c *Controller) OrderQuery(target anomaly.Target, table string, start, end 
 	rows, qerr := c.querier.Query(qctx, q)
 	cancel()
 	if qerr != nil {
-		recErr = qerr.Error()
-		return qerr
+		if isRetriableSpanErr(qerr) {
+			c.orderTimeoutStreak.Add(1) // feed the saturation breaker
+		}
+		return 0, 0, qerr
 	}
-	readCount = len(rows)
+	c.orderTimeoutStreak.Store(0) // a completed query clears the breaker
 	if len(rows) == 0 {
-		return nil // nothing to persist; the read/0-wrote reconcile row still records it
+		return 0, 0, nil
 	}
 	wctx, wcancel := context.WithTimeout(context.Background(), 60*time.Second)
 	werr := c.sink.WritePixieRows(wctx, table, rows)
 	wcancel()
 	if werr != nil {
-		recErr = werr.Error()
-		return werr
+		return len(rows), 0, werr
 	}
-	wroteCount = len(rows)
 	log.WithFields(log.Fields{
 		"table": table, "rows": len(rows), "pod": target.Pod, "query_id": queryID,
 	}).Info("ordered pixie rows written to forensic_db (dx→AE /query)")
-	return nil
+	return len(rows), len(rows), nil
+}
+
+// isRetriableSpanErr reports whether an error is a transient timeout/overload (vs. a
+// structural error like a missing table) — covers ctx deadlines and gRPC status strings.
+func isRetriableSpanErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	s := strings.ToLower(err.Error())
+	for _, m := range []string{
+		"deadline", "timeout", "exceeded", "resourceexhausted",
+		"resource exhausted", "unavailable", "context canceled", "context cancelled",
+	} {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // OrderExportAll runs a one-shot OrderQuery for EVERY configured pixie table for

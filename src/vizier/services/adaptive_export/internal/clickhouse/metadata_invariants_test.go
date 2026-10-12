@@ -25,7 +25,6 @@ import "testing"
 // guards that this list stays a subset of the operator-owned pixie tables.
 var darkVectorTables = []string{
 	"dc_snoop", "creds_change", "stack_trace",
-	"dx_vfs_events", "dx_unlink", "dx_dlookup", "dx_mprotect", "dx_bpf", "dx_ptrace",
 }
 
 // TestDarkVectorTablesHaveFullMetadata enforces attribution CONSISTENCY: every
@@ -33,8 +32,8 @@ var darkVectorTables = []string{
 // (namespace, pod, container, hostname), so any dark-vector event is attributable
 // to its workload uniformly. A table missing one of these is an inconsistency
 // that dx projection + forensic joins would silently drop — this was the concrete
-// gap in dx_vfs_events/dx_unlink (no comm) and all six dx_ tables (no container)
-// before they were reconciled to the canonical dc_snoop/creds_change shape.
+// gap in the dx_* tracepoint tables before they were removed (no tracepoint was
+// ever deployed for them, so they could only ever return zero rows).
 func TestDarkVectorTablesHaveFullMetadata(t *testing.T) {
 	required := []string{"namespace", "pod", "container", "hostname"}
 	for _, tbl := range darkVectorTables {

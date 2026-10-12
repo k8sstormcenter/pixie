@@ -37,6 +37,22 @@ subjects:
   name: pl-adaptive-export-service-account
   namespace: pl
 ---
+# The ONE cluster-scoped grant adaptive-export still needs, and why.
+#
+# config.findVizierNamespace() lists pods across the cluster to locate the vizier
+# namespace, then reads pl-cluster-secrets there for cluster-id and cluster-name. Without
+# it AE logs "unable to find vizier namespace: pods is forbidden ... at the cluster scope",
+# falls back to environment variables, and fatals on a missing PIXIE_CLUSTER_ID. Verified
+# by removing it: the pods CrashLoop. main.go's leader election lists pods too, but only in
+# its own namespace, so this covers both and the Role above does not repeat it.
+#
+# What this role no longer grants, because it was dead: read on the kubescape
+# containerprofiles and rogueartifacts CRDs and on the node-agent-bundle-policy ConfigMap.
+# Those belonged to kssync, which has moved out of adaptive-export and carries its own
+# RBAC where it now lives.
+#
+# To retire this ClusterRole entirely, AE would have to take the vizier namespace from
+# PL_NAMESPACE — already injected into its pod spec — instead of discovering it.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

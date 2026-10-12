@@ -6,13 +6,15 @@ metadata:
   namespace: plc
   annotations:
     external-dns.alpha.kubernetes.io/hostname: >-
-      test.austrianopencloudcommunity.org,work.test.austrianopencloudcommunity.org
+      test.austrianopencloudcommunity.org,work.test.austrianopencloudcommunity.org,soc.k8sstormcenter.com,work.soc.k8sstormcenter.com
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
   tls:
   - hosts:
     - test.austrianopencloudcommunity.org
     - work.test.austrianopencloudcommunity.org
+    - soc.k8sstormcenter.com
+    - work.soc.k8sstormcenter.com
     secretName: cloud-proxy-tls-certs
   rules:
   - host: test.austrianopencloudcommunity.org
@@ -47,6 +49,68 @@ spec:
             port:
               number: 443
   - host: work.test.austrianopencloudcommunity.org
+    http:
+      paths:
+      - path: /px.services
+        pathType: Prefix
+        backend:
+          service:
+            name: vzconn-service
+            port:
+              number: 51600
+      - path: /px.cloudapi
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 51200
+      - path: /px.api
+        pathType: Prefix
+        backend:
+          service:
+            name: cloud-proxy-service
+            port:
+              number: 4444
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: cloud-proxy-service
+            port:
+              number: 443
+  - host: soc.k8sstormcenter.com
+    http:
+      paths:
+      - path: /px.services
+        pathType: Prefix
+        backend:
+          service:
+            name: vzconn-service
+            port:
+              number: 51600
+      - path: /px.cloudapi
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 51200
+      - path: /px.api
+        pathType: Prefix
+        backend:
+          service:
+            name: cloud-proxy-service
+            port:
+              number: 4444
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: cloud-proxy-service
+            port:
+              number: 443
+  - host: work.soc.k8sstormcenter.com
     http:
       paths:
       - path: /px.services

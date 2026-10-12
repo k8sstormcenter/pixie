@@ -1,0 +1,59 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+import px
+
+
+def _host(start_time: str, clickhouse_dsn: str, host: str):
+    df = px.DataFrame('dx_src__kubescape_mitre', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = df[px.contains(df.pod, host)]
+    df.podns = px.pluck_array(px.split(df.pod, '/'), 0)
+    df = df[df.podns != 'clickhouse']
+    df.symptom = df.alert
+    df.sign = px.pluck_array(px.split(df.alert, ':'), 0)
+    df.site = px.pluck_array(px.split(px.pluck_array(px.split(df.alert, ':'), 1), ' '), 1)
+    return df
+
+
+def course(start_time: str, clickhouse_dsn: str, host: str):
+    df = _host(start_time, clickhouse_dsn, host)
+    return df[['ts', 'symptom', 'comm', 'pid', 'ppid', 'cmdline']]
+
+
+def signs(start_time: str, clickhouse_dsn: str, host: str):
+    df = _host(start_time, clickhouse_dsn, host)
+    agg = df.groupby(['sign']).agg(count=('uniqueID', px.count))
+    return agg[['sign', 'count']]
+
+
+def presentation(start_time: str, clickhouse_dsn: str, host: str):
+    df = _host(start_time, clickhouse_dsn, host)
+    agg = df.groupby(['pod', 'site', 'sign']).agg(
+        count=('uniqueID', px.count), symptom=('symptom', px.any))
+    agg.from_entity = px.Pod(agg.pod)
+    agg.to_entity = agg.site
+    return agg[['from_entity', 'to_entity', 'sign', 'symptom', 'count']]
+
+
+def discharge(start_time: str, clickhouse_dsn: str):
+    df = px.DataFrame('dx_ord__http_events', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    df = df[df.req_method == 'POST']
+    df.podns = px.pluck_array(px.split(df.pod, '/'), 0)
+    df = df[df.podns != 'clickhouse']
+    df.host = df.pod
+    df.recipient = df.remote_addr
+    df.specimen = df.req_body
+    return df[['ts', 'order_id', 'host', 'recipient', 'req_path', 'resp_status', 'specimen']]

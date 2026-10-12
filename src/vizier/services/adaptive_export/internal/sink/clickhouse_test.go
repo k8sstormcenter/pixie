@@ -70,7 +70,7 @@ func TestSink_Write_PostsCorrectQueryAndBody(t *testing.T) {
 	if err := s.Write(context.Background(), []AttributionRow{row}); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	want := "INSERT INTO forensic_db.adaptive_attribution FORMAT JSONEachRow"
+	want := "INSERT INTO forensic_db.adaptive_attribution SETTINGS async_insert=1, wait_for_async_insert=1 FORMAT JSONEachRow"
 	if gotQuery != want {
 		t.Fatalf("query = %q, want %q", gotQuery, want)
 	}

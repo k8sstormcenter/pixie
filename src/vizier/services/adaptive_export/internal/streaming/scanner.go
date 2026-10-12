@@ -27,6 +27,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset"
+	"px.dev/pixie/src/vizier/services/adaptive_export/internal/pxl"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/reconcile"
 )
 
@@ -275,9 +276,20 @@ func (s *TableScanner) buildPxL(f Filter) string {
 	b.WriteString(pxSetMaxRows)
 	b.WriteString("import px\n")
 	b.WriteString("df = px.DataFrame(table='" + s.cfg.Table + "', start_time='" + relStart + "')\n")
-	b.WriteString("df.namespace = px.upid_to_namespace(df.upid)\n")
-	b.WriteString("df.pod = px.upid_to_pod_name(df.upid)\n")
-	if f.Mode == FilterModeAllowlist && len(f.Pods) > 0 {
+	// Pod/ns enrichment via the SINGLE dark-aware builder (pxl.PodEnrichPxL): native
+	// tables carry upid → direct px.upid_to_* resolution; dark-vector tracepoint
+	// tables (dc_snoop/creds_change/dx_*) carry a raw kernel pid with NO upid, so pod
+	// is resolved by the process_stats pid-merge. #89 restored dark-vector export but
+	// only in the retention builder (pxl/queryfor.go); this streaming scanner — the
+	// path dx steers EXCLUSIVELY — kept hardcoding px.upid_to_*(df.upid) and threw
+	// "Column 'upid' not found" for every dark table. Reuse the one builder here.
+	b.WriteString(pxl.PodEnrichPxL(s.cfg.Table))
+	// The pod-allowlist filter is NATIVE-tables only. Dark-vector rows are
+	// node-scoped: a transient attack pid (sh→whoami) resolves a BLANK pod, so a
+	// pod-equality filter would delete exactly the malignant evidence (entlein/dx#129).
+	// Capture the dark tables node-wide and let dx's process forest scope by lineage
+	// (mirrors pxl/queryfor.go's dark-vector node-scoped branch).
+	if !pxl.IsDarkVector(s.cfg.Table) && f.Mode == FilterModeAllowlist && len(f.Pods) > 0 {
 		// Allowlist clause. PxL syntax exploration (2026-05-17):
 		//  - `or` between equalities → "Expected two arguments to 'or'"
 		//  - `|` between equalities → "Operator '|' not handled"

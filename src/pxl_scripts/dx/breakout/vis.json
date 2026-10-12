@@ -1,0 +1,171 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "-2h"
+    },
+    {
+      "name": "clickhouse_dsn",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+    },
+    {
+      "name": "host",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "opsboard"
+    }
+  ],
+  "globalFuncs": [
+    {
+      "outputName": "g_presentation",
+      "func": {
+        "name": "presentation",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "host",
+            "variable": "host"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_signs",
+      "func": {
+        "name": "signs",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "host",
+            "variable": "host"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_discharge",
+      "func": {
+        "name": "discharge",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "g_course",
+      "func": {
+        "name": "course",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "host",
+            "variable": "host"
+          }
+        ]
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "name": "Presentation",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_presentation",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Graph",
+        "adjacencyList": {
+          "fromColumn": "from_entity",
+          "toColumn": "to_entity"
+        },
+        "edgeWeightColumn": "count",
+        "edgeColorColumn": "count",
+        "edgeLabelColumn": "sign",
+        "edgeThresholds": {
+          "mediumThreshold": 3,
+          "highThreshold": 10
+        },
+        "edgeHoverInfo": [
+          "sign",
+          "symptom",
+          "count"
+        ],
+        "edgeLength": 400
+      }
+    },
+    {
+      "name": "Discharge",
+      "position": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "g_discharge",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Presenting signs",
+      "position": {
+        "x": 0,
+        "y": 7,
+        "w": 4,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_signs",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Clinical course",
+      "position": {
+        "x": 4,
+        "y": 7,
+        "w": 8,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_course",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    }
+  ]
+}

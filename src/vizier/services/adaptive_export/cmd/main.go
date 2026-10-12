@@ -57,6 +57,7 @@ import (
 
 	"px.dev/pixie/src/api/go/pxapi"
 	"px.dev/pixie/src/shared/services"
+	"px.dev/pixie/src/shared/services/metrics"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/activeset"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/clickhouse"
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/config"
@@ -94,8 +95,12 @@ const (
 	// envExportAllFloorSec bounds how often the dx-steered full capture
 	// (OrderExportAll) re-runs for the same target. Default 30s.
 	envExportAllFloorSec = "ADAPTIVE_EXPORT_ALL_FLOOR_SEC"
-	envTriggerPollMS     = "ADAPTIVE_TRIGGER_POLL_MS"
-	envPruneIntervalSec  = "ADAPTIVE_PRUNE_INTERVAL_SEC"
+	// envOrderChunkSec is the sub-window the ordered path walks the capture window
+	// in, so each pixie query is both-sides bounded instead of re-scanning the whole
+	// window on the node-local PEM. Default 60s (see controller.Config.OrderChunk).
+	envOrderChunkSec    = "ADAPTIVE_ORDER_CHUNK_SEC"
+	envTriggerPollMS    = "ADAPTIVE_TRIGGER_POLL_MS"
+	envPruneIntervalSec = "ADAPTIVE_PRUNE_INTERVAL_SEC"
 
 	// envPushRefreshSec overrides controller.PushRefreshInterval. Unset →
 	// 30s default. A NEGATIVE value selects single-shot mode (one pull per
@@ -111,6 +116,21 @@ const (
 	// Bounds catch-up work after a restart so an N-hour backlog
 	// drains in ceil(N/PollLimit) polls instead of one giant scan.
 	envTriggerPollLimit = "ADAPTIVE_TRIGGER_POLL_LIMIT"
+
+	// envTriggerLookbackSec — bounded lookback below the trigger
+	// watermark (#97 / F8 / AE-9). Each poll re-scans
+	// [watermark-lookback, ∞) with content-fingerprint dedup so an
+	// out-of-order / clock-skewed / restart-buried kubescape row is
+	// still processed exactly once instead of being dropped forever
+	// (the "writes stop, data still on Pixie" halt). Default 300;
+	// explicit "0" restores the legacy strict high-water-mark.
+	envTriggerLookbackSec = "ADAPTIVE_TRIGGER_LOOKBACK_SEC"
+
+	// envTriggerMaxSkewSec — wall-clock poison clamp (#97): a
+	// normalized event_time more than this many seconds past now never
+	// advances the watermark (counted in
+	// ae_trigger_event_time_rejected_total). Default 3600 (1h).
+	envTriggerMaxSkewSec = "ADAPTIVE_TRIGGER_MAX_SKEW_SEC"
 
 	// envWatermarkSaveSec — minimum interval between persistent
 	// watermark INSERTs (default 5s). The in-memory watermark
@@ -181,6 +201,24 @@ const (
 	envReconcile = "ADAPTIVE_RECONCILE"
 )
 
+// bridgedPushSkip lists the tables dx hands directly via POST /dx/rows (pre-stamped
+// unique_id + a dx_ord__ view). They must be excluded from the ADAPTIVE_PUSH_PIXIE_ROWS
+// push path or the un-stamped push write collapses the dx-handed rows in
+// ReplacingMergeTree. Mirrors the /dx/rows allowlist and dx evidencegraph.UIDColsByTable.
+var bridgedPushSkip = map[string]bool{
+	"conn_stats":     true,
+	"redis_events":   true,
+	"http_events":    true,
+	"dns_events":     true,
+	"pgsql_events":   true,
+	"mysql_events":   true,
+	"cql_events":     true,
+	"mongodb_events": true,
+	"dc_snoop":       true,
+	"stack_trace":    true,
+	"creds_change":   true,
+}
+
 func main() {
 	// Wire AE into the shared pixie service scaffold:
 	//   - SetupService registers --version + ports.
@@ -208,10 +246,27 @@ func main() {
 	// DefaultServeMux. Bind loopback in containers unless you port-forward.
 	if addr := os.Getenv("AE_PPROF_ADDR"); addr != "" {
 		go func() {
-			log.WithField("addr", addr).Info("pprof listening (/debug/pprof/*)")
+			log.WithField("addr", addr).Info("pprof listening (/debug/pprof/* + /metrics)")
 			if err := http.ListenAndServe(addr, nil); err != nil &&
 				err != http.ErrServerClosed {
 				log.WithError(err).Error("pprof listener stopped")
+			}
+		}()
+	}
+
+	// Prometheus /metrics on the DefaultServeMux via the shared pixie
+	// metrics scaffold (same DefaultGatherer pattern every other pixie
+	// service uses). The trigger's #97 watermark metrics (ae_trigger_*)
+	// promauto-register on the default registry, so they are served here.
+	// Reachable on the AE_PPROF_ADDR listener above (same mux) and, for a
+	// scrape-only port, on AE_METRICS_ADDR (e.g. ":50901"; off when unset).
+	metrics.MustRegisterMetricsHandler(http.DefaultServeMux)
+	if addr := os.Getenv("AE_METRICS_ADDR"); addr != "" {
+		go func() {
+			log.WithField("addr", addr).Info("metrics listening (/metrics)")
+			if err := http.ListenAndServe(addr, nil); err != nil &&
+				err != http.ErrServerClosed {
+				log.WithError(err).Error("metrics listener stopped")
 			}
 		}()
 	}
@@ -227,6 +282,7 @@ func main() {
 		log.WithError(err).Fatal("failed to resolve node identity — set NODE_NAME via k8s downward API (spec.nodeName)")
 	}
 	log.WithField("hostname", hostname).Info("operator pod is node-local")
+	pxl.NodeHostname = hostname // stamp node onto pid-keyed dark tables (dc_snoop et al.)
 
 	// The AE runs as a DaemonSet (one pod per node), but the retention plugin, its
 	// cron scripts, and the bpftrace tracepoints are CLUSTER-scoped. If every pod
@@ -338,6 +394,9 @@ func main() {
 	httpTimeout := durEnv(envTriggerHTTPTimeoutSec, 30*time.Second, time.Second)
 	saveInterval := durEnv(envWatermarkSaveSec, 5*time.Second, time.Second)
 	pollLimit := intEnv(envTriggerPollLimit, 10000)
+	// #97: bounded lookback (0 = legacy strict HWM) + poison clamp.
+	triggerLookback := durEnvZeroOK(envTriggerLookbackSec, 300*time.Second, time.Second)
+	triggerMaxSkew := durEnv(envTriggerMaxSkewSec, time.Hour, time.Second)
 	// Persistent watermark store keeps the trigger's kubescape_logs
 	// cursor in forensic_db.trigger_watermark, so a restart on a busy
 	// node doesn't replay the full table from event_time=0 (which
@@ -364,6 +423,8 @@ func main() {
 		WatermarkSaveInterval: saveInterval,
 		PollLimit:             pollLimit,
 		HTTPTimeout:           httpTimeout,
+		Lookback:              triggerLookback,
+		MaxSkew:               triggerMaxSkew,
 	})
 	if err != nil {
 		log.WithError(err).Fatal("failed to create trigger")
@@ -417,6 +478,7 @@ func main() {
 		After:          durEnv(envWindowAfterSec, 5*time.Minute, time.Second),
 		QueryLag:       durEnv(envQueryLagSec, 30*time.Second, time.Second),
 		ExportAllFloor: durEnv(envExportAllFloorSec, 30*time.Second, time.Second),
+		OrderChunk:     durEnv(envOrderChunkSec, 60*time.Second, time.Second),
 		// EXPORT_MODE=never → the kubescape trigger stops self-steering; only a
 		// control client (dx) drives exports via /export/start + /query.
 		DisableSelfSteer:          strings.EqualFold(strings.TrimSpace(os.Getenv("EXPORT_MODE")), "never"),
@@ -441,6 +503,15 @@ func main() {
 		for _, t := range pxl.Names(pxl.Builtins()) {
 			if strings.Contains(t, ".") {
 				log.WithField("table", t).Info("skipping dotted-name table from push list — PxL DataFrame rejects it")
+				continue
+			}
+			// Bridged tables are dx-handed only (POST /dx/rows with a pre-stamped
+			// unique_id). A push-path write here would land rows WITHOUT unique_id,
+			// which ReplacingMergeTree collapses against the dx-handed rows
+			// (unique_id is not in the ORDER BY) — destroying the order↔row join.
+			// Skip them (mirrors dx evidencegraph.UIDColsByTable / the /dx/rows allowlist).
+			if bridgedPushSkip[t] {
+				log.WithField("table", t).Info("skipping bridged table from push list — dx-handed via /dx/rows")
 				continue
 			}
 			tables = append(tables, t)
@@ -678,63 +749,106 @@ func main() {
 	// control surface: when CONTROL_ADDR is set, the per-node controller
 	// steers this AE's activeSet (Upsert/Remove) over HTTP. Off by default so
 	// the existing trigger→controller→activeSet flow is unchanged.
+	//
+	// Secure-by-default (#96): the control surface serves TLS and requires a
+	// bearer JWT out of the box. dx skip-verifies the in-cluster (self-signed)
+	// cert and attaches the service JWT it already mints. The ONLY way to run
+	// plaintext / no-auth is an explicit CONTROL_INSECURE=true (loud warning);
+	// without a signing key AND without CONTROL_INSECURE the control surface
+	// fails closed and does not start (everything else keeps running).
+	//
+	// CONTROL_TLS / CONTROL_REQUIRE_AUTH are deprecated no-ops (secure is the
+	// default now); they are honored for back-compat but no longer required.
 	if addr := os.Getenv("CONTROL_ADDR"); addr != "" {
-		// Wire the controller as the /query runner: dx OrderQuery → one-shot pixie
-		// capture written to forensic_db (write⊇read; entlein/dx#93). When the
-		// operator-side querier is disabled (no PushPixieTables), OrderQuery returns
-		// an error and /query 502s — start/stop + dx_evidence_graph still work.
-		ctrlSrv := control.New(activeSet, ctl)
-		ctrlSrv.SetGraphWriter(applier)    // dx_evidence_graph ingest → ClickHouse
-		ctrlSrv.SetManifestWriter(applier) // dx_evidence_manifest ingest → ClickHouse
-		// Bearer-JWT auth on the control surface (CodeRabbit: protect control
-		// endpoints). Same shared lib + signing key the broker/PEM use — dx
-		// attaches the service JWT it already mints. Default-OFF so this can
-		// merge before dx sends the bearer; flip CONTROL_REQUIRE_AUTH=true once
-		// dx is updated + PL_JWT_SIGNING_KEY is mounted. Safe incremental rollout.
-		if key := os.Getenv("PL_JWT_SIGNING_KEY"); key != "" && os.Getenv("CONTROL_REQUIRE_AUTH") == "true" {
-			ctrlSrv.SetAuth(key, "vizier")
-			log.Info("control surface: bearer-JWT auth ENABLED (audience=vizier)")
-		} else {
-			log.Warn("control surface: auth DISABLED (set CONTROL_REQUIRE_AUTH=true + PL_JWT_SIGNING_KEY)")
+		insecure := strings.EqualFold(os.Getenv("CONTROL_INSECURE"), "true")
+		signingKey := os.Getenv("PL_JWT_SIGNING_KEY")
+
+		if _, ok := os.LookupEnv("CONTROL_TLS"); ok {
+			log.Warn("CONTROL_TLS is deprecated (TLS is default-ON; use CONTROL_INSECURE=true to opt out)")
 		}
-		// Wrap in an http.Server with explicit timeouts so a slow client
-		// can't pin a goroutine on the control surface (CodeRabbit
-		// r3379377432). The control plane is small/idempotent JSON, so
-		// short read/write budgets are fine.
-		httpSrv := &http.Server{
-			Addr:              addr,
-			Handler:           ctrlSrv.Handler(),
-			ReadHeaderTimeout: 5 * time.Second,
-			ReadTimeout:       15 * time.Second,
-			WriteTimeout:      30 * time.Second,
-			IdleTimeout:       60 * time.Second,
+		if _, ok := os.LookupEnv("CONTROL_REQUIRE_AUTH"); ok {
+			log.Warn("CONTROL_REQUIRE_AUTH is deprecated (auth is default-ON when PL_JWT_SIGNING_KEY is set)")
 		}
-		go func() {
-			log.WithField("addr", addr).Info("control surface listening")
-			// CONTROL_TLS=true → serve TLS so the bearer JWT + control payloads
-			// don't cross the CNI in cleartext (auth without TLS leaks the token).
-			// Cert/key from the service-tls-certs secret the broker/PEM already use
-			// (mounted /certs); dx skip-verifies. Default-OFF for incremental rollout.
-			var err error
-			if os.Getenv("CONTROL_TLS") == "true" {
-				cert := os.Getenv("CONTROL_TLS_CERT")
-				if cert == "" {
-					cert = "/certs/server.crt"
-				}
-				key := os.Getenv("CONTROL_TLS_KEY")
-				if key == "" {
-					key = "/certs/server.key"
-				}
-				log.WithField("cert", cert).Info("control surface: TLS ENABLED")
-				err = httpSrv.ListenAndServeTLS(cert, key)
+
+		switch {
+		case signingKey == "" && !insecure:
+			// Fail-closed: refuse to expose an unauthenticated control surface
+			// silently. The operator's export/attribution paths keep running;
+			// only this HTTP surface is withheld.
+			log.Error("control surface: REFUSING to start — no PL_JWT_SIGNING_KEY and CONTROL_INSECURE not set. " +
+				"Set PL_JWT_SIGNING_KEY to enable bearer-JWT auth (recommended), or CONTROL_INSECURE=true to run " +
+				"plaintext without auth (NOT for production).")
+		default:
+			// Wire the controller as the /query runner: dx OrderQuery → one-shot pixie
+			// capture written to forensic_db (write⊇read; entlein/dx#93). When the
+			// operator-side querier is disabled (no PushPixieTables), OrderQuery returns
+			// an error and /query 502s — start/stop + dx_evidence_graph still work.
+			ctrlSrv := control.New(activeSet, ctl)
+			ctrlSrv.SetGraphWriter(applier)    // dx_evidence_graph ingest → ClickHouse
+			ctrlSrv.SetManifestWriter(applier) // dx_evidence_manifest ingest → ClickHouse
+			ctrlSrv.SetRowsWriter(snk)         // /dx/rows (loop-1 dx-handed base rows) → ClickHouse
+			// Bearer-JWT auth default-ON whenever a signing key is present. Same
+			// shared lib + signing key the broker/PEM use — dx attaches the service
+			// JWT it already mints. No key is only reachable with CONTROL_INSECURE.
+			if signingKey != "" {
+				ctrlSrv.SetAuth(signingKey, "vizier")
+				log.Info("control surface: bearer-JWT auth ENABLED (audience=vizier)")
 			} else {
-				log.Warn("control surface: TLS DISABLED — bearer JWT crosses the CNI in cleartext (set CONTROL_TLS=true)")
-				err = httpSrv.ListenAndServe()
+				log.Warn("control surface: auth DISABLED — no PL_JWT_SIGNING_KEY (CONTROL_INSECURE=true set)")
 			}
-			if err != nil && err != http.ErrServerClosed {
-				log.WithError(err).Error("control surface stopped")
+			// Wrap in an http.Server with explicit timeouts so a slow client
+			// can't pin a goroutine on the control surface (CodeRabbit
+			// r3379377432). The control plane is small/idempotent JSON, so
+			// short read/write budgets are fine.
+			httpSrv := &http.Server{
+				Addr:              addr,
+				Handler:           ctrlSrv.Handler(),
+				ReadHeaderTimeout: 5 * time.Second,
+				ReadTimeout:       15 * time.Second,
+				WriteTimeout:      30 * time.Second,
+				IdleTimeout:       60 * time.Second,
 			}
-		}()
+			go func() {
+				log.WithField("addr", addr).Info("control surface listening")
+				var err error
+				if insecure {
+					// Explicit opt-out only. The bearer JWT + control payloads
+					// then cross the CNI in cleartext — never the silent default.
+					log.Warn("control surface: INSECURE (plaintext) — CONTROL_INSECURE set; " +
+						"bearer JWT + control payloads cross the CNI in cleartext")
+					err = httpSrv.ListenAndServe()
+				} else {
+					// TLS default-ON. Mounted keypair wins (service-tls-certs the
+					// broker/PEM already carry, /certs/server.{crt,key}); else an
+					// ephemeral in-memory self-signed cert so TLS works with zero
+					// extra secrets (dx skip-verifies).
+					certFile := os.Getenv("CONTROL_TLS_CERT")
+					if certFile == "" {
+						certFile = "/certs/server.crt"
+					}
+					keyFile := os.Getenv("CONTROL_TLS_KEY")
+					if keyFile == "" {
+						keyFile = "/certs/server.key"
+					}
+					tlsCfg, selfSigned, terr := control.TLSConfig(certFile, keyFile, hostname)
+					if terr != nil {
+						log.WithError(terr).Error("control surface: TLS setup failed — control surface not started")
+						return
+					}
+					httpSrv.TLSConfig = tlsCfg
+					if selfSigned {
+						log.Info("control surface: TLS ENABLED (self-signed)")
+					} else {
+						log.WithField("cert", certFile).Info("control surface: TLS ENABLED (mounted cert)")
+					}
+					// Certs are already in TLSConfig → empty file args.
+					err = httpSrv.ListenAndServeTLS("", "")
+				}
+				if err != nil && err != http.ErrServerClosed {
+					log.WithError(err).Error("control surface stopped")
+				}
+			}()
+		}
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -795,6 +909,24 @@ func durEnv(key string, dflt, unit time.Duration) time.Duration {
 	if n <= 0 {
 		log.WithFields(log.Fields{"key": key, "value": v}).
 			Warn("non-positive duration env; using default")
+		return dflt
+	}
+	return time.Duration(n) * unit
+}
+
+// durEnvZeroOK is durEnv with 0 as a VALID value (= feature disabled):
+// unset / unparseable / negative → dflt; explicit "0" → 0. Used for the
+// #97 lookback knob where 0 deliberately selects the legacy strict HWM,
+// so it must be distinguishable from "not configured".
+func durEnvZeroOK(key string, dflt, unit time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return dflt
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n < 0 {
+		log.WithFields(log.Fields{"key": key, "value": v}).
+			Warn("invalid duration env; using default")
 		return dflt
 	}
 	return time.Duration(n) * unit
@@ -969,23 +1101,37 @@ func leaderNode(nodes []string) string {
 // idempotent (create-if-absent / no-op), so re-running on every boot is safe; each
 // deploy is retried because deployment can transiently fail while PEMs (re)register.
 func deployDesiredTracepoints(ctx context.Context, adapter *pixieapi.Adapter) {
+	force := strings.EqualFold(os.Getenv("ADAPTIVE_TRACEPOINT_REDEPLOY"), "true") ||
+		os.Getenv("ADAPTIVE_TRACEPOINT_REDEPLOY") == "1"
 	for _, tp := range script.DesiredTracepoints() {
+		verify := "import px\npx.display(px.DataFrame(table='" + tp.Table + "', start_time='-5s').head(1))\n"
+
+		// Skip the upsert when the tracepoint is already deployed. UpsertTracepoint
+		// is idempotent in the create-if-absent sense, but it still CYCLES the
+		// tracepoint: a new instance goes PENDING->RUNNING and the old one
+		// RUNNING->TERMINATED. That cycle drops kprobe:lookup_fast on a running
+		// PEM — bpftrace warns "could not attach probe ... skipping" on the PEM's
+		// stderr and carries on — so dc_snoop silently degrades to M-only until
+		// the PEM restarts. Re-upserting on every AE boot therefore UNDOES the
+		// deployed program's R probe on each rollout.
+		if !force {
+			if _, err := adapter.Query(ctx, verify); err == nil {
+				log.WithFields(log.Fields{"tracepoint": tp.Name, "table": tp.Table}).
+					Info("tracepoint already deployed — skipping upsert (a re-upsert cycles it and drops probes; set ADAPTIVE_TRACEPOINT_REDEPLOY=1 after changing a preset)")
+				continue
+			}
+		}
+
 		// Fire the deploy mutation. pxapi's result collector cannot decode the
 		// mutation-info response the vizier returns for a pxtrace deploy
 		// ("stream: unimplemented type"), so a Query error here is NOT a
 		// deployment failure — the UpsertTracepoint applies server-side
-		// regardless. Success is confirmed below by the tracepoint's output
-		// table becoming queryable (PENDING_STATE -> RUNNING_STATE).
+		// regardless. Success is confirmed below by the output table becoming
+		// queryable.
 		if _, err := adapter.Query(ctx, tp.Script); err != nil {
 			log.WithError(err).WithField("tracepoint", tp.Name).
 				Debug("deploy mutation returned a stream error (expected for pxtrace mutations) — confirming via table")
 		}
-		// Confirm the tracepoint reached RUNNING by polling its output table. A
-		// plain DataFrame query on a not-yet-deployed table fails PxL compilation
-		// ("Table '<t>' not found"); once the tracepoint is RUNNING the query
-		// compiles and returns (0 rows is fine — RUNNING, just no captures yet).
-		// Re-fire the deploy every few attempts in case the first didn't take.
-		verify := "import px\npx.display(px.DataFrame(table='" + tp.Table + "', start_time='-5s').head(1))\n"
 		running := false
 		for attempt := 1; attempt <= 12; attempt++ {
 			if _, err := adapter.Query(ctx, verify); err == nil {
@@ -998,8 +1144,12 @@ func deployDesiredTracepoints(ctx context.Context, adapter *pixieapi.Adapter) {
 			time.Sleep(5 * time.Second)
 		}
 		if running {
+			// A queryable table means the tracepoint deployed, NOT that every
+			// probe in the program attached. A multi-probe program can report
+			// RUNNING with one probe silently skipped, and lookup_fast cannot be
+			// re-attached inside a running PEM — recovery needs a fresh PEM.
 			log.WithFields(log.Fields{"tracepoint": tp.Name, "table": tp.Table}).
-				Info("bpftrace tracepoint deployed + RUNNING (permanent, idempotent upsert)")
+				Info("bpftrace tracepoint deployed + table queryable (per-probe attachment NOT verified here)")
 		} else {
 			log.WithField("tracepoint", tp.Name).
 				Warn("bpftrace tracepoint not confirmed RUNNING after deploy — its dark table stays empty until it deploys")

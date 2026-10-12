@@ -21,7 +21,8 @@ _SUMMARY = ''
 
 def _proof(start_time: str, clickhouse_dsn: str, table: str):
     df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    df = df[df.kpi == 'K-P1.alert' or df.kpi == 'K-P1.unmatched']
+    df = df[(df.kpi == 'K-P1.alert' or df.kpi == 'K-P1.unmatched')
+            or df.kpi == 'K-P1.evidence']
     return df
 
 
@@ -41,13 +42,17 @@ def alerts(start_time: str, clickhouse_dsn: str, table: str, orders_table: str, 
                   suffixes=['', '_o'])
 
     df.evaluated_at = df.event_time
-    df.rule_name = px.select(df.rule == '', 'no order in window', df.rule)
+    df.kind = px.select(df.kpi == 'K-P1.evidence', 'evidence',
+                        px.select(df.kpi == 'K-P1.unmatched', 'unmatched', 'alert'))
+    df.rule_name = px.select(df.kpi == 'K-P1.evidence', 'scored on evidence',
+                             px.select(df.rule == '', 'no order in window', df.rule))
     df.alert_time = df.order_time
-    df.pod_match = px.select(df.rule == '', 'no order',
-                             px.select(df.order_pod == df.scope, 'ok', 'MISMATCH'))
+    df.pod_match = px.select(df.kpi == 'K-P1.evidence', 'pod life',
+                             px.select(df.rule == '', 'no order',
+                                       px.select(df.order_pod == df.scope, 'ok', 'MISMATCH')))
     df.suspicion_name = px.select(df.suspicion == '', 'UNMATCHED', df.suspicion)
     df.pod_name = px.Pod(df.scope)
-    return df[['alert_time', 'hostname', 'pod_name', 'rule_name', 'pod_match',
+    return df[['alert_time', 'hostname', 'pod_name', 'kind', 'rule_name', 'pod_match',
                'suspicion_name', 'class', 'verdict', 'pc', 'num', 'den', 'order_pod',
                'order_id', 'evaluated_at']]
 

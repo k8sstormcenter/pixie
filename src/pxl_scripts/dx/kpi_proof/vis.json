@@ -1,0 +1,100 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "Window. The default is the one the release gate tests at.",
+      "defaultValue": "-6h"
+    },
+    {
+      "name": "clickhouse_dsn",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+    },
+    {
+      "name": "table",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "dx_src__kpi_proof"
+    },
+    {
+      "name": "orders_table",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "dx_anomaly_orders"
+    },
+    {
+      "name": "pod",
+      "type": "PX_STRING",
+      "description": "Substring of the alert's pod. Empty matches every covered pod.",
+      "defaultValue": ""
+    }
+  ],
+  "globalFuncs": [
+    {
+      "outputName": "g_alerts",
+      "func": {
+        "name": "alerts",
+        "args": [
+          {"name": "start_time", "variable": "start_time"},
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
+          {"name": "table", "variable": "table"},
+          {"name": "orders_table", "variable": "orders_table"},
+          {"name": "pod", "variable": "pod"}
+        ]
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "name": "Alerts scored against the KPI",
+      "globalFuncOutputName": "g_alerts",
+      "displaySpec": {"@type": "types.px.dev/px.vispb.Table"},
+      "position": {"x": 0, "y": 0, "w": 12, "h": 4}
+    },
+    {
+      "name": "Per suspicion",
+      "func": {
+        "name": "by_suspicion",
+        "args": [
+          {"name": "start_time", "variable": "start_time"},
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
+          {"name": "table", "variable": "table"},
+          {"name": "pod", "variable": "pod"}
+        ]
+      },
+      "displaySpec": {"@type": "types.px.dev/px.vispb.Table"},
+      "position": {"x": 0, "y": 4, "w": 6, "h": 3}
+    },
+    {
+      "name": "Unmatched alerts by rule",
+      "func": {
+        "name": "unmatched_by_rule",
+        "args": [
+          {"name": "start_time", "variable": "start_time"},
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
+          {"name": "table", "variable": "table"},
+          {"name": "orders_table", "variable": "orders_table"},
+          {"name": "pod", "variable": "pod"}
+        ]
+      },
+      "displaySpec": {"@type": "types.px.dev/px.vispb.Table"},
+      "position": {"x": 6, "y": 4, "w": 6, "h": 3}
+    },
+    {
+      "name": "Parts proven per evaluation",
+      "func": {
+        "name": "parts",
+        "args": [
+          {"name": "start_time", "variable": "start_time"},
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
+          {"name": "table", "variable": "table"},
+          {"name": "pod", "variable": "pod"}
+        ]
+      },
+      "displaySpec": {"@type": "types.px.dev/px.vispb.Table"},
+      "position": {"x": 0, "y": 7, "w": 12, "h": 4}
+    }
+  ]
+}

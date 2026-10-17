@@ -73,15 +73,18 @@ def by_suspicion(start_time: str, clickhouse_dsn: str, table: str, pod: str):
     df = df[px.contains(df.scope, pod)]
     df = df[df.suspicion != '']
 
+    df.is_detected = px.select((df.verdict == 'forest' or df.verdict == 'wire')
+                               or df.verdict == 'dc_snoop', 1, 0)
     df.is_gap = px.select(df.verdict == 'gap', 1, 0)
+    df.is_unmatched = px.select(df.verdict == 'unmatched', 1, 0)
     df.is_probe_error = px.select(df.verdict == 'probe_error', 1, 0)
-    df.is_proven = px.select(df.pc >= 1.0, 1, 0)
     return df.groupby('suspicion').agg(
         evaluations=('order_id', px.count),
-        mean_pc=('pc', px.mean),
-        proven=('is_proven', px.sum),
+        detected=('is_detected', px.sum),
         gaps=('is_gap', px.sum),
+        unmatched=('is_unmatched', px.sum),
         probe_errors=('is_probe_error', px.sum),
+        mean_parts_scored=('pc', px.mean),
         last_seen=('event_time', px.max),
     )
 

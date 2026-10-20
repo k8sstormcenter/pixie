@@ -3,7 +3,7 @@
     {
       "name": "start_time",
       "type": "PX_STRING",
-      "description": "Window. The default is the one the release gate tests at.",
+      "description": "Window. The default is the one the release gate tests at. For the confusion matrix it must contain exactly one demo run: sensitivity is unaffected by a wider window, but false positives are not, because an earlier run's attack pod is clean by this window's truth input. Narrow it to the run you are reading.",
       "defaultValue": "-6h"
     },
     {
@@ -33,7 +33,7 @@
     {
       "name": "attack_pods",
       "type": "PX_STRING",
-      "description": "Substring naming the pods that were actually attacked: the truth input for the confusion matrix. The default matches no pod, so the matrix reports nothing rather than a rate. Leaving it empty would match EVERY pod and turn the fleet sum into a fake detection rate; a rate of -1 means undefined, not zero.",
+      "description": "Substring naming the pods that were actually attacked: the truth input for the confusion matrix. THE WINDOW MUST HOLD ONE DEMO RUN. A substring names one attack set, so if start_time reaches back over an earlier run, that run's attack pod is not named here and its true positives are counted as false positives instead - measured once as precision 0.52 where the real value was 1.00. Widening the substring to a shared prefix is not the fix: it sweeps in pods that were never attacked and their correct non-detections become false negatives. The default matches no pod, so the matrix reports nothing rather than a rate; leaving it EMPTY would match every pod and turn the fleet sum into a fake detection rate. A rate of -1 means undefined, not zero.",
       "defaultValue": "__no_attack_set__"
     }
   ],

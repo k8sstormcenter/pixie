@@ -29,6 +29,12 @@
       "type": "PX_STRING",
       "description": "Substring of the alert's pod. Empty matches every covered pod.",
       "defaultValue": ""
+    },
+    {
+      "name": "attack_pods",
+      "type": "PX_STRING",
+      "description": "Substring naming the pods that were actually attacked: the truth input for the confusion matrix. The default matches no pod, so the matrix reports nothing rather than a rate. Leaving it empty would match EVERY pod and turn the fleet sum into a fake detection rate; a rate of -1 means undefined, not zero.",
+      "defaultValue": "__no_attack_set__"
     }
   ],
   "globalFuncs": [
@@ -37,64 +43,245 @@
       "func": {
         "name": "alerts",
         "args": [
-          {"name": "start_time", "variable": "start_time"},
-          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
-          {"name": "table", "variable": "table"},
-          {"name": "orders_table", "variable": "orders_table"},
-          {"name": "pod", "variable": "pod"}
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "table",
+            "variable": "table"
+          },
+          {
+            "name": "orders_table",
+            "variable": "orders_table"
+          },
+          {
+            "name": "pod",
+            "variable": "pod"
+          }
         ]
       }
     }
   ],
   "widgets": [
     {
+      "name": "Detection matrix (needs attack_pods)",
+      "func": {
+        "name": "matrix",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "table",
+            "variable": "table"
+          },
+          {
+            "name": "attack_pods",
+            "variable": "attack_pods"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      },
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 2
+      }
+    },
+    {
+      "name": "Matrix per suspicion",
+      "func": {
+        "name": "matrix_by_suspicion",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "table",
+            "variable": "table"
+          },
+          {
+            "name": "attack_pods",
+            "variable": "attack_pods"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      },
+      "position": {
+        "x": 0,
+        "y": 2,
+        "w": 6,
+        "h": 2
+      }
+    },
+    {
+      "name": "Per pod",
+      "func": {
+        "name": "by_pod",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "table",
+            "variable": "table"
+          },
+          {
+            "name": "pod",
+            "variable": "pod"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      },
+      "position": {
+        "x": 6,
+        "y": 2,
+        "w": 6,
+        "h": 2
+      }
+    },
+    {
       "name": "Alerts scored against the KPI",
       "globalFuncOutputName": "g_alerts",
-      "displaySpec": {"@type": "types.px.dev/px.vispb.Table"},
-      "position": {"x": 0, "y": 0, "w": 12, "h": 4}
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      },
+      "position": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 4
+      }
     },
     {
       "name": "Per suspicion",
       "func": {
         "name": "by_suspicion",
         "args": [
-          {"name": "start_time", "variable": "start_time"},
-          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
-          {"name": "table", "variable": "table"},
-          {"name": "pod", "variable": "pod"}
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "table",
+            "variable": "table"
+          },
+          {
+            "name": "pod",
+            "variable": "pod"
+          }
         ]
       },
-      "displaySpec": {"@type": "types.px.dev/px.vispb.Table"},
-      "position": {"x": 0, "y": 4, "w": 6, "h": 3}
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      },
+      "position": {
+        "x": 0,
+        "y": 8,
+        "w": 6,
+        "h": 3
+      }
     },
     {
       "name": "Unmatched alerts by rule",
       "func": {
         "name": "unmatched_by_rule",
         "args": [
-          {"name": "start_time", "variable": "start_time"},
-          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
-          {"name": "table", "variable": "table"},
-          {"name": "orders_table", "variable": "orders_table"},
-          {"name": "pod", "variable": "pod"}
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "table",
+            "variable": "table"
+          },
+          {
+            "name": "orders_table",
+            "variable": "orders_table"
+          },
+          {
+            "name": "pod",
+            "variable": "pod"
+          }
         ]
       },
-      "displaySpec": {"@type": "types.px.dev/px.vispb.Table"},
-      "position": {"x": 6, "y": 4, "w": 6, "h": 3}
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      },
+      "position": {
+        "x": 6,
+        "y": 8,
+        "w": 6,
+        "h": 3
+      }
     },
     {
       "name": "Parts proven per evaluation",
       "func": {
         "name": "parts",
         "args": [
-          {"name": "start_time", "variable": "start_time"},
-          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
-          {"name": "table", "variable": "table"},
-          {"name": "pod", "variable": "pod"}
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "table",
+            "variable": "table"
+          },
+          {
+            "name": "pod",
+            "variable": "pod"
+          }
         ]
       },
-      "displaySpec": {"@type": "types.px.dev/px.vispb.Table"},
-      "position": {"x": 0, "y": 7, "w": 12, "h": 4}
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      },
+      "position": {
+        "x": 0,
+        "y": 11,
+        "w": 12,
+        "h": 4
+      }
     }
   ]
 }

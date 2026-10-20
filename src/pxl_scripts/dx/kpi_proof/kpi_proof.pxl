@@ -89,6 +89,87 @@ def by_suspicion(start_time: str, clickhouse_dsn: str, table: str, pod: str):
     )
 
 
+def _called(df):
+    return px.select((df.verdict == 'forest' or df.verdict == 'wire')
+                     or df.verdict == 'dc_snoop', 1, 0)
+
+
+def by_pod(start_time: str, clickhouse_dsn: str, table: str, pod: str):
+    df = _proof(start_time, clickhouse_dsn, table)
+    df = df[df.part == _SUMMARY]
+    df = df[px.contains(df.scope, pod)]
+    df = df[df.suspicion != '']
+    df.called = _called(df)
+    df.is_gap = px.select(df.verdict == 'gap', 1, 0)
+    df.pod_name = px.Pod(df.scope)
+    return df.groupby(['pod_name', 'hostname']).agg(
+        evaluations=('order_id', px.count),
+        matched=('called', px.sum),
+        not_matched=('is_gap', px.sum),
+        mean_parts_scored=('pc', px.mean),
+        last_seen=('event_time', px.max),
+    )
+
+
+def _cells(start_time: str, clickhouse_dsn: str, table: str, attack_pods: str):
+    df = _proof(start_time, clickhouse_dsn, table)
+    df = df[df.part == _SUMMARY]
+    df = df[df.suspicion != '']
+    df.called = _called(df)
+    df.attacked = px.select(px.contains(df.scope, attack_pods), 1, 0)
+    df.tp_c = df.called * df.attacked
+    df.fp_c = df.called * (1 - df.attacked)
+    df.fn_c = (1 - df.called) * df.attacked
+    df.tn_c = (1 - df.called) * (1 - df.attacked)
+    return df
+
+
+def matrix(start_time: str, clickhouse_dsn: str, table: str, attack_pods: str):
+    df = _cells(start_time, clickhouse_dsn, table, attack_pods)
+    df.lens = 'completed-detection'
+    out = df.groupby('lens').agg(
+        tp_r=('tp_c', px.sum), fp_r=('fp_c', px.sum),
+        fn_r=('fn_c', px.sum), tn_r=('tn_c', px.sum),
+    )
+    out.under_attack = out.tp_r + out.fn_r
+    out.have = px.select(out.under_attack == 0, 0, 1)
+    out.tp = out.tp_r * out.have
+    out.fn = out.fn_r * out.have
+    out.fp = out.fp_r * out.have
+    out.tn = out.tn_r * out.have
+    out.clean = out.fp + out.tn
+    out.sensitivity = px.select(out.have == 0, -1.0,
+                                out.tp / (out.tp + out.fn))
+    out.specificity = px.select(out.clean == 0, -1.0,
+                                out.tn / (out.tn + out.fp))
+    out.precision = px.select(out.tp + out.fp == 0, -1.0,
+                              out.tp / (out.tp + out.fp))
+    out.fp_rate = px.select(out.clean == 0, -1.0,
+                            out.fp / (out.fp + out.tn))
+    return out[['lens', 'tp', 'fn', 'fp', 'tn', 'under_attack', 'clean',
+                'sensitivity', 'specificity', 'precision', 'fp_rate']]
+
+
+def matrix_by_suspicion(start_time: str, clickhouse_dsn: str, table: str, attack_pods: str):
+    df = _cells(start_time, clickhouse_dsn, table, attack_pods)
+    out = df.groupby('suspicion').agg(
+        tp_r=('tp_c', px.sum), fn_r=('fn_c', px.sum),
+        fp_r=('fp_c', px.sum), tn_r=('tn_c', px.sum),
+        mean_parts_scored=('pc', px.mean),
+        last_seen=('event_time', px.max),
+    )
+    out.under_attack = out.tp_r + out.fn_r
+    out.have = px.select(out.under_attack == 0, 0, 1)
+    out.tp = out.tp_r * out.have
+    out.fn = out.fn_r * out.have
+    out.fp = out.fp_r * out.have
+    out.tn = out.tn_r * out.have
+    out.sensitivity = px.select(out.have == 0, -1.0,
+                                out.tp / (out.tp + out.fn))
+    return out[['suspicion', 'tp', 'fn', 'fp', 'tn', 'under_attack',
+                'sensitivity', 'mean_parts_scored', 'last_seen']]
+
+
 def unmatched_by_rule(start_time: str, clickhouse_dsn: str, table: str, orders_table: str, pod: str):
     df = _proof(start_time, clickhouse_dsn, table)
     df = df[df.kpi == 'K-P1.unmatched']

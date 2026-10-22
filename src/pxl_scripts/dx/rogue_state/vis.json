@@ -15,6 +15,22 @@
   ],
   "globalFuncs": [
     {
+      "outputName": "g_firing",
+      "func": {
+        "name": "firing",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          }
+        ]
+      }
+    },
+    {
       "outputName": "g_lifecycle",
       "func": {
         "name": "lifecycle",
@@ -81,10 +97,23 @@
   ],
   "widgets": [
     {
-      "name": "Rogue lifecycle",
+      "name": "Ungoverned containers \u2192 KPI scoring",
       "position": {
         "x": 0,
         "y": 0,
+        "w": 12,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_firing",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Rogue lifecycle",
+      "position": {
+        "x": 0,
+        "y": 4,
         "w": 12,
         "h": 3
       },
@@ -97,7 +126,7 @@
       "name": "Firing \u2192 healed timeline",
       "position": {
         "x": 0,
-        "y": 3,
+        "y": 7,
         "w": 12,
         "h": 4
       },
@@ -110,7 +139,7 @@
       "name": "Currently firing",
       "position": {
         "x": 0,
-        "y": 7,
+        "y": 11,
         "w": 7,
         "h": 4
       },
@@ -123,7 +152,7 @@
       "name": "Rogue map",
       "position": {
         "x": 7,
-        "y": 7,
+        "y": 11,
         "w": 5,
         "h": 4
       },

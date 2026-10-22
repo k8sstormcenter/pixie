@@ -247,26 +247,6 @@
       }
     },
     {
-      "outputName": "g_dcsnoop",
-      "func": {
-        "name": "dc_snoop",
-        "args": [
-          {
-            "name": "start_time",
-            "variable": "start_time"
-          },
-          {
-            "name": "clickhouse_dsn",
-            "variable": "clickhouse_dsn"
-          },
-          {
-            "name": "order_id",
-            "variable": "order_id"
-          }
-        ]
-      }
-    },
-    {
       "outputName": "g_stack",
       "func": {
         "name": "stack_trace",
@@ -675,19 +655,6 @@
         "h": 4
       },
       "globalFuncOutputName": "g_mysql",
-      "displaySpec": {
-        "@type": "types.px.dev/px.vispb.Table"
-      }
-    },
-    {
-      "name": "dc_snoop",
-      "position": {
-        "x": 0,
-        "y": 27,
-        "w": 6,
-        "h": 4
-      },
-      "globalFuncOutputName": "g_dcsnoop",
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Table"
       }

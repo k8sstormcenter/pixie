@@ -24,27 +24,32 @@ def _lc(start_time: str, clickhouse_dsn: str):
 def _kpi(start_time: str, clickhouse_dsn: str, pod_name):
     link = px.script_reference(pod_name, 'dx/kpi_proof', {
         'start_time': start_time,
-        'clickhouse_dsn': clickhouse_dsn,
-        'attack_pods': pod_name,
-        'pod': '',
-        'table': 'dx_src__kpi_proof',
-        'orders_table': 'dx_anomaly_orders',
+        'pod': pod_name,
+        'attack_pods': '__no_attack_set__',
     })
     return px.select(pod_name != '', link, '')
+
+
+def _kpi_url(start_time: str, pod_name):
+    u = ('https://work.soc.k8sstormcenter.com/live/clusters/k3s-2'
+         + '?script=dx%2Fkpi_proof&start_time=' + start_time + '&pod=' + pod_name)
+    return px.select(pod_name != '', u, '')
 
 
 def lifecycle(start_time: str, clickhouse_dsn: str):
     df = _lc(start_time, clickhouse_dsn)
     df.kpi = _kpi(start_time, clickhouse_dsn, df.pod_name)
+    df.kpi_url = _kpi_url(start_time, df.pod_name)
     return df[['namespace', 'pod_name', 'container_name', 'phase', 'started_firing',
-               'stopped_firing', 'snapshots', 'kpi']]
+               'stopped_firing', 'snapshots', 'kpi', 'kpi_url']]
 
 
 def firing(start_time: str, clickhouse_dsn: str):
     df = _lc(start_time, clickhouse_dsn)
     df = df[df.phase == 'Firing']
     df.kpi = _kpi(start_time, clickhouse_dsn, df.pod_name)
-    return df[['namespace', 'pod_name', 'container_name', 'started_firing', 'kpi']]
+    df.kpi_url = _kpi_url(start_time, df.pod_name)
+    return df[['namespace', 'pod_name', 'container_name', 'started_firing', 'kpi', 'kpi_url']]
 
 
 def transitions(start_time: str, clickhouse_dsn: str):
@@ -59,7 +64,8 @@ def rogue(start_time: str, clickhouse_dsn: str):
     agg = df.groupby(['namespace', 'pod_name', 'container_name']).agg(
         firing=('name', px.count))
     agg.kpi = _kpi(start_time, clickhouse_dsn, agg.pod_name)
-    return agg[['namespace', 'pod_name', 'container_name', 'firing', 'kpi']]
+    agg.kpi_url = _kpi_url(start_time, agg.pod_name)
+    return agg[['namespace', 'pod_name', 'container_name', 'firing', 'kpi', 'kpi_url']]
 
 
 def by_ns(start_time: str, clickhouse_dsn: str):

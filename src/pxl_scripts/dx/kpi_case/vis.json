@@ -1,0 +1,80 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "-6h"
+    },
+    {
+      "name": "clickhouse_dsn",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+    },
+    {
+      "name": "table",
+      "type": "PX_STRING",
+      "description": "one row per suspicion per scored pod, written by dx at scoring time",
+      "defaultValue": "dx_src__kpi_case"
+    },
+    {
+      "name": "pod",
+      "type": "PX_STRING",
+      "description": "substring of namespace/pod; empty for every pod",
+      "defaultValue": ""
+    },
+    {
+      "name": "kpi_version",
+      "type": "PX_STRING",
+      "description": "hash of the kpi.json the cases were scored under; empty for every version",
+      "defaultValue": ""
+    }
+  ],
+  "globalFuncs": [],
+  "widgets": [
+    {
+      "name": "Cases",
+      "position": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "func": {
+        "name": "cases",
+        "args": [
+          {"name": "start_time", "variable": "start_time"},
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
+          {"name": "table", "variable": "table"},
+          {"name": "pod", "variable": "pod"},
+          {"name": "kpi_version", "variable": "kpi_version"}
+        ]
+      },
+      "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}
+    },
+    {
+      "name": "Per suspicion",
+      "position": {"x": 0, "y": 8, "w": 8, "h": 4},
+      "func": {
+        "name": "by_suspicion",
+        "args": [
+          {"name": "start_time", "variable": "start_time"},
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
+          {"name": "table", "variable": "table"},
+          {"name": "pod", "variable": "pod"},
+          {"name": "kpi_version", "variable": "kpi_version"}
+        ]
+      },
+      "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}
+    },
+    {
+      "name": "Suites scored",
+      "position": {"x": 8, "y": 8, "w": 4, "h": 4},
+      "func": {
+        "name": "suites",
+        "args": [
+          {"name": "start_time", "variable": "start_time"},
+          {"name": "clickhouse_dsn", "variable": "clickhouse_dsn"},
+          {"name": "table", "variable": "table"}
+        ]
+      },
+      "displaySpec": {"@type": "types.px.dev/px.vispb.Table"}
+    }
+  ]
+}

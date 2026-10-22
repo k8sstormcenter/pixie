@@ -94,15 +94,16 @@ def by_suspicion(start_time: str, clickhouse_dsn: str, table: str, pod: str):
     df = df[px.contains(df.scope, pod)]
     df = df[df.suspicion != '']
 
-    df.is_detected = px.select((df.verdict == 'forest' or df.verdict == 'wire')
-                               or df.verdict == 'dc_snoop', 1, 0)
+    df.is_detected = _called(df)
     df.is_gap = px.select(df.verdict == 'gap', 1, 0)
+    df.is_benign = px.select(df.verdict == 'benign', 1, 0)
     df.is_unmatched = px.select(df.verdict == 'unmatched', 1, 0)
     df.is_probe_error = px.select(df.verdict == 'probe_error', 1, 0)
     return df.groupby('suspicion').agg(
         evaluations=('order_id', px.count),
         detected=('is_detected', px.sum),
         gaps=('is_gap', px.sum),
+        benign=('is_benign', px.sum),
         unmatched=('is_unmatched', px.sum),
         probe_errors=('is_probe_error', px.sum),
         mean_parts_scored=('pc', px.mean),
@@ -170,12 +171,12 @@ def by_pod(start_time: str, clickhouse_dsn: str, table: str, orders_table: str, 
     df = df[px.contains(df.scope, pod)]
     df = df[df.suspicion != '']
     df.called = _called(df)
-    df.is_gap = px.select(df.verdict == 'gap', 1, 0)
+    df.is_unproven = px.select(df.called == 1, 0, 1)
     df.pod_name = px.Pod(df.scope)
     agg = df.groupby(['pod_name', 'hostname', 'scope']).agg(
         evaluations=('order_id', px.count),
         matched=('called', px.sum),
-        not_matched=('is_gap', px.sum),
+        not_matched=('is_unproven', px.sum),
         mean_parts_scored=('pc', px.mean),
         first_seen=('event_time', px.min),
         last_seen=('event_time', px.max),

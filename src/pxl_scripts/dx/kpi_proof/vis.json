@@ -35,6 +35,12 @@
       "type": "PX_STRING",
       "description": "Substring naming the pods that were actually attacked: the truth input for the confusion matrix. THE WINDOW MUST HOLD ONE DEMO RUN. A substring names one attack set, so if start_time reaches back over an earlier run, that run's attack pod is not named here and its true positives are counted as false positives instead - measured once as precision 0.52 where the real value was 1.00. Widening the substring to a shared prefix is not the fix: it sweeps in pods that were never attacked and their correct non-detections become false negatives. The default matches no pod, so the matrix reports nothing rather than a rate; leaving it EMPTY would match every pod and turn the fleet sum into a fake detection rate. A rate of -1 means undefined, not zero.",
       "defaultValue": "__no_attack_set__"
+    },
+    {
+      "name": "logs_table",
+      "type": "PX_STRING",
+      "defaultValue": "dx_src__kubescape_logs",
+      "description": "kubescape alert rows, joined to the KPI orders by uniqueID"
     }
   ],
   "globalFuncs": [
@@ -73,10 +79,51 @@
   ],
   "widgets": [
     {
-      "name": "Who found it \u2014 summary (needs attack_pods). 'alerted' is RULE-level and over-attributes to kubescape: any matching rule firing on the pod counts even when it was not the step's own evidence. The harness's process-ancestry split is the authoritative one.",
+      "name": "Evidence per IOC",
       "position": {
         "x": 0,
         "y": 0,
+        "w": 12,
+        "h": 6
+      },
+      "func": {
+        "name": "evidence",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "table",
+            "variable": "table"
+          },
+          {
+            "name": "orders_table",
+            "variable": "orders_table"
+          },
+          {
+            "name": "logs_table",
+            "variable": "logs_table"
+          },
+          {
+            "name": "pod",
+            "variable": "pod"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Who found it \u2014 summary",
+      "position": {
+        "x": 0,
+        "y": 6,
         "w": 12,
         "h": 2
       },
@@ -106,10 +153,10 @@
       }
     },
     {
-      "name": "Who found it, per suspicion. 'alerted' is rule-level, so this shows MORE 'both' and FEWER 'dx only' than the harness; quote the harness split for 'kubescape only'.",
+      "name": "Who found it, per suspicion",
       "position": {
         "x": 0,
-        "y": 2,
+        "y": 8,
         "w": 12,
         "h": 5
       },
@@ -170,7 +217,7 @@
       },
       "position": {
         "x": 0,
-        "y": 7,
+        "y": 13,
         "w": 12,
         "h": 2
       }
@@ -203,7 +250,7 @@
       },
       "position": {
         "x": 0,
-        "y": 9,
+        "y": 15,
         "w": 12,
         "h": 2
       }
@@ -236,7 +283,7 @@
       },
       "position": {
         "x": 0,
-        "y": 11,
+        "y": 17,
         "w": 6,
         "h": 2
       }
@@ -249,7 +296,7 @@
       },
       "position": {
         "x": 0,
-        "y": 13,
+        "y": 19,
         "w": 12,
         "h": 4
       }
@@ -282,7 +329,7 @@
       },
       "position": {
         "x": 0,
-        "y": 17,
+        "y": 23,
         "w": 6,
         "h": 3
       }
@@ -319,7 +366,7 @@
       },
       "position": {
         "x": 6,
-        "y": 17,
+        "y": 23,
         "w": 6,
         "h": 3
       }
@@ -352,7 +399,7 @@
       },
       "position": {
         "x": 0,
-        "y": 20,
+        "y": 26,
         "w": 12,
         "h": 4
       }

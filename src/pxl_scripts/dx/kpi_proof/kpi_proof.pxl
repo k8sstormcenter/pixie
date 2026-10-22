@@ -78,6 +78,118 @@ def alerts(start_time: str, clickhouse_dsn: str, table: str, orders_table: str, 
                'class', 'order_pod', 'order_id', 'evaluated_at']]
 
 
+def _kubescape_receipts(start_time: str, clickhouse_dsn: str, table: str, orders_table: str,
+                        logs_table: str, pod: str):
+    df = _proof(start_time, clickhouse_dsn, table)
+    df = df[df.part == _SUMMARY]
+    df = df[df.suspicion != '']
+    df = df[px.contains(df.scope, pod)]
+
+    orders = px.DataFrame(orders_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = orders.groupby(['order_id', 'uniqueID']).agg(order_rows=('rule', px.count))
+    df = df.merge(orders, how='inner', left_on=['order_id'], right_on=['order_id'],
+                  suffixes=['', '_o'])
+
+    logs = px.DataFrame(logs_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    logs.when = logs.event_time
+    logs.key = logs.RuleID + ' ' + logs.alert
+    logs.who = logs.comm
+    logs = logs[['uniqueID', 'when', 'key', 'who']]
+
+    out = df.merge(logs, how='inner', left_on=['uniqueID'], right_on=['uniqueID'],
+                   suffixes=['', '_l'])
+    out.pod = out.scope
+    out.part = 'alert'
+    out.source = 'kubescape'
+    out.surface = 'kubescape'
+    out.n = 1
+    out.predicate = ''
+    return out[['suspicion', 'part', 'source', 'surface', 'when', 'key', 'who', 'n',
+                'predicate', 'order_id', 'pod']]
+
+
+def _required(start_time: str, clickhouse_dsn: str, table: str, orders_table: str, pod: str):
+    parts = _proof(start_time, clickhouse_dsn, table)
+    parts = parts[parts.part != _SUMMARY]
+    parts = parts[parts.suspicion != '']
+    parts = parts[px.contains(parts.scope, pod)]
+    parts = parts[parts.proven >= 1.0]
+    parts.pod = parts.scope
+    parts.needle = px.pluck_array(px.split(parts.predicate, "'"), 1)
+    parts.needle = px.replace('%', parts.needle, '')
+    parts.needle = px.replace('\\\\', parts.needle, '')
+    parts = parts[['suspicion', 'part', 'source', 'predicate', 'needle', 'order_id', 'pod']]
+
+    win = px.DataFrame(orders_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    win = win.groupby('order_id').agg(lo=('lo', px.min), hi=('hi', px.max))
+    out = parts.merge(win, how='left', left_on=['order_id'], right_on=['order_id'],
+                      suffixes=['', '_w'])
+    out.hi = px.select(out.hi == 0, 9223372036854775807, out.hi)
+    return out
+
+
+def _shadow_evidence(start_time: str, clickhouse_dsn: str, table: str, orders_table: str,
+                     pod: str):
+    parts = _required(start_time, clickhouse_dsn, table, orders_table, pod)
+
+    trace = px.DataFrame('dx_shadow__trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    trace = trace[px.contains(trace.pod, pod)]
+    trace = trace.groupby(['shadow_id', 'pod']).agg(seen=('updated_at', px.max))
+    act = px.DataFrame('dx_shadow__activity', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    act = act.merge(trace, how='inner', left_on=['shadow_id'], right_on=['shadow_id'],
+                    suffixes=['', '_t'])
+    act.source = px.select(act.surface == 'dc_snoop', 'dc_snoop',
+                           px.select(act.surface == 'stack_trace', 'stack_trace',
+                                     px.select(act.surface == 'dns_events'
+                                               or act.surface == 'conn_stats', 'wire',
+                                               act.surface)))
+    act = act[['pod', 'source', 'surface', 'key', 'n', 'first_ts', 'last_ts']]
+
+    out = parts.merge(act, how='inner', left_on=['pod', 'source'], right_on=['pod', 'source'],
+                      suffixes=['', '_a'])
+    out = out[out.last_ts >= out.lo]
+    out = out[out.first_ts <= out.hi]
+    out = out[px.contains(out.key, out.needle)]
+    out.when = px.int64_to_time(out.first_ts)
+    out.who = ''
+    return out[['suspicion', 'part', 'source', 'surface', 'when', 'key', 'who', 'n',
+                'predicate', 'order_id', 'pod']]
+
+
+def _forest_evidence(start_time: str, clickhouse_dsn: str, table: str, orders_table: str,
+                     pod: str):
+    parts = _required(start_time, clickhouse_dsn, table, orders_table, pod)
+    parts = parts[parts.source == 'forest']
+
+    f = px.DataFrame('dx_forest__process', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    f = f[px.contains(f.pod, pod)]
+    f.t = px.time_to_int64(f.event_time)
+    f.key = f.pcomm + ' > ' + f.comm + ' pid ' + px.itoa(f.pid)
+    f.who = f.comm
+    f = f[['pod', 'key', 'who', 't']]
+
+    out = parts.merge(f, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_f'])
+    out = out[out.t >= out.lo]
+    out = out[out.t <= out.hi]
+    out = out[px.contains(' ' + out.who + ' ', ' ' + out.needle + ' ')]
+    out.surface = 'process'
+    out.when = px.int64_to_time(out.t)
+    out.n = 1
+    return out[['suspicion', 'part', 'source', 'surface', 'when', 'key', 'who', 'n',
+                'predicate', 'order_id', 'pod']]
+
+
+def evidence(start_time: str, clickhouse_dsn: str, table: str, orders_table: str,
+             logs_table: str, pod: str):
+    ks = _kubescape_receipts(start_time, clickhouse_dsn, table, orders_table, logs_table, pod)
+    dx = _shadow_evidence(start_time, clickhouse_dsn, table, orders_table, pod)
+    fo = _forest_evidence(start_time, clickhouse_dsn, table, orders_table, pod)
+    df = ks.append(dx).append(fo)
+    df.pod_name = px.Pod(df.pod)
+    return df[['suspicion', 'part', 'source', 'surface', 'when', 'key', 'who', 'n',
+               'predicate', 'order_id', 'pod_name']]
+
+
 def parts(start_time: str, clickhouse_dsn: str, table: str, pod: str):
     df = _proof(start_time, clickhouse_dsn, table)
     df = df[df.part != _SUMMARY]
@@ -170,6 +282,9 @@ def by_pod(start_time: str, clickhouse_dsn: str, table: str, orders_table: str, 
     df = df[df.part == _SUMMARY]
     df = df[px.contains(df.scope, pod)]
     df = df[df.suspicion != '']
+    df.infra = px.select(px.contains(df.scope, 'listener')
+                         or px.contains(df.scope, 'controller'), 1, 0)
+    df = df[df.infra == 0]
     df.called = _called(df)
     df.is_unproven = px.select(df.called == 1, 0, 1)
     df.pod_name = px.Pod(df.scope)
@@ -186,14 +301,10 @@ def by_pod(start_time: str, clickhouse_dsn: str, table: str, orders_table: str, 
     agg.score = px.script_reference(agg.scope, 'dx/kpi_proof', {
         'start_time': agg.own_window,
         'attack_pods': agg.scope,
-        'pod': '',
+        'pod': agg.scope,
     })
-    agg.score_url = ('https://work.soc.k8sstormcenter.com/live/clusters/k3s-2'
-                     + '?script=dx%2Fkpi_proof&start_time=' + agg.own_window
-                     + '&attack_pods=' + agg.scope)
     return agg[['pod_name', 'hostname', 'evaluations', 'matched', 'not_matched',
-                'mean_parts_scored', 'first_seen', 'last_seen', 'own_window', 'score',
-                'score_url']]
+                'mean_parts_scored', 'first_seen', 'last_seen', 'own_window', 'score']]
 
 
 def _cells(start_time: str, clickhouse_dsn: str, table: str, attack_pods: str):

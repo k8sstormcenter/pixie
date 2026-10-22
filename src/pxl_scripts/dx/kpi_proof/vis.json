@@ -62,12 +62,119 @@
           {
             "name": "pod",
             "variable": "pod"
+          },
+          {
+            "name": "attack_pods",
+            "variable": "attack_pods"
           }
         ]
       }
     }
   ],
   "widgets": [
+    {
+      "name": "Who found it \u2014 summary (needs attack_pods). 'alerted' is RULE-level and over-attributes to kubescape: any matching rule firing on the pod counts even when it was not the step's own evidence. The harness's process-ancestry split is the authoritative one.",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 2
+      },
+      "func": {
+        "name": "who_found_summary",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "table",
+            "variable": "table"
+          },
+          {
+            "name": "attack_pods",
+            "variable": "attack_pods"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Who found it, per suspicion. 'alerted' is rule-level, so this shows MORE 'both' and FEWER 'dx only' than the harness; quote the harness split for 'kubescape only'.",
+      "position": {
+        "x": 0,
+        "y": 2,
+        "w": 12,
+        "h": 5
+      },
+      "func": {
+        "name": "who_found",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "table",
+            "variable": "table"
+          },
+          {
+            "name": "attack_pods",
+            "variable": "attack_pods"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Per pod",
+      "func": {
+        "name": "by_pod",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "table",
+            "variable": "table"
+          },
+          {
+            "name": "orders_table",
+            "variable": "orders_table"
+          },
+          {
+            "name": "pod",
+            "variable": "pod"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      },
+      "position": {
+        "x": 0,
+        "y": 7,
+        "w": 12,
+        "h": 2
+      }
+    },
     {
       "name": "Detection matrix (needs attack_pods)",
       "func": {
@@ -96,7 +203,7 @@
       },
       "position": {
         "x": 0,
-        "y": 0,
+        "y": 9,
         "w": 12,
         "h": 2
       }
@@ -129,40 +236,7 @@
       },
       "position": {
         "x": 0,
-        "y": 2,
-        "w": 6,
-        "h": 2
-      }
-    },
-    {
-      "name": "Per pod",
-      "func": {
-        "name": "by_pod",
-        "args": [
-          {
-            "name": "start_time",
-            "variable": "start_time"
-          },
-          {
-            "name": "clickhouse_dsn",
-            "variable": "clickhouse_dsn"
-          },
-          {
-            "name": "table",
-            "variable": "table"
-          },
-          {
-            "name": "pod",
-            "variable": "pod"
-          }
-        ]
-      },
-      "displaySpec": {
-        "@type": "types.px.dev/px.vispb.Table"
-      },
-      "position": {
-        "x": 6,
-        "y": 2,
+        "y": 11,
         "w": 6,
         "h": 2
       }
@@ -175,7 +249,7 @@
       },
       "position": {
         "x": 0,
-        "y": 4,
+        "y": 13,
         "w": 12,
         "h": 4
       }
@@ -208,7 +282,7 @@
       },
       "position": {
         "x": 0,
-        "y": 8,
+        "y": 17,
         "w": 6,
         "h": 3
       }
@@ -245,7 +319,7 @@
       },
       "position": {
         "x": 6,
-        "y": 8,
+        "y": 17,
         "w": 6,
         "h": 3
       }
@@ -278,7 +352,7 @@
       },
       "position": {
         "x": 0,
-        "y": 11,
+        "y": 20,
         "w": 12,
         "h": 4
       }

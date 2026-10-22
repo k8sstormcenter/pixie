@@ -26,7 +26,8 @@ def _proof(start_time: str, clickhouse_dsn: str, table: str):
     return df
 
 
-def alerts(start_time: str, clickhouse_dsn: str, table: str, orders_table: str, pod: str):
+def alerts(start_time: str, clickhouse_dsn: str, table: str, orders_table: str, pod: str,
+           attack_pods: str):
     df = _proof(start_time, clickhouse_dsn, table)
     df = df[df.part == _SUMMARY]
     df = df[px.contains(df.scope, pod)]
@@ -52,9 +53,29 @@ def alerts(start_time: str, clickhouse_dsn: str, table: str, orders_table: str, 
                                        px.select(df.order_pod == df.scope, 'ok', 'MISMATCH')))
     df.suspicion_name = px.select(df.suspicion == '', 'UNMATCHED', df.suspicion)
     df.pod_name = px.Pod(df.scope)
-    return df[['alert_time', 'hostname', 'pod_name', 'kind', 'rule_name', 'pod_match',
-               'suspicion_name', 'class', 'verdict', 'pc', 'num', 'den', 'order_pod',
-               'order_id', 'evaluated_at']]
+
+    df.called = _called(df)
+    df.attacked = px.select(px.contains(df.scope, attack_pods), 1, 0)
+    df.lens = 'all'
+    truth = df.groupby('lens').agg(attacked_rows=('attacked', px.sum))
+    df = df.merge(truth, how='left', left_on=['lens'], right_on=['lens'],
+                  suffixes=['', '_t'])
+    df.have_truth = px.select(df.attacked_rows > 0, 1, 0)
+
+    df.proof = px.select(df.called == 1,
+                         px.select(df.verdict == 'malicious', df.source, df.verdict), '')
+    df.pod_role = px.select(df.attacked == 1, 'attack', 'clean')
+    df.outcome = px.select(df.have_truth == 0, '',
+                           px.select(df.kind == 'unmatched', '',
+                                     px.select(df.called == 1,
+                                               px.select(df.attacked == 1, 'detected',
+                                                         'misattributed'),
+                                               px.select(df.attacked == 1, 'misattributed',
+                                                         'correct'))))
+    df.verdict = px.select(df.called == 1, 'malicious', df.verdict)
+    return df[['alert_time', 'pod_name', 'pod_role', 'suspicion_name', 'verdict', 'outcome',
+               'proof', 'rule_name', 'kind', 'pc', 'num', 'den', 'hostname', 'pod_match',
+               'class', 'order_pod', 'order_id', 'evaluated_at']]
 
 
 def parts(start_time: str, clickhouse_dsn: str, table: str, pod: str):
@@ -91,10 +112,59 @@ def by_suspicion(start_time: str, clickhouse_dsn: str, table: str, pod: str):
 
 def _called(df):
     return px.select((df.verdict == 'forest' or df.verdict == 'wire')
-                     or df.verdict == 'dc_snoop', 1, 0)
+                     or (df.verdict == 'dc_snoop' or df.verdict == 'malicious'), 1, 0)
 
 
-def by_pod(start_time: str, clickhouse_dsn: str, table: str, pod: str):
+def _finder(start_time: str, clickhouse_dsn: str, table: str, attack_pods: str):
+    df = _proof(start_time, clickhouse_dsn, table)
+    df = df[df.part == _SUMMARY]
+    df = df[df.suspicion != '']
+    df = df[px.contains(df.scope, attack_pods)]
+    df.kind = px.select(df.kpi == 'K-P1.evidence', 'evidence',
+                        px.select(df.kpi == 'K-P1.unmatched', 'unmatched', 'alert'))
+    df.called = _called(df)
+    df.is_alert = px.select(df.kind == 'alert', 1, 0)
+    df.is_ev = px.select(df.kind == 'evidence', 1, 0)
+    df.proved_by_alert = df.called * df.is_alert
+    df.proved_by_ev = df.called * df.is_ev
+    out = df.groupby('suspicion').agg(
+        evaluations=('order_id', px.count),
+        alerted=('is_alert', px.sum),
+        proved=('called', px.sum),
+        proved_alert=('proved_by_alert', px.sum),
+        proved_evidence=('proved_by_ev', px.sum),
+    )
+    out.finder = px.select(out.alerted > 0 and out.proved == 0, 'kubescape only',
+                           px.select(out.proved > 0 and out.proved_evidence == out.proved,
+                                     'dx only',
+                                     px.select(out.alerted > 0 and out.proved_alert > 0,
+                                               'both', 'none')))
+    return out
+
+
+def who_found(start_time: str, clickhouse_dsn: str, table: str, attack_pods: str):
+    out = _finder(start_time, clickhouse_dsn, table, attack_pods)
+    return out[['suspicion', 'finder', 'alerted', 'proved', 'proved_alert',
+                'proved_evidence', 'evaluations']]
+
+
+def who_found_summary(start_time: str, clickhouse_dsn: str, table: str, attack_pods: str):
+    out = _finder(start_time, clickhouse_dsn, table, attack_pods)
+    out.is_ks = px.select(out.finder == 'kubescape only', 1, 0)
+    out.is_dx = px.select(out.finder == 'dx only', 1, 0)
+    out.is_both = px.select(out.finder == 'both', 1, 0)
+    out.is_none = px.select(out.finder == 'none', 1, 0)
+    out.lens = 'suspicions in window'
+    return out.groupby('lens').agg(
+        kubescape_only=('is_ks', px.sum),
+        dx_only=('is_dx', px.sum),
+        both=('is_both', px.sum),
+        neither=('is_none', px.sum),
+        suspicions=('finder', px.count),
+    )
+
+
+def by_pod(start_time: str, clickhouse_dsn: str, table: str, orders_table: str, pod: str):
     df = _proof(start_time, clickhouse_dsn, table)
     df = df[df.part == _SUMMARY]
     df = df[px.contains(df.scope, pod)]
@@ -102,13 +172,26 @@ def by_pod(start_time: str, clickhouse_dsn: str, table: str, pod: str):
     df.called = _called(df)
     df.is_gap = px.select(df.verdict == 'gap', 1, 0)
     df.pod_name = px.Pod(df.scope)
-    return df.groupby(['pod_name', 'hostname']).agg(
+    agg = df.groupby(['pod_name', 'hostname', 'scope']).agg(
         evaluations=('order_id', px.count),
         matched=('called', px.sum),
         not_matched=('is_gap', px.sum),
         mean_parts_scored=('pc', px.mean),
+        first_seen=('event_time', px.min),
         last_seen=('event_time', px.max),
     )
+    agg.own_window = '-' + px.itoa(
+        px.floor((px.now() - agg.first_seen) / 1000000000) + 300) + 's'
+    agg.score = px.script_reference(agg.scope, 'dx/kpi_proof', {
+        'start_time': agg.own_window,
+        'clickhouse_dsn': clickhouse_dsn,
+        'attack_pods': agg.scope,
+        'pod': '',
+        'table': table,
+        'orders_table': orders_table,
+    })
+    return agg[['pod_name', 'hostname', 'evaluations', 'matched', 'not_matched',
+                'mean_parts_scored', 'first_seen', 'last_seen', 'own_window', 'score']]
 
 
 def _cells(start_time: str, clickhouse_dsn: str, table: str, attack_pods: str):

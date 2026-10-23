@@ -52,10 +52,55 @@
   "globalFuncs": [],
   "widgets": [
     {
-      "name": "Cases",
+      "name": "Alerts",
       "position": {
         "x": 0,
         "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "func": {
+        "name": "alerts",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "end_time",
+            "variable": "end_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "logs_table",
+            "variable": "logs_table"
+          },
+          {
+            "name": "case_table",
+            "variable": "case_table"
+          },
+          {
+            "name": "orders_table",
+            "variable": "orders_table"
+          },
+          {
+            "name": "pod",
+            "variable": "pod"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Cases",
+      "position": {
+        "x": 0,
+        "y": 8,
         "w": 12,
         "h": 10
       },
@@ -104,7 +149,7 @@
       "name": "Runs",
       "position": {
         "x": 0,
-        "y": 10,
+        "y": 18,
         "w": 12,
         "h": 3
       },

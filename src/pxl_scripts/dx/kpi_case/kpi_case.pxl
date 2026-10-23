@@ -51,6 +51,45 @@ def _alert(start_time: str, clickhouse_dsn: str, logs_table: str, keys):
     return out[['uid', 'pod', 'emitted', 'alert_full']]
 
 
+def alerts(start_time: str, end_time: str, clickhouse_dsn: str, logs_table: str, case_table: str,
+           orders_table: str, pod: str):
+    raw = px.DataFrame(logs_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    raw = raw[raw.event_time >= px.now() + px.parse_duration(start_time)]
+    raw = raw[raw.event_time <= px.now() + px.parse_duration(end_time)]
+    raw.uid = px.pluck(raw.BaseRuntimeMetadata, 'uniqueID')
+    raw.ns = px.pluck(raw.RuntimeK8sDetails, 'podNamespace')
+    raw.pn = px.pluck(raw.RuntimeK8sDetails, 'podName')
+    raw.pod = raw.ns + '/' + raw.pn
+    raw = raw[px.contains(raw.pod, pod)]
+    raw.alert_full = raw.RuleID + ' ' + raw.message + '\n' + 'node=' + raw.hostname
+    raw.alert_full = raw.alert_full + '\n' + raw.BaseRuntimeMetadata
+    raw.alert_full = raw.alert_full + '\n' + raw.RuntimeProcessDetails
+    raw.alert_full = raw.alert_full + '\n' + raw.RuntimeK8sDetails
+    raw.alert_full = px.select(raw.event == '', raw.alert_full, raw.alert_full + '\n' + raw.event)
+    raw.n = 1
+    a = raw.groupby(['uid', 'pod', 'RuleID']).agg(
+        first=('event_time', px.min), last=('event_time', px.max), emissions=('n', px.sum))
+    f = raw[['uid', 'pod', 'event_time', 'alert_full']]
+    a = a.merge(f, how='inner', left_on=['uid', 'pod', 'first'], right_on=['uid', 'pod', 'event_time'],
+                suffixes=['', '_f'])
+    a = a.groupby(['uid', 'pod', 'RuleID', 'first', 'last', 'emissions']).agg(
+        alert=('alert_full', px.any))
+    c = _cases(clickhouse_dsn, case_table, pod, '')
+    c = c[c.alert_ts > 0]
+    ou = _order_uid(start_time, clickhouse_dsn, orders_table)
+    c = c.merge(ou, how='left', left_on=['order_id'], right_on=['order_id'], suffixes=['', '_o'])
+    c.uid = px.select(c.alert_uid != '', c.alert_uid, c.uniqueID)
+    c.is_malicious = px.select(c.verdict == 'malicious', 1, 0)
+    cc = c.groupby(['uid', 'pod']).agg(cases=('suspicion', px.count), malicious=('is_malicious', px.sum))
+    a = a.merge(cc, how='left', left_on=['uid', 'pod'], right_on=['uid', 'pod'], suffixes=['', '_c'])
+    a.run = px.script_reference(px.Pod(a.pod), 'dx/kpi_case', {
+        'start_time': start_time, 'end_time': end_time, 'case_table': case_table, 'pod': a.pod})
+    a.rule = a.RuleID
+    a.first_seen = a.first
+    a.last_seen = a.last
+    return a[['first_seen', 'last_seen', 'emissions', 'run', 'rule', 'alert', 'cases', 'malicious']]
+
+
 def cases(start_time: str, end_time: str, clickhouse_dsn: str, case_table: str, orders_table: str,
           logs_table: str, pod: str, kpi_version: str):
     df = _cases(clickhouse_dsn, case_table, pod, kpi_version)

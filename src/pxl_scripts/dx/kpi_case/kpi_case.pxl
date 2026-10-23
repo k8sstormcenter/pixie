@@ -85,8 +85,8 @@ def alerts(start_time: str, end_time: str, clickhouse_dsn: str, logs_table: str,
     a.run = px.script_reference(px.Pod(a.pod), 'dx/kpi_case', {
         'start_time': start_time, 'end_time': end_time, 'case_table': case_table, 'pod': a.pod})
     a.rule = a.RuleID
-    a.first_seen = a.first
-    a.last_seen = a.last
+    a.first_seen = px.int64_to_time(a.first)
+    a.last_seen = px.int64_to_time(a.last)
     return a[['first_seen', 'last_seen', 'emissions', 'run', 'rule', 'alert', 'cases', 'malicious']]
 
 

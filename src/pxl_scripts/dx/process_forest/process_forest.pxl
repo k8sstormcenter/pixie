@@ -20,7 +20,8 @@ import px
 def _scoped(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm: str, scope: str):
     df = px.DataFrame('dx_forest__process', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[px.contains(df.namespace, namespace)]
-    df = df[px.contains(df.pod, pod)]
+    df.nspod = df.namespace + '/' + df.pod
+    df = df[px.contains(df.nspod, pod)]
     df = df[px.contains(df.comm, comm)]
     df.in_pod = df.pod != ''
     df.keep = px.select(scope == 'all', True, df.in_pod)

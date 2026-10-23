@@ -85,7 +85,7 @@ def parts(start_time: str, clickhouse_dsn: str, table: str, pod: str):
     df.pod_name = px.Pod(df.scope)
     df.suspicion_name = px.select(df.suspicion == '', 'UNMATCHED', df.suspicion)
     return df[['event_time', 'pod_name', 'suspicion_name', 'class', 'part', 'proven',
-               'source', 'rows', 'predicate', 'order_id']]
+               'source', 'rows', 'order_id']]
 
 
 def by_suspicion(start_time: str, clickhouse_dsn: str, table: str, pod: str):

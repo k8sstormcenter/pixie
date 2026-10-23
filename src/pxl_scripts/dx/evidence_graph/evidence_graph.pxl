@@ -250,7 +250,7 @@ def proof_parts(start_time: str, clickhouse_dsn: str, order_id: str):
     # on every row while proven says 0.89, which reads as "nothing proved".
     df.proven_pct = 100.0 * df.proven
     return df[['suspicion', 'part', 'source', 'proven_pct', 'rows', 'num', 'den',
-               'predicate', 'class', 'policy']]
+               'class', 'policy']]
 
 
 def verdicts(start_time: str, clickhouse_dsn: str, investigation_id: str):

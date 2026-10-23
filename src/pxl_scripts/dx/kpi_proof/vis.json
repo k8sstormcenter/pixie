@@ -35,12 +35,6 @@
       "type": "PX_STRING",
       "description": "Substring naming the pods that were actually attacked: the truth input for the confusion matrix. THE WINDOW MUST HOLD ONE DEMO RUN. A substring names one attack set, so if start_time reaches back over an earlier run, that run's attack pod is not named here and its true positives are counted as false positives instead - measured once as precision 0.52 where the real value was 1.00. Widening the substring to a shared prefix is not the fix: it sweeps in pods that were never attacked and their correct non-detections become false negatives. The default matches no pod, so the matrix reports nothing rather than a rate; leaving it EMPTY would match every pod and turn the fleet sum into a fake detection rate. A rate of -1 means undefined, not zero.",
       "defaultValue": "__no_attack_set__"
-    },
-    {
-      "name": "logs_table",
-      "type": "PX_STRING",
-      "defaultValue": "dx_src__kubescape_logs",
-      "description": "kubescape alert rows, joined to the KPI orders by uniqueID"
     }
   ],
   "globalFuncs": [
@@ -79,15 +73,9 @@
   ],
   "widgets": [
     {
-      "name": "Evidence per IOC",
-      "position": {
-        "x": 0,
-        "y": 0,
-        "w": 12,
-        "h": 6
-      },
+      "name": "Per pod",
       "func": {
-        "name": "evidence",
+        "name": "by_pod",
         "args": [
           {
             "name": "start_time",
@@ -106,10 +94,6 @@
             "variable": "orders_table"
           },
           {
-            "name": "logs_table",
-            "variable": "logs_table"
-          },
-          {
             "name": "pod",
             "variable": "pod"
           }
@@ -117,13 +101,19 @@
       },
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Table"
+      },
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 2
       }
     },
     {
       "name": "Who found it \u2014 summary",
       "position": {
         "x": 0,
-        "y": 6,
+        "y": 2,
         "w": 12,
         "h": 2
       },
@@ -156,7 +146,7 @@
       "name": "Who found it, per suspicion",
       "position": {
         "x": 0,
-        "y": 8,
+        "y": 4,
         "w": 12,
         "h": 5
       },
@@ -183,43 +173,6 @@
       },
       "displaySpec": {
         "@type": "types.px.dev/px.vispb.Table"
-      }
-    },
-    {
-      "name": "Per pod",
-      "func": {
-        "name": "by_pod",
-        "args": [
-          {
-            "name": "start_time",
-            "variable": "start_time"
-          },
-          {
-            "name": "clickhouse_dsn",
-            "variable": "clickhouse_dsn"
-          },
-          {
-            "name": "table",
-            "variable": "table"
-          },
-          {
-            "name": "orders_table",
-            "variable": "orders_table"
-          },
-          {
-            "name": "pod",
-            "variable": "pod"
-          }
-        ]
-      },
-      "displaySpec": {
-        "@type": "types.px.dev/px.vispb.Table"
-      },
-      "position": {
-        "x": 0,
-        "y": 13,
-        "w": 12,
-        "h": 2
       }
     },
     {
@@ -250,7 +203,7 @@
       },
       "position": {
         "x": 0,
-        "y": 15,
+        "y": 9,
         "w": 12,
         "h": 2
       }
@@ -283,7 +236,7 @@
       },
       "position": {
         "x": 0,
-        "y": 17,
+        "y": 11,
         "w": 6,
         "h": 2
       }
@@ -296,7 +249,7 @@
       },
       "position": {
         "x": 0,
-        "y": 19,
+        "y": 13,
         "w": 12,
         "h": 4
       }
@@ -329,7 +282,7 @@
       },
       "position": {
         "x": 0,
-        "y": 23,
+        "y": 17,
         "w": 6,
         "h": 3
       }
@@ -366,7 +319,7 @@
       },
       "position": {
         "x": 6,
-        "y": 23,
+        "y": 17,
         "w": 6,
         "h": 3
       }
@@ -399,7 +352,7 @@
       },
       "position": {
         "x": 0,
-        "y": 26,
+        "y": 23,
         "w": 12,
         "h": 4
       }

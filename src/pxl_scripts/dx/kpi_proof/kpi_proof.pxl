@@ -193,6 +193,8 @@ def by_pod(start_time: str, clickhouse_dsn: str, table: str, orders_table: str, 
     })
     agg.cases = px.script_reference('cases', 'dx/kpi_case', {
         'start_time': agg.own_window,
+        'end_time': '0s',
+        'case_table': 'dx_src__kpi_case',
         'pod': agg.scope,
     })
     return agg[['pod_name', 'cases', 'score', 'hostname', 'evaluations', 'matched', 'not_matched',

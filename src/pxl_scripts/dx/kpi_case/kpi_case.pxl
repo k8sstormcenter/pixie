@@ -17,26 +17,27 @@
 import px
 
 
-def _cases(time_from: str, time_to: str, clickhouse_dsn: str, table: str, pod: str,
-           kpi_version: str):
-    df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time='-30d')
+def _cases(clickhouse_dsn: str, case_table: str, pod: str, kpi_version: str):
+    df = px.DataFrame(case_table, clickhouse_dsn=clickhouse_dsn, start_time='-30d')
     df = df[px.contains(df.pod, pod)]
     df = df[px.contains(df.kpi_version, kpi_version)]
-    lo = px.now() + px.parse_duration(time_from)
-    hi = px.now() + px.parse_duration(time_to)
-    df.when = px.select(df.alert_ts > 0, df.alert_ts, df.scored_at)
-    df = df[df.when >= lo]
-    df = df[df.when <= hi]
     return df
 
 
-def _alert(time_from: str, clickhouse_dsn: str, logs_table: str, keys):
-    raw = px.DataFrame(logs_table, clickhouse_dsn=clickhouse_dsn, start_time=time_from)
+def _order_uid(start_time: str, clickhouse_dsn: str, orders_table: str):
+    orders = px.DataFrame(orders_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    orders = orders.groupby(['order_id', 'uniqueID']).agg(seen=('event_time', px.min))
+    return orders[['order_id', 'uniqueID']]
+
+
+def _alert(start_time: str, clickhouse_dsn: str, logs_table: str, keys):
+    raw = px.DataFrame(logs_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
+    raw = raw[raw.event_time >= px.now() + px.parse_duration(start_time)]
     raw.uid = px.pluck(raw.BaseRuntimeMetadata, 'uniqueID')
     raw.ns = px.pluck(raw.RuntimeK8sDetails, 'podNamespace')
     raw.pn = px.pluck(raw.RuntimeK8sDetails, 'podName')
     raw.pod = raw.ns + '/' + raw.pn
-    raw = raw[['uid', 'pod', 'RuleID', 'message', 'hostname', 'BaseRuntimeMetadata',
+    raw = raw[['event_time', 'uid', 'pod', 'RuleID', 'message', 'hostname', 'BaseRuntimeMetadata',
                'RuntimeProcessDetails', 'RuntimeK8sDetails', 'event']]
     raw = raw.merge(keys, how='inner', left_on=['uid', 'pod'], right_on=['uid', 'pod'],
                     suffixes=['', '_k'])
@@ -45,54 +46,61 @@ def _alert(time_from: str, clickhouse_dsn: str, logs_table: str, keys):
     raw.alert_full = raw.alert_full + '\n' + raw.RuntimeProcessDetails
     raw.alert_full = raw.alert_full + '\n' + raw.RuntimeK8sDetails
     raw.alert_full = px.select(raw.event == '', raw.alert_full, raw.alert_full + '\n' + raw.event)
-    out = raw.groupby(['uid', 'pod']).agg(alert_full=('alert_full', px.any))
-    return out[['uid', 'pod', 'alert_full']]
+    raw.emitted = raw.event_time
+    out = raw.groupby(['uid', 'pod', 'emitted']).agg(alert_full=('alert_full', px.any))
+    return out[['uid', 'pod', 'emitted', 'alert_full']]
 
 
-def _order_uid(time_from: str, time_to: str, clickhouse_dsn: str, orders_table: str):
-    orders = px.DataFrame(orders_table, clickhouse_dsn=clickhouse_dsn, start_time=time_from,
-                          end_time=time_to)
-    orders = orders.groupby(['order_id', 'uniqueID']).agg(seen=('event_time', px.min))
-    return orders[['order_id', 'uniqueID']]
-
-
-def cases(time_from: str, time_to: str, clickhouse_dsn: str, table: str, orders_table: str,
+def cases(start_time: str, end_time: str, clickhouse_dsn: str, case_table: str, orders_table: str,
           logs_table: str, pod: str, kpi_version: str):
-    df = _cases(time_from, time_to, clickhouse_dsn, table, pod, kpi_version)
-    ou = _order_uid(time_from, time_to, clickhouse_dsn, orders_table)
+    df = _cases(clickhouse_dsn, case_table, pod, kpi_version)
+    df.at = px.select(df.alert_ts > 0, df.alert_ts, df.scored_at)
+    lo = px.now() + px.parse_duration(start_time)
+    hi = px.now() + px.parse_duration(end_time)
+    df = df[df.at >= lo]
+    df = df[df.at <= hi]
+    ou = _order_uid(start_time, clickhouse_dsn, orders_table)
     df = df.merge(ou, how='left', left_on=['order_id'], right_on=['order_id'], suffixes=['', '_o'])
     df.uid = px.select(df.alert_uid != '', df.alert_uid, df.uniqueID)
     keys = df.groupby(['uid', 'pod']).agg(n=('suspicion', px.count))
     keys = keys[['uid', 'pod']]
-    al = _alert(time_from, clickhouse_dsn, logs_table, keys)
-    df = df.merge(al, how='left', left_on=['uid', 'pod'], right_on=['uid', 'pod'],
-                  suffixes=['', '_a'])
+    al = _alert(start_time, clickhouse_dsn, logs_table, keys)
+    j = df.merge(al, how='inner', left_on=['uid', 'pod'], right_on=['uid', 'pod'],
+                 suffixes=['', '_a'])
+    j.gap = px.abs(j.emitted - j.alert_ts)
+    best = j.groupby(['pod', 'suspicion', 'kpi_version', 'scored_at']).agg(gap=('gap', px.min))
+    j = j.merge(best, how='inner', left_on=['pod', 'suspicion', 'kpi_version', 'scored_at', 'gap'],
+                right_on=['pod', 'suspicion', 'kpi_version', 'scored_at', 'gap'], suffixes=['', '_b'])
+    j = j.groupby(['pod', 'suspicion', 'kpi_version', 'scored_at']).agg(
+        alert_full=('alert_full', px.any), emitted=('emitted', px.min))
+    df = df.merge(j, how='left', left_on=['pod', 'suspicion', 'kpi_version', 'scored_at'],
+                  right_on=['pod', 'suspicion', 'kpi_version', 'scored_at'], suffixes=['', '_j'])
+    df.at = px.select(df.alert_uid == '', px.select(df.emitted > 0, df.emitted, df.at), df.at)
     df.alert = px.select(df.uid == '', 'none — scored over the life of the pod',
                          px.select(df.alert_full == '',
                                    df.alert_rule + ' ' + df.alert_text, df.alert_full))
     df.pod_name = px.script_reference(px.Pod(df.pod), 'dx/kpi_proof', {
-        'start_time': time_from, 'attack_pods': df.pod, 'pod': df.pod})
+        'start_time': start_time, 'attack_pods': df.pod, 'pod': df.pod})
     df.order = px.script_reference(df.order_id, 'dx/evidence_graph', {
-        'start_time': time_from, 'order_id': df.order_id})
+        'start_time': start_time, 'order_id': df.order_id})
     df.forest = px.script_reference('forest', 'dx/process_forest', {
-        'start_time': time_from, 'namespace': '', 'pod': df.pod, 'comm': '', 'scope': 'pods'})
+        'start_time': start_time, 'namespace': '', 'pod': df.pod, 'comm': '', 'scope': 'pods'})
     df.dns = px.script_reference('dns', 'px/dns_data', {
-        'start_time': time_from, 'source_filter': df.pod, 'destination_filter': ''})
+        'start_time': start_time, 'source_filter': df.pod, 'destination_filter': ''})
     df.http = px.script_reference('http', 'px/http_data', {
-        'start_time': time_from, 'source_filter': df.pod, 'destination_filter': ''})
-    df.net = px.script_reference('net', 'px/pod', {'start_time': time_from, 'pod': df.pod})
+        'start_time': start_time, 'source_filter': df.pod, 'destination_filter': ''})
+    df.net = px.script_reference('net', 'px/pod', {'start_time': start_time, 'pod': df.pod})
     df.evidence = px.replace('dc_snoop', df.evidence, 'dentry_cache')
     df.proof = px.replace('dc_snoop', df.proof_source, 'dentry_cache')
     df.verdict = px.select(df.proof == '', df.verdict, df.verdict + ' · ' + df.proof)
-    df.alert_at = px.select(df.alert_ts == 0, px.int64_to_time(df.scored_at),
-                            px.int64_to_time(df.alert_ts))
+    df.alert_at = px.int64_to_time(df.at)
     df.scored = px.int64_to_time(df.scored_at)
-    return df[['pod_name', 'suspicion', 'class', 'alert_at', 'alert', 'evidence', 'verdict', 'order',
+    return df[['alert_at', 'pod_name', 'suspicion', 'class', 'alert', 'evidence', 'verdict', 'order',
                'forest', 'dns', 'http', 'net', 'evidence_rows', 'scored', 'kpi_version']]
 
 
-def suites(time_from: str, time_to: str, clickhouse_dsn: str, table: str):
-    df = px.DataFrame(table, clickhouse_dsn=clickhouse_dsn, start_time=time_from, end_time=time_to)
+def suites(start_time: str, end_time: str, clickhouse_dsn: str, case_table: str):
+    df = px.DataFrame(case_table, clickhouse_dsn=clickhouse_dsn, start_time=start_time, end_time=end_time)
     df.is_malicious = px.select(df.verdict == 'malicious', 1, 0)
     df.is_gap = px.select(df.verdict == 'gap', 1, 0)
     df.is_benign = px.select(df.verdict == 'benign', 1, 0)

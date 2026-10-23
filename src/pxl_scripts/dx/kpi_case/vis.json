@@ -1,13 +1,13 @@
 {
   "variables": [
     {
-      "name": "time_from",
+      "name": "start_time",
       "type": "PX_STRING",
       "description": "window start, relative to now (e.g. -3h)",
       "defaultValue": "-6h"
     },
     {
-      "name": "time_to",
+      "name": "end_time",
       "type": "PX_STRING",
       "description": "window end, relative to now (e.g. -1h); 0s = now",
       "defaultValue": "0s"
@@ -19,7 +19,7 @@
       "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
     },
     {
-      "name": "table",
+      "name": "case_table",
       "type": "PX_STRING",
       "description": "",
       "defaultValue": "dx_src__kpi_case"
@@ -63,20 +63,20 @@
         "name": "cases",
         "args": [
           {
-            "name": "time_from",
-            "variable": "time_from"
+            "name": "start_time",
+            "variable": "start_time"
           },
           {
-            "name": "time_to",
-            "variable": "time_to"
+            "name": "end_time",
+            "variable": "end_time"
           },
           {
             "name": "clickhouse_dsn",
             "variable": "clickhouse_dsn"
           },
           {
-            "name": "table",
-            "variable": "table"
+            "name": "case_table",
+            "variable": "case_table"
           },
           {
             "name": "orders_table",
@@ -112,20 +112,20 @@
         "name": "suites",
         "args": [
           {
-            "name": "time_from",
-            "variable": "time_from"
+            "name": "start_time",
+            "variable": "start_time"
           },
           {
-            "name": "time_to",
-            "variable": "time_to"
+            "name": "end_time",
+            "variable": "end_time"
           },
           {
             "name": "clickhouse_dsn",
             "variable": "clickhouse_dsn"
           },
           {
-            "name": "table",
-            "variable": "table"
+            "name": "case_table",
+            "variable": "case_table"
           }
         ]
       },

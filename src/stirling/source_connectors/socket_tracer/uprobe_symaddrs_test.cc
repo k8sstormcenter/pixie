@@ -31,11 +31,13 @@
 #include "src/stirling/obj_tools/dwarf_reader.h"
 #include "src/stirling/obj_tools/elf_reader.h"
 #include "src/stirling/obj_tools/go_syms.h"
-#include "src/stirling/obj_tools/testdata/go/go_https_server_fixture.h"
 #include "src/stirling/source_connectors/socket_tracer/uprobe_symaddrs.h"
+#include "src/stirling/testing/go_https_server_fixture.h"
 
 namespace px {
 namespace stirling {
+
+using ::px::stirling::testing::GoHTTPSServerFixture;
 
 using obj_tools::DwarfReader;
 using obj_tools::ElfReader;
@@ -354,6 +356,8 @@ TEST(GoOffsetLocator, FunctionArgSkipsArgsWithoutVersion) {
   EXPECT_EQ(args.size(), 1);
   EXPECT_NE(args.find("b"), args.end());
 }
+
+constexpr std::string_view kOffsetgenOffsetsFile = "src/stirling/offsetgen_offsets.json";
 
 const std::vector<std::pair<std::string_view, std::string_view>> kStdStructMembers = {
     {"runtime.g", "goid"},

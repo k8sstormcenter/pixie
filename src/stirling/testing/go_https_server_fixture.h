@@ -29,7 +29,7 @@
 
 namespace px {
 namespace stirling {
-namespace obj_tools {
+namespace testing {
 
 class GoHTTPSServerFixture {
  public:
@@ -37,15 +37,15 @@ class GoHTTPSServerFixture {
 
   static std::filesystem::path Path(std::string_view version) {
     if (IsPrebuilt(version)) {
-      return testing::BazelRunfilePath(
+      return ::px::testing::BazelRunfilePath(
           absl::StrCat(kTestDataDir, "golang_", version, "_server_binary"));
     }
-    return testing::BazelRunfilePath(
+    return ::px::testing::BazelRunfilePath(
         absl::StrCat(kGoHTTPSServerDir, "golang_", version, "_server_binary"));
   }
 
   static std::filesystem::path StrippedPath(std::string_view version) {
-    return testing::BazelRunfilePath(
+    return ::px::testing::BazelRunfilePath(
         absl::StrCat(kTestDataDir, "golang_", version, "_server_stripped_binary"));
   }
 
@@ -61,6 +61,6 @@ class GoHTTPSServerFixture {
   }
 };
 
-}  // namespace obj_tools
+}  // namespace testing
 }  // namespace stirling
 }  // namespace px

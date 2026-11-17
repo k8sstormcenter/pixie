@@ -17,7 +17,7 @@
  */
 
 #include "src/stirling/obj_tools/go_syms.h"
-#include "src/stirling/obj_tools/testdata/go/go_https_server_fixture.h"
+#include "src/stirling/testing/go_https_server_fixture.h"
 
 #include <algorithm>
 #include <memory>
@@ -29,6 +29,8 @@
 namespace px {
 namespace stirling {
 namespace obj_tools {
+
+using ::px::stirling::testing::GoHTTPSServerFixture;
 
 using ::testing::Field;
 using ::testing::Matcher;

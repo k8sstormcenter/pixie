@@ -22,11 +22,13 @@
 #include "src/common/testing/test_environment.h"
 #include "src/common/testing/testing.h"
 #include "src/stirling/obj_tools/testdata/cc/test_exe_fixture.h"
-#include "src/stirling/obj_tools/testdata/go/go_https_server_fixture.h"
+#include "src/stirling/testing/go_https_server_fixture.h"
 
 namespace px {
 namespace stirling {
 namespace obj_tools {
+
+using ::px::stirling::testing::GoHTTPSServerFixture;
 
 const TestExeFixture kTestExeFixture;
 

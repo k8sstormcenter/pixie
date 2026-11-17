@@ -23,14 +23,18 @@
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
+#include <absl/strings/str_cat.h>
+#include <absl/strings/str_join.h>
 
 #include "src/common/testing/testing.h"
 #include "src/stirling/obj_tools/elf_reader.h"
-#include "src/stirling/obj_tools/testdata/go/go_https_server_fixture.h"
+#include "src/stirling/testing/go_https_server_fixture.h"
 
 namespace px {
 namespace stirling {
 namespace obj_tools {
+
+using ::px::stirling::testing::GoHTTPSServerFixture;
 
 absl::flat_hash_map<std::string, ElfReader::SymbolInfo> SymtabByName(ElfReader* elf_reader,
                                                                      std::string_view prefix,
@@ -174,19 +178,26 @@ TEST_P(GoPclntabTest, ITabsMatchSymtab) {
   ASSERT_GT(symtab.size(), 50);
 
   absl::flat_hash_map<std::string, ElfReader::SymbolInfo> by_name;
+  absl::flat_hash_map<uint64_t, std::string> name_by_address;
   for (const auto& itab : itabs) {
     EXPECT_EQ(itab.type, ELFIO::STT_OBJECT);
     by_name.emplace(itab.name, itab);
+    name_by_address.emplace(itab.address, itab.name);
   }
 
   size_t matched = 0;
+  std::vector<std::string> mismatches;
   for (const auto& [name, sym] : symtab) {
     auto it = by_name.find(name);
     if (it != by_name.end() && it->second.address == sym.address) {
       ++matched;
+      continue;
     }
+    auto recovered = name_by_address.find(sym.address);
+    mismatches.push_back(absl::StrCat(
+        name, " -> ", recovered == name_by_address.end() ? "<none>" : recovered->second));
   }
-  EXPECT_GE(matched * 100, symtab.size() * 95);
+  EXPECT_GE(matched * 100, symtab.size() * 95) << absl::StrJoin(mismatches, "\n");
 
   for (std::string_view name : kProbedITabs) {
     SCOPED_TRACE(name);

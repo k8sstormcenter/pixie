@@ -46,6 +46,8 @@ constexpr uint64_t kModuleDataTypesOffset = 296;
 constexpr uint64_t kModuleDataEPclntabOffset = 328;
 constexpr uint64_t kModuleDataITabLinksOffset = 376;
 constexpr uint64_t kModuleDataITabLinksOffsetGo126 = 384;
+constexpr uint64_t kModuleDataITabOffsetGo127 = 320;
+constexpr uint64_t kModuleDataEPclntabOffsetGo127 = 352;
 
 constexpr uint64_t kTypeTFlagOffset = 20;
 constexpr uint64_t kTypeStrOffset = 40;
@@ -54,8 +56,10 @@ constexpr uint64_t kInterfaceTypePkgPathOffset = 48;
 constexpr uint64_t kInterfaceTypeMethodsLenOffset = 64;
 constexpr uint64_t kITabTypeOffset = 8;
 constexpr uint64_t kITabFunOffset = 24;
+constexpr uint64_t kITabHeaderSize = 32;
 
 constexpr uint64_t kMaxITabs = 1 << 20;
+constexpr uint64_t kMaxITabTableSize = 1 << 28;
 constexpr uint64_t kMaxInterfaceMethods = 1 << 12;
 constexpr uint64_t kMaxGoNameLength = 1 << 12;
 constexpr size_t kScanWindow = 1 << 20;
@@ -291,6 +295,58 @@ std::optional<std::string> GoPclntab::ITabReceiver(uint64_t itab_addr, uint64_t 
   return std::nullopt;
 }
 
+StatusOr<std::vector<uint64_t>> GoPclntab::ITabAddresses(uint64_t types_addr) {
+  const uint64_t epclntab = pclntab_addr_ + pclntab_size_;
+  std::vector<uint64_t> addrs;
+
+  auto epclntab_go127 = ReadU64(moduledata_addr_ + kModuleDataEPclntabOffsetGo127);
+  if (epclntab_go127.ok() && epclntab_go127.ValueOrDie() == epclntab) {
+    PX_ASSIGN_OR_RETURN(uint64_t itab_offset,
+                        ReadU64(moduledata_addr_ + kModuleDataITabOffsetGo127));
+    PX_ASSIGN_OR_RETURN(uint64_t itab_size,
+                        ReadU64(moduledata_addr_ + kModuleDataITabOffsetGo127 + 8));
+    if (itab_size > kMaxITabTableSize) {
+      return error::Internal("Implausible itab table size=$0 in binary=$1", itab_size,
+                             elf_reader_->binary_path());
+    }
+    const uint64_t end = types_addr + itab_offset + itab_size;
+    for (uint64_t p = types_addr + itab_offset; p < end && addrs.size() < kMaxITabs;) {
+      addrs.push_back(p);
+      PX_ASSIGN_OR_RETURN(uint64_t inter_addr, ReadU64(p));
+      PX_ASSIGN_OR_RETURN(uint64_t fun0, ReadU64(p + kITabFunOffset));
+      uint64_t size = kITabHeaderSize;
+      if (fun0 != 0) {
+        PX_ASSIGN_OR_RETURN(uint64_t num_methods,
+                            ReadU64(inter_addr + kInterfaceTypeMethodsLenOffset));
+        if (num_methods == 0 || num_methods > kMaxInterfaceMethods) {
+          return error::Internal("Implausible itab at address=$0 in binary=$1", p,
+                                 elf_reader_->binary_path());
+        }
+        size += (num_methods - 1) * sizeof(uint64_t);
+      }
+      p += size;
+    }
+    return addrs;
+  }
+
+  PX_ASSIGN_OR_RETURN(uint64_t epclntab_go126,
+                      ReadU64(moduledata_addr_ + kModuleDataEPclntabOffset));
+  const uint64_t links_offset =
+      epclntab_go126 == epclntab ? kModuleDataITabLinksOffsetGo126 : kModuleDataITabLinksOffset;
+  PX_ASSIGN_OR_RETURN(uint64_t links_addr, ReadU64(moduledata_addr_ + links_offset));
+  PX_ASSIGN_OR_RETURN(uint64_t num_links, ReadU64(moduledata_addr_ + links_offset + 8));
+  if (num_links > kMaxITabs) {
+    return error::Internal("Implausible itab count=$0 in binary=$1", num_links,
+                           elf_reader_->binary_path());
+  }
+  PX_ASSIGN_OR_RETURN(std::string links, ReadVirtual(links_addr, num_links * sizeof(uint64_t)));
+  for (uint64_t k = 0; k < num_links; ++k) {
+    addrs.push_back(::px::utils::LEndianBytesToInt<uint64_t>(
+        std::string_view(links).substr(k * sizeof(uint64_t))));
+  }
+  return addrs;
+}
+
 StatusOr<std::vector<ElfReader::SymbolInfo>> GoPclntab::ITabs() {
   if (magic_ != kGo120PclntabMagic) {
     return error::Unimplemented("Recovering itabs requires Go 1.20 or later, binary=$0",
@@ -301,22 +357,10 @@ StatusOr<std::vector<ElfReader::SymbolInfo>> GoPclntab::ITabs() {
                            elf_reader_->binary_path());
   }
   PX_ASSIGN_OR_RETURN(uint64_t types_addr, ReadU64(moduledata_addr_ + kModuleDataTypesOffset));
-  PX_ASSIGN_OR_RETURN(uint64_t epclntab, ReadU64(moduledata_addr_ + kModuleDataEPclntabOffset));
-  const uint64_t links_offset = epclntab == pclntab_addr_ + pclntab_size_
-                                    ? kModuleDataITabLinksOffsetGo126
-                                    : kModuleDataITabLinksOffset;
-  PX_ASSIGN_OR_RETURN(uint64_t links_addr, ReadU64(moduledata_addr_ + links_offset));
-  PX_ASSIGN_OR_RETURN(uint64_t num_links, ReadU64(moduledata_addr_ + links_offset + 8));
-  if (num_links > kMaxITabs) {
-    return error::Internal("Implausible itab count=$0 in binary=$1", num_links,
-                           elf_reader_->binary_path());
-  }
-  PX_ASSIGN_OR_RETURN(std::string links, ReadVirtual(links_addr, num_links * sizeof(uint64_t)));
+  PX_ASSIGN_OR_RETURN(std::vector<uint64_t> itab_addrs, ITabAddresses(types_addr));
 
   std::vector<ElfReader::SymbolInfo> itabs;
-  for (uint64_t k = 0; k < num_links; ++k) {
-    const uint64_t itab_addr = ::px::utils::LEndianBytesToInt<uint64_t>(
-        std::string_view(links).substr(k * sizeof(uint64_t)));
+  for (uint64_t itab_addr : itab_addrs) {
     auto inter_addr = ReadU64(itab_addr);
     auto type_addr = ReadU64(itab_addr + kITabTypeOffset);
     if (!inter_addr.ok() || !type_addr.ok()) {

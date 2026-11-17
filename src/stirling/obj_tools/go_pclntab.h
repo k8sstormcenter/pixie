@@ -58,6 +58,7 @@ class GoPclntab {
   StatusOr<std::string> TypeName(uint64_t type_addr, uint64_t types_addr);
   StatusOr<std::string> InterfaceName(uint64_t inter_addr, uint64_t types_addr);
   std::optional<std::string> ITabReceiver(uint64_t itab_addr, uint64_t inter_addr);
+  StatusOr<std::vector<uint64_t>> ITabAddresses(uint64_t types_addr);
 
   ElfReader* elf_reader_;
   uint32_t magic_ = 0;

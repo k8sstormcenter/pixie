@@ -303,6 +303,9 @@ StatusOr<std::vector<ElfReader::SymbolInfo>> ElfReader::SearchSymbols(
       break;
     }
   }
+  if (symbol_infos.empty() && !fallback_symbols_.empty()) {
+    return SearchFallbackSymbols(search_symbol, match_type, symbol_type, stop_at_first_match);
+  }
   return symbol_infos;
 }
 

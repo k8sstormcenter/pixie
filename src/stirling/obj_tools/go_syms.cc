@@ -52,12 +52,27 @@ bool IsGoExecutable(ElfReader* elf_reader) {
          elf_reader->SectionWithName(kGoBuildInfoSection).ok();
 }
 
+// Prefixes used to search for itable symbols in the binary. Follows the format:
+// <prefix>.<type_name>,<interface_name>. i.e. go.itab.<type_name>,<interface_name>
+constexpr std::array<std::string_view, 2> kITablePrefixes = {
+    "go:itab.",  // Prefix used by Go 1.20 binaries and later.
+    "go.itab.",  // Prefix used by Go 1.19 binaries and earlier.
+};
+
 Status PopulateGoPclntabSymbols(ElfReader* elf_reader) {
-  if (elf_reader->HasSymtab()) {
-    return Status::OK();
+  const bool has_symtab = elf_reader->HasSymtab();
+  if (has_symtab) {
+    auto symtab_itabs = elf_reader->SearchSymbols(kITablePrefixes[0], SymbolMatchType::kPrefix,
+                                                  ELFIO::STT_OBJECT, /*stop_at_first_match*/ true);
+    if (symtab_itabs.ok() && !symtab_itabs.ValueOrDie().empty()) {
+      return Status::OK();
+    }
   }
   PX_ASSIGN_OR_RETURN(std::unique_ptr<GoPclntab> pclntab, GoPclntab::Create(elf_reader));
-  std::vector<ElfReader::SymbolInfo> symbols = pclntab->funcs();
+  std::vector<ElfReader::SymbolInfo> symbols;
+  if (!has_symtab) {
+    symbols = pclntab->funcs();
+  }
   elf_reader->SetFallbackSymbols(symbols);
   auto itabs = pclntab->ITabs();
   if (itabs.ok()) {
@@ -325,13 +340,6 @@ StatusOr<std::pair<std::string, BuildInfo>> ReadGoBuildInfo(ElfReader* elf_reade
   PX_ASSIGN_OR_RETURN(auto s, ExtractSemVer(go_version));
   return std::make_pair(s, std::move(build_info));
 }
-
-// Prefixes used to search for itable symbols in the binary. Follows the format:
-// <prefix>.<type_name>,<interface_name>. i.e. go.itab.<type_name>,<interface_name>
-constexpr std::array<std::string_view, 2> kITablePrefixes = {
-    "go:itab.",  // Prefix used by Go 1.20 binaries and later.
-    "go.itab.",  // Prefix used by Go 1.19 binaries and earlier.
-};
 
 StatusOr<absl::flat_hash_map<std::string, std::vector<IntfImplTypeInfo>>> ExtractGolangInterfaces(
     ElfReader* elf_reader) {

@@ -136,11 +136,11 @@ pl_cc_test(
     name = "go_syms_test",
     srcs = ["go_syms_test.cc"],
     data = [
+        "//src/stirling/obj_tools/testdata/cc:stripped_exe",
         "//src/stirling/obj_tools/testdata/go:test_binaries",
         "//src/stirling/obj_tools/testdata/go:test_buildinfo_with_mods",
         "//src/stirling/obj_tools/testdata/go:test_go_1_17_binary",
         "//src/stirling/obj_tools/testdata/go:test_go_1_24_binary",
-        "//src/stirling/obj_tools/testdata/cc:stripped_exe",
         "//src/stirling/obj_tools/testdata/go/tls_fixture:test_binaries",
     ],
     deps = [

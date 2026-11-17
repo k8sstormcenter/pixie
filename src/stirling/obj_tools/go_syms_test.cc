@@ -354,8 +354,8 @@ TEST_P(StrippedGoBinaryTest, PopulateGoPclntabSymbols) {
     EXPECT_EQ(stripped->SymbolAddress(name), expected);
   }
 
-  ASSERT_OK_AND_ASSIGN(auto funcs, stripped->ListFuncSymbols("crypto/tls.(*Conn).Write",
-                                                             SymbolMatchType::kSuffix));
+  ASSERT_OK_AND_ASSIGN(
+      auto funcs, stripped->ListFuncSymbols("crypto/tls.(*Conn).Write", SymbolMatchType::kSuffix));
   ASSERT_EQ(funcs.size(), 1);
   auto write_addr = unstripped->SymbolAddress("crypto/tls.(*Conn).Write");
   ASSERT_TRUE(write_addr.has_value());

@@ -51,10 +51,23 @@ class GoPclntab {
  private:
   explicit GoPclntab(ElfReader* elf_reader) : elf_reader_(elf_reader) {}
 
-  [[maybe_unused]] ElfReader* elf_reader_;
+  Status Init();
+  Status ReadFuncs(uint64_t file_offset, uint64_t nfunc, uint64_t funcname_offset,
+                   uint64_t cu_offset, uint64_t pcln_offset);
+  StatusOr<uint64_t> FindModuleData(uint64_t funcnametab_addr);
+  StatusOr<std::string> ReadAt(uint64_t file_offset, size_t length);
+  StatusOr<std::string> ReadVirtual(uint64_t vaddr, size_t length);
+  StatusOr<uint64_t> ReadU64(uint64_t vaddr);
+  StatusOr<std::string> ReadGoName(uint64_t vaddr);
+  StatusOr<std::string> TypeName(uint64_t type_addr, uint64_t types_addr);
+  StatusOr<std::string> InterfaceName(uint64_t inter_addr, uint64_t types_addr);
+  std::optional<std::string> ITabReceiver(uint64_t itab_addr, uint64_t inter_addr);
+
+  ElfReader* elf_reader_;
   std::ifstream file_;
-  [[maybe_unused]] uint64_t pclntab_addr_ = 0;
-  [[maybe_unused]] uint64_t pclntab_size_ = 0;
+  uint32_t magic_ = 0;
+  uint64_t pclntab_addr_ = 0;
+  uint64_t pclntab_size_ = 0;
   uint64_t header_text_start_ = 0;
   uint64_t text_start_ = 0;
   uint64_t moduledata_addr_ = 0;

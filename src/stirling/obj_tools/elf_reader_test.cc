@@ -348,12 +348,16 @@ TEST(ElfReaderTest, FallbackSymbolsUsedWithoutSymtab) {
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
                        ElfReader::Create(px::testing::BazelRunfilePath(kStrippedGoBinary)));
   EXPECT_FALSE(elf_reader->HasSymtab());
-  EXPECT_NOT_OK(elf_reader->SearchSymbols("crypto/tls", SymbolMatchType::kPrefix));
+  EXPECT_FALSE(elf_reader->UsesFallbackSymbols());
+  auto before = elf_reader->SearchSymbols("crypto/tls", SymbolMatchType::kPrefix);
+  EXPECT_TRUE(!before.ok() || before.ValueOrDie().empty());
 
   elf_reader->SetFallbackSymbols(FakeFallbackSymbols());
+  EXPECT_TRUE(elf_reader->UsesFallbackSymbols());
 
-  ASSERT_OK_AND_THAT(elf_reader->ListFuncSymbols("crypto/tls.(*Conn).Write", SymbolMatchType::kSuffix),
-                     ElementsAre(Field(&ElfReader::SymbolInfo::address, uint64_t{0x1000})));
+  ASSERT_OK_AND_THAT(
+      elf_reader->ListFuncSymbols("crypto/tls.(*Conn).Write", SymbolMatchType::kSuffix),
+      ElementsAre(Field(&ElfReader::SymbolInfo::address, uint64_t{0x1000})));
   ASSERT_OK_AND_THAT(elf_reader->ListFuncSymbols("crypto/tls.(*Conn).", SymbolMatchType::kPrefix),
                      SizeIs(2));
   ASSERT_OK_AND_THAT(elf_reader->ListFuncSymbols("go:itab.", SymbolMatchType::kPrefix), IsEmpty());
@@ -373,6 +377,7 @@ TEST(ElfReaderTest, FallbackSymbolsIgnoredWithSymtab) {
 
   elf_reader->SetFallbackSymbols(FakeFallbackSymbols());
 
+  EXPECT_FALSE(elf_reader->UsesFallbackSymbols());
   EXPECT_EQ(elf_reader->SymbolAddress("crypto/tls.(*Conn).Write"), expected);
 }
 

@@ -17,6 +17,10 @@
  */
 
 #include "src/stirling/obj_tools/go_syms.h"
+
+#include <iterator>
+
+#include "src/stirling/obj_tools/go_pclntab.h"
 #include "src/stirling/utils/binary_decoder.h"
 
 namespace px {
@@ -41,13 +45,31 @@ struct gostring {
 
 }  // namespace
 
+constexpr std::string_view kGoBuildInfoSection = ".go.buildinfo";
+
 bool IsGoExecutable(ElfReader* elf_reader) {
-  return elf_reader->SearchTheOnlySymbol(obj_tools::kGoBuildVersionSymbol).ok();
+  return elf_reader->SearchTheOnlySymbol(obj_tools::kGoBuildVersionSymbol).ok() ||
+         elf_reader->SectionWithName(kGoBuildInfoSection).ok();
 }
 
-Status PopulateGoPclntabSymbols(ElfReader* /*elf_reader*/) { return Status::OK(); }
-
-constexpr std::string_view kGoBuildInfoSection = ".go.buildinfo";
+Status PopulateGoPclntabSymbols(ElfReader* elf_reader) {
+  if (elf_reader->HasSymtab()) {
+    return Status::OK();
+  }
+  PX_ASSIGN_OR_RETURN(std::unique_ptr<GoPclntab> pclntab, GoPclntab::Create(elf_reader));
+  std::vector<ElfReader::SymbolInfo> symbols = pclntab->funcs();
+  auto itabs = pclntab->ITabs();
+  if (itabs.ok()) {
+    std::vector<ElfReader::SymbolInfo> itab_symbols = itabs.ConsumeValueOrDie();
+    symbols.insert(symbols.end(), std::make_move_iterator(itab_symbols.begin()),
+                   std::make_move_iterator(itab_symbols.end()));
+  } else {
+    VLOG(1) << absl::Substitute("Could not recover itabs from binary $0: $1",
+                                elf_reader->binary_path(), itabs.msg());
+  }
+  elf_reader->SetFallbackSymbols(std::move(symbols));
+  return Status::OK();
+}
 // kGoBuildInfoMagic corresponds to "\xff Go buildinf:"
 // https://github.com/golang/go/blob/1dbbafc70fd3e2c284469ab3e0936c1bb56129f6/src/debug/buildinfo/buildinfo.go#L49
 std::string_view kGoBuildInfoMagic =

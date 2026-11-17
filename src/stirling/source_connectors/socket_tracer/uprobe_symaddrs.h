@@ -115,7 +115,8 @@ class GoOffsetLocator {
     std::map<std::string, obj_tools::ArgInfo> result;
 
     for (const auto& [arg_name, version_info_map] : fn_map) {
-      auto version_map = version_info_map.find(version_key);
+      auto version_map = version_info_map.find(
+          ResolveVersionKey(version_info_map, version_key, pkg_name == kGoStdlibPackageName));
       if (version_map == version_info_map.end()) {
         return error::Internal("Unable to find function location for arg=$0 version=$1", arg_name,
                                version_key);
@@ -144,12 +145,27 @@ class GoOffsetLocator {
     }
 
     std::string version_key = pkg_version_map_[std::string(pkg_name)];
-    auto version_map = member_map->second.find(version_key);
+    auto version_map = member_map->second.find(
+        ResolveVersionKey(member_map->second, version_key, pkg_name == kGoStdlibPackageName));
     if (version_map == member_map->second.end()) {
       return error::Internal("Unable to find offsets for struct member=$0.$1 for version $2",
                              struct_name, member_name, version_key);
     }
     return version_map->second;
+  }
+
+  template <typename TVersionMap>
+  static std::string ResolveVersionKey(const TVersionMap& versions, const std::string& requested,
+                                       bool same_minor_only) {
+    if (versions.find(requested) != versions.end()) {
+      return requested;
+    }
+    std::vector<std::string> available;
+    available.reserve(versions.size());
+    for (const auto& [version, value] : versions) {
+      available.push_back(version);
+    }
+    return ResolveOffsetVersion(available, requested, same_minor_only).value_or(requested);
   }
 
   void PopulateModuleVersions(const obj_tools::BuildInfo& build_info) {

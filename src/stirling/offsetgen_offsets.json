@@ -1573,7 +1573,9 @@
         "1.24.0": 0,
         "1.24.1": 0,
         "1.24.2": 0,
-        "1.24.3": 0
+        "1.24.3": 0,
+        "1.25.8": 0,
+        "1.26.7": 0
       }
     },
     "internal/poll.FD": {
@@ -1647,7 +1649,9 @@
         "1.24.0": 16,
         "1.24.1": 16,
         "1.24.2": 16,
-        "1.24.3": 16
+        "1.24.3": 16,
+        "1.25.8": 16,
+        "1.26.7": 16
       }
     },
     "net/http.http2DataFrame": {
@@ -1721,7 +1725,9 @@
         "1.24.0": 16,
         "1.24.1": 16,
         "1.24.2": 16,
-        "1.24.3": 16
+        "1.24.3": 16,
+        "1.25.8": 16,
+        "1.26.7": 16
       }
     },
     "net/http.http2FrameHeader": {
@@ -1795,7 +1801,9 @@
         "1.24.0": 2,
         "1.24.1": 2,
         "1.24.2": 2,
-        "1.24.3": 2
+        "1.24.3": 2,
+        "1.25.8": 2,
+        "1.26.7": 2
       },
       "StreamID": {
         "1.19.0": 8,
@@ -1867,7 +1875,9 @@
         "1.24.0": 8,
         "1.24.1": 8,
         "1.24.2": 8,
-        "1.24.3": 8
+        "1.24.3": 8,
+        "1.25.8": 8,
+        "1.26.7": 8
       },
       "Type": {
         "1.19.0": 1,
@@ -1939,7 +1949,9 @@
         "1.24.0": 1,
         "1.24.1": 1,
         "1.24.2": 1,
-        "1.24.3": 1
+        "1.24.3": 1,
+        "1.25.8": 1,
+        "1.26.7": 1
       }
     },
     "net/http.http2Framer": {
@@ -2013,7 +2025,9 @@
         "1.24.0": 120,
         "1.24.1": 120,
         "1.24.2": 120,
-        "1.24.3": 120
+        "1.24.3": 120,
+        "1.25.8": 120,
+        "1.26.7": 120
       }
     },
     "net/http.http2HeadersFrame": {
@@ -2087,7 +2101,9 @@
         "1.24.0": 0,
         "1.24.1": 0,
         "1.24.2": 0,
-        "1.24.3": 0
+        "1.24.3": 0,
+        "1.25.8": 0,
+        "1.26.7": 0
       }
     },
     "net/http.http2MetaHeadersFrame": {
@@ -2161,7 +2177,9 @@
         "1.24.0": 8,
         "1.24.1": 8,
         "1.24.2": 8,
-        "1.24.3": 8
+        "1.24.3": 8,
+        "1.25.8": 8,
+        "1.26.7": 8
       },
       "http2HeadersFrame": {
         "1.19.0": 0,
@@ -2233,7 +2251,9 @@
         "1.24.0": 0,
         "1.24.1": 0,
         "1.24.2": 0,
-        "1.24.3": 0
+        "1.24.3": 0,
+        "1.25.8": 0,
+        "1.26.7": 0
       }
     },
     "net/http.http2bufferedWriter": {
@@ -2307,7 +2327,17 @@
         "1.23.6": 0,
         "1.23.7": 0,
         "1.23.8": 0,
-        "1.23.9": 0
+        "1.23.9": 0,
+        "1.25.8": null,
+        "1.26.7": null
+      },
+      "conn": {
+        "1.25.8": 16,
+        "1.26.7": 0,
+        "1.24.0": 16,
+        "1.24.1": 16,
+        "1.24.2": 16,
+        "1.24.3": 16
       }
     },
     "net/http.http2serverConn": {
@@ -2381,7 +2411,9 @@
         "1.24.0": 16,
         "1.24.1": 16,
         "1.24.2": 16,
-        "1.24.3": 16
+        "1.24.3": 16,
+        "1.25.8": 16,
+        "1.26.7": 16
       },
       "hpackEncoder": {
         "1.19.0": 360,
@@ -2453,7 +2485,9 @@
         "1.24.0": 456,
         "1.24.1": 456,
         "1.24.2": 456,
-        "1.24.3": 456
+        "1.24.3": 456,
+        "1.25.8": 456,
+        "1.26.7": 432
       }
     },
     "net/http.http2writeResHeaders": {
@@ -2527,7 +2561,9 @@
         "1.24.0": 48,
         "1.24.1": 48,
         "1.24.2": 48,
-        "1.24.3": 48
+        "1.24.3": 48,
+        "1.25.8": 48,
+        "1.26.7": 48
       },
       "streamID": {
         "1.19.0": 0,
@@ -2599,7 +2635,9 @@
         "1.24.0": 0,
         "1.24.1": 0,
         "1.24.2": 0,
-        "1.24.3": 0
+        "1.24.3": 0,
+        "1.25.8": 0,
+        "1.26.7": 0
       }
     },
     "runtime.g": {
@@ -2673,7 +2711,9 @@
         "1.24.0": 160,
         "1.24.1": 160,
         "1.24.2": 160,
-        "1.24.3": 160
+        "1.24.3": 160,
+        "1.25.8": 152,
+        "1.26.7": 152
       }
     },
     "runtime.hmap": {
@@ -10189,6 +10229,14 @@
         "1.24.3": {
           "location": "registers",
           "offset": 8
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 8
         }
       },
       "c": {
@@ -10469,6 +10517,14 @@
           "offset": 0
         },
         "1.24.3": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.26.7": {
           "location": "registers",
           "offset": 0
         }
@@ -10753,6 +10809,14 @@
         "1.24.3": {
           "location": "registers",
           "offset": 0
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 0
         }
       },
       "~r1": {
@@ -11033,6 +11097,14 @@
           "offset": 8
         },
         "1.24.3": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.26.7": {
           "location": "registers",
           "offset": 8
         }
@@ -11319,6 +11391,14 @@
         "1.24.3": {
           "location": "registers",
           "offset": 8
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 8
         }
       },
       "c": {
@@ -11599,6 +11679,14 @@
           "offset": 0
         },
         "1.24.3": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.26.7": {
           "location": "registers",
           "offset": 0
         }
@@ -11883,6 +11971,14 @@
         "1.24.3": {
           "location": "registers",
           "offset": 0
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 0
         }
       },
       "~r1": {
@@ -12163,6 +12259,14 @@
           "offset": 8
         },
         "1.24.3": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.26.7": {
           "location": "registers",
           "offset": 8
         }
@@ -12449,6 +12553,14 @@
         "1.24.3": {
           "location": "registers",
           "offset": 24
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 24
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 24
         }
       },
       "endStream": {
@@ -12731,6 +12843,14 @@
         "1.24.3": {
           "location": "registers",
           "offset": 16
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 16
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 16
         }
       },
       "f": {
@@ -13011,6 +13131,14 @@
           "offset": 0
         },
         "1.24.3": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.26.7": {
           "location": "registers",
           "offset": 0
         }
@@ -13295,6 +13423,34 @@
         "1.24.3": {
           "location": "registers",
           "offset": 8
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 8
+        }
+      },
+      "pad": {
+        "1.25.8": {
+          "location": "registers",
+          "offset": 48
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 48
+        }
+      },
+      "~r0": {
+        "1.25.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 0
         }
       }
     },
@@ -13579,6 +13735,10 @@
         "1.24.3": {
           "location": "registers",
           "offset": 8
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 8
         }
       },
       "fr": {
@@ -13861,6 +14021,30 @@
         "1.24.3": {
           "location": "registers",
           "offset": 0
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 0
+        }
+      },
+      "~r0": {
+        "1.25.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 0
+        }
+      },
+      "fh": {
+        "1.26.7": {
+          "location": "registers",
+          "offset": 8
         }
       }
     },
@@ -14145,6 +14329,14 @@
         "1.24.3": {
           "location": "registers",
           "offset": 8
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 8
         }
       },
       "sc": {
@@ -14425,6 +14617,24 @@
           "offset": 0
         },
         "1.24.3": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 0
+        }
+      },
+      "~r0": {
+        "1.25.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.26.7": {
           "location": "registers",
           "offset": 0
         }
@@ -14711,6 +14921,14 @@
         "1.24.3": {
           "location": "registers",
           "offset": 8
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 8
         }
       },
       "w": {
@@ -14991,6 +15209,24 @@
           "offset": 0
         },
         "1.24.3": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 0
+        }
+      },
+      "~r0": {
+        "1.25.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.26.7": {
           "location": "registers",
           "offset": 0
         }

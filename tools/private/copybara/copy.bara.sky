@@ -47,6 +47,7 @@ ignored_dirs = [
     "bazel/repositories.bzl", # to be upstreamed
     "bazel/repository_locations.bzl", # to be upstreamed
     "bazel/container_images.bzl", # to be upstreamed
+    "bazel/go_container.bzl", # To be upstreamed
     "bazel/external/clickhouse_cpp.BUILD", # to be upstreamd
     "src/carnot/BUILD.bazel", # To be upstreamed
     "src/carnot/carnot.cc",   # To be upstreamed
@@ -109,6 +110,8 @@ ignored_dirs = [
     "src/stirling/source_connectors/dynamic_tracer/stirling_dt_bpf_test.cc", # To be upstreamed
     "src/stirling/source_connectors/socket_tracer/BUILD.bazel", # To be upstreamed
     "src/stirling/source_connectors/socket_tracer/testdata/**", # To be upstreamed
+    "src/stirling/source_connectors/socket_tracer/go_tls_trace_bpf_test.cc", # To be upstreamed
+    "src/stirling/source_connectors/socket_tracer/http2_trace_bpf_test.cc", # To be upstreamed
     "src/stirling/source_connectors/socket_tracer/uprobe_manager.cc", # To be upstreamed
     "src/stirling/testing/BUILD.bazel", # To be upstreamed
     "src/stirling/testing/go_https_server_fixture.h", # To be upstreamed

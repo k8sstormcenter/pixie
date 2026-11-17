@@ -672,29 +672,6 @@ Status PopulateGoTLSDebugSymbols(GoOffsetLocator* offset_locator,
   return Status::OK();
 }
 
-namespace {
-
-std::optional<std::array<int, 3>> ParseOffsetVersion(std::string_view version) {
-  std::array<int, 3> parsed = {0, 0, 0};
-  std::vector<std::string_view> fields = absl::StrSplit(version, '.');
-  if (fields.size() < 2) {
-    return std::nullopt;
-  }
-  for (size_t i = 0; i < parsed.size() && i < fields.size(); ++i) {
-    std::string_view field = fields[i];
-    size_t digits = 0;
-    while (digits < field.size() && absl::ascii_isdigit(field[digits])) {
-      ++digits;
-    }
-    if (digits == 0 || !absl::SimpleAtoi(field.substr(0, digits), &parsed[i])) {
-      return std::nullopt;
-    }
-  }
-  return parsed;
-}
-
-}  // namespace
-
 std::optional<std::string> ResolveOffsetVersion(const std::vector<std::string>& available,
                                                 std::string_view requested, bool same_minor_only) {
   for (const auto& v : available) {
@@ -702,28 +679,29 @@ std::optional<std::string> ResolveOffsetVersion(const std::vector<std::string>& 
       return v;
     }
   }
-  std::optional<std::array<int, 3>> req = ParseOffsetVersion(requested);
-  if (!req.has_value()) {
+  StatusOr<SemVer> req = GetSemVer(std::string(requested), /*strict*/ false);
+  if (!req.ok()) {
     return std::nullopt;
   }
-  std::optional<std::pair<std::array<int, 3>, std::string>> older;
-  std::optional<std::pair<std::array<int, 3>, std::string>> newer;
+  std::optional<std::pair<SemVer, std::string>> older;
+  std::optional<std::pair<SemVer, std::string>> newer;
   for (const auto& v : available) {
-    std::optional<std::array<int, 3>> parsed = ParseOffsetVersion(v);
-    if (!parsed.has_value()) {
+    StatusOr<SemVer> parsed = GetSemVer(v, /*strict*/ false);
+    if (!parsed.ok()) {
       continue;
     }
-    const bool same_minor = (*parsed)[0] == (*req)[0] && (*parsed)[1] == (*req)[1];
+    const bool same_minor = parsed.ValueOrDie().major == req.ValueOrDie().major &&
+                            parsed.ValueOrDie().minor == req.ValueOrDie().minor;
     if (same_minor_only && !same_minor) {
       continue;
     }
-    if (*parsed <= *req) {
-      if (!older.has_value() || older->first < *parsed) {
-        older = std::make_pair(*parsed, v);
+    if (parsed.ValueOrDie() <= req.ValueOrDie()) {
+      if (!older.has_value() || older->first < parsed.ValueOrDie()) {
+        older = std::make_pair(parsed.ValueOrDie(), v);
       }
     } else if (same_minor) {
-      if (!newer.has_value() || *parsed < newer->first) {
-        newer = std::make_pair(*parsed, v);
+      if (!newer.has_value() || parsed.ValueOrDie() < newer->first) {
+        newer = std::make_pair(parsed.ValueOrDie(), v);
       }
     }
   }

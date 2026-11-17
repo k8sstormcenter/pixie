@@ -52,16 +52,3 @@ pl_cc_bpf_test(
         "//src/stirling/testing:cc_library",
     ],
 )
-
-pl_cc_bpf_test(
-    name = "stirling_dynamic_bpftrace_bpf_test",
-    timeout = "moderate",
-    srcs = ["stirling_dynamic_bpftrace_bpf_test.cc"],
-    tags = [
-        "cpu:16",
-        "requires_bpf",
-    ],
-    deps = [
-        "//src/stirling:cc_library",
-    ],
-)

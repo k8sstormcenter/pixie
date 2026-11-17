@@ -51,7 +51,7 @@ go_tls_fixture_versions = [v.replace(".", "_") for v in pl_supported_go_sdk_vers
         name = "test_go_tls_%s_stripped_binary_target" % v,
         srcs = [":test_go_tls_%s_binary" % v],
         outs = ["test_go_tls_%s_stripped_binary" % v],
-        cmd = "$(OBJCOPY) --strip-all $< $@",
+        cmd = "$(OBJCOPY) --strip-all $(location :test_go_tls_%s_binary) $(location test_go_tls_%s_stripped_binary)" % (v, v),
         toolchains = ["@bazel_tools//tools/cpp:current_cc_toolchain"],
     )
     for v in go_tls_fixture_versions

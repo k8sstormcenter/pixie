@@ -269,11 +269,10 @@ static auto NoTextStartAddrError =
 StatusOr<std::vector<ElfReader::SymbolInfo>> ElfReader::SearchSymbols(
     std::string_view search_symbol, SymbolMatchType match_type, std::optional<int> symbol_type,
     bool stop_at_first_match) {
-  auto symtab_section_or = SymtabSection();
   if (UsesFallbackSymbols()) {
     return SearchFallbackSymbols(search_symbol, match_type, symbol_type, stop_at_first_match);
   }
-  PX_ASSIGN_OR_RETURN(ELFIO::section * symtab_section, symtab_section_or);
+  PX_ASSIGN_OR_RETURN(ELFIO::section * symtab_section, SymtabSection());
 
   std::vector<SymbolInfo> symbol_infos;
 

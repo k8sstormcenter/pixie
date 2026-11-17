@@ -18,6 +18,9 @@
 
 #include "src/stirling/source_connectors/socket_tracer/uprobe_symaddrs.h"
 #include <dlfcn.h>
+#include <rapidjson/error/en.h>
+#include <rapidjson/istreamwrapper.h>
+#include <rapidjson/reader.h>
 
 #include <algorithm>
 #include <array>
@@ -26,10 +29,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-
-#include <rapidjson/error/en.h>
-#include <rapidjson/istreamwrapper.h>
-#include <rapidjson/reader.h>
 
 #include "src/common/base/base.h"
 #include "src/common/fs/fs_wrapper.h"
@@ -123,7 +122,7 @@ obj_tools::LocationType ParseLocationType(const std::string& loc) {
 class GoOffsetgenHandler
     : public rapidjson::BaseReaderHandler<rapidjson::UTF8<>, GoOffsetgenHandler> {
  public:
-  GoOffsetgenHandler(StructOffsetMap& struct_offsets, FunctionArgMap& func_offsets)
+  GoOffsetgenHandler(StructOffsetMap* struct_offsets, FunctionArgMap* func_offsets)
       : struct_offsets_(struct_offsets), func_offsets_(func_offsets) {}
 
   bool Null() {
@@ -131,15 +130,15 @@ class GoOffsetgenHandler
       case ParseState::kExpectVersionValue:
         if (current_section_ == Section::kStructs) {
           // For structs, null means offset = -1
-          struct_offsets_[current_entity_name_].second[current_member_name_][current_version_key_] =
-              -1;
+          (*struct_offsets_)[current_entity_name_]
+              .second[current_member_name_][current_version_key_] = -1;
         } else {
           // For funcs, null means unknown location with offset = -1
           auto loc = std::make_unique<obj_tools::VarLocation>();
           loc->loc_type = obj_tools::LocationType::kUnknown;
           loc->offset = -1;
-          func_offsets_[current_entity_name_].second[current_member_name_][current_version_key_] =
-              std::move(loc);
+          (*func_offsets_)[current_entity_name_]
+              .second[current_member_name_][current_version_key_] = std::move(loc);
         }
         state_ = ParseState::kExpectVersionKeyOrEnd;
         return true;
@@ -232,11 +231,13 @@ class GoOffsetgenHandler
         current_entity_name_ = key;
         // Set package prefix
         if (current_section_ == Section::kStructs) {
-          std::string_view pkg = FindMatchingPkgPrefix(current_entity_name_, kGoPackagePrefixes).first;
-          struct_offsets_[current_entity_name_].first = pkg;
+          std::string_view pkg =
+              FindMatchingPkgPrefix(current_entity_name_, kGoPackagePrefixes).first;
+          (*struct_offsets_)[current_entity_name_].first = pkg;
         } else {
-          std::string_view pkg = FindMatchingPkgPrefix(current_entity_name_, kGoPackagePrefixes).first;
-          func_offsets_[current_entity_name_].first = pkg;
+          std::string_view pkg =
+              FindMatchingPkgPrefix(current_entity_name_, kGoPackagePrefixes).first;
+          (*func_offsets_)[current_entity_name_].first = pkg;
         }
         state_ = ParseState::kExpectEntityStart;
         return true;
@@ -295,8 +296,8 @@ class GoOffsetgenHandler
           auto loc = std::make_unique<obj_tools::VarLocation>();
           loc->loc_type = ParseLocationType(pending_location_);
           loc->offset = pending_offset_;
-          func_offsets_[current_entity_name_].second[current_member_name_][current_version_key_] =
-              std::move(loc);
+          (*func_offsets_)[current_entity_name_]
+              .second[current_member_name_][current_version_key_] = std::move(loc);
         }
         state_ = ParseState::kExpectVersionKeyOrEnd;
         return true;
@@ -327,8 +328,8 @@ class GoOffsetgenHandler
     switch (state_) {
       case ParseState::kExpectVersionValue:
         if (current_section_ == Section::kStructs) {
-          struct_offsets_[current_entity_name_].second[current_member_name_][current_version_key_] =
-              offset;
+          (*struct_offsets_)[current_entity_name_]
+              .second[current_member_name_][current_version_key_] = offset;
           state_ = ParseState::kExpectVersionKeyOrEnd;
           return true;
         }
@@ -352,17 +353,17 @@ class GoOffsetgenHandler
   }
 
   // References to output data structures
-  StructOffsetMap& struct_offsets_;
-  FunctionArgMap& func_offsets_;
+  StructOffsetMap* struct_offsets_;
+  FunctionArgMap* func_offsets_;
 
   // State tracking
   ParseState state_ = ParseState::kExpectRootStart;
   Section current_section_ = Section::kNone;
 
   // Current context tracking (nesting levels)
-  std::string current_entity_name_;   // struct or func name (Level 2)
-  std::string current_member_name_;   // field or arg name (Level 3)
-  std::string current_version_key_;   // version string (Level 4)
+  std::string current_entity_name_;  // struct or func name (Level 2)
+  std::string current_member_name_;  // field or arg name (Level 3)
+  std::string current_version_key_;  // version string (Level 4)
 
   // For parsing location objects in funcs
   std::string pending_location_;
@@ -930,7 +931,7 @@ void ParseGoOffsetgenFile(const std::string& offsetgen_file, StructOffsetMap* st
   }
 
   rapidjson::IStreamWrapper isw(file);
-  GoOffsetgenHandler handler(*struct_offsets, *function_args);
+  GoOffsetgenHandler handler(struct_offsets, function_args);
   rapidjson::Reader reader;
 
   rapidjson::ParseResult result = reader.Parse(isw, handler);
@@ -939,8 +940,7 @@ void ParseGoOffsetgenFile(const std::string& offsetgen_file, StructOffsetMap* st
     if (handler.HasError()) {
       LOG(ERROR) << absl::Substitute("JSON semantic error: $0", handler.GetError());
     } else {
-      LOG(ERROR) << absl::Substitute("JSON parse error at offset=$0: $1",
-                                     result.Offset(),
+      LOG(ERROR) << absl::Substitute("JSON parse error at offset=$0: $1", result.Offset(),
                                      rapidjson::GetParseError_En(result.Code()));
     }
     return;

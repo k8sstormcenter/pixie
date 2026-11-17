@@ -105,6 +105,8 @@ class BPFTraceWrapper {
    */
   bpftrace::BPFtrace* mutable_bpftrace() { return &bpftrace_; }
 
+  static std::mutex& compilation_mutex();
+
  private:
   Status Compile(std::string_view script, const std::vector<std::string>& params);
 

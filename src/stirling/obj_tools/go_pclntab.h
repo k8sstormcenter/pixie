@@ -18,7 +18,6 @@
 
 #pragma once
 
-#include <fstream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -44,18 +43,15 @@ class GoPclntab {
 
   const std::vector<ElfReader::SymbolInfo>& funcs() const { return funcs_; }
 
-  std::optional<std::string_view> FuncNameForPC(uint64_t pc) const;
-
   StatusOr<std::vector<ElfReader::SymbolInfo>> ITabs();
 
  private:
   explicit GoPclntab(ElfReader* elf_reader) : elf_reader_(elf_reader) {}
 
   Status Init();
-  Status ReadFuncs(uint64_t file_offset, uint64_t nfunc, uint64_t funcname_offset,
+  Status ReadFuncs(std::string_view pclntab, uint64_t nfunc, uint64_t funcname_offset,
                    uint64_t cu_offset, uint64_t pcln_offset);
   StatusOr<uint64_t> FindModuleData(uint64_t funcnametab_addr);
-  StatusOr<std::string> ReadAt(uint64_t file_offset, size_t length);
   StatusOr<std::string> ReadVirtual(uint64_t vaddr, size_t length);
   StatusOr<uint64_t> ReadU64(uint64_t vaddr);
   StatusOr<std::string> ReadGoName(uint64_t vaddr);
@@ -64,7 +60,6 @@ class GoPclntab {
   std::optional<std::string> ITabReceiver(uint64_t itab_addr, uint64_t inter_addr);
 
   ElfReader* elf_reader_;
-  std::ifstream file_;
   uint32_t magic_ = 0;
   uint64_t pclntab_addr_ = 0;
   uint64_t pclntab_size_ = 0;

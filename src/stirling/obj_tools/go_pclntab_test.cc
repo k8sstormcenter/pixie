@@ -26,17 +26,11 @@
 
 #include "src/common/testing/testing.h"
 #include "src/stirling/obj_tools/elf_reader.h"
+#include "src/stirling/obj_tools/testdata/go/go_https_server_fixture.h"
 
 namespace px {
 namespace stirling {
 namespace obj_tools {
-
-constexpr std::string_view kFixtureDir = "src/stirling/obj_tools/testdata/go/tls_fixture/";
-
-std::string FixturePath(std::string_view version, bool stripped) {
-  return px::testing::BazelRunfilePath(
-      absl::StrCat(kFixtureDir, "test_go_tls_", version, stripped ? "_stripped" : "", "_binary"));
-}
 
 absl::flat_hash_map<std::string, ElfReader::SymbolInfo> SymtabByName(ElfReader* elf_reader,
                                                                      std::string_view prefix,
@@ -71,8 +65,9 @@ const std::vector<std::string_view> kProbedITabs = {
 class GoPclntabTest : public ::testing::TestWithParam<std::string_view> {
  protected:
   void SetUp() override {
-    ASSERT_OK_AND_ASSIGN(elf_, ElfReader::Create(FixturePath(GetParam(), false)));
-    ASSERT_OK_AND_ASSIGN(stripped_elf_, ElfReader::Create(FixturePath(GetParam(), true)));
+    ASSERT_OK_AND_ASSIGN(elf_, ElfReader::Create(GoHTTPSServerFixture::Path(GetParam())));
+    ASSERT_OK_AND_ASSIGN(stripped_elf_,
+                         ElfReader::Create(GoHTTPSServerFixture::StrippedPath(GetParam())));
   }
 
   std::unique_ptr<ElfReader> elf_;
@@ -162,13 +157,14 @@ TEST_P(GoPclntabTest, ReturnInstructionsMatchSymtab) {
   }
 }
 
-TEST_P(GoPclntabTest, FuncNameForPC) {
+TEST_P(GoPclntabTest, FuncsResolveAddressesWithoutSymtab) {
   ASSERT_OK_AND_ASSIGN(auto pclntab, GoPclntab::Create(stripped_elf_.get()));
+  stripped_elf_->SetFallbackSymbols(pclntab->funcs());
   ASSERT_OK_AND_ASSIGN(auto sym, elf_->SearchTheOnlySymbol("crypto/tls.(*Conn).Write"));
-  const std::optional<std::string_view> expected = "crypto/tls.(*Conn).Write";
-  EXPECT_EQ(pclntab->FuncNameForPC(sym.address), expected);
-  EXPECT_EQ(pclntab->FuncNameForPC(sym.address + sym.size - 1), expected);
-  EXPECT_EQ(pclntab->FuncNameForPC(0), std::nullopt);
+  const std::optional<std::string> expected = "crypto/tls.(*Conn).Write";
+  ASSERT_OK_AND_EQ(stripped_elf_->InstrAddrToSymbol(sym.address), expected);
+  ASSERT_OK_AND_EQ(stripped_elf_->InstrAddrToSymbol(sym.address + sym.size - 1), expected);
+  ASSERT_OK_AND_EQ(stripped_elf_->InstrAddrToSymbol(0), std::optional<std::string>());
 }
 
 TEST_P(GoPclntabTest, ITabsMatchSymtab) {
@@ -214,6 +210,7 @@ TEST_P(GoPclntabTest, StrippedMatchesUnstripped) {
     EXPECT_EQ(stripped->funcs()[i].address, pclntab->funcs()[i].address);
   }
 
+  stripped_elf_->SetFallbackSymbols(stripped->funcs());
   ASSERT_OK_AND_ASSIGN(auto itabs, pclntab->ITabs());
   ASSERT_OK_AND_ASSIGN(auto stripped_itabs, stripped->ITabs());
   ASSERT_EQ(stripped_itabs.size(), itabs.size());
@@ -224,7 +221,7 @@ TEST_P(GoPclntabTest, StrippedMatchesUnstripped) {
 }
 
 INSTANTIATE_TEST_SUITE_P(GoVersions, GoPclntabTest,
-                         ::testing::Values("1_23", "1_24", "1_25", "1_26"));
+                         ::testing::ValuesIn(GoHTTPSServerFixture::kVersions));
 
 TEST(GoPclntabNonGoTest, ReturnsErrorWithoutPclntab) {
   const std::string path =

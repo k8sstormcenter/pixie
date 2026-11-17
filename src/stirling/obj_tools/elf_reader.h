@@ -232,6 +232,8 @@ class ElfReader {
 
   StatusOr<ELFIO::section*> SymtabSection();
 
+  const SymbolInfo* FallbackSymbolContaining(size_t addr) const;
+
   std::vector<SymbolInfo> SearchFallbackSymbols(std::string_view search_symbol,
                                                 SymbolMatchType match_type,
                                                 std::optional<int> symbol_type,

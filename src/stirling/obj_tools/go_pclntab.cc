@@ -112,15 +112,14 @@ Status GoPclntab::Init() {
   }
   pclntab_addr_ = section->get_address();
   pclntab_size_ = section->get_size();
-  const uint64_t file_offset = section->get_offset();
-
-  file_.open(elf_reader_->binary_path(), std::ios::binary);
-  if (!file_) {
-    return error::Internal("Failed to open binary=$0", elf_reader_->binary_path());
+  if (pclntab_size_ < kPclntabHeaderSize) {
+    return error::Internal("Malformed pclntab in binary=$0", elf_reader_->binary_path());
   }
 
-  PX_ASSIGN_OR_RETURN(std::string header, ReadAt(file_offset, kPclntabHeaderSize));
-  magic_ = ::px::utils::LEndianBytesToInt<uint32_t>(std::string_view(header));
+  PX_ASSIGN_OR_RETURN(std::string pclntab,
+                      elf_reader_->BinaryByteCode<char>(section->get_offset(), pclntab_size_));
+  std::string_view header = std::string_view(pclntab).substr(0, kPclntabHeaderSize);
+  magic_ = ::px::utils::LEndianBytesToInt<uint32_t>(header);
   if (magic_ != kGo118PclntabMagic && magic_ != kGo120PclntabMagic) {
     return error::Unimplemented("Unsupported pclntab magic=$0 in binary=$1", absl::Hex(magic_),
                                 elf_reader_->binary_path());
@@ -129,16 +128,11 @@ Status GoPclntab::Init() {
     return error::Unimplemented("Unsupported pointer size=$0 in binary=$1",
                                 static_cast<int>(header[7]), elf_reader_->binary_path());
   }
-  const uint64_t nfunc =
-      ::px::utils::LEndianBytesToInt<uint64_t>(std::string_view(header).substr(8));
-  header_text_start_ =
-      ::px::utils::LEndianBytesToInt<uint64_t>(std::string_view(header).substr(24));
-  const uint64_t funcname_offset =
-      ::px::utils::LEndianBytesToInt<uint64_t>(std::string_view(header).substr(32));
-  const uint64_t cu_offset =
-      ::px::utils::LEndianBytesToInt<uint64_t>(std::string_view(header).substr(40));
-  const uint64_t pcln_offset =
-      ::px::utils::LEndianBytesToInt<uint64_t>(std::string_view(header).substr(64));
+  const uint64_t nfunc = ::px::utils::LEndianBytesToInt<uint64_t>(header.substr(8));
+  header_text_start_ = ::px::utils::LEndianBytesToInt<uint64_t>(header.substr(24));
+  const uint64_t funcname_offset = ::px::utils::LEndianBytesToInt<uint64_t>(header.substr(32));
+  const uint64_t cu_offset = ::px::utils::LEndianBytesToInt<uint64_t>(header.substr(40));
+  const uint64_t pcln_offset = ::px::utils::LEndianBytesToInt<uint64_t>(header.substr(64));
 
   auto moduledata_or = FindModuleData(pclntab_addr_ + funcname_offset);
   if (moduledata_or.ok()) {
@@ -154,35 +148,35 @@ Status GoPclntab::Init() {
                            elf_reader_->binary_path());
   }
 
-  return ReadFuncs(file_offset, nfunc, funcname_offset, cu_offset, pcln_offset);
+  return ReadFuncs(pclntab, nfunc, funcname_offset, cu_offset, pcln_offset);
 }
 
-Status GoPclntab::ReadFuncs(uint64_t file_offset, uint64_t nfunc, uint64_t funcname_offset,
+Status GoPclntab::ReadFuncs(std::string_view pclntab, uint64_t nfunc, uint64_t funcname_offset,
                             uint64_t cu_offset, uint64_t pcln_offset) {
-  if (cu_offset <= funcname_offset || cu_offset > pclntab_size_ || pcln_offset >= pclntab_size_ ||
-      nfunc > (pclntab_size_ - pcln_offset) / 8) {
+  if (cu_offset <= funcname_offset || cu_offset > pclntab.size() || pcln_offset >= pclntab.size() ||
+      nfunc >= (pclntab.size() - pcln_offset) / 8) {
     return error::Internal("Malformed pclntab in binary=$0", elf_reader_->binary_path());
   }
-  PX_ASSIGN_OR_RETURN(std::string functab, ReadAt(file_offset + pcln_offset, (nfunc + 1) * 8));
-  PX_ASSIGN_OR_RETURN(std::string funcnames,
-                      ReadAt(file_offset + funcname_offset, cu_offset - funcname_offset));
+  std::string_view functab = pclntab.substr(pcln_offset);
+  std::string_view funcnames = pclntab.substr(funcname_offset, cu_offset - funcname_offset);
 
   funcs_.reserve(nfunc);
   for (uint64_t i = 0; i < nfunc; ++i) {
-    const uint32_t entry =
-        ::px::utils::LEndianBytesToInt<uint32_t>(std::string_view(functab).substr(i * 8));
+    const uint32_t entry = ::px::utils::LEndianBytesToInt<uint32_t>(functab.substr(i * 8));
     const uint32_t func_offset =
-        ::px::utils::LEndianBytesToInt<uint32_t>(std::string_view(functab).substr(i * 8 + 4));
+        ::px::utils::LEndianBytesToInt<uint32_t>(functab.substr(i * 8 + 4));
     const uint32_t next_entry =
-        ::px::utils::LEndianBytesToInt<uint32_t>(std::string_view(functab).substr((i + 1) * 8));
-    PX_ASSIGN_OR_RETURN(std::string func, ReadAt(file_offset + pcln_offset + func_offset, 8));
-    const int32_t name_offset =
-        ::px::utils::LEndianBytesToInt<int32_t>(std::string_view(func).substr(4));
-    if (name_offset < 0 || static_cast<uint64_t>(name_offset) >= funcnames.size() ||
-        next_entry < entry) {
+        ::px::utils::LEndianBytesToInt<uint32_t>(functab.substr((i + 1) * 8));
+    if (func_offset > functab.size() - 8 || next_entry < entry) {
       continue;
     }
-    funcs_.push_back({std::string(funcnames.c_str() + name_offset), ELFIO::STT_FUNC,
+    const int32_t name_offset =
+        ::px::utils::LEndianBytesToInt<int32_t>(functab.substr(func_offset + 4));
+    if (name_offset < 0 || static_cast<uint64_t>(name_offset) >= funcnames.size()) {
+      continue;
+    }
+    std::string_view name = funcnames.substr(name_offset);
+    funcs_.push_back({std::string(name.substr(0, name.find('\0'))), ELFIO::STT_FUNC,
                       text_start_ + entry, static_cast<uint64_t>(next_entry - entry)});
   }
   return Status::OK();
@@ -205,7 +199,8 @@ StatusOr<uint64_t> GoPclntab::FindModuleData(uint64_t funcnametab_addr) {
     const uint64_t size = s->get_size();
     for (uint64_t pos = 0; pos < size;) {
       const size_t length = std::min<uint64_t>(kScanWindow, size - pos);
-      PX_ASSIGN_OR_RETURN(std::string buf, ReadAt(s->get_offset() + pos, length));
+      PX_ASSIGN_OR_RETURN(std::string buf,
+                          elf_reader_->BinaryByteCode<char>(s->get_offset() + pos, length));
       for (size_t i = buf.find(want); i != std::string::npos; i = buf.find(want, i + 1)) {
         const uint64_t candidate = s->get_address() + pos + i;
         if (candidate % sizeof(uint64_t) != 0) {
@@ -226,20 +221,9 @@ StatusOr<uint64_t> GoPclntab::FindModuleData(uint64_t funcnametab_addr) {
                          elf_reader_->binary_path());
 }
 
-StatusOr<std::string> GoPclntab::ReadAt(uint64_t file_offset, size_t length) {
-  std::string buf(length, '\0');
-  file_.clear();
-  file_.seekg(file_offset);
-  if (!file_.read(buf.data(), length)) {
-    return error::Internal("Failed to read size=$0 bytes from offset=$1 in binary=$2", length,
-                           file_offset, elf_reader_->binary_path());
-  }
-  return buf;
-}
-
 StatusOr<std::string> GoPclntab::ReadVirtual(uint64_t vaddr, size_t length) {
   PX_ASSIGN_OR_RETURN(uint64_t file_offset, elf_reader_->VirtualAddrToBinaryAddr(vaddr));
-  return ReadAt(file_offset, length);
+  return elf_reader_->BinaryByteCode<char>(file_offset, length);
 }
 
 StatusOr<uint64_t> GoPclntab::ReadU64(uint64_t vaddr) {
@@ -297,27 +281,14 @@ std::optional<std::string> GoPclntab::ITabReceiver(uint64_t itab_addr, uint64_t 
     if (!fun.ok()) {
       return std::nullopt;
     }
-    std::optional<std::string_view> method = FuncNameForPC(fun.ValueOrDie());
-    if (!method.has_value() || method.value() == kUnreachableMethod) {
+    auto method = elf_reader_->InstrAddrToSymbol(fun.ValueOrDie());
+    if (!method.ok() || !method.ValueOrDie().has_value() ||
+        method.ValueOrDie().value() == kUnreachableMethod) {
       continue;
     }
-    return ReceiverFromMethod(method.value());
+    return ReceiverFromMethod(method.ValueOrDie().value());
   }
   return std::nullopt;
-}
-
-std::optional<std::string_view> GoPclntab::FuncNameForPC(uint64_t pc) const {
-  auto it =
-      std::upper_bound(funcs_.begin(), funcs_.end(), pc,
-                       [](uint64_t pc, const ElfReader::SymbolInfo& f) { return pc < f.address; });
-  if (it == funcs_.begin()) {
-    return std::nullopt;
-  }
-  --it;
-  if (pc >= it->address + it->size) {
-    return std::nullopt;
-  }
-  return std::string_view(it->name);
 }
 
 StatusOr<std::vector<ElfReader::SymbolInfo>> GoPclntab::ITabs() {

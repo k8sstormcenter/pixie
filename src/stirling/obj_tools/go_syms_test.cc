@@ -17,6 +17,7 @@
  */
 
 #include "src/stirling/obj_tools/go_syms.h"
+#include "src/stirling/obj_tools/testdata/go/go_https_server_fixture.h"
 
 #include <algorithm>
 #include <memory>
@@ -314,24 +315,17 @@ TEST_P(ElfGolangItableTest, ExtractInterfaceTypes) {
 #endif
 }
 
-constexpr std::string_view kTLSFixtureDir = "src/stirling/obj_tools/testdata/go/tls_fixture/";
-
-std::string TLSFixturePath(std::string_view version, bool stripped) {
-  return px::testing::BazelRunfilePath(absl::StrCat(kTLSFixtureDir, "test_go_tls_", version,
-                                                    stripped ? "_stripped" : "", "_binary"));
-}
-
 class StrippedGoBinaryTest : public ::testing::TestWithParam<std::string_view> {};
 
 TEST_P(StrippedGoBinaryTest, IsGoExecutable) {
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
-                       ElfReader::Create(TLSFixturePath(GetParam(), true)));
+                       ElfReader::Create(GoHTTPSServerFixture::StrippedPath(GetParam())));
   EXPECT_TRUE(IsGoExecutable(elf_reader.get()));
 }
 
 TEST_P(StrippedGoBinaryTest, ReadGoBuildInfo) {
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
-                       ElfReader::Create(TLSFixturePath(GetParam(), true)));
+                       ElfReader::Create(GoHTTPSServerFixture::StrippedPath(GetParam())));
   ASSERT_OK_AND_ASSIGN(auto pair, ReadGoBuildInfo(elf_reader.get()));
   std::string minor(GetParam());
   std::replace(minor.begin(), minor.end(), '_', '.');
@@ -340,9 +334,9 @@ TEST_P(StrippedGoBinaryTest, ReadGoBuildInfo) {
 
 TEST_P(StrippedGoBinaryTest, PopulateGoPclntabSymbols) {
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> unstripped,
-                       ElfReader::Create(TLSFixturePath(GetParam(), false)));
+                       ElfReader::Create(GoHTTPSServerFixture::Path(GetParam())));
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> stripped,
-                       ElfReader::Create(TLSFixturePath(GetParam(), true)));
+                       ElfReader::Create(GoHTTPSServerFixture::StrippedPath(GetParam())));
   ASSERT_OK(PopulateGoPclntabSymbols(stripped.get()));
 
   for (std::string_view name :
@@ -364,7 +358,7 @@ TEST_P(StrippedGoBinaryTest, PopulateGoPclntabSymbols) {
 
 TEST_P(StrippedGoBinaryTest, PopulateGoPclntabSymbolsKeepsSymtab) {
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> unstripped,
-                       ElfReader::Create(TLSFixturePath(GetParam(), false)));
+                       ElfReader::Create(GoHTTPSServerFixture::Path(GetParam())));
   auto expected = unstripped->SymbolAddress("runtime.buildVersion");
   ASSERT_TRUE(expected.has_value());
   ASSERT_OK(PopulateGoPclntabSymbols(unstripped.get()));
@@ -372,7 +366,7 @@ TEST_P(StrippedGoBinaryTest, PopulateGoPclntabSymbolsKeepsSymtab) {
 }
 
 INSTANTIATE_TEST_SUITE_P(GoVersions, StrippedGoBinaryTest,
-                         ::testing::Values("1_23", "1_24", "1_25", "1_26"));
+                         ::testing::ValuesIn(GoHTTPSServerFixture::kVersions));
 
 TEST(IsGoExecutableTest, StrippedCBinaryIsNotGo) {
   const std::string path =

@@ -31,6 +31,7 @@
 #include "src/stirling/obj_tools/dwarf_reader.h"
 #include "src/stirling/obj_tools/elf_reader.h"
 #include "src/stirling/obj_tools/go_syms.h"
+#include "src/stirling/obj_tools/testdata/go/go_https_server_fixture.h"
 #include "src/stirling/source_connectors/socket_tracer/uprobe_symaddrs.h"
 
 namespace px {
@@ -354,14 +355,6 @@ TEST(GoOffsetLocator, FunctionArgSkipsArgsWithoutVersion) {
   EXPECT_NE(args.find("b"), args.end());
 }
 
-constexpr std::string_view kTLSFixtureDir = "src/stirling/obj_tools/testdata/go/tls_fixture/";
-constexpr std::string_view kOffsetgenOffsetsFile = "src/stirling/offsetgen_offsets.json";
-
-std::string TLSFixturePath(std::string_view version, bool stripped) {
-  return px::testing::BazelRunfilePath(absl::StrCat(kTLSFixtureDir, "test_go_tls_", version,
-                                                    stripped ? "_stripped" : "", "_binary"));
-}
-
 const std::vector<std::pair<std::string_view, std::string_view>> kStdStructMembers = {
     {"runtime.g", "goid"},
     {"internal/poll.FD", "Sysfd"},
@@ -398,8 +391,8 @@ class GoFixtureTest : public ::testing::TestWithParam<std::string_view> {
                          &function_args_);
     ASSERT_GT(struct_offsets_.size(), 0);
 
-    unstripped_path_ = TLSFixturePath(GetParam(), false);
-    stripped_path_ = TLSFixturePath(GetParam(), true);
+    unstripped_path_ = GoHTTPSServerFixture::Path(GetParam());
+    stripped_path_ = GoHTTPSServerFixture::StrippedPath(GetParam());
     ASSERT_OK_AND_ASSIGN(unstripped_elf_, ElfReader::Create(unstripped_path_));
     ASSERT_OK_AND_ASSIGN(stripped_elf_, ElfReader::Create(stripped_path_));
   }
@@ -549,7 +542,7 @@ TEST_P(GoFixtureTest, StrippedSymAddrsMatchUnstripped) {
 }
 
 INSTANTIATE_TEST_SUITE_P(GoVersions, GoFixtureTest,
-                         ::testing::Values("1_23", "1_24", "1_25", "1_26"));
+                         ::testing::ValuesIn(GoHTTPSServerFixture::kVersions));
 
 TEST(AnalyzeGoBinaryTest, NonGoBinaryIsAnError) {
   const std::string path =

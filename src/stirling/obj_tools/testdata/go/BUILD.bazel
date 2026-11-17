@@ -15,6 +15,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 load("@io_bazel_rules_go//go:def.bzl", "go_cross_binary", "go_library")
+load("@rules_cc//cc:defs.bzl", "cc_library")
 load("//bazel:pl_build_system.bzl", "pl_go_binary", "pl_go_sdk_version_template_to_label", "pl_supported_go_sdk_versions")
 
 package(default_visibility = ["//src/stirling:__subpackages__"])
@@ -84,4 +85,39 @@ filegroup(
         ":test_go_1_23_binary",
         ":test_go_1_24_binary",
     ],
+)
+
+golang_server_binaries = {
+    v.replace(".", "_"): pl_go_sdk_version_template_to_label(
+        "//src/stirling/testing/demo_apps/go_https/server:golang_%s_server_binary",
+        v,
+    )
+    for v in pl_supported_go_sdk_versions
+}
+
+golang_server_binaries.update({
+    "1_25": ":golang_1_25_server_binary",
+    "1_26": ":golang_1_26_server_binary",
+})
+
+[
+    genrule(
+        name = "golang_%s_server_stripped_binary_target" % v,
+        srcs = [src],
+        outs = ["golang_%s_server_stripped_binary" % v],
+        cmd = "$(OBJCOPY) --strip-all $(location %s) $(location golang_%s_server_stripped_binary)" % (src, v),
+        toolchains = ["@bazel_tools//tools/cpp:current_cc_toolchain"],
+    )
+    for v, src in golang_server_binaries.items()
+]
+
+cc_library(
+    name = "go_https_server_fixture",
+    testonly = True,
+    hdrs = ["go_https_server_fixture.h"],
+    data = golang_server_binaries.values() + [
+        ":golang_%s_server_stripped_binary" % v
+        for v in golang_server_binaries.keys()
+    ],
+    deps = ["//src/common/testing:cc_library"],
 )

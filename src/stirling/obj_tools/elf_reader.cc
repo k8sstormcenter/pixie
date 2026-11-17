@@ -24,6 +24,7 @@
 #include <llvm/Support/TargetSelect.h>
 
 #include <absl/container/flat_hash_set.h>
+#include <algorithm>
 #include <set>
 #include <utility>
 
@@ -353,6 +354,21 @@ bool ElfReader::HasSymtab() {
 
 void ElfReader::SetFallbackSymbols(std::vector<SymbolInfo> symbols) {
   fallback_symbols_ = std::move(symbols);
+  std::sort(fallback_symbols_.begin(), fallback_symbols_.end(),
+            [](const SymbolInfo& a, const SymbolInfo& b) { return a.address < b.address; });
+}
+
+const ElfReader::SymbolInfo* ElfReader::FallbackSymbolContaining(size_t addr) const {
+  auto it = std::upper_bound(fallback_symbols_.begin(), fallback_symbols_.end(), addr,
+                             [](size_t addr, const SymbolInfo& s) { return addr < s.address; });
+  if (it == fallback_symbols_.begin()) {
+    return nullptr;
+  }
+  --it;
+  if (addr >= it->address + std::max<uint64_t>(it->size, 1)) {
+    return nullptr;
+  }
+  return &*it;
 }
 
 bool ElfReader::UsesFallbackSymbols() { return !fallback_symbols_.empty() && !HasSymtab(); }
@@ -380,6 +396,13 @@ std::optional<int64_t> ElfReader::SymbolAddress(std::string_view symbol) {
 }
 
 StatusOr<std::optional<std::string>> ElfReader::AddrToSymbol(size_t sym_addr) {
+  if (UsesFallbackSymbols()) {
+    const SymbolInfo* symbol = FallbackSymbolContaining(sym_addr);
+    if (symbol == nullptr || symbol->address != sym_addr) {
+      return std::optional<std::string>();
+    }
+    return std::optional<std::string>(symbol->name);
+  }
   PX_ASSIGN_OR_RETURN(ELFIO::section * symtab_section, SymtabSection());
 
   const ELFIO::symbol_section_accessor symbols(elf_reader_, symtab_section);
@@ -406,6 +429,13 @@ StatusOr<std::optional<std::string>> ElfReader::AddrToSymbol(size_t sym_addr) {
 // TODO(oazizi): Optimize by indexing or switching to binary search if we can guarantee addresses
 //               are ordered.
 StatusOr<std::optional<std::string>> ElfReader::InstrAddrToSymbol(size_t sym_addr) {
+  if (UsesFallbackSymbols()) {
+    const SymbolInfo* symbol = FallbackSymbolContaining(sym_addr);
+    if (symbol == nullptr) {
+      return std::optional<std::string>();
+    }
+    return std::optional<std::string>(llvm::demangle(symbol->name));
+  }
   PX_ASSIGN_OR_RETURN(ELFIO::section * symtab_section, SymtabSection());
 
   const ELFIO::symbol_section_accessor symbols(elf_reader_, symtab_section);

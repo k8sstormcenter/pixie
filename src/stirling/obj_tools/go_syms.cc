@@ -58,6 +58,7 @@ Status PopulateGoPclntabSymbols(ElfReader* elf_reader) {
   }
   PX_ASSIGN_OR_RETURN(std::unique_ptr<GoPclntab> pclntab, GoPclntab::Create(elf_reader));
   std::vector<ElfReader::SymbolInfo> symbols = pclntab->funcs();
+  elf_reader->SetFallbackSymbols(symbols);
   auto itabs = pclntab->ITabs();
   if (itabs.ok()) {
     std::vector<ElfReader::SymbolInfo> itab_symbols = itabs.ConsumeValueOrDie();

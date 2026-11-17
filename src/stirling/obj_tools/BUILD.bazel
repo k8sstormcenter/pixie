@@ -54,12 +54,12 @@ pl_cc_test(
         "//src/stirling/obj_tools/testdata/cc:test_exe_debuglink_target",
         "//src/stirling/obj_tools/testdata/go:test_go_1_24_binary",
         "//src/stirling/obj_tools/testdata/go:test_go_1_24_nm_output",
-        "//src/stirling/obj_tools/testdata/go/tls_fixture:test_binaries",
     ],
     deps = [
         ":cc_library",
         "//src/common/exec:cc_library",
         "//src/stirling/obj_tools/testdata/cc:test_exe_fixture",
+        "//src/stirling/obj_tools/testdata/go:go_https_server_fixture",
     ],
 )
 
@@ -141,10 +141,10 @@ pl_cc_test(
         "//src/stirling/obj_tools/testdata/go:test_buildinfo_with_mods",
         "//src/stirling/obj_tools/testdata/go:test_go_1_17_binary",
         "//src/stirling/obj_tools/testdata/go:test_go_1_24_binary",
-        "//src/stirling/obj_tools/testdata/go/tls_fixture:test_binaries",
     ],
     deps = [
         ":cc_library",
+        "//src/stirling/obj_tools/testdata/go:go_https_server_fixture",
     ],
 )
 
@@ -153,10 +153,10 @@ pl_cc_test(
     srcs = ["go_pclntab_test.cc"],
     data = [
         "//src/stirling/obj_tools/testdata/cc:prebuilt_exe",
-        "//src/stirling/obj_tools/testdata/go/tls_fixture:test_binaries",
     ],
     deps = [
         ":cc_library",
+        "//src/stirling/obj_tools/testdata/go:go_https_server_fixture",
     ],
 )
 

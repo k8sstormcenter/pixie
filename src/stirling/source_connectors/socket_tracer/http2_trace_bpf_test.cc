@@ -128,6 +128,8 @@ struct Go1_23GRPCClientServerContainers {
 struct Go1_24GRPCClientServerContainers {
   using ServerContainer = ::px::stirling::testing::Go1_24_GRPCServerContainer;
   using ClientContainer = ::px::stirling::testing::Go1_24_GRPCClientContainer;
+
+  static constexpr std::string_view server_image_tar = ServerContainer::kBazelImageTar;
   static const bool disable_dwarf = false;
 };
 
@@ -142,8 +144,9 @@ struct GoBoringCryptoGRPCClientServerContainers {
 typedef ::testing::Types<GoBoringCryptoGRPCClientServerContainers, Go1_18GRPCClientServerContainers,
                          Go1_19GRPCClientServerContainers, Go1_20GRPCClientServerContainers,
                          Go1_21GRPCClientServerContainers, Go1_22GRPCClientServerContainers,
-                         Go1_23GRPCClientServerContainers, Go1_24GRPCClientServerContainers>
-    Go1_23GRPCClientServerContainers, Go1_22GRPCClientServerContainersNoDWARF > GoVersions;
+                         Go1_22GRPCClientServerContainersNoDWARF, Go1_23GRPCClientServerContainers,
+                         Go1_24GRPCClientServerContainers>
+    GoVersions;
 TYPED_TEST_SUITE(HTTP2TraceTest, GoVersions);
 
 TYPED_TEST(HTTP2TraceTest, Basic) {

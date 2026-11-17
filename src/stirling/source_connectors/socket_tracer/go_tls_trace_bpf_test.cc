@@ -75,8 +75,8 @@ struct Go1_18TLSClientServerContainers {
 };
 
 struct Go1_19TLSClientServerContainers {
+  using GoTLSServerContainer = ::px::stirling::testing::Go1_19_TLSServerContainer;
   using GoTLSClientContainer = ::px::stirling::testing::Go1_24_TLSClientContainer;
-  using GoTLSClientContainer = ::px::stirling::testing::Go1_19_TLSClientContainer;
 
   static constexpr std::string_view server_image_tar = GoTLSServerContainer::kBazelImageTar;
   static const bool disable_dwarf = false;
@@ -99,15 +99,16 @@ struct Go1_21TLSClientServerContainers {
 };
 
 struct Go1_22TLSClientServerContainers {
+  using GoTLSServerContainer = ::px::stirling::testing::Go1_22_TLSServerContainer;
   using GoTLSClientContainer = ::px::stirling::testing::Go1_24_TLSClientContainer;
-  using GoTLSClientContainer = ::px::stirling::testing::Go1_22_TLSClientContainer;
 
   static constexpr std::string_view server_image_tar = GoTLSServerContainer::kBazelImageTar;
   static const bool disable_dwarf = false;
 };
-struct Go1_22TLSClientServerContainersNoDWARFContainers {
+
+struct Go1_22TLSClientServerNoDWARFContainers {
+  using GoTLSServerContainer = ::px::stirling::testing::Go1_22_TLSServerContainer;
   using GoTLSClientContainer = ::px::stirling::testing::Go1_24_TLSClientContainer;
-  using GoTLSClientContainer = ::px::stirling::testing::Go1_22_TLSClientContainer;
 
   static constexpr std::string_view server_image_tar = GoTLSServerContainer::kBazelImageTar;
   static const bool disable_dwarf = true;
@@ -124,6 +125,8 @@ struct Go1_23TLSClientServerContainers {
 struct Go1_24TLSClientServerContainers {
   using GoTLSServerContainer = ::px::stirling::testing::Go1_24_TLSServerContainer;
   using GoTLSClientContainer = ::px::stirling::testing::Go1_24_TLSClientContainer;
+
+  static constexpr std::string_view server_image_tar = GoTLSServerContainer::kBazelImageTar;
   static const bool disable_dwarf = false;
 };
 

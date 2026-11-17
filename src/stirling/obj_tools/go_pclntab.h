@@ -51,10 +51,10 @@ class GoPclntab {
  private:
   explicit GoPclntab(ElfReader* elf_reader) : elf_reader_(elf_reader) {}
 
-  ElfReader* elf_reader_;
+  [[maybe_unused]] ElfReader* elf_reader_;
   std::ifstream file_;
-  uint64_t pclntab_addr_ = 0;
-  uint64_t pclntab_size_ = 0;
+  [[maybe_unused]] uint64_t pclntab_addr_ = 0;
+  [[maybe_unused]] uint64_t pclntab_size_ = 0;
   uint64_t header_text_start_ = 0;
   uint64_t text_start_ = 0;
   uint64_t moduledata_addr_ = 0;

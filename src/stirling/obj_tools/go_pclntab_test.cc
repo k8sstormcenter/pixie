@@ -34,13 +34,13 @@ namespace obj_tools {
 constexpr std::string_view kFixtureDir = "src/stirling/obj_tools/testdata/go/tls_fixture/";
 
 std::string FixturePath(std::string_view version, bool stripped) {
-  return px::testing::BazelRunfilePath(absl::StrCat(kFixtureDir, "test_go_tls_", version,
-                                                    stripped ? "_stripped" : "", "_binary"));
+  return px::testing::BazelRunfilePath(
+      absl::StrCat(kFixtureDir, "test_go_tls_", version, stripped ? "_stripped" : "", "_binary"));
 }
 
 absl::flat_hash_map<std::string, ElfReader::SymbolInfo> SymtabByName(ElfReader* elf_reader,
-                                                                      std::string_view prefix,
-                                                                      int type) {
+                                                                     std::string_view prefix,
+                                                                     int type) {
   absl::flat_hash_map<std::string, ElfReader::SymbolInfo> out;
   auto symbols = elf_reader->SearchSymbols(prefix, SymbolMatchType::kPrefix, type);
   if (!symbols.ok()) {

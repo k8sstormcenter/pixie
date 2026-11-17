@@ -269,7 +269,11 @@ static auto NoTextStartAddrError =
 StatusOr<std::vector<ElfReader::SymbolInfo>> ElfReader::SearchSymbols(
     std::string_view search_symbol, SymbolMatchType match_type, std::optional<int> symbol_type,
     bool stop_at_first_match) {
-  PX_ASSIGN_OR_RETURN(ELFIO::section * symtab_section, SymtabSection());
+  auto symtab_section_or = SymtabSection();
+  if (UsesFallbackSymbols()) {
+    return SearchFallbackSymbols(search_symbol, match_type, symbol_type, stop_at_first_match);
+  }
+  PX_ASSIGN_OR_RETURN(ELFIO::section * symtab_section, symtab_section_or);
 
   std::vector<SymbolInfo> symbol_infos;
 
@@ -302,6 +306,26 @@ StatusOr<std::vector<ElfReader::SymbolInfo>> ElfReader::SearchSymbols(
   return symbol_infos;
 }
 
+std::vector<ElfReader::SymbolInfo> ElfReader::SearchFallbackSymbols(std::string_view search_symbol,
+                                                                    SymbolMatchType match_type,
+                                                                    std::optional<int> symbol_type,
+                                                                    bool stop_at_first_match) {
+  std::vector<SymbolInfo> symbol_infos;
+  for (const auto& symbol : fallback_symbols_) {
+    if (symbol_type.has_value() && symbol.type != symbol_type.value()) {
+      continue;
+    }
+    if (!MatchesSymbol(symbol.name, {match_type, search_symbol})) {
+      continue;
+    }
+    symbol_infos.push_back(symbol);
+    if (stop_at_first_match) {
+      break;
+    }
+  }
+  return symbol_infos;
+}
+
 StatusOr<std::vector<ElfReader::SymbolInfo>> ElfReader::ListFuncSymbols(
     std::string_view search_symbol, SymbolMatchType match_type) {
   PX_ASSIGN_OR_RETURN(std::vector<ElfReader::SymbolInfo> symbol_infos,
@@ -323,11 +347,16 @@ StatusOr<std::vector<ElfReader::SymbolInfo>> ElfReader::ListFuncSymbols(
   return symbol_infos;
 }
 
-bool ElfReader::HasSymtab() { return SymtabSection().ok(); }
+bool ElfReader::HasSymtab() {
+  auto symtab_section = SymtabSection();
+  return symtab_section.ok() && symtab_section.ValueOrDie()->get_type() == ELFIO::SHT_SYMTAB;
+}
 
 void ElfReader::SetFallbackSymbols(std::vector<SymbolInfo> symbols) {
   fallback_symbols_ = std::move(symbols);
 }
+
+bool ElfReader::UsesFallbackSymbols() { return !fallback_symbols_.empty() && !HasSymtab(); }
 
 StatusOr<ElfReader::SymbolInfo> ElfReader::SearchTheOnlySymbol(std::string_view symbol) {
   PX_ASSIGN_OR_RETURN(std::vector<ElfReader::SymbolInfo> symbol_infos,
@@ -630,6 +659,14 @@ StatusOr<ELFIO::section*> ElfReader::SectionWithName(std::string_view section_na
     }
   }
   return error::NotFound("Could not find section=$0 in binary=$1", section_name, binary_path_);
+}
+
+std::vector<ELFIO::section*> ElfReader::Sections() {
+  std::vector<ELFIO::section*> sections;
+  for (int i = 0; i < elf_reader_.sections.size(); ++i) {
+    sections.push_back(elf_reader_.sections[i]);
+  }
+  return sections;
 }
 
 StatusOr<uint64_t> ElfReader::VirtualAddrToBinaryAddr(uint64_t virtual_addr) {

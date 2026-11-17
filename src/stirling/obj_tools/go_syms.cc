@@ -45,6 +45,8 @@ bool IsGoExecutable(ElfReader* elf_reader) {
   return elf_reader->SearchTheOnlySymbol(obj_tools::kGoBuildVersionSymbol).ok();
 }
 
+Status PopulateGoPclntabSymbols(ElfReader* /*elf_reader*/) { return Status::OK(); }
+
 constexpr std::string_view kGoBuildInfoSection = ".go.buildinfo";
 // kGoBuildInfoMagic corresponds to "\xff Go buildinf:"
 // https://github.com/golang/go/blob/1dbbafc70fd3e2c284469ab3e0936c1bb56129f6/src/debug/buildinfo/buildinfo.go#L49

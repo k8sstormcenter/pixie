@@ -331,6 +331,51 @@ TEST(ElfReaderTest, VersionedSymbolsInDynamicLibrary) {
                                           SymbolNameIs("foo@@VER_2"), SymbolNameIs("foo@VER_1")));
 }
 
+constexpr std::string_view kStrippedGoBinary =
+    "src/stirling/obj_tools/testdata/go/tls_fixture/test_go_tls_1_24_stripped_binary";
+constexpr std::string_view kUnstrippedGoBinary =
+    "src/stirling/obj_tools/testdata/go/tls_fixture/test_go_tls_1_24_binary";
+
+std::vector<ElfReader::SymbolInfo> FakeFallbackSymbols() {
+  return {
+      {"crypto/tls.(*Conn).Write", ELFIO::STT_FUNC, 0x1000, 0x80},
+      {"crypto/tls.(*Conn).Read", ELFIO::STT_FUNC, 0x1080, 0x80},
+      {"go:itab.*net.TCPConn,net.Conn", ELFIO::STT_OBJECT, 0x2000, 0x28},
+  };
+}
+
+TEST(ElfReaderTest, FallbackSymbolsUsedWithoutSymtab) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
+                       ElfReader::Create(px::testing::BazelRunfilePath(kStrippedGoBinary)));
+  EXPECT_FALSE(elf_reader->HasSymtab());
+  EXPECT_NOT_OK(elf_reader->SearchSymbols("crypto/tls", SymbolMatchType::kPrefix));
+
+  elf_reader->SetFallbackSymbols(FakeFallbackSymbols());
+
+  ASSERT_OK_AND_THAT(elf_reader->ListFuncSymbols("crypto/tls.(*Conn).Write", SymbolMatchType::kSuffix),
+                     ElementsAre(Field(&ElfReader::SymbolInfo::address, uint64_t{0x1000})));
+  ASSERT_OK_AND_THAT(elf_reader->ListFuncSymbols("crypto/tls.(*Conn).", SymbolMatchType::kPrefix),
+                     SizeIs(2));
+  ASSERT_OK_AND_THAT(elf_reader->ListFuncSymbols("go:itab.", SymbolMatchType::kPrefix), IsEmpty());
+  EXPECT_EQ(elf_reader->SymbolAddress("go:itab.*net.TCPConn,net.Conn"), 0x2000);
+  EXPECT_EQ(elf_reader->SymbolAddress("go:itab.*crypto/tls.Conn,net.Conn"), std::nullopt);
+  ASSERT_OK_AND_ASSIGN(ElfReader::SymbolInfo symbol,
+                       elf_reader->SearchTheOnlySymbol("crypto/tls.(*Conn).Read"));
+  EXPECT_EQ(symbol.size, 0x80);
+}
+
+TEST(ElfReaderTest, FallbackSymbolsIgnoredWithSymtab) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
+                       ElfReader::Create(px::testing::BazelRunfilePath(kUnstrippedGoBinary)));
+  EXPECT_TRUE(elf_reader->HasSymtab());
+  auto expected = elf_reader->SymbolAddress("crypto/tls.(*Conn).Write");
+  ASSERT_TRUE(expected.has_value());
+
+  elf_reader->SetFallbackSymbols(FakeFallbackSymbols());
+
+  EXPECT_EQ(elf_reader->SymbolAddress("crypto/tls.(*Conn).Write"), expected);
+}
+
 }  // namespace obj_tools
 }  // namespace stirling
 }  // namespace px

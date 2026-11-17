@@ -111,6 +111,10 @@ class ElfReader {
    */
   std::optional<int64_t> SymbolAddress(std::string_view symbol);
 
+  bool HasSymtab();
+
+  void SetFallbackSymbols(std::vector<SymbolInfo> symbols);
+
   /**
    * Looks up the symbol for an address.
    *
@@ -243,6 +247,8 @@ class ElfReader {
 
   // Set up an elf reader, so we can extract debug symbols.
   ELFIO::elfio elf_reader_;
+
+  std::vector<SymbolInfo> fallback_symbols_;
 };
 
 }  // namespace obj_tools

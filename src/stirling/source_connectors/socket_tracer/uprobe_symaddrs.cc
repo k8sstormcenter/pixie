@@ -138,7 +138,7 @@ std::unique_ptr<obj_tools::VarLocation> ParseOffsetAndLocation(const rapidjson::
 // offsetgen JSON file. Each struct is represented as a key-value pair where the key is the
 // struct name and the value is an object containing field names and their corresponding
 // offsets for different versions.
-void ParseGoStructsObject(const rapidjson::Value& structs_val) {
+void ParseGoStructsObject(const rapidjson::Value& structs_val, StructOffsetMap* struct_offsets) {
   for (auto itr = structs_val.MemberBegin(); itr != structs_val.MemberEnd(); ++itr) {
     std::string struct_name = itr->name.GetString();
     if (!itr->value.IsObject()) {
@@ -146,7 +146,7 @@ void ParseGoStructsObject(const rapidjson::Value& structs_val) {
     }
     const auto& field_map_obj = itr->value.GetObject();
 
-    auto& offset_map = GetGoStructOffsets();
+    auto& offset_map = *struct_offsets;
 
     std::string_view pkg = FindMatchingPkgPrefix(struct_name, kGoPackagePrefixes).first;
     offset_map[struct_name].first = pkg;
@@ -172,7 +172,7 @@ void ParseGoStructsObject(const rapidjson::Value& structs_val) {
 // offsetgen JSON file. Each function is represented as a key-value pair where the key is the
 // function name and the value is an object containing argument names and their corresponding
 // locations for different versions.
-void ParseGoFuncsObject(const rapidjson::Value& funcsVal) {
+void ParseGoFuncsObject(const rapidjson::Value& funcsVal, FunctionArgMap* function_args) {
   for (auto itr = funcsVal.MemberBegin(); itr != funcsVal.MemberEnd(); ++itr) {
     std::string func_name = itr->name.GetString();
     if (!itr->value.IsObject()) {
@@ -180,7 +180,7 @@ void ParseGoFuncsObject(const rapidjson::Value& funcsVal) {
     }
     const auto& arg_map_obj = itr->value.GetObject();  // e.g. "data", "Flags", etc.
 
-    auto& location_map = GetGoFunctionArgOffsets();
+    auto& location_map = *function_args;
 
     std::string_view pkg = FindMatchingPkgPrefix(func_name, kGoPackagePrefixes).first;
     location_map[func_name].first = pkg;
@@ -662,11 +662,36 @@ Status PopulateGoTLSDebugSymbols(GoOffsetLocator* offset_locator,
   return Status::OK();
 }
 
+std::optional<std::string> ResolveOffsetVersion(const std::vector<std::string>& available,
+                                                std::string_view requested,
+                                                bool /*same_minor_only*/) {
+  for (const auto& v : available) {
+    if (v == requested) {
+      return v;
+    }
+  }
+  return std::nullopt;
+}
+
+StatusOr<GoBinaryInfo> AnalyzeGoBinary(const std::string& binary, ElfReader* elf_reader) {
+  GoBinaryInfo info;
+  PX_ASSIGN_OR_RETURN(info.dwarf_reader, DwarfReader::CreateIndexingAll(binary));
+  PX_ASSIGN_OR_RETURN(auto build_info_pair, obj_tools::ReadGoBuildInfo(elf_reader));
+  info.go_version = std::move(build_info_pair.first);
+  info.build_info = std::move(build_info_pair.second);
+  return info;
+}
+
 StructOffsetMap& GetGoStructOffsets() { return g_struct_offsets; }
 
 FunctionArgMap& GetGoFunctionArgOffsets() { return g_function_arg_offsets; }
 
 void ParseGoOffsetgenFile(const std::string& offsetgen_file) {
+  ParseGoOffsetgenFile(offsetgen_file, &GetGoStructOffsets(), &GetGoFunctionArgOffsets());
+}
+
+void ParseGoOffsetgenFile(const std::string& offsetgen_file, StructOffsetMap* struct_offsets,
+                          FunctionArgMap* function_args) {
   std::ifstream file(offsetgen_file, std::ios::binary);
   std::string warning = "Uprobes will exclusively use DWARF to determine offsets.";
   if (!file) {
@@ -700,10 +725,10 @@ void ParseGoOffsetgenFile(const std::string& offsetgen_file) {
 
   // There are two top-level objects in the JSON file:
   if (doc.HasMember("structs") && doc["structs"].IsObject()) {
-    ParseGoStructsObject(doc["structs"]);
+    ParseGoStructsObject(doc["structs"], struct_offsets);
   }
   if (doc.HasMember("funcs") && doc["funcs"].IsObject()) {
-    ParseGoFuncsObject(doc["funcs"]);
+    ParseGoFuncsObject(doc["funcs"], function_args);
   }
 }
 

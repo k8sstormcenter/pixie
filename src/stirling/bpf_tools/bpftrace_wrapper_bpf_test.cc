@@ -210,7 +210,7 @@ interval:ms:100 {
 )";
 
 TEST(BPFTracerWrapperTest, CompileIsSerializedAcrossInstances) {
-  std::unique_lock<std::mutex> held(BPFTraceWrapper::compilation_mutex());
+  std::unique_lock<std::mutex> held(BPFTraceWrapper::bpftrace_mutex());
 
   std::atomic<bool> done = false;
   BPFTraceWrapper bpftrace_wrapper;
@@ -225,6 +225,34 @@ TEST(BPFTracerWrapperTest, CompileIsSerializedAcrossInstances) {
   held.unlock();
   compile.join();
   EXPECT_TRUE(done);
+}
+
+TEST(BPFTracerWrapperTest, DeployIsSerializedAcrossInstances) {
+  constexpr std::string_view kScript = R"(
+    interval:ms:100 {
+        printf("%llu\n", nsecs);
+    }
+    )";
+
+  BPFTraceWrapper bpftrace_wrapper;
+  ASSERT_OK(bpftrace_wrapper.CompileForMapOutput(kScript));
+
+  std::unique_lock<std::mutex> held(BPFTraceWrapper::bpftrace_mutex());
+
+  std::atomic<bool> done = false;
+  std::thread deploy([&] {
+    EXPECT_OK(bpftrace_wrapper.Deploy());
+    done = true;
+  });
+
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  EXPECT_FALSE(done);
+
+  held.unlock();
+  deploy.join();
+  EXPECT_TRUE(done);
+
+  bpftrace_wrapper.Stop();
 }
 
 TEST(BPFTracerWrapperTest, ConcurrentCompilesWithKernelHeaders) {

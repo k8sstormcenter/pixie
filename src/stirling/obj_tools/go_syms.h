@@ -35,6 +35,8 @@ namespace obj_tools {
 // Returns true if the executable is built by Golang.
 bool IsGoExecutable(ElfReader* elf_reader);
 
+Status PopulateGoPclntabSymbols(ElfReader* elf_reader);
+
 struct Module {
   std::string path;
   std::string version;

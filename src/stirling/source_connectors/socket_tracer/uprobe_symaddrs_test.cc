@@ -21,12 +21,16 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "src/common/testing/testing.h"
 #include "src/stirling/obj_tools/dwarf_reader.h"
 #include "src/stirling/obj_tools/elf_reader.h"
+#include "src/stirling/obj_tools/go_syms.h"
 #include "src/stirling/source_connectors/socket_tracer/uprobe_symaddrs.h"
 
 namespace px {
@@ -34,6 +38,7 @@ namespace stirling {
 
 using obj_tools::DwarfReader;
 using obj_tools::ElfReader;
+using obj_tools::SymbolMatchType;
 
 class UprobeSymaddrsTest : public ::testing::Test {
  protected:
@@ -290,6 +295,253 @@ TEST(ParseGoOffsetgenFileTest, ParseGoFuncsObject) {
   EXPECT_TRUE(loc != nullptr);
   EXPECT_EQ(loc->loc_type, obj_tools::LocationType::kRegister);
   EXPECT_EQ(loc->offset, 8);
+}
+
+TEST(ResolveOffsetVersion, ExactMatch) {
+  EXPECT_EQ(ResolveOffsetVersion({"1.24.0", "1.24.3"}, "1.24.3", true), "1.24.3");
+}
+
+TEST(ResolveOffsetVersion, LatestOlderPatchOfSameMinor) {
+  EXPECT_EQ(ResolveOffsetVersion({"1.23.9", "1.24.0", "1.24.3"}, "1.24.6", true), "1.24.3");
+  EXPECT_EQ(ResolveOffsetVersion({"1.24.0", "1.24.3"}, "1.24.1", true), "1.24.0");
+}
+
+TEST(ResolveOffsetVersion, NewerPatchOfSameMinorWhenNoOlderOne) {
+  EXPECT_EQ(ResolveOffsetVersion({"1.24.3", "1.25.1"}, "1.24.0", true), "1.24.3");
+}
+
+TEST(ResolveOffsetVersion, NoFallbackAcrossMinorForStd) {
+  EXPECT_EQ(ResolveOffsetVersion({"1.23.9", "1.24.3"}, "1.25.1", true), std::nullopt);
+}
+
+TEST(ResolveOffsetVersion, LatestOlderVersionForModules) {
+  EXPECT_EQ(ResolveOffsetVersion({"0.38.0", "0.40.0"}, "0.47.0", false), "0.40.0");
+  EXPECT_EQ(ResolveOffsetVersion({"0.38.0", "0.40.0"}, "0.39.1", false), "0.38.0");
+  EXPECT_EQ(ResolveOffsetVersion({"0.38.0", "0.40.0"}, "0.1.0", false), std::nullopt);
+}
+
+TEST(ResolveOffsetVersion, IgnoresUnparsableVersions) {
+  EXPECT_EQ(ResolveOffsetVersion({"bogus", "1.24.3"}, "1.24.6", true), "1.24.3");
+  EXPECT_EQ(ResolveOffsetVersion({"1.24.3"}, "bogus", true), std::nullopt);
+}
+
+TEST(GoOffsetLocator, StructOffsetFallsBackToSameMinor) {
+  std::string version = "1.19.7";
+  auto offset_locator = GoOffsetLocator(nullptr, struct_map, empty_fn_arg_map, empty_build_info,
+                                        version);
+  ASSERT_OK_AND_ASSIGN(uint64_t offset, offset_locator.GetStructMemberOffset("runtime.g", "goid"));
+  EXPECT_EQ(offset, 152);
+}
+
+TEST(GoOffsetLocator, FunctionArgFallsBackToSameMinor) {
+  FunctionArgMap fn_arg_map = GetFunctionArgMap();
+  std::string version = "1.19.7";
+  auto offset_locator =
+      GoOffsetLocator(nullptr, struct_map, fn_arg_map, empty_build_info, version);
+  ASSERT_OK_AND_ASSIGN(auto args, offset_locator.GetFunctionArgInfo("crypto/tls.(*Conn).Read"));
+  ASSERT_NE(args.find("b"), args.end());
+  EXPECT_EQ(args["b"].location.offset, 8);
+}
+
+constexpr std::string_view kTLSFixtureDir = "src/stirling/obj_tools/testdata/go/tls_fixture/";
+constexpr std::string_view kOffsetgenOffsetsFile = "src/stirling/offsetgen_offsets.json";
+
+std::string TLSFixturePath(std::string_view version, bool stripped) {
+  return px::testing::BazelRunfilePath(absl::StrCat(kTLSFixtureDir, "test_go_tls_", version,
+                                                    stripped ? "_stripped" : "", "_binary"));
+}
+
+const std::vector<std::pair<std::string_view, std::string_view>> kStdStructMembers = {
+    {"runtime.g", "goid"},
+    {"internal/poll.FD", "Sysfd"},
+    {"crypto/tls.Conn", "conn"},
+    {"net/http.http2serverConn", "conn"},
+    {"net/http.http2serverConn", "hpackEncoder"},
+    {"net/http.http2HeadersFrame", "http2FrameHeader"},
+    {"net/http.http2FrameHeader", "Type"},
+    {"net/http.http2FrameHeader", "Flags"},
+    {"net/http.http2FrameHeader", "StreamID"},
+    {"net/http.http2DataFrame", "data"},
+    {"net/http.http2writeResHeaders", "streamID"},
+    {"net/http.http2writeResHeaders", "endStream"},
+    {"net/http.http2MetaHeadersFrame", "http2HeadersFrame"},
+    {"net/http.http2MetaHeadersFrame", "Fields"},
+    {"net/http.http2Framer", "w"},
+};
+
+const std::vector<std::string_view> kStdFuncs = {
+    "crypto/tls.(*Conn).Write",
+    "crypto/tls.(*Conn).Read",
+    "net/http.(*http2Framer).WriteDataPadded",
+    "net/http.(*http2Framer).checkFrameOrder",
+    "net/http.(*http2writeResHeaders).writeFrame",
+    "net/http.(*http2serverConn).processHeaders",
+};
+
+class GoFixtureTest : public ::testing::TestWithParam<std::string_view> {
+ protected:
+  void SetUp() override {
+    FLAGS_disable_dwarf_parsing = false;
+    ParseGoOffsetgenFile(px::testing::BazelRunfilePath(kOffsetgenOffsetsFile), &struct_offsets_,
+                         &function_args_);
+    ASSERT_GT(struct_offsets_.size(), 0);
+
+    unstripped_path_ = TLSFixturePath(GetParam(), false);
+    stripped_path_ = TLSFixturePath(GetParam(), true);
+    ASSERT_OK_AND_ASSIGN(unstripped_elf_, ElfReader::Create(unstripped_path_));
+    ASSERT_OK_AND_ASSIGN(stripped_elf_, ElfReader::Create(stripped_path_));
+  }
+
+  StructOffsetMap struct_offsets_;
+  FunctionArgMap function_args_;
+  std::string unstripped_path_;
+  std::string stripped_path_;
+  std::unique_ptr<ElfReader> unstripped_elf_;
+  std::unique_ptr<ElfReader> stripped_elf_;
+};
+
+TEST_P(GoFixtureTest, AnalyzeStrippedBinaryWithoutDwarf) {
+  ASSERT_OK_AND_ASSIGN(GoBinaryInfo info, AnalyzeGoBinary(stripped_path_, stripped_elf_.get()));
+  EXPECT_TRUE(info.dwarf_reader == nullptr);
+  std::string minor(GetParam());
+  std::replace(minor.begin(), minor.end(), '_', '.');
+  EXPECT_TRUE(absl::StartsWith(info.go_version, absl::StrCat(minor, "."))) << info.go_version;
+  EXPECT_NE(stripped_elf_->SymbolAddress("go:itab.*net.TCPConn,net.Conn"), std::nullopt);
+  ASSERT_OK_AND_ASSIGN(auto funcs, stripped_elf_->ListFuncSymbols("crypto/tls.(*Conn).Write",
+                                                                  SymbolMatchType::kSuffix));
+  EXPECT_EQ(funcs.size(), 1);
+}
+
+TEST_P(GoFixtureTest, AnalyzeUnstrippedBinaryWithDwarf) {
+  ASSERT_OK_AND_ASSIGN(GoBinaryInfo info,
+                       AnalyzeGoBinary(unstripped_path_, unstripped_elf_.get()));
+  EXPECT_TRUE(info.dwarf_reader != nullptr);
+}
+
+TEST_P(GoFixtureTest, AnalyzeWithDwarfParsingDisabled) {
+  FLAGS_disable_dwarf_parsing = true;
+  ASSERT_OK_AND_ASSIGN(GoBinaryInfo info,
+                       AnalyzeGoBinary(unstripped_path_, unstripped_elf_.get()));
+  FLAGS_disable_dwarf_parsing = false;
+  EXPECT_TRUE(info.dwarf_reader == nullptr);
+}
+
+TEST_P(GoFixtureTest, OffsetTableMatchesDwarf) {
+  ASSERT_OK_AND_ASSIGN(GoBinaryInfo dwarf_info,
+                       AnalyzeGoBinary(unstripped_path_, unstripped_elf_.get()));
+  ASSERT_TRUE(dwarf_info.dwarf_reader != nullptr);
+  const std::string version = dwarf_info.go_version;
+  GoOffsetLocator from_dwarf(dwarf_info.dwarf_reader.get(), struct_offsets_, function_args_,
+                             dwarf_info.build_info, version);
+  GoOffsetLocator from_table(nullptr, struct_offsets_, function_args_, dwarf_info.build_info,
+                             version);
+
+  for (const auto& [st, member] : kStdStructMembers) {
+    SCOPED_TRACE(absl::StrCat(st, ".", member));
+    auto expected = from_dwarf.GetStructMemberOffset(st, member);
+    if (!expected.ok()) {
+      EXPECT_NOT_OK(from_table.GetStructMemberOffset(st, member));
+      continue;
+    }
+    const std::string msg =
+        absl::Substitute("offsetgen: structs[\"$0\"][\"$1\"][\"$2\"] = $3", st, member,
+                         version, expected.ValueOrDie());
+    auto actual = from_table.GetStructMemberOffset(st, member);
+    EXPECT_OK(actual) << msg;
+    if (actual.ok()) {
+      EXPECT_EQ(actual.ValueOrDie(), expected.ValueOrDie()) << msg;
+    }
+  }
+
+  for (std::string_view fn : kStdFuncs) {
+    SCOPED_TRACE(fn);
+    ASSERT_OK_AND_ASSIGN(auto expected, from_dwarf.GetFunctionArgInfo(fn));
+    auto actual_or = from_table.GetFunctionArgInfo(fn);
+    if (!actual_or.ok()) {
+      std::string msg;
+      for (const auto& [arg, info] : expected) {
+        absl::StrAppend(&msg, absl::Substitute("offsetgen: funcs[\"$0\"][\"$1\"][\"$2\"] = $3/$4\n",
+                                               fn, arg, version,
+                                               magic_enum::enum_name(info.location.loc_type),
+                                               info.location.offset));
+      }
+      ADD_FAILURE() << actual_or.msg() << "\n" << msg;
+      continue;
+    }
+    auto actual = actual_or.ConsumeValueOrDie();
+    for (const auto& [arg, info] : expected) {
+      auto it = actual.find(arg);
+      ASSERT_NE(it, actual.end()) << arg;
+      EXPECT_EQ(it->second.location.loc_type, info.location.loc_type) << arg;
+      EXPECT_EQ(it->second.location.offset, info.location.offset)
+          << absl::Substitute("offsetgen: funcs[\"$0\"][\"$1\"][\"$2\"] = $3", fn, arg, version,
+                              info.location.offset);
+    }
+  }
+}
+
+TEST_P(GoFixtureTest, StrippedSymAddrsMatchUnstripped) {
+  ASSERT_OK_AND_ASSIGN(GoBinaryInfo dwarf_info,
+                       AnalyzeGoBinary(unstripped_path_, unstripped_elf_.get()));
+  ASSERT_OK_AND_ASSIGN(GoBinaryInfo stripped_info,
+                       AnalyzeGoBinary(stripped_path_, stripped_elf_.get()));
+  ASSERT_EQ(stripped_info.go_version, dwarf_info.go_version);
+
+  GoOffsetLocator from_dwarf(dwarf_info.dwarf_reader.get(), struct_offsets_, function_args_,
+                             dwarf_info.build_info, dwarf_info.go_version);
+  GoOffsetLocator from_table(nullptr, struct_offsets_, function_args_, stripped_info.build_info,
+                             stripped_info.go_version);
+
+  ASSERT_OK_AND_ASSIGN(auto expected_common, GoCommonSymAddrs(unstripped_elf_.get(), &from_dwarf));
+  ASSERT_OK_AND_ASSIGN(auto actual_common, GoCommonSymAddrs(stripped_elf_.get(), &from_table));
+  EXPECT_NE(expected_common.tls_Conn, -1);
+  EXPECT_EQ(actual_common.tls_Conn, expected_common.tls_Conn);
+  EXPECT_EQ(actual_common.net_TCPConn, expected_common.net_TCPConn);
+  EXPECT_EQ(actual_common.FD_Sysfd_offset, expected_common.FD_Sysfd_offset);
+  EXPECT_EQ(actual_common.tlsConn_conn_offset, expected_common.tlsConn_conn_offset);
+  EXPECT_EQ(actual_common.g_goid_offset, expected_common.g_goid_offset);
+  EXPECT_EQ(actual_common.g_addr_offset, expected_common.g_addr_offset);
+
+  ASSERT_OK_AND_ASSIGN(auto expected_tls, GoTLSSymAddrs(&from_dwarf));
+  ASSERT_OK_AND_ASSIGN(auto actual_tls, GoTLSSymAddrs(&from_table));
+  EXPECT_EQ(actual_tls.Write_c_loc, expected_tls.Write_c_loc);
+  EXPECT_EQ(actual_tls.Write_b_loc, expected_tls.Write_b_loc);
+  EXPECT_EQ(actual_tls.Write_retval0_loc, expected_tls.Write_retval0_loc);
+  EXPECT_EQ(actual_tls.Write_retval1_loc, expected_tls.Write_retval1_loc);
+  EXPECT_EQ(actual_tls.Read_c_loc, expected_tls.Read_c_loc);
+  EXPECT_EQ(actual_tls.Read_b_loc, expected_tls.Read_b_loc);
+  EXPECT_EQ(actual_tls.Read_retval0_loc, expected_tls.Read_retval0_loc);
+  EXPECT_EQ(actual_tls.Read_retval1_loc, expected_tls.Read_retval1_loc);
+
+  ASSERT_OK_AND_ASSIGN(auto expected_h2, GoHTTP2SymAddrs(unstripped_elf_.get(), &from_dwarf));
+  ASSERT_OK_AND_ASSIGN(auto actual_h2, GoHTTP2SymAddrs(stripped_elf_.get(), &from_table));
+  EXPECT_EQ(actual_h2.http_http2bufferedWriter, expected_h2.http_http2bufferedWriter);
+  EXPECT_EQ(actual_h2.http2Framer_WriteDataPadded_f_loc,
+            expected_h2.http2Framer_WriteDataPadded_f_loc);
+  EXPECT_EQ(actual_h2.http2Framer_WriteDataPadded_data_len_loc,
+            expected_h2.http2Framer_WriteDataPadded_data_len_loc);
+  EXPECT_EQ(actual_h2.http2Framer_checkFrameOrder_f_loc,
+            expected_h2.http2Framer_checkFrameOrder_f_loc);
+  EXPECT_EQ(actual_h2.writeFrame_w_loc, expected_h2.writeFrame_w_loc);
+  EXPECT_EQ(actual_h2.processHeaders_f_loc, expected_h2.processHeaders_f_loc);
+  EXPECT_EQ(actual_h2.http2serverConn_conn_offset, expected_h2.http2serverConn_conn_offset);
+  EXPECT_EQ(actual_h2.http2serverConn_hpackEncoder_offset,
+            expected_h2.http2serverConn_hpackEncoder_offset);
+  EXPECT_EQ(actual_h2.http2Framer_w_offset, expected_h2.http2Framer_w_offset);
+  EXPECT_EQ(actual_h2.http2MetaHeadersFrame_Fields_offset,
+            expected_h2.http2MetaHeadersFrame_Fields_offset);
+  EXPECT_EQ(actual_h2.http2writeResHeaders_endStream_offset,
+            expected_h2.http2writeResHeaders_endStream_offset);
+}
+
+INSTANTIATE_TEST_SUITE_P(GoVersions, GoFixtureTest,
+                         ::testing::Values("1_23", "1_24", "1_25", "1_26"));
+
+TEST(AnalyzeGoBinaryTest, NonGoBinaryIsAnError) {
+  const std::string path =
+      px::testing::BazelRunfilePath("src/stirling/obj_tools/testdata/cc/stripped_test_exe");
+  ASSERT_OK_AND_ASSIGN(auto elf_reader, ElfReader::Create(path));
+  EXPECT_NOT_OK(AnalyzeGoBinary(path, elf_reader.get()));
 }
 
 }  // namespace stirling

@@ -832,11 +832,36 @@ Status PopulateGoTLSDebugSymbols(GoOffsetLocator* offset_locator,
   return Status::OK();
 }
 
+std::optional<std::string> ResolveOffsetVersion(const std::vector<std::string>& available,
+                                                std::string_view requested,
+                                                bool /*same_minor_only*/) {
+  for (const auto& v : available) {
+    if (v == requested) {
+      return v;
+    }
+  }
+  return std::nullopt;
+}
+
+StatusOr<GoBinaryInfo> AnalyzeGoBinary(const std::string& binary, ElfReader* elf_reader) {
+  GoBinaryInfo info;
+  PX_ASSIGN_OR_RETURN(info.dwarf_reader, DwarfReader::CreateIndexingAll(binary));
+  PX_ASSIGN_OR_RETURN(auto build_info_pair, obj_tools::ReadGoBuildInfo(elf_reader));
+  info.go_version = std::move(build_info_pair.first);
+  info.build_info = std::move(build_info_pair.second);
+  return info;
+}
+
 StructOffsetMap& GetGoStructOffsets() { return g_struct_offsets; }
 
 FunctionArgMap& GetGoFunctionArgOffsets() { return g_function_arg_offsets; }
 
 void ParseGoOffsetgenFile(const std::string& offsetgen_file) {
+  ParseGoOffsetgenFile(offsetgen_file, &GetGoStructOffsets(), &GetGoFunctionArgOffsets());
+}
+
+void ParseGoOffsetgenFile(const std::string& offsetgen_file, StructOffsetMap* struct_offsets,
+                          FunctionArgMap* function_args) {
   std::ifstream file(offsetgen_file, std::ios::binary);
   std::string warning = "Uprobes will exclusively use DWARF to determine offsets.";
 
@@ -847,7 +872,7 @@ void ParseGoOffsetgenFile(const std::string& offsetgen_file) {
   }
 
   rapidjson::IStreamWrapper isw(file);
-  GoOffsetgenHandler handler(g_struct_offsets, g_function_arg_offsets);
+  GoOffsetgenHandler handler(*struct_offsets, *function_args);
   rapidjson::Reader reader;
 
   rapidjson::ParseResult result = reader.Parse(isw, handler);

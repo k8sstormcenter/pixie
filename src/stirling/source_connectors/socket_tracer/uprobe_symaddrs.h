@@ -22,8 +22,10 @@
 #include <rapidjson/error/en.h>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "src/common/base/base.h"
 #include "src/stirling/obj_tools/dwarf_reader.h"
@@ -49,6 +51,9 @@ using StructOffsetMap = std::map<std::string, std::pair<std::string_view, Struct
 using FuncVersionMap =
     std::map<std::string, std::map<std::string, std::unique_ptr<obj_tools::VarLocation>>>;
 using FunctionArgMap = std::map<std::string, std::pair<std::string_view, FuncVersionMap>>;
+
+std::optional<std::string> ResolveOffsetVersion(const std::vector<std::string>& available,
+                                                std::string_view requested, bool same_minor_only);
 
 class GoOffsetLocator {
  public:
@@ -170,11 +175,22 @@ class GoOffsetLocator {
   std::string vendor_prefix_;
 };
 
+struct GoBinaryInfo {
+  std::unique_ptr<obj_tools::DwarfReader> dwarf_reader;
+  obj_tools::BuildInfo build_info;
+  std::string go_version;
+};
+
+StatusOr<GoBinaryInfo> AnalyzeGoBinary(const std::string& binary, obj_tools::ElfReader* elf_reader);
+
 StructOffsetMap& GetGoStructOffsets();
 
 FunctionArgMap& GetGoFunctionArgOffsets();
 
 void ParseGoOffsetgenFile(const std::string& offsetgen_file);
+
+void ParseGoOffsetgenFile(const std::string& offsetgen_file, StructOffsetMap* struct_offsets,
+                          FunctionArgMap* function_args);
 
 /**
  * Uses ELF and DWARF information to return the locations of all relevant symbols for general Go

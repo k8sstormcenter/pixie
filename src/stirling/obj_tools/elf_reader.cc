@@ -323,6 +323,12 @@ StatusOr<std::vector<ElfReader::SymbolInfo>> ElfReader::ListFuncSymbols(
   return symbol_infos;
 }
 
+bool ElfReader::HasSymtab() { return SymtabSection().ok(); }
+
+void ElfReader::SetFallbackSymbols(std::vector<SymbolInfo> symbols) {
+  fallback_symbols_ = std::move(symbols);
+}
+
 StatusOr<ElfReader::SymbolInfo> ElfReader::SearchTheOnlySymbol(std::string_view symbol) {
   PX_ASSIGN_OR_RETURN(std::vector<ElfReader::SymbolInfo> symbol_infos,
                       SearchSymbols(symbol, SymbolMatchType::kExact, /*symbol_type*/ std::nullopt,

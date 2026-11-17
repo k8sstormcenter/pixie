@@ -1114,5 +1114,85 @@ TEST_F(DynamicTraceSharedLibraryTest, GetAddrInfoInsideContainer) {
   EXPECT_EQ(rb[pid_idx]->Get<types::UInt128Value>(0).High64(), trace_target_.process_pid());
 }
 
+//-----------------------------------------------------------------------------
+// Concurrent BPFTrace deployment tests
+//-----------------------------------------------------------------------------
+
+class ConcurrentBPFTraceTest : public StirlingDynamicTraceBPFTest {
+ protected:
+  static constexpr std::string_view kKernelHeaderScript = R"(
+#include <linux/cred.h>
+#include <linux/fs.h>
+#include <linux/nsproxy.h>
+#include <linux/pid_namespace.h>
+#include <linux/sched.h>
+
+interval:ms:100 {
+  $task = (struct task_struct *)curtask;
+  printf("time_:%llu pid:%u pidns:%u\n", nsecs, $task->tgid,
+         $task->nsproxy->pid_ns_for_children->ns.inum);
+}
+)";
+
+  static constexpr std::string_view kMissingHeaderScript = R"(
+#include <linux/px_header_that_does_not_exist.h>
+
+interval:ms:100 {
+  printf("time_:%llu pid:%u\n", nsecs, pid);
+}
+)";
+
+  sole::uuid RegisterBPFTrace(std::string_view table_name, std::string_view script) {
+    auto deployment = std::make_unique<dynamic_tracing::ir::logical::TracepointDeployment>();
+    deployment->set_name(std::string(table_name));
+    auto* tracepoint = deployment->add_tracepoints();
+    tracepoint->set_table_name(std::string(table_name));
+    tracepoint->mutable_bpftrace()->set_program(std::string(script));
+
+    sole::uuid trace_id = sole::uuid4();
+    stirling_->RegisterTracepoint(trace_id, std::move(deployment));
+    return trace_id;
+  }
+};
+
+TEST_F(ConcurrentBPFTraceTest, DeploysSettleAndRunLoopKeepsPushing) {
+  constexpr int kNumTracepoints = 6;
+
+  ASSERT_OK(stirling_->RunAsThread());
+  ASSERT_OK(stirling_->WaitUntilRunning(std::chrono::seconds(5)));
+
+  std::vector<sole::uuid> good;
+  std::vector<sole::uuid> bad;
+  for (int i = 0; i < kNumTracepoints; ++i) {
+    if (i % 3 == 2) {
+      bad.push_back(RegisterBPFTrace(absl::StrCat("bad_", i), kMissingHeaderScript));
+    } else {
+      good.push_back(RegisterBPFTrace(absl::StrCat("good_", i), kKernelHeaderScript));
+    }
+  }
+
+  for (const auto& trace_id : good) {
+    ASSERT_OK_AND_ASSIGN(stirlingpb::Publish publication, WaitForStatus(trace_id));
+    EXPECT_EQ(publication.published_info_classes_size(), 1);
+  }
+  for (const auto& trace_id : bad) {
+    EXPECT_NOT_OK(WaitForStatus(trace_id));
+  }
+
+  EXPECT_TRUE(stirling_->IsRunning());
+  const size_t batches_before = record_batches_.size();
+  std::this_thread::sleep_for(std::chrono::seconds(5));
+  EXPECT_GT(record_batches_.size(), batches_before);
+
+  for (const auto& trace_id : good) {
+    ASSERT_OK(stirling_->RemoveTracepoint(trace_id));
+  }
+  for (const auto& trace_id : good) {
+    EXPECT_EQ(WaitForStatus(trace_id).code(), px::statuspb::Code::NOT_FOUND);
+  }
+
+  stirling_->Stop();
+}
+
 }  // namespace stirling
 }  // namespace px

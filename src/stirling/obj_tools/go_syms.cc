@@ -70,6 +70,7 @@ Status PopulateGoPclntabSymbols(ElfReader* elf_reader) {
   elf_reader->SetFallbackSymbols(std::move(symbols));
   return Status::OK();
 }
+
 // kGoBuildInfoMagic corresponds to "\xff Go buildinf:"
 // https://github.com/golang/go/blob/1dbbafc70fd3e2c284469ab3e0936c1bb56129f6/src/debug/buildinfo/buildinfo.go#L49
 std::string_view kGoBuildInfoMagic =

@@ -98,7 +98,7 @@ TEST_P(GoPclntabTest, TextStartMatchesRuntimeText) {
 
 TEST_P(GoPclntabTest, HeaderTextStartIsZeroFromGo1_26) {
   ASSERT_OK_AND_ASSIGN(auto pclntab, GoPclntab::Create(elf_.get()));
-  if (GetParam() >= std::string_view("1_26")) {
+  if (GetParam() == "1_26") {
     EXPECT_EQ(pclntab->header_text_start(), uint64_t{0});
   } else {
     EXPECT_EQ(pclntab->header_text_start(), pclntab->text_start());

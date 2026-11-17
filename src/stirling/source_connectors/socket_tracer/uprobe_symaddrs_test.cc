@@ -394,7 +394,6 @@ const std::vector<std::string_view> kStdFuncs = {
 class GoFixtureTest : public ::testing::TestWithParam<std::string_view> {
  protected:
   void SetUp() override {
-    FLAGS_disable_dwarf_parsing = false;
     ParseGoOffsetgenFile(px::testing::BazelRunfilePath(kOffsetgenOffsetsFile), &struct_offsets_,
                          &function_args_);
     ASSERT_GT(struct_offsets_.size(), 0);
@@ -431,9 +430,8 @@ TEST_P(GoFixtureTest, AnalyzeUnstrippedBinaryWithDwarf) {
 }
 
 TEST_P(GoFixtureTest, AnalyzeWithDwarfParsingDisabled) {
-  FLAGS_disable_dwarf_parsing = true;
+  PX_SET_FOR_SCOPE(FLAGS_disable_dwarf_parsing, true);
   ASSERT_OK_AND_ASSIGN(GoBinaryInfo info, AnalyzeGoBinary(unstripped_path_, unstripped_elf_.get()));
-  FLAGS_disable_dwarf_parsing = false;
   EXPECT_TRUE(info.dwarf_reader == nullptr);
 }
 

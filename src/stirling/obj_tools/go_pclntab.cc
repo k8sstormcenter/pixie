@@ -27,6 +27,8 @@
 #include <absl/strings/str_cat.h>
 #include <absl/strings/strip.h>
 
+#include "src/stirling/utils/binary_decoder.h"
+
 namespace px {
 namespace stirling {
 namespace obj_tools {
@@ -63,13 +65,6 @@ constexpr std::array<std::string_view, 2> kPclntabSections = {".gopclntab",
                                                               ".data.rel.ro.gopclntab"};
 constexpr std::array<std::string_view, 3> kModuleDataSections = {".go.module", ".noptrdata",
                                                                  ".data"};
-
-template <typename T>
-T ReadInt(std::string_view buf, size_t offset) {
-  T v;
-  std::memcpy(&v, buf.data() + offset, sizeof(T));
-  return v;
-}
 
 bool MayHoldModuleData(ELFIO::section* s) {
   return s->get_type() == ELFIO::SHT_PROGBITS && (s->get_flags() & ELFIO::SHF_ALLOC) != 0 &&
@@ -125,7 +120,7 @@ Status GoPclntab::Init() {
   }
 
   PX_ASSIGN_OR_RETURN(std::string header, ReadAt(file_offset, kPclntabHeaderSize));
-  magic_ = ReadInt<uint32_t>(header, 0);
+  magic_ = ::px::utils::LEndianBytesToInt<uint32_t>(std::string_view(header));
   if (magic_ != kGo118PclntabMagic && magic_ != kGo120PclntabMagic) {
     return error::Unimplemented("Unsupported pclntab magic=$0 in binary=$1", absl::Hex(magic_),
                                 elf_reader_->binary_path());
@@ -134,11 +129,16 @@ Status GoPclntab::Init() {
     return error::Unimplemented("Unsupported pointer size=$0 in binary=$1",
                                 static_cast<int>(header[7]), elf_reader_->binary_path());
   }
-  const uint64_t nfunc = ReadInt<uint64_t>(header, 8);
-  header_text_start_ = ReadInt<uint64_t>(header, 24);
-  const uint64_t funcname_offset = ReadInt<uint64_t>(header, 32);
-  const uint64_t cu_offset = ReadInt<uint64_t>(header, 40);
-  const uint64_t pcln_offset = ReadInt<uint64_t>(header, 64);
+  const uint64_t nfunc =
+      ::px::utils::LEndianBytesToInt<uint64_t>(std::string_view(header).substr(8));
+  header_text_start_ =
+      ::px::utils::LEndianBytesToInt<uint64_t>(std::string_view(header).substr(24));
+  const uint64_t funcname_offset =
+      ::px::utils::LEndianBytesToInt<uint64_t>(std::string_view(header).substr(32));
+  const uint64_t cu_offset =
+      ::px::utils::LEndianBytesToInt<uint64_t>(std::string_view(header).substr(40));
+  const uint64_t pcln_offset =
+      ::px::utils::LEndianBytesToInt<uint64_t>(std::string_view(header).substr(64));
 
   auto moduledata_or = FindModuleData(pclntab_addr_ + funcname_offset);
   if (moduledata_or.ok()) {
@@ -169,11 +169,15 @@ Status GoPclntab::ReadFuncs(uint64_t file_offset, uint64_t nfunc, uint64_t funcn
 
   funcs_.reserve(nfunc);
   for (uint64_t i = 0; i < nfunc; ++i) {
-    const uint32_t entry = ReadInt<uint32_t>(functab, i * 8);
-    const uint32_t func_offset = ReadInt<uint32_t>(functab, i * 8 + 4);
-    const uint32_t next_entry = ReadInt<uint32_t>(functab, (i + 1) * 8);
+    const uint32_t entry =
+        ::px::utils::LEndianBytesToInt<uint32_t>(std::string_view(functab).substr(i * 8));
+    const uint32_t func_offset =
+        ::px::utils::LEndianBytesToInt<uint32_t>(std::string_view(functab).substr(i * 8 + 4));
+    const uint32_t next_entry =
+        ::px::utils::LEndianBytesToInt<uint32_t>(std::string_view(functab).substr((i + 1) * 8));
     PX_ASSIGN_OR_RETURN(std::string func, ReadAt(file_offset + pcln_offset + func_offset, 8));
-    const int32_t name_offset = ReadInt<int32_t>(func, 4);
+    const int32_t name_offset =
+        ::px::utils::LEndianBytesToInt<int32_t>(std::string_view(func).substr(4));
     if (name_offset < 0 || static_cast<uint64_t>(name_offset) >= funcnames.size() ||
         next_entry < entry) {
       continue;
@@ -240,34 +244,25 @@ StatusOr<std::string> GoPclntab::ReadVirtual(uint64_t vaddr, size_t length) {
 
 StatusOr<uint64_t> GoPclntab::ReadU64(uint64_t vaddr) {
   PX_ASSIGN_OR_RETURN(std::string buf, ReadVirtual(vaddr, sizeof(uint64_t)));
-  return ReadInt<uint64_t>(buf, 0);
+  return ::px::utils::LEndianBytesToInt<uint64_t>(std::string_view(buf));
 }
 
 StatusOr<std::string> GoPclntab::ReadGoName(uint64_t vaddr) {
-  PX_ASSIGN_OR_RETURN(std::string header, ReadVirtual(vaddr, 1 + 10));
-  uint64_t length = 0;
-  size_t i = 1;
-  int shift = 0;
-  bool complete = false;
-  while (i < header.size()) {
-    const uint8_t b = static_cast<uint8_t>(header[i++]);
-    length |= static_cast<uint64_t>(b & 0x7f) << shift;
-    if ((b & 0x80) == 0) {
-      complete = true;
-      break;
-    }
-    shift += 7;
-  }
-  if (!complete || length > kMaxGoNameLength) {
+  PX_ASSIGN_OR_RETURN(std::string header, ReadVirtual(vaddr, 1 + kMaxVarintLen64));
+  BinaryDecoder decoder(std::string_view(header).substr(1));
+  PX_ASSIGN_OR_RETURN(uint64_t length, decoder.ExtractUVarInt());
+  if (length > kMaxGoNameLength) {
     return error::Internal("Invalid Go name at address=$0", vaddr);
   }
-  return ReadVirtual(vaddr + i, length);
+  const size_t varint_size = header.size() - 1 - decoder.BufSize();
+  return ReadVirtual(vaddr + 1 + varint_size, length);
 }
 
 StatusOr<std::string> GoPclntab::TypeName(uint64_t type_addr, uint64_t types_addr) {
   PX_ASSIGN_OR_RETURN(std::string type, ReadVirtual(type_addr, kTypeStrOffset + sizeof(int32_t)));
   const uint8_t tflag = static_cast<uint8_t>(type[kTypeTFlagOffset]);
-  const int32_t str = ReadInt<int32_t>(type, kTypeStrOffset);
+  const int32_t str =
+      ::px::utils::LEndianBytesToInt<int32_t>(std::string_view(type).substr(kTypeStrOffset));
   PX_ASSIGN_OR_RETURN(std::string name, ReadGoName(types_addr + str));
   if ((tflag & kTFlagExtraStar) != 0 && absl::StartsWith(name, "*")) {
     name.erase(0, 1);
@@ -349,7 +344,8 @@ StatusOr<std::vector<ElfReader::SymbolInfo>> GoPclntab::ITabs() {
 
   std::vector<ElfReader::SymbolInfo> itabs;
   for (uint64_t k = 0; k < num_links; ++k) {
-    const uint64_t itab_addr = ReadInt<uint64_t>(links, k * sizeof(uint64_t));
+    const uint64_t itab_addr = ::px::utils::LEndianBytesToInt<uint64_t>(
+        std::string_view(links).substr(k * sizeof(uint64_t)));
     auto inter_addr = ReadU64(itab_addr);
     auto type_addr = ReadU64(itab_addr + kITabTypeOffset);
     if (!inter_addr.ok() || !type_addr.ok()) {

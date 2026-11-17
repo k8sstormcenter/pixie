@@ -146,6 +146,11 @@ class CerrRedirect {
   std::streambuf* old_;
 };
 
+std::mutex& BPFTraceWrapper::compilation_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
 // This compile function is inspired from the bpftrace project's main.cpp.
 // Changes to bpftrace may need to be reflected back to this function on a bpftrace update.
 Status BPFTraceWrapper::Compile(std::string_view script, const std::vector<std::string>& params) {

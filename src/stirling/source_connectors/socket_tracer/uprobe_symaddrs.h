@@ -118,8 +118,7 @@ class GoOffsetLocator {
       auto version_map = version_info_map.find(
           ResolveVersionKey(version_info_map, version_key, pkg_name == kGoStdlibPackageName));
       if (version_map == version_info_map.end()) {
-        return error::Internal("Unable to find function location for arg=$0 version=$1", arg_name,
-                               version_key);
+        continue;
       }
       auto var_loc_ptr = version_map->second.get();
       if (var_loc_ptr == nullptr) {
@@ -127,6 +126,10 @@ class GoOffsetLocator {
                                version_key);
       }
       result.insert({arg_name, obj_tools::ArgInfo{obj_tools::TypeInfo{}, *var_loc_ptr}});
+    }
+    if (result.empty()) {
+      return error::Internal("Unable to find function location for $0 version=$1",
+                             function_symbol_name, version_key);
     }
     return result;
   }

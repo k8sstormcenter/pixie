@@ -905,8 +905,11 @@ int UProbeManager::DeployGoUProbes(const absl::flat_hash_set<md::UPID>& pids) {
 
     StatusOr<GoBinaryInfo> go_binary_status = AnalyzeGoBinary(binary, elf_reader.get());
     if (!go_binary_status.ok()) {
-      VLOG(1) << absl::Substitute("Cannot deploy Go uprobes on binary $0. Message = $1", binary,
-                                  go_binary_status.msg());
+      Status s(go_binary_status.code(),
+               absl::Substitute("binary=$0 $1", binary, go_binary_status.msg()));
+      monitor_.AppendSourceStatusRecord("socket_tracer", s, "AnalyzeGoBinary");
+      LOG_FIRST_N(WARNING, 10) << absl::Substitute("Cannot deploy Go uprobes on binary $0: $1",
+                                                   binary, go_binary_status.msg());
       continue;
     }
     GoBinaryInfo go_binary = go_binary_status.ConsumeValueOrDie();
@@ -916,8 +919,12 @@ int UProbeManager::DeployGoUProbes(const absl::flat_hash_set<md::UPID>& pids) {
         go_binary.build_info, go_binary.go_version);
     Status s = UpdateGoCommonSymAddrs(elf_reader.get(), offset_locator.get(), pid_vec);
     if (!s.ok()) {
-      VLOG(1) << absl::Substitute(
-          "Golang binary $0 does not have the mandatory symbols (e.g. TCPConn).", binary);
+      monitor_.AppendSourceStatusRecord(
+          "socket_tracer", Status(s.code(), absl::Substitute("binary=$0 $1", binary, s.msg())),
+          "UpdateGoCommonSymAddrs");
+      LOG_FIRST_N(WARNING, 10) << absl::Substitute(
+          "Golang binary $0 does not have the mandatory symbols or offsets (e.g. TCPConn): $1",
+          binary, s.msg());
       continue;
     }
 

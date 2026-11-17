@@ -267,6 +267,7 @@ Status BPFTraceWrapper::Deploy(const PrintfCallback& printf_callback) {
     bpftrace_.printf_callback_ = printf_callback;
   }
 
+  const std::lock_guard<std::mutex> lock(bpftrace_mutex());
   int err = bpftrace_.deploy(bytecode_);
   if (err != 0) {
     return error::Internal("Failed to run BPF code.");

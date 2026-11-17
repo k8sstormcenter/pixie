@@ -105,8 +105,6 @@ ignored_dirs = [
     "src/stirling/obj_tools/go_syms.h", # To be upstreamed
     "src/stirling/obj_tools/go_syms_test.cc", # To be upstreamed
     "src/stirling/obj_tools/testdata/go/BUILD.bazel", # To be upstreamed
-    "src/stirling/obj_tools/testdata/go/golang_1_25_server_binary", # To be upstreamed
-    "src/stirling/obj_tools/testdata/go/golang_1_26_server_binary", # To be upstreamed
     "src/stirling/offsetgen_offsets.json", # To be upstreamed
     "src/stirling/source_connectors/dynamic_tracer/stirling_dt_bpf_test.cc", # To be upstreamed
     "src/stirling/source_connectors/socket_tracer/BUILD.bazel", # To be upstreamed

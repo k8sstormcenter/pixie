@@ -94,11 +94,6 @@ golang_server_binaries = {
     for v in pl_supported_go_sdk_versions
 }
 
-golang_server_binaries.update({
-    "1_25": ":golang_1_25_server_binary",
-    "1_26": ":golang_1_26_server_binary",
-})
-
 [
     genrule(
         name = "golang_%s_server_stripped_binary_target" % v,

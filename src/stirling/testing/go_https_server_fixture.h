@@ -18,7 +18,6 @@
 
 #pragma once
 
-#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <string_view>
@@ -33,13 +32,9 @@ namespace testing {
 
 class GoHTTPSServerFixture {
  public:
-  static constexpr std::array<std::string_view, 4> kVersions = {"1_23", "1_24", "1_25", "1_26"};
+  static constexpr std::array<std::string_view, 2> kVersions = {"1_23", "1_24"};
 
   static std::filesystem::path Path(std::string_view version) {
-    if (IsPrebuilt(version)) {
-      return ::px::testing::BazelRunfilePath(
-          absl::StrCat(kTestDataDir, "golang_", version, "_server_binary"));
-    }
     return ::px::testing::BazelRunfilePath(
         absl::StrCat(kGoHTTPSServerDir, "golang_", version, "_server_binary"));
   }
@@ -53,12 +48,6 @@ class GoHTTPSServerFixture {
   static constexpr std::string_view kTestDataDir = "src/stirling/obj_tools/testdata/go/";
   static constexpr std::string_view kGoHTTPSServerDir =
       "src/stirling/testing/demo_apps/go_https/server/";
-  static constexpr std::array<std::string_view, 2> kPrebuiltVersions = {"1_25", "1_26"};
-
-  static bool IsPrebuilt(std::string_view version) {
-    return std::find(kPrebuiltVersions.begin(), kPrebuiltVersions.end(), version) !=
-           kPrebuiltVersions.end();
-  }
 };
 
 }  // namespace testing

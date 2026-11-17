@@ -16,6 +16,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <vector>
+
 #include <absl/functional/bind_front.h>
 
 #include "src/common/testing/testing.h"
@@ -186,6 +192,63 @@ TEST(BPFTracerWrapperTest, InconsistentPrintfs) {
         bpftrace_wrapper.CompileForPrintfOutput(script).status(),
         StatusIs(statuspb::INTERNAL,
                  HasSubstr("All printf statements must have exactly the same format string")));
+  }
+}
+
+constexpr std::string_view kKernelHeaderScript = R"(
+#include <linux/cred.h>
+#include <linux/fs.h>
+#include <linux/nsproxy.h>
+#include <linux/pid_namespace.h>
+#include <linux/sched.h>
+
+interval:ms:100 {
+  $task = (struct task_struct *)curtask;
+  printf("time_:%llu pid:%u pidns:%u\n", nsecs, $task->tgid,
+         $task->nsproxy->pid_ns_for_children->ns.inum);
+}
+)";
+
+TEST(BPFTracerWrapperTest, CompileIsSerializedAcrossInstances) {
+  std::unique_lock<std::mutex> held(BPFTraceWrapper::compilation_mutex());
+
+  std::atomic<bool> done = false;
+  BPFTraceWrapper bpftrace_wrapper;
+  std::thread compile([&] {
+    EXPECT_NOT_OK(bpftrace_wrapper.CompileForPrintfOutput("not a bpftrace program"));
+    done = true;
+  });
+
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  EXPECT_FALSE(done);
+
+  held.unlock();
+  compile.join();
+  EXPECT_TRUE(done);
+}
+
+TEST(BPFTracerWrapperTest, ConcurrentCompilesWithKernelHeaders) {
+  constexpr int kNumCompiles = 8;
+
+  std::vector<std::unique_ptr<BPFTraceWrapper>> wrappers;
+  for (int i = 0; i < kNumCompiles; ++i) {
+    wrappers.push_back(std::make_unique<BPFTraceWrapper>());
+  }
+
+  std::vector<Status> results(kNumCompiles);
+  std::vector<std::thread> threads;
+  for (int i = 0; i < kNumCompiles; ++i) {
+    threads.emplace_back(
+        [&, i] { results[i] = wrappers[i]->CompileForPrintfOutput(kKernelHeaderScript); });
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  for (int i = 0; i < kNumCompiles; ++i) {
+    SCOPED_TRACE(i);
+    ASSERT_OK(results[i]);
+    EXPECT_EQ(wrappers[i]->OutputFields().size(), 3);
   }
 }
 

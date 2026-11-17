@@ -917,7 +917,9 @@ StatusOr<GoBinaryInfo> AnalyzeGoBinary(const std::string& binary, ElfReader* elf
 
   PX_RETURN_IF_ERROR(obj_tools::PopulateGoPclntabSymbols(elf_reader));
 
-  if (!FLAGS_disable_dwarf_parsing) {
+  const bool has_debug_info = elf_reader->SectionWithName(".debug_info").ok() ||
+                              elf_reader->SectionWithName(".zdebug_info").ok();
+  if (!FLAGS_disable_dwarf_parsing && has_debug_info) {
     auto dwarf_reader_or = DwarfReader::CreateIndexingAll(binary);
     if (dwarf_reader_or.ok()) {
       info.dwarf_reader = dwarf_reader_or.ConsumeValueOrDie();

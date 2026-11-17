@@ -342,6 +342,18 @@ TEST(GoOffsetLocator, FunctionArgFallsBackToSameMinor) {
   EXPECT_EQ(args["b"].location.offset, 8);
 }
 
+TEST(GoOffsetLocator, FunctionArgSkipsArgsWithoutVersion) {
+  FunctionArgMap fn_arg_map = GetFunctionArgMap();
+  fn_arg_map["crypto/tls.(*Conn).Read"].second["fh"]["1.26.7"] =
+      std::make_unique<obj_tools::VarLocation>(
+          obj_tools::VarLocation{obj_tools::LocationType::kRegister, 8});
+  std::string version = "1.19.7";
+  auto offset_locator = GoOffsetLocator(nullptr, struct_map, fn_arg_map, empty_build_info, version);
+  ASSERT_OK_AND_ASSIGN(auto args, offset_locator.GetFunctionArgInfo("crypto/tls.(*Conn).Read"));
+  EXPECT_EQ(args.size(), 1);
+  EXPECT_NE(args.find("b"), args.end());
+}
+
 constexpr std::string_view kTLSFixtureDir = "src/stirling/obj_tools/testdata/go/tls_fixture/";
 constexpr std::string_view kOffsetgenOffsetsFile = "src/stirling/offsetgen_offsets.json";
 

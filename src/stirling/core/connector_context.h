@@ -18,10 +18,13 @@
 
 #pragma once
 
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include <absl/container/flat_hash_set.h>
 
 #include "src/common/base/base.h"
 #include "src/common/system/proc_pid_path.h"
@@ -36,6 +39,8 @@ namespace stirling {
 /**
  * ConnectorContext is the information passed on every Transfer call to source connectors.
  */
+absl::flat_hash_set<md::UPID> ListUPIDs(const std::filesystem::path& proc_path, uint32_t asid);
+
 class ConnectorContext {
  public:
   virtual ~ConnectorContext() = default;

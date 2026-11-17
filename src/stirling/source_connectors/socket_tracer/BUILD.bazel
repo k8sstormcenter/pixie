@@ -51,6 +51,7 @@ pl_cc_library(
 pl_cc_test(
     name = "socket_trace_connector_test",
     srcs = ["socket_trace_connector_test.cc"],
+    data = ["//src/common/system/testdata:proc_fs"],
     deps = [
         ":cc_library",
         "//src/stirling/source_connectors/socket_tracer/protocols/cql:testing",

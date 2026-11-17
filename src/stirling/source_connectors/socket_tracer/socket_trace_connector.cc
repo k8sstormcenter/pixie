@@ -182,6 +182,11 @@ DEFINE_bool(
     stirling_trace_static_tls_binaries, gflags::BoolFromEnv("PX_TRACE_STATIC_TLS_BINARIES", true),
     "If true, stirling will tls trace binaries statically linked with OpenSSL or BoringSSL");
 
+DEFINE_bool(stirling_deploy_uprobes_on_host_processes,
+            gflags::BoolFromEnv("PX_DEPLOY_UPROBES_ON_HOST_PROCESSES", false),
+            "If true, stirling also deploys uprobes on processes that are not in a container, such "
+            "as the kubelet");
+
 DEFINE_bool(
     stirling_debug_tls_sources, gflags::BoolFromEnv("PX_DEBUG_TLS_SOURCES", false),
     "If true, stirling will add additional prometheus metrics regarding the traced tls sources");
@@ -621,6 +626,10 @@ Status SocketTraceConnector::StopImpl() {
   // that will cause races and undefined behavior.
   bcc_->Close();
   return Status::OK();
+}
+
+absl::flat_hash_set<md::UPID> SocketTraceConnector::UProbeTargetUPIDs(ConnectorContext* ctx) {
+  return ctx->GetUPIDs();
 }
 
 std::thread SocketTraceConnector::RunDeployUProbesThread(

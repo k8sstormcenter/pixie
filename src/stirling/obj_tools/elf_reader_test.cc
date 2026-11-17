@@ -387,6 +387,20 @@ TEST(ElfReaderTest, FallbackSymbolsResolveAddresses) {
   ASSERT_OK_AND_THAT(elf_reader->AddrToSymbol(0x1001), Eq(std::nullopt));
 }
 
+TEST(ElfReaderTest, FallbackSymbolsFillEntriesMissingFromSymtab) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
+                       ElfReader::Create(GoHTTPSServerFixture::Path("1_24")));
+  ASSERT_TRUE(elf_reader->HasSymtab());
+  EXPECT_EQ(elf_reader->SymbolAddress("go:itab.*example.com/fake.Conn,net.Conn"), std::nullopt);
+
+  elf_reader->SetFallbackSymbols(
+      {{"go:itab.*example.com/fake.Conn,net.Conn", ELFIO::STT_OBJECT, 0x3000, 0x20}});
+
+  EXPECT_EQ(elf_reader->SymbolAddress("go:itab.*example.com/fake.Conn,net.Conn"), 0x3000);
+  EXPECT_NE(elf_reader->SymbolAddress("go:itab.*net.TCPConn,net.Conn"), std::nullopt);
+  EXPECT_NE(elf_reader->SymbolAddress("go:itab.*net.TCPConn,net.Conn"), 0x3000);
+}
+
 TEST(ElfReaderTest, FallbackSymbolsIgnoredWithSymtab) {
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
                        ElfReader::Create(GoHTTPSServerFixture::Path("1_24")));

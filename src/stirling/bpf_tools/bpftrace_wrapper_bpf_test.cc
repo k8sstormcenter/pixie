@@ -17,6 +17,7 @@
  */
 
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -234,23 +235,32 @@ TEST(BPFTracerWrapperTest, DeployIsSerializedAcrossInstances) {
     }
     )";
 
+  std::chrono::steady_clock::duration unlocked_deploy_time;
+  {
+    BPFTraceWrapper bpftrace_wrapper;
+    ASSERT_OK(bpftrace_wrapper.CompileForMapOutput(kScript));
+    const auto start = std::chrono::steady_clock::now();
+    ASSERT_OK(bpftrace_wrapper.Deploy());
+    unlocked_deploy_time = std::chrono::steady_clock::now() - start;
+    bpftrace_wrapper.Stop();
+  }
+
   BPFTraceWrapper bpftrace_wrapper;
   ASSERT_OK(bpftrace_wrapper.CompileForMapOutput(kScript));
 
   std::unique_lock<std::mutex> held(BPFTraceWrapper::bpftrace_mutex());
 
-  std::atomic<bool> done = false;
+  std::chrono::steady_clock::time_point deployed_at;
   std::thread deploy([&] {
     EXPECT_OK(bpftrace_wrapper.Deploy());
-    done = true;
+    deployed_at = std::chrono::steady_clock::now();
   });
 
-  std::this_thread::sleep_for(std::chrono::seconds(2));
-  EXPECT_FALSE(done);
-
+  std::this_thread::sleep_for(3 * unlocked_deploy_time + std::chrono::seconds(1));
+  const auto released_at = std::chrono::steady_clock::now();
   held.unlock();
   deploy.join();
-  EXPECT_TRUE(done);
+  EXPECT_GE(deployed_at, released_at);
 
   bpftrace_wrapper.Stop();
 }

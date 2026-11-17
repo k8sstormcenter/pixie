@@ -20,6 +20,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -115,6 +116,8 @@ class ElfReader {
 
   void SetFallbackSymbols(std::vector<SymbolInfo> symbols);
 
+  bool UsesFallbackSymbols();
+
   /**
    * Looks up the symbol for an address.
    *
@@ -196,6 +199,8 @@ class ElfReader {
    */
   StatusOr<ELFIO::section*> SectionWithName(std::string_view section_name);
 
+  std::vector<ELFIO::section*> Sections();
+
   /**
    * Returns the ELF type of this binary. (eg. ELFIO::ET_EXEC or ELFIO::ET_DYN).
    */
@@ -226,6 +231,11 @@ class ElfReader {
   ElfReader() = default;
 
   StatusOr<ELFIO::section*> SymtabSection();
+
+  std::vector<SymbolInfo> SearchFallbackSymbols(std::string_view search_symbol,
+                                                SymbolMatchType match_type,
+                                                std::optional<int> symbol_type,
+                                                bool stop_at_first_match);
 
   /**
    * Locates the debug symbols for the currently loaded ELF object.

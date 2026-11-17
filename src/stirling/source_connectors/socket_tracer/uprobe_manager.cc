@@ -134,6 +134,7 @@ StatusOr<int> UProbeManager::AttachUProbeTmpl(const ArrayView<UProbeTmpl>& probe
   using bpf_tools::BPFProbeAttachType;
 
   int uprobe_count = 0;
+  const bool attach_by_address = elf_reader->UsesFallbackSymbols();
   for (const auto& tmpl : probe_tmpls) {
     bpf_tools::UProbeSpec spec = {binary,
                                   /*symbol*/ {},
@@ -153,7 +154,11 @@ StatusOr<int> UProbeManager::AttachUProbeTmpl(const ArrayView<UProbeTmpl>& probe
       switch (tmpl.attach_type) {
         case BPFProbeAttachType::kEntry:
         case BPFProbeAttachType::kReturn: {
-          spec.symbol = symbol_info.name;
+          if (attach_by_address) {
+            spec.address = symbol_info.address;
+          } else {
+            spec.symbol = symbol_info.name;
+          }
           PX_RETURN_IF_ERROR(LogAndAttachUProbe(spec));
           ++uprobe_count;
           break;
@@ -898,34 +903,17 @@ int UProbeManager::DeployGoUProbes(const absl::flat_hash_set<md::UPID>& pids) {
       continue;
     }
 
-    StatusOr<std::unique_ptr<DwarfReader>> dwarf_reader_status =
-        DwarfReader::CreateIndexingAll(binary);
-    if (!dwarf_reader_status.ok()) {
-      VLOG(1) << absl::Substitute(
-          "Failed to get binary $0 debug symbols. Cannot deploy uprobes. "
-          "Message = $1",
-          binary, dwarf_reader_status.msg());
+    StatusOr<GoBinaryInfo> go_binary_status = AnalyzeGoBinary(binary, elf_reader.get());
+    if (!go_binary_status.ok()) {
+      VLOG(1) << absl::Substitute("Cannot deploy Go uprobes on binary $0. Message = $1", binary,
+                                  go_binary_status.msg());
       continue;
     }
+    GoBinaryInfo go_binary = go_binary_status.ConsumeValueOrDie();
 
-    auto build_info_s = ReadGoBuildInfo(elf_reader.get());
-    obj_tools::BuildInfo build_info;
-    std::string go_version;
-    if (build_info_s.ok()) {
-      auto& build_info_pair = build_info_s.ValueOrDie();
-      go_version = build_info_pair.first;
-      build_info = std::move(build_info_pair.second);
-    } else {
-      VLOG(1) << absl::Substitute("Failed to read build info from binary $0. Message = $1", binary,
-                                  build_info_s.status().msg());
-
-      continue;
-    }
-
-    std::unique_ptr<DwarfReader> dwarf_reader = dwarf_reader_status.ConsumeValueOrDie();
-    std::unique_ptr<GoOffsetLocator> offset_locator =
-        std::make_unique<GoOffsetLocator>(dwarf_reader.get(), GetGoStructOffsets(),
-                                          GetGoFunctionArgOffsets(), build_info, go_version);
+    std::unique_ptr<GoOffsetLocator> offset_locator = std::make_unique<GoOffsetLocator>(
+        go_binary.dwarf_reader.get(), GetGoStructOffsets(), GetGoFunctionArgOffsets(),
+        go_binary.build_info, go_binary.go_version);
     Status s = UpdateGoCommonSymAddrs(elf_reader.get(), offset_locator.get(), pid_vec);
     if (!s.ok()) {
       VLOG(1) << absl::Substitute(

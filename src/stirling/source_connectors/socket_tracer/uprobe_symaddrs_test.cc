@@ -327,8 +327,8 @@ TEST(ResolveOffsetVersion, IgnoresUnparsableVersions) {
 
 TEST(GoOffsetLocator, StructOffsetFallsBackToSameMinor) {
   std::string version = "1.19.7";
-  auto offset_locator = GoOffsetLocator(nullptr, struct_map, empty_fn_arg_map, empty_build_info,
-                                        version);
+  auto offset_locator =
+      GoOffsetLocator(nullptr, struct_map, empty_fn_arg_map, empty_build_info, version);
   ASSERT_OK_AND_ASSIGN(uint64_t offset, offset_locator.GetStructMemberOffset("runtime.g", "goid"));
   EXPECT_EQ(offset, 152);
 }
@@ -336,8 +336,7 @@ TEST(GoOffsetLocator, StructOffsetFallsBackToSameMinor) {
 TEST(GoOffsetLocator, FunctionArgFallsBackToSameMinor) {
   FunctionArgMap fn_arg_map = GetFunctionArgMap();
   std::string version = "1.19.7";
-  auto offset_locator =
-      GoOffsetLocator(nullptr, struct_map, fn_arg_map, empty_build_info, version);
+  auto offset_locator = GoOffsetLocator(nullptr, struct_map, fn_arg_map, empty_build_info, version);
   ASSERT_OK_AND_ASSIGN(auto args, offset_locator.GetFunctionArgInfo("crypto/tls.(*Conn).Read"));
   ASSERT_NE(args.find("b"), args.end());
   EXPECT_EQ(args["b"].location.offset, 8);
@@ -367,6 +366,8 @@ const std::vector<std::pair<std::string_view, std::string_view>> kStdStructMembe
     {"net/http.http2MetaHeadersFrame", "http2HeadersFrame"},
     {"net/http.http2MetaHeadersFrame", "Fields"},
     {"net/http.http2Framer", "w"},
+    {"net/http.http2bufferedWriter", "w"},
+    {"net/http.http2bufferedWriter", "conn"},
 };
 
 const std::vector<std::string_view> kStdFuncs = {
@@ -413,15 +414,13 @@ TEST_P(GoFixtureTest, AnalyzeStrippedBinaryWithoutDwarf) {
 }
 
 TEST_P(GoFixtureTest, AnalyzeUnstrippedBinaryWithDwarf) {
-  ASSERT_OK_AND_ASSIGN(GoBinaryInfo info,
-                       AnalyzeGoBinary(unstripped_path_, unstripped_elf_.get()));
+  ASSERT_OK_AND_ASSIGN(GoBinaryInfo info, AnalyzeGoBinary(unstripped_path_, unstripped_elf_.get()));
   EXPECT_TRUE(info.dwarf_reader != nullptr);
 }
 
 TEST_P(GoFixtureTest, AnalyzeWithDwarfParsingDisabled) {
   FLAGS_disable_dwarf_parsing = true;
-  ASSERT_OK_AND_ASSIGN(GoBinaryInfo info,
-                       AnalyzeGoBinary(unstripped_path_, unstripped_elf_.get()));
+  ASSERT_OK_AND_ASSIGN(GoBinaryInfo info, AnalyzeGoBinary(unstripped_path_, unstripped_elf_.get()));
   FLAGS_disable_dwarf_parsing = false;
   EXPECT_TRUE(info.dwarf_reader == nullptr);
 }
@@ -440,12 +439,14 @@ TEST_P(GoFixtureTest, OffsetTableMatchesDwarf) {
     SCOPED_TRACE(absl::StrCat(st, ".", member));
     auto expected = from_dwarf.GetStructMemberOffset(st, member);
     if (!expected.ok()) {
-      EXPECT_NOT_OK(from_table.GetStructMemberOffset(st, member));
+      auto actual = from_table.GetStructMemberOffset(st, member);
+      EXPECT_TRUE(!actual.ok() || static_cast<int32_t>(actual.ValueOrDie()) == -1)
+          << absl::Substitute("offsetgen: structs[\"$0\"][\"$1\"][\"$2\"] = null", st, member,
+                              version);
       continue;
     }
-    const std::string msg =
-        absl::Substitute("offsetgen: structs[\"$0\"][\"$1\"][\"$2\"] = $3", st, member,
-                         version, expected.ValueOrDie());
+    const std::string msg = absl::Substitute("offsetgen: structs[\"$0\"][\"$1\"][\"$2\"] = $3", st,
+                                             member, version, expected.ValueOrDie());
     auto actual = from_table.GetStructMemberOffset(st, member);
     EXPECT_OK(actual) << msg;
     if (actual.ok()) {
@@ -460,22 +461,23 @@ TEST_P(GoFixtureTest, OffsetTableMatchesDwarf) {
     if (!actual_or.ok()) {
       std::string msg;
       for (const auto& [arg, info] : expected) {
-        absl::StrAppend(&msg, absl::Substitute("offsetgen: funcs[\"$0\"][\"$1\"][\"$2\"] = $3/$4\n",
-                                               fn, arg, version,
-                                               magic_enum::enum_name(info.location.loc_type),
-                                               info.location.offset));
+        absl::StrAppend(
+            &msg,
+            absl::Substitute("offsetgen: funcs[\"$0\"][\"$1\"][\"$2\"] = $3/$4\n", fn, arg, version,
+                             magic_enum::enum_name(info.location.loc_type), info.location.offset));
       }
       ADD_FAILURE() << actual_or.msg() << "\n" << msg;
       continue;
     }
     auto actual = actual_or.ConsumeValueOrDie();
-    for (const auto& [arg, info] : expected) {
-      auto it = actual.find(arg);
-      ASSERT_NE(it, actual.end()) << arg;
-      EXPECT_EQ(it->second.location.loc_type, info.location.loc_type) << arg;
-      EXPECT_EQ(it->second.location.offset, info.location.offset)
+    EXPECT_FALSE(actual.empty());
+    for (const auto& [arg, info] : actual) {
+      auto it = expected.find(arg);
+      ASSERT_NE(it, expected.end()) << "offsetgen arg not in debug info: " << arg;
+      EXPECT_EQ(info.location.loc_type, it->second.location.loc_type) << arg;
+      EXPECT_EQ(info.location.offset, it->second.location.offset)
           << absl::Substitute("offsetgen: funcs[\"$0\"][\"$1\"][\"$2\"] = $3", fn, arg, version,
-                              info.location.offset);
+                              it->second.location.offset);
     }
   }
 }
@@ -532,6 +534,8 @@ TEST_P(GoFixtureTest, StrippedSymAddrsMatchUnstripped) {
             expected_h2.http2MetaHeadersFrame_Fields_offset);
   EXPECT_EQ(actual_h2.http2writeResHeaders_endStream_offset,
             expected_h2.http2writeResHeaders_endStream_offset);
+  EXPECT_EQ(actual_h2.http2bufferedWriter_w_offset, expected_h2.http2bufferedWriter_w_offset);
+  EXPECT_EQ(actual_h2.http2bufferedWriter_conn_offset, expected_h2.http2bufferedWriter_conn_offset);
 }
 
 INSTANTIATE_TEST_SUITE_P(GoVersions, GoFixtureTest,

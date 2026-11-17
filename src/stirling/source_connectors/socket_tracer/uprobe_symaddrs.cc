@@ -20,6 +20,7 @@
 #include <dlfcn.h>
 
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -428,6 +429,15 @@ location_t GetArgOffset(const std::map<std::string, obj_tools::ArgInfo>& fn_args
   return location;
 }
 
+location_t GetCheckFrameOrderArgOffset(
+    const std::map<std::string, obj_tools::ArgInfo>& fn_args_map) {
+  location_t location = GetArgOffset(fn_args_map, "f");
+  if (location.type == kLocationTypeInvalid) {
+    location = GetArgOffset(fn_args_map, "fh");
+  }
+  return location;
+}
+
 StatusOr<std::string> InferHTTP2SymAddrVendorPrefix(ElfReader* elf_reader) {
   // We now want to infer the vendor prefix directory. Use the list of symbols below as samples to
   // help infer. The iteration will stop after the first inference.
@@ -707,7 +717,7 @@ Status PopulateHTTP2DebugSymbols(GoOffsetLocator* offset_locator, std::string_vi
     std::string_view fn = "net/http.(*http2Framer).checkFrameOrder";
     auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
     LOG_ASSIGN(symaddrs->http2Framer_checkFrameOrder_fr_loc, GetArgOffset(args_map, "fr"));
-    LOG_ASSIGN(symaddrs->http2Framer_checkFrameOrder_f_loc, GetArgOffset(args_map, "f"));
+    LOG_ASSIGN(symaddrs->http2Framer_checkFrameOrder_f_loc, GetCheckFrameOrderArgOffset(args_map));
   }
 
   // Arguments of golang.org/x/net/http2.(*Framer).checkFrameOrder.
@@ -715,7 +725,7 @@ Status PopulateHTTP2DebugSymbols(GoOffsetLocator* offset_locator, std::string_vi
     std::string fn = VENDOR_SYMBOL("golang.org/x/net/http2.(*Framer).checkFrameOrder");
     auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
     LOG_ASSIGN(symaddrs->http2_checkFrameOrder_fr_loc, GetArgOffset(args_map, "fr"));
-    LOG_ASSIGN(symaddrs->http2_checkFrameOrder_f_loc, GetArgOffset(args_map, "f"));
+    LOG_ASSIGN(symaddrs->http2_checkFrameOrder_f_loc, GetCheckFrameOrderArgOffset(args_map));
   }
 
   // Arguments of net/http.(*http2writeResHeaders).writeFrame.
@@ -832,23 +842,91 @@ Status PopulateGoTLSDebugSymbols(GoOffsetLocator* offset_locator,
   return Status::OK();
 }
 
+namespace {
+
+std::optional<std::array<int, 3>> ParseOffsetVersion(std::string_view version) {
+  std::array<int, 3> parsed = {0, 0, 0};
+  std::vector<std::string_view> fields = absl::StrSplit(version, '.');
+  if (fields.size() < 2) {
+    return std::nullopt;
+  }
+  for (size_t i = 0; i < parsed.size() && i < fields.size(); ++i) {
+    std::string_view field = fields[i];
+    size_t digits = 0;
+    while (digits < field.size() && absl::ascii_isdigit(field[digits])) {
+      ++digits;
+    }
+    if (digits == 0 || !absl::SimpleAtoi(field.substr(0, digits), &parsed[i])) {
+      return std::nullopt;
+    }
+  }
+  return parsed;
+}
+
+}  // namespace
+
 std::optional<std::string> ResolveOffsetVersion(const std::vector<std::string>& available,
-                                                std::string_view requested,
-                                                bool /*same_minor_only*/) {
+                                                std::string_view requested, bool same_minor_only) {
   for (const auto& v : available) {
     if (v == requested) {
       return v;
     }
   }
+  std::optional<std::array<int, 3>> req = ParseOffsetVersion(requested);
+  if (!req.has_value()) {
+    return std::nullopt;
+  }
+  std::optional<std::pair<std::array<int, 3>, std::string>> older;
+  std::optional<std::pair<std::array<int, 3>, std::string>> newer;
+  for (const auto& v : available) {
+    std::optional<std::array<int, 3>> parsed = ParseOffsetVersion(v);
+    if (!parsed.has_value()) {
+      continue;
+    }
+    const bool same_minor = (*parsed)[0] == (*req)[0] && (*parsed)[1] == (*req)[1];
+    if (same_minor_only && !same_minor) {
+      continue;
+    }
+    if (*parsed <= *req) {
+      if (!older.has_value() || older->first < *parsed) {
+        older = std::make_pair(*parsed, v);
+      }
+    } else if (same_minor) {
+      if (!newer.has_value() || *parsed < newer->first) {
+        newer = std::make_pair(*parsed, v);
+      }
+    }
+  }
+  if (older.has_value()) {
+    return older->second;
+  }
+  if (newer.has_value()) {
+    return newer->second;
+  }
   return std::nullopt;
 }
 
 StatusOr<GoBinaryInfo> AnalyzeGoBinary(const std::string& binary, ElfReader* elf_reader) {
+  if (!obj_tools::IsGoExecutable(elf_reader)) {
+    return error::NotFound("Binary $0 is not a Go executable", binary);
+  }
   GoBinaryInfo info;
-  PX_ASSIGN_OR_RETURN(info.dwarf_reader, DwarfReader::CreateIndexingAll(binary));
   PX_ASSIGN_OR_RETURN(auto build_info_pair, obj_tools::ReadGoBuildInfo(elf_reader));
   info.go_version = std::move(build_info_pair.first);
   info.build_info = std::move(build_info_pair.second);
+
+  PX_RETURN_IF_ERROR(obj_tools::PopulateGoPclntabSymbols(elf_reader));
+
+  if (!FLAGS_disable_dwarf_parsing) {
+    auto dwarf_reader_or = DwarfReader::CreateIndexingAll(binary);
+    if (dwarf_reader_or.ok()) {
+      info.dwarf_reader = dwarf_reader_or.ConsumeValueOrDie();
+    } else {
+      VLOG(1) << absl::Substitute(
+          "No usable debug symbols in binary $0, using offsetgen offsets. Message = $1", binary,
+          dwarf_reader_or.msg());
+    }
+  }
   return info;
 }
 

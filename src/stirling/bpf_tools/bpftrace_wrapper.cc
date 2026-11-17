@@ -146,7 +146,7 @@ class CerrRedirect {
   std::streambuf* old_;
 };
 
-std::mutex& BPFTraceWrapper::compilation_mutex() {
+std::mutex& BPFTraceWrapper::bpftrace_mutex() {
   static std::mutex mutex;
   return mutex;
 }
@@ -158,7 +158,7 @@ Status BPFTraceWrapper::Compile(std::string_view script, const std::vector<std::
   // multiple simultaneous compiles may not be safe. For now, introduce a lock for safety.
   // TODO(oazizi): Update BPFTrace repo to avoid use of global state if possible.
 
-  const std::lock_guard<std::mutex> lock(compilation_mutex());
+  const std::lock_guard<std::mutex> lock(bpftrace_mutex());
 
   // Some functions below return errors, while others success as positive numbers.
   // For readability, use two separate variables for the two models.

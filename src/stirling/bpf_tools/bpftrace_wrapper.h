@@ -122,8 +122,6 @@ class BPFTraceWrapper {
   // The compiled BPF bytecode.
   bpftrace::BpfBytecode bytecode_;
 
-  std::mutex compilation_mutex_;
-
   bool compiled_ = false;
   bool printf_to_table_ = false;
 };

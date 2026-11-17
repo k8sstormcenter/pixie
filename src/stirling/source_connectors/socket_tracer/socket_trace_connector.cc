@@ -604,7 +604,7 @@ Status SocketTraceConnector::InitImpl() {
 }
 
 void SocketTraceConnector::InitContextImpl(ConnectorContext* ctx) {
-  std::thread thread = RunDeployUProbesThread(ctx->GetUPIDs());
+  std::thread thread = RunDeployUProbesThread(UProbeTargetUPIDs(ctx));
 
   // On the first context, we want to make sure all uprobes deploy before returning.
   if (thread.joinable()) {
@@ -629,7 +629,18 @@ Status SocketTraceConnector::StopImpl() {
 }
 
 absl::flat_hash_set<md::UPID> SocketTraceConnector::UProbeTargetUPIDs(ConnectorContext* ctx) {
-  return ctx->GetUPIDs();
+  absl::flat_hash_set<md::UPID> upids = ctx->GetUPIDs();
+  if (!FLAGS_stirling_deploy_uprobes_on_host_processes) {
+    return upids;
+  }
+  const auto now = now_fn_();
+  if (!host_upids_refresh_time_.has_value() ||
+      now - host_upids_refresh_time_.value() >= kHostUPIDsRefreshPeriod) {
+    host_upids_ = ListUPIDs(system::ProcPath(), ctx->GetASID());
+    host_upids_refresh_time_ = now;
+  }
+  upids.insert(host_upids_.begin(), host_upids_.end());
+  return upids;
 }
 
 std::thread SocketTraceConnector::RunDeployUProbesThread(
@@ -716,7 +727,7 @@ void SocketTraceConnector::UpdateCommonState(ConnectorContext* ctx) {
   }
 
   // Deploy uprobes on newly discovered PIDs.
-  std::thread thread = RunDeployUProbesThread(ctx->GetUPIDs());
+  std::thread thread = RunDeployUProbesThread(UProbeTargetUPIDs(ctx));
   // Let it run in the background.
   if (thread.joinable()) {
     thread.detach();

@@ -183,6 +183,25 @@ TEST(GoOffsetLocator, GetStructMemberOffsetNoDWARFSuccessfulLookupGolangXNet) {
   EXPECT_EQ(offset, 16);
 }
 
+TEST(GoOffsetLocator, GetStructMemberOffsetNoDWARFUsesReplacedModuleVersion) {
+  auto replaced_struct_map = StructOffsetMap{
+      {
+          "golang.org/x/net/http2.DataFrame",
+          {"golang.org/x/net", {{"data", {{"0.55.0", 24}, {"0.57.0", 32}}}}},
+      },
+  };
+  obj_tools::BuildInfo build_info;
+  build_info.deps.push_back(obj_tools::Module{"golang.org/x/net", "v0.57.0", "",
+                                              std::make_unique<obj_tools::Module>(obj_tools::Module{
+                                                  "golang.org/x/net", "v0.55.0", "", nullptr})});
+  auto offset_locator =
+      GoOffsetLocator(nullptr, replaced_struct_map, empty_fn_arg_map, build_info, go_version);
+
+  ASSERT_OK_AND_ASSIGN(uint64_t offset, offset_locator.GetStructMemberOffset(
+                                            "golang.org/x/net/http2.DataFrame", "data"));
+  EXPECT_EQ(offset, 24);
+}
+
 TEST(GoOffsetLocator, GetFunctionArgInfoNoDWARFMissingFunction) {
   auto offset_locator =
       GoOffsetLocator(nullptr, empty_struct_map, empty_fn_arg_map, empty_build_info, go_version);

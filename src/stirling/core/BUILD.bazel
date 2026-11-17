@@ -73,6 +73,12 @@ pl_cc_test(
 )
 
 pl_cc_test(
+    name = "source_connector_test",
+    srcs = ["source_connector_test.cc"],
+    deps = [":cc_library"],
+)
+
+pl_cc_test(
     name = "data_table_test",
     srcs = ["data_table_test.cc"],
     deps = [

@@ -113,6 +113,12 @@ ignored_dirs = [
     "src/stirling/source_connectors/socket_tracer/go_tls_trace_bpf_test.cc", # To be upstreamed
     "src/stirling/source_connectors/socket_tracer/http2_trace_bpf_test.cc", # To be upstreamed
     "src/stirling/source_connectors/socket_tracer/uprobe_manager.cc", # To be upstreamed
+    "src/stirling/source_connectors/socket_tracer/uprobe_manager_bpf_test.cc", # To be upstreamed
+    "src/stirling/source_connectors/socket_tracer/socket_trace_connector.cc", # To be upstreamed
+    "src/stirling/source_connectors/socket_tracer/socket_trace_connector.h", # To be upstreamed
+    "src/stirling/source_connectors/socket_tracer/socket_trace_connector_test.cc", # To be upstreamed
+    "src/stirling/source_connectors/socket_tracer/testing/socket_trace_connector_friend.h", # To be upstreamed
+    "src/stirling/core/connector_context.h", # To be upstreamed
     "src/stirling/testing/BUILD.bazel", # To be upstreamed
     "src/stirling/testing/go_https_server_fixture.h", # To be upstreamed
     "src/stirling/source_connectors/socket_tracer/uprobe_symaddrs*", # To be upstreamed

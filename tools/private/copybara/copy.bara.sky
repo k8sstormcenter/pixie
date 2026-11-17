@@ -89,8 +89,29 @@ ignored_dirs = [
     "src/experimental/standalone_pem/standalone_pem_manager.cc", # To be upstreamed
     "src/shared/services/pgtest/pgtest.go", # To be upstreamed
     "src/shared/version/BUILD.bazel", # To be upstreamed
+    "src/stirling/BUILD.bazel", # To be upstreamed
+    "src/stirling/bpf_tools/bpftrace_wrapper.cc", # To be upstreamed
+    "src/stirling/bpf_tools/bpftrace_wrapper.h", # To be upstreamed
+    "src/stirling/bpf_tools/bpftrace_wrapper_bpf_test.cc", # To be upstreamed
     "src/stirling/core/BUILD.bazel", # To be upstreamed
+    "src/stirling/core/source_connector.cc", # To be upstreamed
+    "src/stirling/core/source_connector_test.cc", # To be upstreamed
     "src/stirling/obj_tools/BUILD.bazel", # Issue with k8sstormcenter CI infra
+    "src/stirling/obj_tools/elf_reader.cc", # To be upstreamed
+    "src/stirling/obj_tools/elf_reader.h", # To be upstreamed
+    "src/stirling/obj_tools/elf_reader_test.cc", # To be upstreamed
+    "src/stirling/obj_tools/go_pclntab*", # To be upstreamed
+    "src/stirling/obj_tools/go_syms.cc", # To be upstreamed
+    "src/stirling/obj_tools/go_syms.h", # To be upstreamed
+    "src/stirling/obj_tools/go_syms_test.cc", # To be upstreamed
+    "src/stirling/obj_tools/testdata/go/tls_fixture/**", # To be upstreamed
+    "src/stirling/offsetgen_offsets.json", # To be upstreamed
+    "src/stirling/source_connectors/dynamic_bpftrace/BUILD.bazel", # To be upstreamed
+    "src/stirling/source_connectors/dynamic_bpftrace/stirling_dynamic_bpftrace_bpf_test.cc", # To be upstreamed
+    "src/stirling/source_connectors/socket_tracer/BUILD.bazel", # To be upstreamed
+    "src/stirling/source_connectors/socket_tracer/testdata/**", # To be upstreamed
+    "src/stirling/source_connectors/socket_tracer/uprobe_manager.cc", # To be upstreamed
+    "src/stirling/source_connectors/socket_tracer/uprobe_symaddrs*", # To be upstreamed
     "src/stirling/source_connectors/perf_profiler/symbolizers/symbolizer_test.cc", # To be upstreamed
     "src/stirling/source_connectors/socket_tracer/testing/container_images/clickhouse/**",
     "src/ui/README.md", # should be moved to fork only file
@@ -178,26 +199,5 @@ core.workflow(
     ),
     authoring = authoring.pass_thru("k8sstormcenter-buildbot <info@fusioncore.ai>"),
     mode = "ITERATIVE",
-    transformations = [
-        core.replace(
-            before = 'package(default_visibility = ["//src/stirling:__subpackages__"])',
-            after = 'package(default_visibility = [\n    "//src/carnot:__subpackages__",\n    "//src/stirling:__subpackages__",\n])',
-            paths = glob([
-                "src/stirling/source_connectors/socket_tracer/BUILD.bazel",
-                "src/stirling/source_connectors/socket_tracer/testing/container_images/BUILD.bazel",
-            ]),
-        ),
-        core.replace(
-            before = '    name = "data_stream_test",\n    srcs',
-            after = '    name = "data_stream_test",\n    timeout = "moderate",\n    srcs',
-            paths = glob(["src/stirling/source_connectors/socket_tracer/BUILD.bazel"]),
-            multiline = True,
-        ),
-        core.replace(
-            before = '    name = "http2_trace_bpf_test",\n    timeout = "moderate",',
-            after = '    name = "http2_trace_bpf_test",\n    timeout = "long",',
-            paths = glob(["src/stirling/source_connectors/socket_tracer/BUILD.bazel"]),
-            multiline = True,
-        ),
-    ],
+    transformations = [],
 )

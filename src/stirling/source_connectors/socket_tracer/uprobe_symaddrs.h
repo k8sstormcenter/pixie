@@ -175,8 +175,11 @@ class GoOffsetLocator {
     for (const auto& dep : build_info.deps) {
       // Find the related dependencies and strip the "v" prefix
       if (dep.path == "golang.org/x/net" || dep.path == "google.golang.org/grpc") {
-        VLOG(1) << absl::Substitute("Found dependency: $0, version: $1", dep.path, dep.version);
-        pkg_version_map_[dep.path] = dep.version.substr(1);
+        const std::string& version = dep.replace != nullptr && !dep.replace->version.empty()
+                                         ? dep.replace->version
+                                         : dep.version;
+        VLOG(1) << absl::Substitute("Found dependency: $0, version: $1", dep.path, version);
+        pkg_version_map_[dep.path] = version.substr(1);
       }
     }
     pkg_version_map_["std"] = go_version_;

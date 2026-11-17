@@ -74,12 +74,12 @@ pl_cc_test(
     name = "uprobe_symaddrs_test",
     srcs = ["uprobe_symaddrs_test.cc"],
     data = [
-        "//src/stirling/testing/demo_apps/go_grpc_tls_pl/server:golang_1_24_grpc_tls_server_binary",
-        "//src/stirling/testing/demo_apps/node:node_debug",
-        "//src/stirling/source_connectors/socket_tracer/testdata:offsetgen",
         "//src/stirling:offsetgen_offsets",
         "//src/stirling/obj_tools/testdata/cc:stripped_exe",
         "//src/stirling/obj_tools/testdata/go/tls_fixture:test_binaries",
+        "//src/stirling/source_connectors/socket_tracer/testdata:offsetgen",
+        "//src/stirling/testing/demo_apps/go_grpc_tls_pl/server:golang_1_24_grpc_tls_server_binary",
+        "//src/stirling/testing/demo_apps/node:node_debug",
     ],
     deps = [
         ":cc_library",

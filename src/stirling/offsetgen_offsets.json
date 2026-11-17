@@ -41,7 +41,10 @@
         "0.37.0": 16,
         "0.38.0": 16,
         "0.39.0": 16,
-        "0.40.0": 16
+        "0.40.0": 16,
+        "0.55.0": 16,
+        "0.58.0": 16,
+        "0.60.0": 16
       }
     },
     "golang.org/x/net/http2.FrameHeader": {
@@ -85,7 +88,10 @@
         "0.37.0": 2,
         "0.38.0": 2,
         "0.39.0": 2,
-        "0.40.0": 2
+        "0.40.0": 2,
+        "0.55.0": 2,
+        "0.58.0": 2,
+        "0.60.0": 2
       },
       "StreamID": {
         "0.1.0": 8,
@@ -127,7 +133,10 @@
         "0.37.0": 8,
         "0.38.0": 8,
         "0.39.0": 8,
-        "0.40.0": 8
+        "0.40.0": 8,
+        "0.55.0": 8,
+        "0.58.0": 8,
+        "0.60.0": 8
       },
       "Type": {
         "0.1.0": 1,
@@ -169,7 +178,10 @@
         "0.37.0": 1,
         "0.38.0": 1,
         "0.39.0": 1,
-        "0.40.0": 1
+        "0.40.0": 1,
+        "0.55.0": 1,
+        "0.58.0": 1,
+        "0.60.0": 1
       }
     },
     "golang.org/x/net/http2.Framer": {
@@ -213,7 +225,10 @@
         "0.37.0": 120,
         "0.38.0": 120,
         "0.39.0": 120,
-        "0.40.0": 120
+        "0.40.0": 120,
+        "0.55.0": 120,
+        "0.58.0": 120,
+        "0.60.0": 120
       }
     },
     "golang.org/x/net/http2.HeadersFrame": {
@@ -257,7 +272,10 @@
         "0.37.0": 0,
         "0.38.0": 0,
         "0.39.0": 0,
-        "0.40.0": 0
+        "0.40.0": 0,
+        "0.55.0": 0,
+        "0.58.0": 0,
+        "0.60.0": 0
       }
     },
     "golang.org/x/net/http2.MetaHeadersFrame": {
@@ -301,7 +319,10 @@
         "0.37.0": 8,
         "0.38.0": 8,
         "0.39.0": 8,
-        "0.40.0": 8
+        "0.40.0": 8,
+        "0.55.0": 8,
+        "0.58.0": 8,
+        "0.60.0": 8
       },
       "HeadersFrame": {
         "0.1.0": 0,
@@ -343,7 +364,10 @@
         "0.37.0": 0,
         "0.38.0": 0,
         "0.39.0": 0,
-        "0.40.0": 0
+        "0.40.0": 0,
+        "0.55.0": 0,
+        "0.58.0": 0,
+        "0.60.0": 0
       }
     },
     "golang.org/x/net/http2/hpack.HeaderField": {
@@ -387,7 +411,10 @@
         "0.37.0": 0,
         "0.38.0": 0,
         "0.39.0": 0,
-        "0.40.0": 0
+        "0.40.0": 0,
+        "0.55.0": 0,
+        "0.58.0": 0,
+        "0.60.0": 0
       },
       "Value": {
         "0.1.0": 16,
@@ -429,7 +456,10 @@
         "0.37.0": 16,
         "0.38.0": 16,
         "0.39.0": 16,
-        "0.40.0": 16
+        "0.40.0": 16,
+        "0.55.0": 16,
+        "0.58.0": 16,
+        "0.60.0": 16
       }
     },
     "google.golang.org/grpc/credentials/internal.syscallConn": {
@@ -643,7 +673,10 @@
         "1.72.1": null,
         "1.72.2": null,
         "1.73.0-dev": null,
-        "1.74.0-dev": null
+        "1.74.0-dev": null,
+        "1.79.3": null,
+        "1.83.1": null,
+        "1.84.0": null
       }
     },
     "google.golang.org/grpc/internal/transport.bufWriter": {
@@ -857,7 +890,10 @@
         "1.72.1": 48,
         "1.72.2": 48,
         "1.73.0-dev": 48,
-        "1.74.0-dev": 48
+        "1.74.0-dev": 48,
+        "1.84.0": 32,
+        "1.79.3": 48,
+        "1.83.1": 48
       }
     },
     "google.golang.org/grpc/internal/transport.http2Client": {
@@ -1071,7 +1107,10 @@
         "1.57.0": 136,
         "1.57.1": 136,
         "1.57.2": 136,
-        "1.58.0-dev": 136
+        "1.58.0-dev": 136,
+        "1.79.3": 128,
+        "1.83.1": 128,
+        "1.84.0": 128
       }
     },
     "google.golang.org/grpc/internal/transport.http2Server": {
@@ -1285,7 +1324,10 @@
         "1.58.3": 32,
         "1.59.0-dev": 32,
         "1.59.0": 32,
-        "1.60.0-dev": 32
+        "1.60.0-dev": 32,
+        "1.79.3": 16,
+        "1.83.1": 16,
+        "1.84.0": 16
       }
     },
     "google.golang.org/grpc/internal/transport.loopyWriter": {
@@ -1499,7 +1541,10 @@
         "1.72.1": 40,
         "1.72.2": 40,
         "1.73.0-dev": 40,
-        "1.74.0-dev": 40
+        "1.74.0-dev": 40,
+        "1.79.3": 40,
+        "1.83.1": 40,
+        "1.84.0": 40
       }
     },
     "crypto/tls.Conn": {
@@ -2973,6 +3018,18 @@
         "0.40.0": {
           "location": "registers",
           "offset": 24
+        },
+        "0.55.0": {
+          "location": "registers",
+          "offset": 24
+        },
+        "0.58.0": {
+          "location": "registers",
+          "offset": 24
+        },
+        "0.60.0": {
+          "location": "registers",
+          "offset": 24
         }
       },
       "endStream": {
@@ -3133,6 +3190,18 @@
           "offset": 16
         },
         "0.40.0": {
+          "location": "registers",
+          "offset": 16
+        },
+        "0.55.0": {
+          "location": "registers",
+          "offset": 16
+        },
+        "0.58.0": {
+          "location": "registers",
+          "offset": 16
+        },
+        "0.60.0": {
           "location": "registers",
           "offset": 16
         }
@@ -3297,6 +3366,18 @@
         "0.40.0": {
           "location": "registers",
           "offset": 0
+        },
+        "0.55.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.58.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.60.0": {
+          "location": "registers",
+          "offset": 0
         }
       },
       "streamID": {
@@ -3457,6 +3538,18 @@
           "offset": 8
         },
         "0.40.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "0.55.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "0.58.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "0.60.0": {
           "location": "registers",
           "offset": 8
         }
@@ -3623,7 +3716,10 @@
         "0.40.0": {
           "location": "registers",
           "offset": 8
-        }
+        },
+        "0.55.0": null,
+        "0.58.0": null,
+        "0.60.0": null
       },
       "fr": {
         "0.1.0": {
@@ -3783,6 +3879,18 @@
           "offset": 0
         },
         "0.40.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.55.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.58.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.60.0": {
           "location": "registers",
           "offset": 0
         }
@@ -3949,6 +4057,18 @@
         "0.40.0": {
           "location": "registers",
           "offset": 0
+        },
+        "0.55.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.58.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.60.0": {
+          "location": "registers",
+          "offset": 0
         }
       },
       "f": {
@@ -4109,6 +4229,18 @@
           "offset": 8
         },
         "0.40.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "0.55.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "0.58.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "0.60.0": {
           "location": "registers",
           "offset": 8
         }
@@ -4844,6 +4976,18 @@
         "1.74.0-dev": {
           "location": "registers",
           "offset": 8
+        },
+        "1.79.3": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.83.1": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.84.0": {
+          "location": "registers",
+          "offset": 8
         }
       },
       "t": {
@@ -5573,6 +5717,18 @@
           "offset": 0
         },
         "1.74.0-dev": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.79.3": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.83.1": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.84.0": {
           "location": "registers",
           "offset": 0
         }
@@ -6308,6 +6464,18 @@
         "1.74.0-dev": {
           "location": "registers",
           "offset": 24
+        },
+        "1.79.3": {
+          "location": "registers",
+          "offset": 24
+        },
+        "1.83.1": {
+          "location": "registers",
+          "offset": 24
+        },
+        "1.84.0": {
+          "location": "registers",
+          "offset": 24
         }
       },
       "t": {
@@ -7037,6 +7205,18 @@
           "offset": 0
         },
         "1.74.0-dev": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.79.3": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.83.1": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.84.0": {
           "location": "registers",
           "offset": 0
         }
@@ -7772,6 +7952,18 @@
         "1.74.0-dev": {
           "location": "registers",
           "offset": 16
+        },
+        "1.79.3": {
+          "location": "registers",
+          "offset": 16
+        },
+        "1.83.1": {
+          "location": "registers",
+          "offset": 16
+        },
+        "1.84.0": {
+          "location": "registers",
+          "offset": 16
         }
       },
       "hf": {
@@ -8501,6 +8693,18 @@
           "offset": 24
         },
         "1.74.0-dev": {
+          "location": "registers",
+          "offset": 24
+        },
+        "1.79.3": {
+          "location": "registers",
+          "offset": 24
+        },
+        "1.83.1": {
+          "location": "registers",
+          "offset": 24
+        },
+        "1.84.0": {
           "location": "registers",
           "offset": 24
         }
@@ -9234,6 +9438,18 @@
         "1.74.0-dev": {
           "location": "registers",
           "offset": 0
+        },
+        "1.79.3": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.83.1": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.84.0": {
+          "location": "registers",
+          "offset": 0
         }
       },
       "streamID": {
@@ -9963,6 +10179,18 @@
           "offset": 8
         },
         "1.74.0-dev": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.79.3": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.83.1": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.84.0": {
           "location": "registers",
           "offset": 8
         }

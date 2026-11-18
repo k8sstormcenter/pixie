@@ -29,6 +29,10 @@
 #include <filesystem>
 #include <map>
 #include <tuple>
+#include <utility>
+#include <vector>
+
+#include <absl/container/flat_hash_set.h>
 
 #include "src/common/base/base.h"
 #include "src/common/base/utils.h"
@@ -78,7 +82,14 @@ std::string ProbedBinaryKey(const std::filesystem::path& binary) {
 
 std::vector<obj_tools::ElfReader::SymbolInfo> SymbolsWithUniqueAddresses(
     std::vector<obj_tools::ElfReader::SymbolInfo> symbols) {
-  return symbols;
+  absl::flat_hash_set<uint64_t> addresses;
+  std::vector<obj_tools::ElfReader::SymbolInfo> unique;
+  for (auto& symbol : symbols) {
+    if (addresses.insert(symbol.address).second) {
+      unique.push_back(std::move(symbol));
+    }
+  }
+  return unique;
 }
 
 namespace {
@@ -165,7 +176,8 @@ StatusOr<int> UProbeManager::AttachUProbeTmpl(const ArrayView<UProbeTmpl>& probe
                                   symbol_infos_status.ToString());
       continue;
     }
-    const std::vector<ElfReader::SymbolInfo>& symbol_infos = symbol_infos_status.ValueOrDie();
+    const std::vector<ElfReader::SymbolInfo> symbol_infos =
+        SymbolsWithUniqueAddresses(symbol_infos_status.ConsumeValueOrDie());
 
     for (const auto& symbol_info : symbol_infos) {
       switch (tmpl.attach_type) {

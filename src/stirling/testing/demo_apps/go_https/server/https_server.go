@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 )
 
@@ -39,9 +40,32 @@ func basicHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func listenAndServeTLS(port int, certFile, keyFile string) {
+type wrappedConn struct {
+	net.Conn
+}
+
+type wrappedListener struct {
+	net.Listener
+}
+
+func (l wrappedListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &wrappedConn{conn}, nil
+}
+
+func listenAndServeTLS(port int, certFile, keyFile string, wrapConn bool) {
 	log.Printf("Starting HTTPS service on Port %d", port)
-	err := http.ListenAndServeTLS(fmt.Sprintf(":%d", port), certFile, keyFile, nil)
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		log.Fatal(err)
+	}
+	if wrapConn {
+		listener = wrappedListener{listener}
+	}
+	err = http.ServeTLS(listener, nil, certFile, keyFile)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -58,10 +82,11 @@ func listenAndServe(port int) {
 func main() {
 	certPath := flag.String("cert", "", "Path to the .crt file.")
 	keyPath := flag.String("key", "", "Path to the .key file.")
+	wrapConn := flag.Bool("wrap_conn", false, "Wrap accepted connections in a type that embeds net.Conn.")
 	flag.Parse()
 
 	http.HandleFunc("/", basicHandler)
 
-	go listenAndServeTLS(httpsPort, *certPath, *keyPath)
+	go listenAndServeTLS(httpsPort, *certPath, *keyPath, *wrapConn)
 	listenAndServe(httpPort)
 }

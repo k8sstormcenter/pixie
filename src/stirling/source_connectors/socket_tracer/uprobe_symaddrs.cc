@@ -903,9 +903,15 @@ StatusOr<GoBinaryInfo> AnalyzeGoBinary(const std::string& binary, ElfReader* elf
     return error::NotFound("Binary $0 is not a Go executable", binary);
   }
   GoBinaryInfo info;
-  PX_ASSIGN_OR_RETURN(auto build_info_pair, obj_tools::ReadGoBuildInfo(elf_reader));
-  info.go_version = std::move(build_info_pair.first);
-  info.build_info = std::move(build_info_pair.second);
+  auto build_info_or = obj_tools::ReadGoBuildInfo(elf_reader);
+  if (build_info_or.ok()) {
+    auto& build_info_pair = build_info_or.ValueOrDie();
+    info.go_version = std::move(build_info_pair.first);
+    info.build_info = std::move(build_info_pair.second);
+  } else {
+    VLOG(1) << absl::Substitute("Failed to read build info from binary $0. Message = $1", binary,
+                                build_info_or.msg());
+  }
 
   PX_RETURN_IF_ERROR(obj_tools::PopulateGoPclntabSymbols(elf_reader));
 

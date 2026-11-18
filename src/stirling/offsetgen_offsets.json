@@ -44,7 +44,8 @@
         "0.40.0": 16,
         "0.55.0": 16,
         "0.58.0": 16,
-        "0.60.0": 16
+        "0.60.0": 16,
+        "0.47.0": 16
       }
     },
     "golang.org/x/net/http2.FrameHeader": {
@@ -91,7 +92,8 @@
         "0.40.0": 2,
         "0.55.0": 2,
         "0.58.0": 2,
-        "0.60.0": 2
+        "0.60.0": 2,
+        "0.47.0": 2
       },
       "StreamID": {
         "0.1.0": 8,
@@ -136,7 +138,8 @@
         "0.40.0": 8,
         "0.55.0": 8,
         "0.58.0": 8,
-        "0.60.0": 8
+        "0.60.0": 8,
+        "0.47.0": 8
       },
       "Type": {
         "0.1.0": 1,
@@ -181,7 +184,8 @@
         "0.40.0": 1,
         "0.55.0": 1,
         "0.58.0": 1,
-        "0.60.0": 1
+        "0.60.0": 1,
+        "0.47.0": 1
       }
     },
     "golang.org/x/net/http2.Framer": {
@@ -228,7 +232,8 @@
         "0.40.0": 120,
         "0.55.0": 120,
         "0.58.0": 120,
-        "0.60.0": 120
+        "0.60.0": 120,
+        "0.47.0": 120
       }
     },
     "golang.org/x/net/http2.HeadersFrame": {
@@ -275,7 +280,8 @@
         "0.40.0": 0,
         "0.55.0": 0,
         "0.58.0": 0,
-        "0.60.0": 0
+        "0.60.0": 0,
+        "0.47.0": 0
       }
     },
     "golang.org/x/net/http2.MetaHeadersFrame": {
@@ -322,7 +328,8 @@
         "0.40.0": 8,
         "0.55.0": 8,
         "0.58.0": 8,
-        "0.60.0": 8
+        "0.60.0": 8,
+        "0.47.0": 8
       },
       "HeadersFrame": {
         "0.1.0": 0,
@@ -367,7 +374,8 @@
         "0.40.0": 0,
         "0.55.0": 0,
         "0.58.0": 0,
-        "0.60.0": 0
+        "0.60.0": 0,
+        "0.47.0": 0
       }
     },
     "golang.org/x/net/http2/hpack.HeaderField": {
@@ -414,7 +422,8 @@
         "0.40.0": 0,
         "0.55.0": 0,
         "0.58.0": 0,
-        "0.60.0": 0
+        "0.60.0": 0,
+        "0.47.0": 0
       },
       "Value": {
         "0.1.0": 16,
@@ -459,7 +468,8 @@
         "0.40.0": 16,
         "0.55.0": 16,
         "0.58.0": 16,
-        "0.60.0": 16
+        "0.60.0": 16,
+        "0.47.0": 16
       }
     },
     "google.golang.org/grpc/credentials/internal.syscallConn": {
@@ -3030,6 +3040,10 @@
         "0.60.0": {
           "location": "registers",
           "offset": 24
+        },
+        "0.47.0": {
+          "location": "registers",
+          "offset": 24
         }
       },
       "endStream": {
@@ -3204,6 +3218,10 @@
         "0.60.0": {
           "location": "registers",
           "offset": 16
+        },
+        "0.47.0": {
+          "location": "registers",
+          "offset": 16
         }
       },
       "f": {
@@ -3376,6 +3394,10 @@
           "offset": 0
         },
         "0.60.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.47.0": {
           "location": "registers",
           "offset": 0
         }
@@ -3552,6 +3574,10 @@
         "0.60.0": {
           "location": "registers",
           "offset": 8
+        },
+        "0.47.0": {
+          "location": "registers",
+          "offset": 8
         }
       }
     },
@@ -3719,7 +3745,8 @@
         },
         "0.55.0": null,
         "0.58.0": null,
-        "0.60.0": null
+        "0.60.0": null,
+        "0.47.0": null
       },
       "fr": {
         "0.1.0": {
@@ -3891,6 +3918,10 @@
           "offset": 0
         },
         "0.60.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.47.0": {
           "location": "registers",
           "offset": 0
         }
@@ -4069,6 +4100,10 @@
         "0.60.0": {
           "location": "registers",
           "offset": 0
+        },
+        "0.47.0": {
+          "location": "registers",
+          "offset": 0
         }
       },
       "f": {
@@ -4241,6 +4276,10 @@
           "offset": 8
         },
         "0.60.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "0.47.0": {
           "location": "registers",
           "offset": 8
         }
@@ -15520,6 +15559,110 @@
         "1.26.7": {
           "location": "registers",
           "offset": 0
+        }
+      }
+    },
+    "net/http.(*http2Framer).ReadFrameForHeader": {
+      "fh": {
+        "1.27.3": null,
+        "1.26.7": {
+          "location": "registers",
+          "offset": 8
+        }
+      },
+      "fr": {
+        "1.27.3": null,
+        "1.26.7": {
+          "location": "registers",
+          "offset": 0
+        }
+      },
+      "~r0": {
+        "1.27.3": null,
+        "1.26.7": {
+          "location": "registers",
+          "offset": 0
+        }
+      },
+      "~r1": {
+        "1.27.3": null,
+        "1.26.7": {
+          "location": "registers",
+          "offset": 16
+        }
+      }
+    },
+    "golang.org/x/net/http2.(*Framer).ReadFrameForHeader": {
+      "fh": {
+        "0.47.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "0.55.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "0.58.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "0.60.0": {
+          "location": "registers",
+          "offset": 8
+        }
+      },
+      "fr": {
+        "0.47.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.55.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.58.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.60.0": {
+          "location": "registers",
+          "offset": 0
+        }
+      },
+      "~r0": {
+        "0.47.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.55.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.58.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "0.60.0": {
+          "location": "registers",
+          "offset": 0
+        }
+      },
+      "~r1": {
+        "0.47.0": {
+          "location": "registers",
+          "offset": 16
+        },
+        "0.55.0": {
+          "location": "registers",
+          "offset": 16
+        },
+        "0.58.0": {
+          "location": "registers",
+          "offset": 16
+        },
+        "0.60.0": {
+          "location": "registers",
+          "offset": 16
         }
       }
     }

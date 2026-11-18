@@ -464,6 +464,31 @@ TEST_P(GoFixtureTest, CheckFrameOrderHeaderArgIsNotUsedAsFrame) {
   EXPECT_EQ(h2.http2Framer_checkFrameOrder_f_loc.type, kLocationTypeInvalid);
 }
 
+TEST_P(GoFixtureTest, ReadFrameForHeaderLocationsComeFromOffsetTable) {
+  ASSERT_OK_AND_ASSIGN(GoBinaryInfo info, AnalyzeGoBinary(stripped_path_, stripped_elf_.get()));
+  for (std::string_view fn : {"net/http.(*http2Framer).ReadFrameForHeader",
+                              "golang.org/x/net/http2.(*Framer).ReadFrameForHeader"}) {
+    auto& [pkg, args] = function_args_[std::string(fn)];
+    pkg = absl::StartsWith(fn, "net/http") ? "std" : "golang.org/x/net";
+    args["fr"][info.go_version] = std::make_unique<obj_tools::VarLocation>(
+        obj_tools::VarLocation{obj_tools::LocationType::kRegister, 0});
+    args["~r0"][info.go_version] = std::make_unique<obj_tools::VarLocation>(
+        obj_tools::VarLocation{obj_tools::LocationType::kRegister, 8});
+  }
+  obj_tools::BuildInfo build_info;
+  build_info.deps.push_back(
+      obj_tools::Module{"golang.org/x/net", absl::StrCat("v", info.go_version), "", nullptr});
+  GoOffsetLocator from_table(nullptr, struct_offsets_, function_args_, build_info, info.go_version);
+
+  ASSERT_OK_AND_ASSIGN(auto h2, GoHTTP2SymAddrs(stripped_elf_.get(), &from_table));
+  EXPECT_EQ(h2.http2Framer_ReadFrameForHeader_fr_loc.type, kLocationTypeRegisters);
+  EXPECT_EQ(h2.http2Framer_ReadFrameForHeader_fr_loc.offset, 0);
+  EXPECT_EQ(h2.http2Framer_ReadFrameForHeader_retval0_loc.type, kLocationTypeRegisters);
+  EXPECT_EQ(h2.http2Framer_ReadFrameForHeader_retval0_loc.offset, 8);
+  EXPECT_EQ(h2.http2_ReadFrameForHeader_fr_loc.type, kLocationTypeRegisters);
+  EXPECT_EQ(h2.http2_ReadFrameForHeader_retval0_loc.offset, 8);
+}
+
 TEST_P(GoFixtureTest, OffsetTableMatchesDwarf) {
   ASSERT_OK_AND_ASSIGN(GoBinaryInfo dwarf_info,
                        AnalyzeGoBinary(unstripped_path_, unstripped_elf_.get()));

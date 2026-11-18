@@ -606,6 +606,12 @@ pl_cc_bpf_test(
     ],
 )
 
+pl_cc_test(
+    name = "uprobe_manager_test",
+    srcs = ["uprobe_manager_test.cc"],
+    deps = [":cc_library"],
+)
+
 pl_cc_bpf_test(
     name = "uprobe_manager_bpf_test",
     timeout = "moderate",

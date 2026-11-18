@@ -71,6 +71,8 @@ using ::px::system::KernelVersion;
 using ::px::system::KernelVersionOrder;
 using ::px::system::ProcPidRootPath;
 
+std::string ProbedBinaryKey(const std::filesystem::path& binary) { return binary.string(); }
+
 namespace {
 
 static void InitSymAddrs() {

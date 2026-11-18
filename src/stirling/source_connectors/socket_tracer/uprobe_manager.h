@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -55,6 +56,8 @@ namespace stirling {
  * Describes a UProbe template.
  * In particular, allows for partial symbol matches using SymbolMatchType.
  */
+std::string ProbedBinaryKey(const std::filesystem::path& binary);
+
 struct UProbeTmpl {
   std::string_view symbol;
   obj_tools::SymbolMatchType match_type;

@@ -45,7 +45,6 @@ namespace stirling {
 
 constexpr std::string_view kLibNettyTcnativePrefix = "libnetty_tcnative_linux_x86";
 constexpr std::string_view kGoStdlibPackageName = "std";
-constexpr std::string_view kGoStdVendorPrefix = "vendor/";
 
 using StructVersionMap = std::map<std::string, std::map<std::string, int32_t>>;
 using StructOffsetMap = std::map<std::string, std::pair<std::string_view, StructVersionMap>>;
@@ -73,7 +72,9 @@ class GoOffsetLocator {
     if (dwarf_reader_ != nullptr && !FLAGS_disable_dwarf_parsing) {
       return dwarf_reader_->GetFunctionArgInfo(function_symbol_name);
     }
-    return GetFunctionArgInfoFromOffsets(StripVendorPrefix(function_symbol_name));
+    return LookupWithVendorFallback(function_symbol_name, [this](std::string_view name) {
+      return GetFunctionArgInfoFromOffsets(name);
+    });
   }
 
   StatusOr<obj_tools::VarLocation> GetArgumentLocation(std::string_view /*function_symbol_name*/,
@@ -88,7 +89,9 @@ class GoOffsetLocator {
     if (dwarf_reader_ != nullptr && !FLAGS_disable_dwarf_parsing) {
       return dwarf_reader_->GetStructMemberOffset(struct_name, member_name);
     }
-    return GetStructMemberOffsetFromOffsets(StripVendorPrefix(struct_name), member_name);
+    return LookupWithVendorFallback(struct_name, [this, member_name](std::string_view name) {
+      return GetStructMemberOffsetFromOffsets(name, member_name);
+    });
   }
 
   std::string go_version() const { return go_version_; }
@@ -96,11 +99,13 @@ class GoOffsetLocator {
   void set_vendor_prefix(std::string vendor_prefix) { vendor_prefix_ = vendor_prefix; }
 
  private:
-  std::string_view StripVendorPrefix(std::string_view name) const {
-    if (vendor_prefix_ == kGoStdVendorPrefix || !absl::StartsWith(name, vendor_prefix_)) {
-      return name;
+  template <typename TLookup>
+  auto LookupWithVendorFallback(std::string_view name, TLookup lookup) {
+    auto result = lookup(name);
+    if (result.ok() || vendor_prefix_.empty() || !absl::StartsWith(name, vendor_prefix_)) {
+      return result;
     }
-    return name.substr(vendor_prefix_.size());
+    return lookup(name.substr(vendor_prefix_.size()));
   }
 
   StatusOr<std::map<std::string, obj_tools::ArgInfo>> GetFunctionArgInfoFromOffsets(

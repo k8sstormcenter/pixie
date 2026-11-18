@@ -274,11 +274,11 @@ TEST_F(GoTLSTraceLargeResponseTest, HTTP2ResponseLargerThanOneDataFrame) {
   std::vector<http::Record> records =
       ToRecordVector<http::Record>(record_batch, target_record_indices);
 
-  EXPECT_THAT(records, Contains(AllOf(Field(&http::Record::req,
-                                            Field(&http::Message::req_path, "/large")),
-                                      Field(&http::Record::resp,
-                                            AllOf(Field(&http::Message::resp_status, 200),
-                                                  Field(&http::Message::body_size, 20015))))));
+  EXPECT_THAT(
+      records,
+      Contains(AllOf(Field(&http::Record::req, Field(&http::Message::req_path, "/large")),
+                     Field(&http::Record::resp, AllOf(Field(&http::Message::resp_status, 200),
+                                                      Field(&http::Message::body_size, 20015))))));
 }
 
 }  // namespace stirling

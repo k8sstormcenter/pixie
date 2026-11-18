@@ -95,6 +95,8 @@ Status PopulateGoPclntabSymbols(ElfReader* elf_reader) {
   return Status::OK();
 }
 
+StatusOr<int32_t> GoGAddrOffset(ElfReader*) { return -8; }
+
 // kGoBuildInfoMagic corresponds to "\xff Go buildinf:"
 // https://github.com/golang/go/blob/1dbbafc70fd3e2c284469ab3e0936c1bb56129f6/src/debug/buildinfo/buildinfo.go#L49
 std::string_view kGoBuildInfoMagic =

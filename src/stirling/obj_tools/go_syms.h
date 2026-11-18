@@ -37,6 +37,8 @@ bool IsGoExecutable(ElfReader* elf_reader);
 
 Status PopulateGoPclntabSymbols(ElfReader* elf_reader);
 
+StatusOr<int32_t> GoGAddrOffset(ElfReader* elf_reader);
+
 struct Module {
   std::string path;
   std::string version;

@@ -138,6 +138,8 @@ pl_cc_test(
     data = [
         "//src/stirling/obj_tools/testdata/cc:stripped_exe",
         "//src/stirling/obj_tools/testdata/go:test_binaries",
+        "//src/stirling/obj_tools/testdata/go/cgo_tls:cgo_tls_binary",
+        "//src/stirling/obj_tools/testdata/go/cgo_tls:cgo_tls_stripped_binary",
         "//src/stirling/obj_tools/testdata/go:test_buildinfo_with_mods",
         "//src/stirling/obj_tools/testdata/go:test_go_1_17_binary",
         "//src/stirling/obj_tools/testdata/go:test_go_1_24_binary",

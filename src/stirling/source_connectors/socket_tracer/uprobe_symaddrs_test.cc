@@ -451,6 +451,19 @@ TEST_P(GoFixtureTest, AnalyzeWithDwarfParsingDisabled) {
   EXPECT_TRUE(info.dwarf_reader == nullptr);
 }
 
+TEST_P(GoFixtureTest, CheckFrameOrderHeaderArgIsNotUsedAsFrame) {
+  ASSERT_OK_AND_ASSIGN(GoBinaryInfo info, AnalyzeGoBinary(stripped_path_, stripped_elf_.get()));
+  auto& args = function_args_["net/http.(*http2Framer).checkFrameOrder"].second;
+  args.erase("f");
+  args["fh"][info.go_version] = std::make_unique<obj_tools::VarLocation>(
+      obj_tools::VarLocation{obj_tools::LocationType::kRegister, 8});
+  GoOffsetLocator from_table(nullptr, struct_offsets_, function_args_, info.build_info,
+                             info.go_version);
+
+  ASSERT_OK_AND_ASSIGN(auto h2, GoHTTP2SymAddrs(stripped_elf_.get(), &from_table));
+  EXPECT_EQ(h2.http2Framer_checkFrameOrder_f_loc.type, kLocationTypeInvalid);
+}
+
 TEST_P(GoFixtureTest, OffsetTableMatchesDwarf) {
   ASSERT_OK_AND_ASSIGN(GoBinaryInfo dwarf_info,
                        AnalyzeGoBinary(unstripped_path_, unstripped_elf_.get()));

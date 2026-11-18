@@ -76,6 +76,11 @@ std::string ProbedBinaryKey(const std::filesystem::path& binary) {
   return absl::StrCat(st.st_dev, ":", st.st_ino);
 }
 
+std::vector<obj_tools::ElfReader::SymbolInfo> SymbolsWithUniqueAddresses(
+    std::vector<obj_tools::ElfReader::SymbolInfo> symbols) {
+  return symbols;
+}
+
 namespace {
 
 static void InitSymAddrs() {

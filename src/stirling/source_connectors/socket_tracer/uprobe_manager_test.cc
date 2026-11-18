@@ -18,6 +18,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 #include "src/common/testing/temp_dir.h"
 #include "src/common/testing/testing.h"
@@ -45,6 +46,19 @@ TEST(ProbedBinaryKeyTest, DifferentFilesHaveDifferentKeys) {
   std::ofstream(binary2) << "binary";
 
   EXPECT_NE(ProbedBinaryKey(binary1), ProbedBinaryKey(binary2));
+}
+
+TEST(SymbolsWithUniqueAddressesTest, DropsAliasesOfAnAttachedAddress) {
+  using SymbolInfo = obj_tools::ElfReader::SymbolInfo;
+  std::vector<SymbolInfo> symbols = {
+      {"crypto/tls.(*Conn).Write", ELFIO::STT_FUNC, 0x3218a20, 1999},
+      {"local.crypto/tls.(*Conn).Write", ELFIO::STT_FUNC, 0x3218a20, 1999},
+      {"vendor/crypto/tls.(*Conn).Write", ELFIO::STT_FUNC, 0x4000000, 100},
+  };
+  std::vector<SymbolInfo> unique = SymbolsWithUniqueAddresses(symbols);
+  ASSERT_EQ(unique.size(), 2U);
+  EXPECT_EQ(unique[0].name, "crypto/tls.(*Conn).Write");
+  EXPECT_EQ(unique[1].address, 0x4000000U);
 }
 
 }  // namespace stirling

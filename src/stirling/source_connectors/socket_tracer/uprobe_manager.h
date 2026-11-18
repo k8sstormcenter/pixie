@@ -58,6 +58,9 @@ namespace stirling {
  */
 std::string ProbedBinaryKey(const std::filesystem::path& binary);
 
+std::vector<obj_tools::ElfReader::SymbolInfo> SymbolsWithUniqueAddresses(
+    std::vector<obj_tools::ElfReader::SymbolInfo> symbols);
+
 struct UProbeTmpl {
   std::string_view symbol;
   obj_tools::SymbolMatchType match_type;

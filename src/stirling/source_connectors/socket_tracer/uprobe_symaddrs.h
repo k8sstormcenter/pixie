@@ -100,7 +100,7 @@ class GoOffsetLocator {
 
  private:
   template <typename TLookup>
-  auto LookupWithVendorFallback(std::string_view name, TLookup lookup) {
+  auto LookupWithVendorFallback(std::string_view name, TLookup lookup) -> decltype(lookup(name)) {
     auto result = lookup(name);
     if (result.ok() || vendor_prefix_.empty() || !absl::StartsWith(name, vendor_prefix_)) {
       return result;

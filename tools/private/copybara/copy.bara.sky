@@ -128,6 +128,7 @@ ignored_dirs = [
     "src/stirling/testing/BUILD.bazel", # To be upstreamed
     "src/stirling/testing/go_https_server_fixture.h", # To be upstreamed
     "src/stirling/testing/demo_apps/go_https/server/https_server.go", # To be upstreamed
+    "src/stirling/testing/demo_apps/go_https/client/https_client.go", # To be upstreamed
     "src/stirling/source_connectors/socket_tracer/uprobe_symaddrs*", # To be upstreamed
     "src/stirling/source_connectors/perf_profiler/symbolizers/symbolizer_test.cc", # To be upstreamed
     "src/stirling/source_connectors/socket_tracer/testing/container_images/clickhouse/**",

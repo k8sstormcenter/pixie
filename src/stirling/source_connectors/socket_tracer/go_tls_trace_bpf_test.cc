@@ -44,6 +44,9 @@ using ::px::stirling::testing::EqHTTPRecord;
 using ::px::stirling::testing::FindRecordIdxMatchesPID;
 using ::px::stirling::testing::ToRecordVector;
 
+using ::testing::AllOf;
+using ::testing::Contains;
+using ::testing::Field;
 using ::testing::UnorderedElementsAre;
 
 //-----------------------------------------------------------------------------
@@ -249,6 +252,32 @@ TYPED_TEST(GoTLSTraceTest, BasicHTTP2) {
 
     EXPECT_THAT(records, Contains(EqHTTPRecord(expected_record)));
   }
+}
+
+using GoTLSTraceLargeResponseTest = GoTLSTraceTest<Go1_24TLSClientServerContainers>;
+
+TEST_F(GoTLSTraceLargeResponseTest, HTTP2ResponseLargerThanOneDataFrame) {
+  StartTransferDataThread();
+
+  PX_CHECK_OK(client_.Run(std::chrono::seconds{10},
+                          {absl::Substitute("--network=container:$0", server_.container_name())},
+                          {"--http2=true", "--iters=1", "--sub_iters=2", "--path=/large"}));
+  client_.Wait();
+
+  StopTransferDataThread();
+
+  std::vector<TaggedRecordBatch> tablets = ConsumeRecords(SocketTraceConnector::kHTTPTableNum);
+  ASSERT_NOT_EMPTY_AND_GET_RECORDS(const types::ColumnWrapperRecordBatch& record_batch, tablets);
+
+  const std::vector<size_t> target_record_indices =
+      FindRecordIdxMatchesPID(record_batch, kHTTPUPIDIdx, server_.process_pid());
+  std::vector<http::Record> records =
+      ToRecordVector<http::Record>(record_batch, target_record_indices);
+
+  EXPECT_THAT(records, Contains(AllOf(Field(&http::Record::req,
+                                            Field(&http::Message::req_path, "/large")),
+                                      Field(&http::Record::resp,
+                                            Field(&http::Message::resp_status, 200)))));
 }
 
 }  // namespace stirling

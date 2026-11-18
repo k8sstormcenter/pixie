@@ -25,6 +25,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 )
 
 const (
@@ -35,6 +36,14 @@ const (
 func basicHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "application/json")
 	_, err := io.WriteString(w, `{"status":"ok"}`)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func largeHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Content-Type", "application/json")
+	_, err := io.WriteString(w, strings.Repeat(" ", 20000)+`{"status":"ok"}`)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -86,6 +95,7 @@ func main() {
 	flag.Parse()
 
 	http.HandleFunc("/", basicHandler)
+	http.HandleFunc("/large", largeHandler)
 
 	go listenAndServeTLS(httpsPort, *certPath, *keyPath, *wrapConn)
 	listenAndServe(httpPort)

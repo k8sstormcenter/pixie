@@ -62,13 +62,21 @@ constexpr std::array<std::string_view, 2> kITablePrefixes = {
 Status PopulateGoPclntabSymbols(ElfReader* elf_reader) {
   const bool has_symtab = elf_reader->HasSymtab();
   if (has_symtab) {
-    auto symtab_itabs = elf_reader->SearchSymbols(kITablePrefixes[0], SymbolMatchType::kPrefix,
-                                                  ELFIO::STT_OBJECT, /*stop_at_first_match*/ true);
-    if (symtab_itabs.ok() && !symtab_itabs.ValueOrDie().empty()) {
-      return Status::OK();
+    for (std::string_view prefix : kITablePrefixes) {
+      auto symtab_itabs = elf_reader->SearchSymbols(
+          prefix, SymbolMatchType::kPrefix, ELFIO::STT_OBJECT, /*stop_at_first_match*/ true);
+      if (symtab_itabs.ok() && !symtab_itabs.ValueOrDie().empty()) {
+        return Status::OK();
+      }
     }
   }
-  PX_ASSIGN_OR_RETURN(std::unique_ptr<GoPclntab> pclntab, GoPclntab::Create(elf_reader));
+  auto pclntab_or = GoPclntab::Create(elf_reader);
+  if (!pclntab_or.ok() && has_symtab) {
+    VLOG(1) << absl::Substitute("Using the symbol table of binary $0 without pclntab: $1",
+                                elf_reader->binary_path(), pclntab_or.msg());
+    return Status::OK();
+  }
+  PX_ASSIGN_OR_RETURN(std::unique_ptr<GoPclntab> pclntab, std::move(pclntab_or));
   std::vector<ElfReader::SymbolInfo> symbols;
   if (!has_symtab) {
     symbols = pclntab->funcs();

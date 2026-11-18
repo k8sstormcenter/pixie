@@ -45,6 +45,7 @@ namespace stirling {
 
 constexpr std::string_view kLibNettyTcnativePrefix = "libnetty_tcnative_linux_x86";
 constexpr std::string_view kGoStdlibPackageName = "std";
+constexpr std::string_view kGoStdVendorPrefix = "vendor/";
 
 using StructVersionMap = std::map<std::string, std::map<std::string, int32_t>>;
 using StructOffsetMap = std::map<std::string, std::pair<std::string_view, StructVersionMap>>;
@@ -72,11 +73,7 @@ class GoOffsetLocator {
     if (dwarf_reader_ != nullptr && !FLAGS_disable_dwarf_parsing) {
       return dwarf_reader_->GetFunctionArgInfo(function_symbol_name);
     }
-    auto has_vendor_prefix = absl::StartsWith(function_symbol_name, vendor_prefix_);
-    return GetFunctionArgInfoFromOffsets(function_symbol_name.substr(
-        has_vendor_prefix ? vendor_prefix_.size() : 0,
-        has_vendor_prefix ? function_symbol_name.size() - vendor_prefix_.size()
-                          : function_symbol_name.size()));
+    return GetFunctionArgInfoFromOffsets(StripVendorPrefix(function_symbol_name));
   }
 
   StatusOr<obj_tools::VarLocation> GetArgumentLocation(std::string_view /*function_symbol_name*/,
@@ -91,12 +88,7 @@ class GoOffsetLocator {
     if (dwarf_reader_ != nullptr && !FLAGS_disable_dwarf_parsing) {
       return dwarf_reader_->GetStructMemberOffset(struct_name, member_name);
     }
-    auto has_vendor_prefix = absl::StartsWith(struct_name, vendor_prefix_);
-    return GetStructMemberOffsetFromOffsets(
-        struct_name.substr(
-            has_vendor_prefix ? vendor_prefix_.size() : 0,
-            has_vendor_prefix ? struct_name.size() - vendor_prefix_.size() : struct_name.size()),
-        member_name);
+    return GetStructMemberOffsetFromOffsets(StripVendorPrefix(struct_name), member_name);
   }
 
   std::string go_version() const { return go_version_; }
@@ -104,6 +96,13 @@ class GoOffsetLocator {
   void set_vendor_prefix(std::string vendor_prefix) { vendor_prefix_ = vendor_prefix; }
 
  private:
+  std::string_view StripVendorPrefix(std::string_view name) const {
+    if (vendor_prefix_ == kGoStdVendorPrefix || !absl::StartsWith(name, vendor_prefix_)) {
+      return name;
+    }
+    return name.substr(vendor_prefix_.size());
+  }
+
   StatusOr<std::map<std::string, obj_tools::ArgInfo>> GetFunctionArgInfoFromOffsets(
       std::string_view function_symbol_name) {
     auto fn_map_pair = function_args_.find(std::string(function_symbol_name));

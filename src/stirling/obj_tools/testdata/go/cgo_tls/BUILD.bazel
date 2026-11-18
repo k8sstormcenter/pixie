@@ -21,7 +21,10 @@ package(default_visibility = ["//src/stirling:__subpackages__"])
 
 go_library(
     name = "cgo_tls_lib",
-    srcs = ["cgo_tls.go"],
+    srcs = [
+        "cgo_tls.go",
+        "cgo_tls_stub.go",
+    ],
     cgo = True,
     importpath = "px.dev/pixie/src/stirling/obj_tools/testdata/go/cgo_tls",
 )

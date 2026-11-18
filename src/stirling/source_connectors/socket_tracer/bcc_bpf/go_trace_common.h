@@ -203,6 +203,10 @@ static __inline int32_t get_fd_from_conn_intf_core(struct go_interface conn_intf
   }
 
   if (conn_intf.type != symaddrs->net_TCPConn) {
+    bpf_probe_read(&conn_intf, sizeof(conn_intf), conn_intf.ptr);
+  }
+
+  if (conn_intf.type != symaddrs->net_TCPConn) {
     return kInvalidFD;
   }
 

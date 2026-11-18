@@ -430,15 +430,6 @@ location_t GetArgOffset(const std::map<std::string, obj_tools::ArgInfo>& fn_args
   return location;
 }
 
-location_t GetCheckFrameOrderArgOffset(
-    const std::map<std::string, obj_tools::ArgInfo>& fn_args_map) {
-  location_t location = GetArgOffset(fn_args_map, "f");
-  if (location.type == kLocationTypeInvalid) {
-    location = GetArgOffset(fn_args_map, "fh");
-  }
-  return location;
-}
-
 StatusOr<std::string> InferHTTP2SymAddrVendorPrefix(ElfReader* elf_reader) {
   // We now want to infer the vendor prefix directory. Use the list of symbols below as samples to
   // help infer. The iteration will stop after the first inference.
@@ -718,7 +709,7 @@ Status PopulateHTTP2DebugSymbols(GoOffsetLocator* offset_locator, std::string_vi
     std::string_view fn = "net/http.(*http2Framer).checkFrameOrder";
     auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
     LOG_ASSIGN(symaddrs->http2Framer_checkFrameOrder_fr_loc, GetArgOffset(args_map, "fr"));
-    LOG_ASSIGN(symaddrs->http2Framer_checkFrameOrder_f_loc, GetCheckFrameOrderArgOffset(args_map));
+    LOG_ASSIGN(symaddrs->http2Framer_checkFrameOrder_f_loc, GetArgOffset(args_map, "f"));
   }
 
   // Arguments of golang.org/x/net/http2.(*Framer).checkFrameOrder.
@@ -726,7 +717,7 @@ Status PopulateHTTP2DebugSymbols(GoOffsetLocator* offset_locator, std::string_vi
     std::string fn = VENDOR_SYMBOL("golang.org/x/net/http2.(*Framer).checkFrameOrder");
     auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
     LOG_ASSIGN(symaddrs->http2_checkFrameOrder_fr_loc, GetArgOffset(args_map, "fr"));
-    LOG_ASSIGN(symaddrs->http2_checkFrameOrder_f_loc, GetCheckFrameOrderArgOffset(args_map));
+    LOG_ASSIGN(symaddrs->http2_checkFrameOrder_f_loc, GetArgOffset(args_map, "f"));
   }
 
   // Arguments of net/http.(*http2writeResHeaders).writeFrame.

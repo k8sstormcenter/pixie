@@ -2864,6 +2864,158 @@
         "1.26.7": null,
         "1.27.3": null
       }
+    },
+    "vendor/golang.org/x/net/http2/hpack.HeaderField": {
+      "Name": {
+        "1.19.0": 0,
+        "1.19.1": 0,
+        "1.19.2": 0,
+        "1.19.3": 0,
+        "1.21.0": 0,
+        "1.21.1": 0,
+        "1.21.2": 0,
+        "1.19.4": 0,
+        "1.19.5": 0,
+        "1.19.6": 0,
+        "1.19.7": 0,
+        "1.19.8": 0,
+        "1.19.9": 0,
+        "1.19.10": 0,
+        "1.19.11": 0,
+        "1.19.12": 0,
+        "1.19.13": 0,
+        "1.20.0": 0,
+        "1.20.1": 0,
+        "1.20.2": 0,
+        "1.20.3": 0,
+        "1.20.4": 0,
+        "1.20.5": 0,
+        "1.20.6": 0,
+        "1.20.7": 0,
+        "1.20.8": 0,
+        "1.20.9": 0,
+        "1.21.3": 0,
+        "1.21.4": 0,
+        "1.21.5": 0,
+        "1.21.6": 0,
+        "1.21.7": 0,
+        "1.21.8": 0,
+        "1.21.9": 0,
+        "1.21.10": 0,
+        "1.21.11": 0,
+        "1.21.12": 0,
+        "1.21.13": 0,
+        "1.22.0": 0,
+        "1.22.1": 0,
+        "1.22.2": 0,
+        "1.22.3": 0,
+        "1.22.4": 0,
+        "1.22.5": 0,
+        "1.22.6": 0,
+        "1.22.7": 0,
+        "1.22.8": 0,
+        "1.22.9": 0,
+        "1.22.10": 0,
+        "1.22.11": 0,
+        "1.22.12": 0,
+        "1.20.10": 0,
+        "1.20.11": 0,
+        "1.20.12": 0,
+        "1.20.13": 0,
+        "1.20.14": 0,
+        "1.23.0": 0,
+        "1.23.1": 0,
+        "1.23.2": 0,
+        "1.23.3": 0,
+        "1.23.4": 0,
+        "1.23.5": 0,
+        "1.23.6": 0,
+        "1.23.7": 0,
+        "1.23.8": 0,
+        "1.23.9": 0,
+        "1.24.0": 0,
+        "1.24.1": 0,
+        "1.24.2": 0,
+        "1.24.3": 0,
+        "1.25.8": 0,
+        "1.26.7": 0,
+        "1.27.3": 0
+      },
+      "Value": {
+        "1.19.0": 16,
+        "1.19.1": 16,
+        "1.19.2": 16,
+        "1.19.3": 16,
+        "1.21.0": 16,
+        "1.21.1": 16,
+        "1.21.2": 16,
+        "1.19.4": 16,
+        "1.19.5": 16,
+        "1.19.6": 16,
+        "1.19.7": 16,
+        "1.19.8": 16,
+        "1.19.9": 16,
+        "1.19.10": 16,
+        "1.19.11": 16,
+        "1.19.12": 16,
+        "1.19.13": 16,
+        "1.20.0": 16,
+        "1.20.1": 16,
+        "1.20.2": 16,
+        "1.20.3": 16,
+        "1.20.4": 16,
+        "1.20.5": 16,
+        "1.20.6": 16,
+        "1.20.7": 16,
+        "1.20.8": 16,
+        "1.20.9": 16,
+        "1.21.3": 16,
+        "1.21.4": 16,
+        "1.21.5": 16,
+        "1.21.6": 16,
+        "1.21.7": 16,
+        "1.21.8": 16,
+        "1.21.9": 16,
+        "1.21.10": 16,
+        "1.21.11": 16,
+        "1.21.12": 16,
+        "1.21.13": 16,
+        "1.22.0": 16,
+        "1.22.1": 16,
+        "1.22.2": 16,
+        "1.22.3": 16,
+        "1.22.4": 16,
+        "1.22.5": 16,
+        "1.22.6": 16,
+        "1.22.7": 16,
+        "1.22.8": 16,
+        "1.22.9": 16,
+        "1.22.10": 16,
+        "1.22.11": 16,
+        "1.22.12": 16,
+        "1.20.10": 16,
+        "1.20.11": 16,
+        "1.20.12": 16,
+        "1.20.13": 16,
+        "1.20.14": 16,
+        "1.23.0": 16,
+        "1.23.1": 16,
+        "1.23.2": 16,
+        "1.23.3": 16,
+        "1.23.4": 16,
+        "1.23.5": 16,
+        "1.23.6": 16,
+        "1.23.7": 16,
+        "1.23.8": 16,
+        "1.23.9": 16,
+        "1.24.0": 16,
+        "1.24.1": 16,
+        "1.24.2": 16,
+        "1.24.3": 16,
+        "1.25.8": 16,
+        "1.26.7": 16,
+        "1.27.3": 16
+      }
     }
   },
   "funcs": {
@@ -15805,6 +15957,596 @@
           "offset": 8
         },
         "0.60.0": {
+          "location": "registers",
+          "offset": 8
+        }
+      }
+    },
+    "vendor/golang.org/x/net/http2/hpack.(*Encoder).WriteField": {
+      "e": {
+        "1.19.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.19.1": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.19.2": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.19.3": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.21.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.21.1": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.21.2": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.19.4": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.19.5": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.19.6": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.19.7": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.19.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.19.9": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.19.10": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.19.11": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.19.12": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.19.13": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.1": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.2": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.3": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.4": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.5": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.6": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.7": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.9": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.21.3": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.21.4": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.21.5": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.21.6": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.21.7": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.21.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.21.9": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.21.10": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.21.11": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.21.12": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.21.13": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.22.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.22.1": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.22.2": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.22.3": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.22.4": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.22.5": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.22.6": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.22.7": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.22.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.22.9": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.22.10": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.22.11": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.22.12": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.10": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.11": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.12": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.13": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.20.14": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.23.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.23.1": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.23.2": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.23.3": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.23.4": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.23.5": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.23.6": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.23.7": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.23.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.23.9": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.24.0": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.24.1": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.24.2": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.24.3": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 0
+        },
+        "1.27.3": {
+          "location": "registers",
+          "offset": 0
+        }
+      },
+      "f": {
+        "1.19.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.19.1": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.19.2": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.19.3": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.21.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.21.1": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.21.2": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.19.4": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.19.5": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.19.6": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.19.7": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.19.8": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.19.9": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.19.10": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.19.11": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.19.12": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.19.13": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.1": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.2": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.3": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.4": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.5": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.6": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.7": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.8": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.9": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.21.3": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.21.4": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.21.5": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.21.6": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.21.7": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.21.8": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.21.9": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.21.10": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.21.11": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.21.12": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.21.13": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.22.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.22.1": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.22.2": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.22.3": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.22.4": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.22.5": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.22.6": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.22.7": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.22.8": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.22.9": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.22.10": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.22.11": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.22.12": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.10": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.11": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.12": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.13": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.20.14": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.23.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.23.1": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.23.2": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.23.3": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.23.4": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.23.5": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.23.6": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.23.7": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.23.8": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.23.9": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.24.0": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.24.1": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.24.2": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.24.3": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.25.8": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.26.7": {
+          "location": "registers",
+          "offset": 8
+        },
+        "1.27.3": {
           "location": "registers",
           "offset": 8
         }

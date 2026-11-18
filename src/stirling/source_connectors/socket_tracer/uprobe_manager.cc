@@ -71,7 +71,10 @@ using ::px::system::KernelVersion;
 using ::px::system::KernelVersionOrder;
 using ::px::system::ProcPidRootPath;
 
-std::string ProbedBinaryKey(const std::filesystem::path& binary) { return binary.string(); }
+std::string ProbedBinaryKey(const std::filesystem::path& binary) {
+  PX_ASSIGN_OR(const struct stat st, fs::Stat(binary), return binary.string());
+  return absl::StrCat(st.st_dev, ":", st.st_ino);
+}
 
 namespace {
 
@@ -440,7 +443,7 @@ StatusOr<int> UProbeManager::AttachOpenSSLUProbesOnDynamicLib(uint32_t pid) {
     }
 
     // Only try probing .so files that we haven't already set probes on.
-    auto result = openssl_probed_binaries_.insert(container_libssl);
+    auto result = openssl_probed_binaries_.insert(ProbedBinaryKey(container_libssl));
     if (!result.second) {
       return 0;
     }
@@ -527,7 +530,7 @@ StatusOr<int> UProbeManager::AttachNodeJsOpenSSLUprobes(const uint32_t pid,
   }
   const auto host_proc_exe = ProcPidRootPath(pid, proc_exe);
 
-  const auto [_, inserted] = nodejs_binaries_.insert(host_proc_exe.string());
+  const auto [_, inserted] = nodejs_binaries_.insert(ProbedBinaryKey(host_proc_exe));
   if (!inserted) {
     // This is not a new binary, so nothing more to do.
     return 0;
@@ -571,7 +574,7 @@ StatusOr<int> UProbeManager::AttachGoTLSUProbes(const std::string& binary,
   }
 
   // Step 2: Deploy uprobes on all new binaries.
-  auto result = go_tls_probed_binaries_.insert(binary);
+  auto result = go_tls_probed_binaries_.insert(ProbedBinaryKey(binary));
   if (!result.second) {
     // This is not a new binary, so nothing more to do.
     return 0;
@@ -590,7 +593,7 @@ StatusOr<int> UProbeManager::AttachGoHTTP2UProbes(const std::string& binary,
   }
 
   // Step 2: Deploy uprobes on all new binaries.
-  auto result = go_http2_probed_binaries_.insert(binary);
+  auto result = go_http2_probed_binaries_.insert(ProbedBinaryKey(binary));
   if (!result.second) {
     // This is not a new binary, so nothing more to do.
     return 0;
@@ -790,7 +793,7 @@ StatusOr<int> UProbeManager::AttachGrpcCUProbesOnDynamicPythonLib(uint32_t pid) 
   }
 
   // Only try probing .so files that we haven't already set probes on.
-  auto result = grpc_c_probed_binaries_.insert(container_libgrpcc);
+  auto result = grpc_c_probed_binaries_.insert(ProbedBinaryKey(container_libgrpcc));
   if (!result.second) {
     return 0;
   }

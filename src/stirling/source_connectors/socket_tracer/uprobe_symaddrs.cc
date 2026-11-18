@@ -490,9 +490,8 @@ Status PopulateCommonTypeAddrs(ElfReader* elf_reader, std::string_view vendor_pr
   LOG_ASSIGN_OPTIONAL(symaddrs->net_TCPConn,
                       ResolveSymbolWithEachGoPrefix(elf_reader, "itab.*net.TCPConn,net.Conn"));
 
-  // TODO(chengruizhe): Refer to setGStructOffsetElf in dlv for a more accurate way of setting
-  // g_addr_offset using elf.
-  symaddrs->g_addr_offset = -8;
+  symaddrs->g_addr_offset =
+      obj_tools::GoGAddrOffset(elf_reader).ValueOr(obj_tools::kGoDefaultGAddrOffset);
 
   // TCPConn is mandatory by the HTTP2 uprobes probe, so bail if it is not found (-1).
   // It should be the last layer of nested interface, and contains the FD.

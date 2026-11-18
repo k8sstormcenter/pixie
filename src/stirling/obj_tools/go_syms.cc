@@ -95,7 +95,32 @@ Status PopulateGoPclntabSymbols(ElfReader* elf_reader) {
   return Status::OK();
 }
 
-StatusOr<int32_t> GoGAddrOffset(ElfReader*) { return -8; }
+constexpr std::string_view kGoTLSAccessFunc = "runtime.asmcgocall";
+
+StatusOr<int32_t> GoGAddrOffset(ElfReader* elf_reader) {
+  if (elf_reader->Machine() != ELFIO::EM_X86_64) {
+    return kGoDefaultGAddrOffset;
+  }
+  PX_ASSIGN_OR_RETURN(std::vector<ElfReader::SymbolInfo> funcs,
+                      elf_reader->ListFuncSymbols(kGoTLSAccessFunc, SymbolMatchType::kExact));
+  if (funcs.size() != 1) {
+    return error::NotFound("Expected one $0 in binary=$1, found $2", kGoTLSAccessFunc,
+                           elf_reader->binary_path(), funcs.size());
+  }
+  PX_ASSIGN_OR_RETURN(utils::u8string code, elf_reader->SymbolByteCode(".text", funcs.front()));
+  constexpr size_t kMovFsDisp32Size = 9;
+  for (size_t i = 0; i + kMovFsDisp32Size <= code.size(); ++i) {
+    const bool fs_prefix = code[i] == 0x64;
+    const bool rex_w = code[i + 1] == 0x48 || code[i + 1] == 0x4c;
+    const bool mov_sib_disp32 = code[i + 2] == 0x8b && (code[i + 3] & 0xc7) == 0x04 &&
+                                code[i + 4] == 0x25;
+    if (fs_prefix && rex_w && mov_sib_disp32) {
+      return ::px::utils::LEndianBytesToInt<int32_t>(u8string_view(code).substr(i + 5, 4));
+    }
+  }
+  return error::NotFound("No fs-relative g load in $0 of binary=$1", kGoTLSAccessFunc,
+                         elf_reader->binary_path());
+}
 
 // kGoBuildInfoMagic corresponds to "\xff Go buildinf:"
 // https://github.com/golang/go/blob/1dbbafc70fd3e2c284469ab3e0936c1bb56129f6/src/debug/buildinfo/buildinfo.go#L49

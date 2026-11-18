@@ -171,6 +171,8 @@ class ElfReader {
    */
   StatusOr<std::vector<uint64_t>> FuncRetInstAddrs(const SymbolInfo& func_symbol);
 
+  ELFIO::Elf_Half Machine() { return elf_reader_.get_machine(); }
+
   /**
    * Returns the byte code for the symbol at the specified section.
    */

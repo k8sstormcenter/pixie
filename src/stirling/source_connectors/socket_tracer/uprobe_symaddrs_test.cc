@@ -376,6 +376,38 @@ TEST(GoOffsetLocator, FunctionArgSkipsArgsWithoutVersion) {
   EXPECT_NE(args.find("b"), args.end());
 }
 
+TEST(GoOffsetLocator, StdVendoredStructUsesGoVersion) {
+  auto std_vendored_struct_map = StructOffsetMap{
+      {
+          "vendor/golang.org/x/net/http2/hpack.HeaderField",
+          {"std", {{"Value", {{go_version, 16}}}}},
+      },
+  };
+  auto offset_locator = GoOffsetLocator(nullptr, std_vendored_struct_map, empty_fn_arg_map,
+                                        empty_build_info, go_version);
+  offset_locator.set_vendor_prefix("vendor/");
+  ASSERT_OK_AND_ASSIGN(uint64_t offset,
+                       offset_locator.GetStructMemberOffset(
+                           "vendor/golang.org/x/net/http2/hpack.HeaderField", "Value"));
+  EXPECT_EQ(offset, 16);
+}
+
+TEST(GoOffsetLocator, StdVendoredFunctionUsesGoVersion) {
+  FunctionArgMap fn_arg_map;
+  fn_arg_map["vendor/golang.org/x/net/http2/hpack.(*Encoder).WriteField"] =
+      std::make_pair("std", FuncVersionMap{});
+  fn_arg_map["vendor/golang.org/x/net/http2/hpack.(*Encoder).WriteField"].second["f"][go_version] =
+      std::make_unique<obj_tools::VarLocation>(
+          obj_tools::VarLocation{obj_tools::LocationType::kRegister, 8});
+  auto offset_locator =
+      GoOffsetLocator(nullptr, struct_map, fn_arg_map, empty_build_info, go_version);
+  offset_locator.set_vendor_prefix("vendor/");
+  ASSERT_OK_AND_ASSIGN(auto args, offset_locator.GetFunctionArgInfo(
+                                      "vendor/golang.org/x/net/http2/hpack.(*Encoder).WriteField"));
+  ASSERT_NE(args.find("f"), args.end());
+  EXPECT_EQ(args["f"].location.offset, 8);
+}
+
 constexpr std::string_view kOffsetgenOffsetsFile = "src/stirling/offsetgen_offsets.json";
 
 const std::vector<std::pair<std::string_view, std::string_view>> kStdStructMembers = {

@@ -43,7 +43,7 @@ func basicHandler(w http.ResponseWriter, r *http.Request) {
 
 func largeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "application/json")
-	_, err := io.WriteString(w, strings.Repeat(" ", 20000)+`{"status":"ok"}`)
+	_, err := w.Write([]byte(strings.Repeat(" ", 20000) + `{"status":"ok"}`))
 	if err != nil {
 		log.Fatal(err)
 	}

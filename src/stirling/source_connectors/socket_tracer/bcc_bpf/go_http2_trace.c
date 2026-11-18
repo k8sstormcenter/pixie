@@ -846,6 +846,11 @@ static __inline void go_http2_submit_data(struct pt_regs* ctx, enum http2_probe_
   uint32_t data_buf_size = min_uint32_t(data_len, MAX_DATA_SIZE);
   info->data_attr.data_buf_size = data_buf_size;
 
+  if (data_buf_size == 0) {
+    go_grpc_events.perf_submit(ctx, info, sizeof(info->attr) + sizeof(info->data_attr));
+    return;
+  }
+
   // Note that we have some black magic below with the string sizes.
   // This is to avoid passing a size of 0 to bpf_probe_read(),
   // which causes BPF verifier issues on kernel 4.14.

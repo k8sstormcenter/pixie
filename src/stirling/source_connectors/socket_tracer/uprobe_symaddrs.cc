@@ -674,8 +674,12 @@ Status PopulateHTTP2DebugSymbols(GoOffsetLocator* offset_locator, std::string_vi
 
   // Arguments of net/http.(*http2Framer).WriteDataPadded.
   {
-    std::string_view fn = "net/http.(*http2Framer).WriteDataPadded";
+    std::string_view fn = "net/http.(*http2Framer).startWriteDataPadded";
     auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    if (args_map.empty()) {
+      fn = "net/http.(*http2Framer).WriteDataPadded";
+      args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    }
     LOG_ASSIGN(symaddrs->http2Framer_WriteDataPadded_f_loc, GetArgOffset(args_map, "f"));
     LOG_ASSIGN(symaddrs->http2Framer_WriteDataPadded_streamID_loc,
                GetArgOffset(args_map, "streamID"));
@@ -691,8 +695,12 @@ Status PopulateHTTP2DebugSymbols(GoOffsetLocator* offset_locator, std::string_vi
 
   // Arguments of golang.org/x/net/http2.(*Framer).WriteDataPadded.
   {
-    std::string fn = VENDOR_SYMBOL("golang.org/x/net/http2.(*Framer).WriteDataPadded");
+    std::string fn = VENDOR_SYMBOL("golang.org/x/net/http2.(*Framer).startWriteDataPadded");
     auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    if (args_map.empty()) {
+      fn = VENDOR_SYMBOL("golang.org/x/net/http2.(*Framer).WriteDataPadded");
+      args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    }
     LOG_ASSIGN(symaddrs->http2_WriteDataPadded_f_loc, GetArgOffset(args_map, "f"));
     LOG_ASSIGN(symaddrs->http2_WriteDataPadded_streamID_loc, GetArgOffset(args_map, "streamID"));
     LOG_ASSIGN(symaddrs->http2_WriteDataPadded_endStream_loc, GetArgOffset(args_map, "endStream"));

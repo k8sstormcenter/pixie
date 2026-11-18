@@ -60,6 +60,7 @@ struct UProbeTmpl {
   obj_tools::SymbolMatchType match_type;
   std::string_view probe_fn;
   bpf_tools::BPFProbeAttachType attach_type = bpf_tools::BPFProbeAttachType::kEntry;
+  std::string_view superseded_by = {};
 };
 
 using px::stirling::bpf_tools::WrappedBCCMap;
@@ -131,10 +132,17 @@ class UProbeManager {
           .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
       },
       UProbeTmpl{
+          .symbol = "golang.org/x/net/http2.(*Framer).startWriteDataPadded",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_http2_framer_write_data",
+          .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+      },
+      UProbeTmpl{
           .symbol = "golang.org/x/net/http2.(*Framer).WriteDataPadded",
           .match_type = obj_tools::SymbolMatchType::kSuffix,
           .probe_fn = "probe_http2_framer_write_data",
           .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+          .superseded_by = "golang.org/x/net/http2.(*Framer).startWriteDataPadded",
       },
       UProbeTmpl{
           .symbol = "golang.org/x/net/http2.(*Framer).checkFrameOrder",
@@ -157,10 +165,17 @@ class UProbeManager {
 
       // Probes on Golang net/http's implementation of http2.
       UProbeTmpl{
+          .symbol = "net/http.(*http2Framer).startWriteDataPadded",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_http_http2framer_write_data",
+          .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+      },
+      UProbeTmpl{
           .symbol = "net/http.(*http2Framer).WriteDataPadded",
           .match_type = obj_tools::SymbolMatchType::kSuffix,
           .probe_fn = "probe_http_http2framer_write_data",
           .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+          .superseded_by = "net/http.(*http2Framer).startWriteDataPadded",
       },
       UProbeTmpl{
           .symbol = "net/http.(*http2Framer).checkFrameOrder",

@@ -141,6 +141,13 @@ StatusOr<int> UProbeManager::AttachUProbeTmpl(const ArrayView<UProbeTmpl>& probe
                                   /*address*/ 0,    bpf_tools::UProbeSpec::kDefaultPID,
                                   tmpl.attach_type, std::string(tmpl.probe_fn)};
 
+    if (!tmpl.superseded_by.empty()) {
+      auto superseding_symbols = elf_reader->ListFuncSymbols(tmpl.superseded_by, tmpl.match_type);
+      if (superseding_symbols.ok() && !superseding_symbols.ValueOrDie().empty()) {
+        continue;
+      }
+    }
+
     StatusOr<std::vector<ElfReader::SymbolInfo>> symbol_infos_status =
         elf_reader->ListFuncSymbols(tmpl.symbol, tmpl.match_type);
     if (!symbol_infos_status.ok()) {

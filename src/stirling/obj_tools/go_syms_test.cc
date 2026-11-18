@@ -370,6 +370,12 @@ TEST_P(StrippedGoBinaryTest, PopulateGoPclntabSymbolsKeepsSymtab) {
 INSTANTIATE_TEST_SUITE_P(GoVersions, StrippedGoBinaryTest,
                          ::testing::ValuesIn(GoHTTPSServerFixture::kVersions));
 
+TEST(PopulateGoPclntabSymbolsTest, SymtabBinaryWithPreGo1_16Pclntab) {
+  const std::string path = px::testing::BazelRunfilePath(kTestGo1_11BinaryPath);
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader, ElfReader::Create(path));
+  EXPECT_OK(PopulateGoPclntabSymbols(elf_reader.get()));
+}
+
 TEST(IsGoExecutableTest, StrippedCBinaryIsNotGo) {
   const std::string path =
       px::testing::BazelRunfilePath("src/stirling/obj_tools/testdata/cc/stripped_test_exe");

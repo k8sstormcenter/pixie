@@ -720,6 +720,20 @@ Status PopulateHTTP2DebugSymbols(GoOffsetLocator* offset_locator, std::string_vi
     LOG_ASSIGN(symaddrs->http2_checkFrameOrder_f_loc, GetArgOffset(args_map, "f"));
   }
 
+  {
+    std::string_view fn = "net/http.(*http2Framer).ReadFrameForHeader";
+    auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    LOG_ASSIGN(symaddrs->http2Framer_ReadFrameForHeader_fr_loc, GetArgOffset(args_map, "fr"));
+    LOG_ASSIGN(symaddrs->http2Framer_ReadFrameForHeader_retval0_loc, GetArgOffset(args_map, "~r0"));
+  }
+
+  {
+    std::string fn = VENDOR_SYMBOL("golang.org/x/net/http2.(*Framer).ReadFrameForHeader");
+    auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    LOG_ASSIGN(symaddrs->http2_ReadFrameForHeader_fr_loc, GetArgOffset(args_map, "fr"));
+    LOG_ASSIGN(symaddrs->http2_ReadFrameForHeader_retval0_loc, GetArgOffset(args_map, "~r0"));
+  }
+
   // Arguments of net/http.(*http2writeResHeaders).writeFrame.
   {
     std::string_view fn = "net/http.(*http2writeResHeaders).writeFrame";

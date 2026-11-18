@@ -61,6 +61,8 @@ BPF_HASH(http2_symaddrs_map, uint32_t, struct go_http2_symaddrs_t);
 // Value: Header attributes (e.g. stream_id, fd)
 BPF_HASH(active_write_headers_frame_map, void*, struct go_grpc_event_attr_t);
 
+BPF_HASH(active_read_frame_framer_map, struct tgid_goid_t, void*);
+
 // Meaning of flag bits in FrameHeader flags.
 // https://github.com/golang/net/blob/master/http2/frame.go
 // TODO(oazizi): Use DWARF info to get these values.
@@ -860,6 +862,78 @@ static __inline void go_http2_submit_data(struct pt_regs* ctx, enum http2_probe_
   }
 }
 
+static __inline int submit_read_data_frame(struct pt_regs* ctx, enum http2_probe_type_t probe_type,
+                                           uint32_t tgid, int32_t fd, void* frame_ptr,
+                                           int32_t type_offset, int32_t flags_offset,
+                                           int32_t stream_id_offset, int32_t data_offset) {
+  if (frame_ptr == NULL) {
+    return 0;
+  }
+
+  uint8_t frame_type;
+  bpf_probe_read(&frame_type, sizeof(uint8_t), frame_ptr + type_offset);
+  if (frame_type != 0) {
+    return 0;
+  }
+
+  uint8_t flags;
+  bpf_probe_read(&flags, sizeof(uint8_t), frame_ptr + flags_offset);
+  const bool end_stream = flags & kFlagDataEndStream;
+
+  uint32_t stream_id;
+  bpf_probe_read(&stream_id, sizeof(uint32_t), frame_ptr + stream_id_offset);
+
+  char* data_ptr;
+  bpf_probe_read(&data_ptr, sizeof(char*), frame_ptr + data_offset + kGoArrayPtrOffset);
+
+  int64_t data_len;
+  bpf_probe_read(&data_len, sizeof(int64_t), frame_ptr + data_offset + kGoArrayLenOffset);
+
+  go_http2_submit_data(ctx, probe_type, tgid, fd, kDataFrameEventRead, stream_id, end_stream,
+                       data_ptr, data_len);
+  return 0;
+}
+
+static __inline int stash_read_frame_framer(struct pt_regs* ctx, uint32_t tgid,
+                                            struct location_t fr_loc) {
+  uint64_t goid = get_goid(ctx);
+  if (goid == 0) {
+    return 0;
+  }
+  struct tgid_goid_t tgid_goid = {};
+  tgid_goid.tgid = tgid;
+  tgid_goid.goid = goid;
+
+  const void* sp = (const void*)ctx->sp;
+  uint64_t* regs = go_regabi_regs(ctx);
+  if (regs == NULL) {
+    return 0;
+  }
+
+  void* framer_ptr = NULL;
+  assign_arg(&framer_ptr, sizeof(framer_ptr), fr_loc, sp, regs);
+  active_read_frame_framer_map.update(&tgid_goid, &framer_ptr);
+  return 0;
+}
+
+static __inline void* pop_read_frame_framer(struct pt_regs* ctx, uint32_t tgid) {
+  uint64_t goid = get_goid(ctx);
+  if (goid == 0) {
+    return NULL;
+  }
+  struct tgid_goid_t tgid_goid = {};
+  tgid_goid.tgid = tgid;
+  tgid_goid.goid = goid;
+
+  void** framer_ptr = active_read_frame_framer_map.lookup(&tgid_goid);
+  if (framer_ptr == NULL) {
+    return NULL;
+  }
+  void* result = *framer_ptr;
+  active_read_frame_framer_map.delete(&tgid_goid);
+  return result;
+}
+
 // Probes golang.org/x/net/http2.Framer for payload.
 //
 // As a proxy for the return probe on ReadFrame(), we currently probe checkFrameOrder,
@@ -915,54 +989,10 @@ int probe_http2_framer_check_frame_order(struct pt_regs* ctx) {
     return 0;
   }
 
-  // ------------------------------------------------------
-  // Extract members of FrameHeader (type, flags, stream_id)
-  // ------------------------------------------------------
-
-  // All Frame types start with a frame header, so this is safe.
-  // TODO(oazizi): Is there a more robust way based on DWARF info.
-  // This would be required for dynamic tracing anyways.
-  void* frame_header_ptr = frame_interface.ptr;
-
-  uint8_t frame_type;
-  bpf_probe_read(&frame_type, sizeof(uint8_t),
-                 frame_header_ptr + symaddrs->FrameHeader_Type_offset);
-
-  uint8_t flags;
-  bpf_probe_read(&flags, sizeof(uint8_t), frame_header_ptr + symaddrs->FrameHeader_Flags_offset);
-  const bool end_stream = flags & kFlagDataEndStream;
-
-  uint32_t stream_id;
-  bpf_probe_read(&stream_id, sizeof(uint32_t),
-                 frame_header_ptr + symaddrs->FrameHeader_StreamID_offset);
-
-  // Consider only data frames (0).
-  if (frame_type != 0) {
-    return 0;
-  }
-
-  // ------------------------------------------------------
-  // Extract members of DataFrame (data)
-  // ------------------------------------------------------
-
-  // Reinterpret as data frame.
-  void* data_frame_ptr = frame_interface.ptr;
-
-  char* data_ptr;
-  bpf_probe_read(&data_ptr, sizeof(char*),
-                 data_frame_ptr + symaddrs->DataFrame_data_offset + kGoArrayPtrOffset);
-
-  int64_t data_len;
-  bpf_probe_read(&data_len, sizeof(int64_t),
-                 data_frame_ptr + symaddrs->DataFrame_data_offset + kGoArrayLenOffset);
-
-  // ------------------------------------------------------
-  // Submit
-  // ------------------------------------------------------
-
-  go_http2_submit_data(ctx, k_probe_http2_framer_check_frame_order, tgid, fd, kDataFrameEventRead,
-                       stream_id, end_stream, data_ptr, data_len);
-  return 0;
+  return submit_read_data_frame(
+      ctx, k_probe_http2_framer_check_frame_order, tgid, fd, frame_interface.ptr,
+      symaddrs->FrameHeader_Type_offset, symaddrs->FrameHeader_Flags_offset,
+      symaddrs->FrameHeader_StreamID_offset, symaddrs->DataFrame_data_offset);
 }
 
 // Probes net/http.http2Framer for HTTP2 payload.
@@ -1021,55 +1051,106 @@ int probe_http_http2framer_check_frame_order(struct pt_regs* ctx) {
     return 0;
   }
 
-  // ------------------------------------------------------
-  // Extract members of http2FrameHeader (type, flags, stream_id)
-  // ------------------------------------------------------
+  return submit_read_data_frame(
+      ctx, k_probe_http_http2Framer_check_frame_order, tgid, fd, frame_interface.ptr,
+      symaddrs->http2FrameHeader_Type_offset, symaddrs->http2FrameHeader_Flags_offset,
+      symaddrs->http2FrameHeader_StreamID_offset, symaddrs->http2DataFrame_data_offset);
+}
 
-  // All Frame types start with a frame header, so this is safe.
-  // TODO(oazizi): Is there a more robust way based on DWARF info.
-  // This would be required for dynamic tracing anyways.
-  void* frame_header_ptr = frame_interface.ptr;
+int probe_http2_framer_read_frame_for_header(struct pt_regs* ctx) {
+  uint32_t tgid = bpf_get_current_pid_tgid() >> 32;
+  struct go_http2_symaddrs_t* symaddrs = http2_symaddrs_map.lookup(&tgid);
+  if (symaddrs == NULL) {
+    return 0;
+  }
+  REQUIRE_LOCATION(symaddrs->http2_ReadFrameForHeader_fr_loc, 0);
+  return stash_read_frame_framer(ctx, tgid, symaddrs->http2_ReadFrameForHeader_fr_loc);
+}
 
-  uint8_t frame_type;
-  bpf_probe_read(&frame_type, sizeof(uint8_t),
-                 frame_header_ptr + symaddrs->http2FrameHeader_Type_offset);
+int probe_return_http2_framer_read_frame_for_header(struct pt_regs* ctx) {
+  uint32_t tgid = bpf_get_current_pid_tgid() >> 32;
+  struct go_http2_symaddrs_t* symaddrs = http2_symaddrs_map.lookup(&tgid);
+  if (symaddrs == NULL) {
+    return 0;
+  }
+  REQUIRE_LOCATION(symaddrs->http2_ReadFrameForHeader_retval0_loc, 0);
+  REQUIRE_SYMADDR(symaddrs->FrameHeader_Type_offset, 0);
+  REQUIRE_SYMADDR(symaddrs->FrameHeader_Flags_offset, 0);
+  REQUIRE_SYMADDR(symaddrs->FrameHeader_StreamID_offset, 0);
+  REQUIRE_SYMADDR(symaddrs->DataFrame_data_offset, 0);
 
-  uint8_t flags;
-  bpf_probe_read(&flags, sizeof(uint8_t),
-                 frame_header_ptr + symaddrs->http2FrameHeader_Flags_offset);
-  const bool end_stream = flags & kFlagDataEndStream;
-
-  uint32_t stream_id;
-  bpf_probe_read(&stream_id, sizeof(uint32_t),
-                 frame_header_ptr + symaddrs->http2FrameHeader_StreamID_offset);
-
-  // Consider only data frames (0).
-  if (frame_type != 0) {
+  void* framer_ptr = pop_read_frame_framer(ctx, tgid);
+  if (framer_ptr == NULL) {
     return 0;
   }
 
-  // ------------------------------------------------------
-  // Extract members of DataFrame (data)
-  // ------------------------------------------------------
+  const void* sp = (const void*)ctx->sp;
+  uint64_t* regs = go_regabi_regs(ctx);
+  if (regs == NULL) {
+    return 0;
+  }
 
-  // Reinterpret as data frame.
-  void* data_frame_ptr = frame_interface.ptr;
+  struct go_interface frame_interface = {};
+  assign_arg(&frame_interface, sizeof(frame_interface),
+             symaddrs->http2_ReadFrameForHeader_retval0_loc, sp, regs);
 
-  char* data_ptr;
-  bpf_probe_read(&data_ptr, sizeof(char*),
-                 data_frame_ptr + symaddrs->http2DataFrame_data_offset + kGoArrayPtrOffset);
+  int32_t fd = get_fd_from_http2_Framer(framer_ptr, symaddrs);
+  if (fd == kInvalidFD) {
+    return 0;
+  }
 
-  int64_t data_len;
-  bpf_probe_read(&data_len, sizeof(int64_t),
-                 data_frame_ptr + symaddrs->http2DataFrame_data_offset + kGoArrayLenOffset);
+  return submit_read_data_frame(
+      ctx, k_probe_http2_framer_read_frame_for_header, tgid, fd, frame_interface.ptr,
+      symaddrs->FrameHeader_Type_offset, symaddrs->FrameHeader_Flags_offset,
+      symaddrs->FrameHeader_StreamID_offset, symaddrs->DataFrame_data_offset);
+}
 
-  // ------------------------------------------------------
-  // Submit
-  // ------------------------------------------------------
+int probe_http_http2framer_read_frame_for_header(struct pt_regs* ctx) {
+  uint32_t tgid = bpf_get_current_pid_tgid() >> 32;
+  struct go_http2_symaddrs_t* symaddrs = http2_symaddrs_map.lookup(&tgid);
+  if (symaddrs == NULL) {
+    return 0;
+  }
+  REQUIRE_LOCATION(symaddrs->http2Framer_ReadFrameForHeader_fr_loc, 0);
+  return stash_read_frame_framer(ctx, tgid, symaddrs->http2Framer_ReadFrameForHeader_fr_loc);
+}
 
-  go_http2_submit_data(ctx, k_probe_http_http2Framer_check_frame_order, tgid, fd,
-                       kDataFrameEventRead, stream_id, end_stream, data_ptr, data_len);
-  return 0;
+int probe_return_http_http2framer_read_frame_for_header(struct pt_regs* ctx) {
+  uint32_t tgid = bpf_get_current_pid_tgid() >> 32;
+  struct go_http2_symaddrs_t* symaddrs = http2_symaddrs_map.lookup(&tgid);
+  if (symaddrs == NULL) {
+    return 0;
+  }
+  REQUIRE_LOCATION(symaddrs->http2Framer_ReadFrameForHeader_retval0_loc, 0);
+  REQUIRE_SYMADDR(symaddrs->http2FrameHeader_Type_offset, 0);
+  REQUIRE_SYMADDR(symaddrs->http2FrameHeader_Flags_offset, 0);
+  REQUIRE_SYMADDR(symaddrs->http2FrameHeader_StreamID_offset, 0);
+  REQUIRE_SYMADDR(symaddrs->http2DataFrame_data_offset, 0);
+
+  void* framer_ptr = pop_read_frame_framer(ctx, tgid);
+  if (framer_ptr == NULL) {
+    return 0;
+  }
+
+  const void* sp = (const void*)ctx->sp;
+  uint64_t* regs = go_regabi_regs(ctx);
+  if (regs == NULL) {
+    return 0;
+  }
+
+  struct go_interface frame_interface = {};
+  assign_arg(&frame_interface, sizeof(frame_interface),
+             symaddrs->http2Framer_ReadFrameForHeader_retval0_loc, sp, regs);
+
+  int32_t fd = get_fd_from_http_http2Framer(framer_ptr, symaddrs);
+  if (fd == kInvalidFD) {
+    return 0;
+  }
+
+  return submit_read_data_frame(
+      ctx, k_probe_http_http2Framer_read_frame_for_header, tgid, fd, frame_interface.ptr,
+      symaddrs->http2FrameHeader_Type_offset, symaddrs->http2FrameHeader_Flags_offset,
+      symaddrs->http2FrameHeader_StreamID_offset, symaddrs->http2DataFrame_data_offset);
 }
 
 // Probe for the golang.org/x/net/http2 library's frame writer.

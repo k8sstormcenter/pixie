@@ -91,6 +91,11 @@ static __inline void assign_arg(void* arg, size_t arg_size, struct location_t lo
 // Gets the ID of the go routine currently scheduled on the current tgid and pid.
 // We do that by accessing the thread local storage (fsbase) of the current pid from the
 // task_struct. From the tls, we find a pointer to the g struct and access the goid.
+struct tgid_goid_t {
+  uint32_t tgid;
+  int64_t goid;
+};
+
 static inline uint64_t get_goid(struct pt_regs* ctx) {
   uint64_t id = bpf_get_current_pid_tgid();
   uint32_t tgid = id >> 32;

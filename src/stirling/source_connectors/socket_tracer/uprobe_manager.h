@@ -142,6 +142,18 @@ class UProbeManager {
           .probe_fn = "probe_http2_framer_check_frame_order",
           .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
       },
+      UProbeTmpl{
+          .symbol = "golang.org/x/net/http2.(*Framer).ReadFrameForHeader",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_http2_framer_read_frame_for_header",
+          .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+      },
+      UProbeTmpl{
+          .symbol = "golang.org/x/net/http2.(*Framer).ReadFrameForHeader",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_return_http2_framer_read_frame_for_header",
+          .attach_type = bpf_tools::BPFProbeAttachType::kReturnInsts,
+      },
 
       // Probes on Golang net/http's implementation of http2.
       UProbeTmpl{
@@ -155,6 +167,18 @@ class UProbeManager {
           .match_type = obj_tools::SymbolMatchType::kSuffix,
           .probe_fn = "probe_http_http2framer_check_frame_order",
           .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+      },
+      UProbeTmpl{
+          .symbol = "net/http.(*http2Framer).ReadFrameForHeader",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_http_http2framer_read_frame_for_header",
+          .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+      },
+      UProbeTmpl{
+          .symbol = "net/http.(*http2Framer).ReadFrameForHeader",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_return_http_http2framer_read_frame_for_header",
+          .attach_type = bpf_tools::BPFProbeAttachType::kReturnInsts,
       },
       UProbeTmpl{
           .symbol = "net/http.(*http2writeResHeaders).writeFrame",

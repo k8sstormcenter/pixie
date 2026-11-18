@@ -29,11 +29,6 @@
 // Value: Symbol addresses for the binary with that TGID.
 BPF_HASH(go_tls_symaddrs_map, uint32_t, struct go_tls_symaddrs_t);
 
-struct tgid_goid_t {
-  uint32_t tgid;
-  int64_t goid;
-};
-
 struct go_tls_conn_args {
   void* conn_ptr;
   char* plaintext_ptr;

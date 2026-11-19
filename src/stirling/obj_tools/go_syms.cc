@@ -17,6 +17,10 @@
  */
 
 #include "src/stirling/obj_tools/go_syms.h"
+
+#include <iterator>
+
+#include "src/stirling/obj_tools/go_pclntab.h"
 #include "src/stirling/utils/binary_decoder.h"
 
 namespace px {
@@ -41,11 +45,81 @@ struct gostring {
 
 }  // namespace
 
+constexpr std::string_view kGoBuildInfoSection = ".go.buildinfo";
+
 bool IsGoExecutable(ElfReader* elf_reader) {
-  return elf_reader->SearchTheOnlySymbol(obj_tools::kGoBuildVersionSymbol).ok();
+  return elf_reader->SearchTheOnlySymbol(obj_tools::kGoBuildVersionSymbol).ok() ||
+         elf_reader->SectionWithName(kGoBuildInfoSection).ok();
 }
 
-constexpr std::string_view kGoBuildInfoSection = ".go.buildinfo";
+// Prefixes used to search for itable symbols in the binary. Follows the format:
+// <prefix>.<type_name>,<interface_name>. i.e. go.itab.<type_name>,<interface_name>
+constexpr std::array<std::string_view, 2> kITablePrefixes = {
+    "go:itab.",  // Prefix used by Go 1.20 binaries and later.
+    "go.itab.",  // Prefix used by Go 1.19 binaries and earlier.
+};
+
+Status PopulateGoPclntabSymbols(ElfReader* elf_reader) {
+  const bool has_symtab = elf_reader->HasSymtab();
+  if (has_symtab) {
+    for (std::string_view prefix : kITablePrefixes) {
+      auto symtab_itabs = elf_reader->SearchSymbols(
+          prefix, SymbolMatchType::kPrefix, ELFIO::STT_OBJECT, /*stop_at_first_match*/ true);
+      if (symtab_itabs.ok() && !symtab_itabs.ValueOrDie().empty()) {
+        return Status::OK();
+      }
+    }
+  }
+  auto pclntab_or = GoPclntab::Create(elf_reader);
+  if (!pclntab_or.ok() && has_symtab) {
+    VLOG(1) << absl::Substitute("Using the symbol table of binary $0 without pclntab: $1",
+                                elf_reader->binary_path(), pclntab_or.msg());
+    return Status::OK();
+  }
+  PX_ASSIGN_OR_RETURN(std::unique_ptr<GoPclntab> pclntab, std::move(pclntab_or));
+  std::vector<ElfReader::SymbolInfo> symbols;
+  if (!has_symtab) {
+    symbols = pclntab->funcs();
+  }
+  elf_reader->SetFallbackSymbols(symbols);
+  auto itabs = pclntab->ITabs();
+  if (itabs.ok()) {
+    std::vector<ElfReader::SymbolInfo> itab_symbols = itabs.ConsumeValueOrDie();
+    symbols.insert(symbols.end(), std::make_move_iterator(itab_symbols.begin()),
+                   std::make_move_iterator(itab_symbols.end()));
+  } else {
+    VLOG(1) << absl::Substitute("Could not recover itabs from binary $0: $1",
+                                elf_reader->binary_path(), itabs.msg());
+  }
+  elf_reader->SetFallbackSymbols(std::move(symbols));
+  return Status::OK();
+}
+
+constexpr std::string_view kGoTLSAccessFunc = "runtime.asmcgocall";
+
+StatusOr<int32_t> GoGAddrOffset(ElfReader* elf_reader) {
+  if (elf_reader->Machine() != ELFIO::EM_X86_64) {
+    return kGoDefaultGAddrOffset;
+  }
+  PX_ASSIGN_OR_RETURN(std::vector<ElfReader::SymbolInfo> funcs,
+                      elf_reader->ListFuncSymbols(kGoTLSAccessFunc, SymbolMatchType::kExact));
+  constexpr size_t kMovFsDisp32Size = 9;
+  for (const auto& func : funcs) {
+    PX_ASSIGN_OR_RETURN(utils::u8string code, elf_reader->SymbolByteCode(".text", func));
+    for (size_t i = 0; i + kMovFsDisp32Size <= code.size(); ++i) {
+      const bool fs_prefix = code[i] == 0x64;
+      const bool rex_w = code[i + 1] == 0x48 || code[i + 1] == 0x4c;
+      const bool mov_sib_disp32 =
+          code[i + 2] == 0x8b && (code[i + 3] & 0xc7) == 0x04 && code[i + 4] == 0x25;
+      if (fs_prefix && rex_w && mov_sib_disp32) {
+        return ::px::utils::LEndianBytesToInt<int32_t>(u8string_view(code).substr(i + 5, 4));
+      }
+    }
+  }
+  return error::NotFound("No fs-relative g load in $0 of binary=$1", kGoTLSAccessFunc,
+                         elf_reader->binary_path());
+}
+
 // kGoBuildInfoMagic corresponds to "\xff Go buildinf:"
 // https://github.com/golang/go/blob/1dbbafc70fd3e2c284469ab3e0936c1bb56129f6/src/debug/buildinfo/buildinfo.go#L49
 std::string_view kGoBuildInfoMagic =
@@ -299,13 +373,6 @@ StatusOr<std::pair<std::string, BuildInfo>> ReadGoBuildInfo(ElfReader* elf_reade
   PX_ASSIGN_OR_RETURN(auto s, ExtractSemVer(go_version));
   return std::make_pair(s, std::move(build_info));
 }
-
-// Prefixes used to search for itable symbols in the binary. Follows the format:
-// <prefix>.<type_name>,<interface_name>. i.e. go.itab.<type_name>,<interface_name>
-constexpr std::array<std::string_view, 2> kITablePrefixes = {
-    "go:itab.",  // Prefix used by Go 1.20 binaries and later.
-    "go.itab.",  // Prefix used by Go 1.19 binaries and earlier.
-};
 
 StatusOr<absl::flat_hash_map<std::string, std::vector<IntfImplTypeInfo>>> ExtractGolangInterfaces(
     ElfReader* elf_reader) {

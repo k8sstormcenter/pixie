@@ -18,8 +18,13 @@
 
 #include "src/stirling/source_connectors/socket_tracer/uprobe_symaddrs.h"
 #include <dlfcn.h>
+#include <rapidjson/error/en.h>
+#include <rapidjson/istreamwrapper.h>
+#include <rapidjson/reader.h>
 
 #include <algorithm>
+#include <array>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <string>
@@ -47,6 +52,10 @@ DEFINE_bool(openssl_raw_fptrs_enabled, false,
             "If true, allows the openssl tracing implementation to fall back to function pointers "
             "if dlopen/dlsym is unable to find symbols");
 
+DEFINE_bool(disable_dwarf_parsing, false,
+            "If true, disables parsing of DWARF information. This is useful for using lower memory "
+            "uprobe instrumentation.");
+
 namespace px {
 namespace stirling {
 
@@ -56,6 +65,315 @@ namespace {
 // since an array is a pretty stable type.
 constexpr int kGoArrayPtrOffset = 0;
 constexpr int kGoArrayLenOffset = 8;
+
+constexpr const std::array<std::string_view, 2> kGoPackagePrefixes =
+    MakeArray<std::string_view>("google.golang.org/grpc", "golang.org/x/net");
+
+template <std::size_t N>
+std::pair<std::string_view, bool> FindMatchingPkgPrefix(
+    const std::string_view& str, const std::array<std::string_view, N>& prefixes) {
+  for (std::size_t i = 0; i < N; ++i) {
+    if (absl::StartsWith(str, prefixes[i])) {
+      return {prefixes[i], true};
+    }
+  }
+  return {kGoStdlibPackageName, false};
+}
+
+// State machine states for SAX-based JSON parsing of offsetgen file.
+enum class ParseState {
+  kExpectRootStart,        // Expecting '{'
+  kExpectTopLevelKey,      // Expecting "structs" or "funcs" or '}'
+  kExpectSectionStart,     // Expecting '{' after "structs"/"funcs"
+  kExpectEntityKeyOrEnd,   // Expecting struct/func name or '}'
+  kExpectEntityStart,      // Expecting '{' after entity name
+  kExpectMemberKeyOrEnd,   // Expecting field/arg name or '}'
+  kExpectMemberStart,      // Expecting '{' after member name
+  kExpectVersionKeyOrEnd,  // Expecting version key or '}'
+  kExpectVersionValue,     // Expecting value (int/null/object)
+  kInLocationObject,       // Inside {"location":..., "offset":...}
+  kExpectLocationValue,    // Expecting location type string
+  kExpectOffsetValue,      // Expecting offset integer
+};
+
+enum class Section {
+  kNone,
+  kStructs,
+  kFuncs,
+};
+
+StructOffsetMap g_struct_offsets;
+
+FunctionArgMap g_function_arg_offsets;
+
+// ParseLocationType turns the opentelemetry-go-instrumentation offsetgen encoded
+// JSON location into Pixie's native obj_tools::LocationType.
+obj_tools::LocationType ParseLocationType(const std::string& loc) {
+  if (loc == "stack") {
+    return obj_tools::LocationType::kStack;
+  } else if (loc == "registers") {
+    return obj_tools::LocationType::kRegister;
+  }
+  return obj_tools::LocationType::kUnknown;
+}
+
+// SAX-based handler for streaming JSON parsing of the offsetgen file.
+// This processes the JSON in a single pass without building a DOM tree.
+class GoOffsetgenHandler
+    : public rapidjson::BaseReaderHandler<rapidjson::UTF8<>, GoOffsetgenHandler> {
+ public:
+  GoOffsetgenHandler(StructOffsetMap* struct_offsets, FunctionArgMap* func_offsets)
+      : struct_offsets_(struct_offsets), func_offsets_(func_offsets) {}
+
+  bool Null() {
+    switch (state_) {
+      case ParseState::kExpectVersionValue:
+        if (current_section_ == Section::kStructs) {
+          // For structs, null means offset = -1
+          (*struct_offsets_)[current_entity_name_]
+              .second[current_member_name_][current_version_key_] = -1;
+        } else {
+          // For funcs, null means unknown location with offset = -1
+          auto loc = std::make_unique<obj_tools::VarLocation>();
+          loc->loc_type = obj_tools::LocationType::kUnknown;
+          loc->offset = -1;
+          (*func_offsets_)[current_entity_name_]
+              .second[current_member_name_][current_version_key_] = std::move(loc);
+        }
+        state_ = ParseState::kExpectVersionKeyOrEnd;
+        return true;
+
+      default:
+        SetError("Unexpected null");
+        return false;
+    }
+  }
+
+  bool Bool(bool /*b*/) {
+    SetError("Unexpected boolean value");
+    return false;
+  }
+
+  bool Int(int i) { return HandleInteger(static_cast<int64_t>(i)); }
+  bool Int64(int64_t i) { return HandleInteger(i); }
+  bool Uint(unsigned u) { return HandleInteger(static_cast<int64_t>(u)); }
+  bool Uint64(uint64_t u) { return HandleInteger(static_cast<int64_t>(u)); }
+
+  bool Double(double /*d*/) {
+    SetError("Unexpected double value");
+    return false;
+  }
+
+  bool String(const char* str, rapidjson::SizeType length, bool /*copy*/) {
+    switch (state_) {
+      case ParseState::kExpectLocationValue:
+        pending_location_ = std::string(str, length);
+        state_ = ParseState::kInLocationObject;
+        return true;
+
+      default:
+        SetError("Unexpected string");
+        return false;
+    }
+  }
+
+  bool StartObject() {
+    switch (state_) {
+      case ParseState::kExpectRootStart:
+        state_ = ParseState::kExpectTopLevelKey;
+        return true;
+
+      case ParseState::kExpectSectionStart:
+        state_ = ParseState::kExpectEntityKeyOrEnd;
+        return true;
+
+      case ParseState::kExpectEntityStart:
+        state_ = ParseState::kExpectMemberKeyOrEnd;
+        return true;
+
+      case ParseState::kExpectMemberStart:
+        state_ = ParseState::kExpectVersionKeyOrEnd;
+        return true;
+
+      case ParseState::kExpectVersionValue:
+        if (current_section_ == Section::kFuncs) {
+          // Starting a location object: {"location":..., "offset":...}
+          state_ = ParseState::kInLocationObject;
+          pending_location_.clear();
+          pending_offset_ = -1;
+          return true;
+        }
+        SetError("Unexpected object in structs section");
+        return false;
+
+      default:
+        SetError("Unexpected StartObject");
+        return false;
+    }
+  }
+
+  bool Key(const char* str, rapidjson::SizeType length, bool /*copy*/) {
+    std::string key(str, length);
+
+    switch (state_) {
+      case ParseState::kExpectTopLevelKey:
+        if (key == "structs") {
+          current_section_ = Section::kStructs;
+          state_ = ParseState::kExpectSectionStart;
+        } else if (key == "funcs") {
+          current_section_ = Section::kFuncs;
+          state_ = ParseState::kExpectSectionStart;
+        }
+        // Unknown top-level keys are silently skipped
+        return true;
+
+      case ParseState::kExpectEntityKeyOrEnd:
+        current_entity_name_ = key;
+        // Set package prefix
+        if (current_section_ == Section::kStructs) {
+          std::string_view pkg =
+              FindMatchingPkgPrefix(current_entity_name_, kGoPackagePrefixes).first;
+          (*struct_offsets_)[current_entity_name_].first = pkg;
+        } else {
+          std::string_view pkg =
+              FindMatchingPkgPrefix(current_entity_name_, kGoPackagePrefixes).first;
+          (*func_offsets_)[current_entity_name_].first = pkg;
+        }
+        state_ = ParseState::kExpectEntityStart;
+        return true;
+
+      case ParseState::kExpectMemberKeyOrEnd:
+        current_member_name_ = key;
+        state_ = ParseState::kExpectMemberStart;
+        return true;
+
+      case ParseState::kExpectVersionKeyOrEnd:
+        current_version_key_ = key;
+        state_ = ParseState::kExpectVersionValue;
+        return true;
+
+      case ParseState::kInLocationObject:
+        if (key == "location") {
+          state_ = ParseState::kExpectLocationValue;
+        } else if (key == "offset") {
+          state_ = ParseState::kExpectOffsetValue;
+        }
+        return true;
+
+      default:
+        SetError("Unexpected Key");
+        return false;
+    }
+  }
+
+  bool EndObject(rapidjson::SizeType /*memberCount*/) {
+    switch (state_) {
+      case ParseState::kExpectTopLevelKey:
+        // End of root object - parsing complete
+        return true;
+
+      case ParseState::kExpectEntityKeyOrEnd:
+        // End of "structs" or "funcs" section
+        state_ = ParseState::kExpectTopLevelKey;
+        current_section_ = Section::kNone;
+        return true;
+
+      case ParseState::kExpectMemberKeyOrEnd:
+        // End of entity object (struct or func)
+        state_ = ParseState::kExpectEntityKeyOrEnd;
+        current_entity_name_.clear();
+        return true;
+
+      case ParseState::kExpectVersionKeyOrEnd:
+        // End of member object (field or arg)
+        state_ = ParseState::kExpectMemberKeyOrEnd;
+        current_member_name_.clear();
+        return true;
+
+      case ParseState::kInLocationObject:
+        // End of location object - store the parsed values
+        if (current_section_ == Section::kFuncs) {
+          auto loc = std::make_unique<obj_tools::VarLocation>();
+          loc->loc_type = ParseLocationType(pending_location_);
+          loc->offset = pending_offset_;
+          (*func_offsets_)[current_entity_name_]
+              .second[current_member_name_][current_version_key_] = std::move(loc);
+        }
+        state_ = ParseState::kExpectVersionKeyOrEnd;
+        return true;
+
+      default:
+        SetError("Unexpected EndObject");
+        return false;
+    }
+  }
+
+  bool StartArray() {
+    SetError("Unexpected array");
+    return false;
+  }
+
+  bool EndArray(rapidjson::SizeType /*elementCount*/) {
+    SetError("Unexpected end array");
+    return false;
+  }
+
+  bool HasError() const { return has_error_; }
+  const std::string& GetError() const { return error_msg_; }
+
+ private:
+  bool HandleInteger(int64_t val) {
+    int32_t offset = static_cast<int32_t>(val);
+
+    switch (state_) {
+      case ParseState::kExpectVersionValue:
+        if (current_section_ == Section::kStructs) {
+          (*struct_offsets_)[current_entity_name_]
+              .second[current_member_name_][current_version_key_] = offset;
+          state_ = ParseState::kExpectVersionKeyOrEnd;
+          return true;
+        }
+        SetError("Unexpected integer in funcs section (expected object or null)");
+        return false;
+
+      case ParseState::kExpectOffsetValue:
+        pending_offset_ = offset;
+        state_ = ParseState::kInLocationObject;
+        return true;
+
+      default:
+        SetError("Unexpected integer");
+        return false;
+    }
+  }
+
+  void SetError(const std::string& msg) {
+    has_error_ = true;
+    error_msg_ = msg;
+  }
+
+  // References to output data structures
+  StructOffsetMap* struct_offsets_;
+  FunctionArgMap* func_offsets_;
+
+  // State tracking
+  ParseState state_ = ParseState::kExpectRootStart;
+  Section current_section_ = Section::kNone;
+
+  // Current context tracking (nesting levels)
+  std::string current_entity_name_;  // struct or func name (Level 2)
+  std::string current_member_name_;  // field or arg name (Level 3)
+  std::string current_version_key_;  // version string (Level 4)
+
+  // For parsing location objects in funcs
+  std::string pending_location_;
+  int32_t pending_offset_ = -1;
+
+  // Error handling
+  bool has_error_ = false;
+  std::string error_msg_;
+};
+
 }  // namespace
 
 //-----------------------------------------------------------------------------
@@ -172,15 +490,14 @@ Status PopulateCommonTypeAddrs(ElfReader* elf_reader, std::string_view vendor_pr
   LOG_ASSIGN_OPTIONAL(symaddrs->net_TCPConn,
                       ResolveSymbolWithEachGoPrefix(elf_reader, "itab.*net.TCPConn,net.Conn"));
 
-  // TODO(chengruizhe): Refer to setGStructOffsetElf in dlv for a more accurate way of setting
-  // g_addr_offset using elf.
-  symaddrs->g_addr_offset = -8;
+  symaddrs->g_addr_offset =
+      obj_tools::GoGAddrOffset(elf_reader).ValueOr(obj_tools::kGoDefaultGAddrOffset);
 
   // TCPConn is mandatory by the HTTP2 uprobes probe, so bail if it is not found (-1).
   // It should be the last layer of nested interface, and contains the FD.
   // The other conns can be invalid, and will simply be ignored.
   if (symaddrs->net_TCPConn == -1) {
-    return error::Internal("TCPConn not found");
+    return error::NotFound("TCPConn not found");
   }
 
   return Status::OK();
@@ -356,8 +673,12 @@ Status PopulateHTTP2DebugSymbols(GoOffsetLocator* offset_locator, std::string_vi
 
   // Arguments of net/http.(*http2Framer).WriteDataPadded.
   {
-    std::string_view fn = "net/http.(*http2Framer).WriteDataPadded";
+    std::string_view fn = "net/http.(*http2Framer).startWriteDataPadded";
     auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    if (args_map.empty()) {
+      fn = "net/http.(*http2Framer).WriteDataPadded";
+      args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    }
     LOG_ASSIGN(symaddrs->http2Framer_WriteDataPadded_f_loc, GetArgOffset(args_map, "f"));
     LOG_ASSIGN(symaddrs->http2Framer_WriteDataPadded_streamID_loc,
                GetArgOffset(args_map, "streamID"));
@@ -373,8 +694,12 @@ Status PopulateHTTP2DebugSymbols(GoOffsetLocator* offset_locator, std::string_vi
 
   // Arguments of golang.org/x/net/http2.(*Framer).WriteDataPadded.
   {
-    std::string fn = VENDOR_SYMBOL("golang.org/x/net/http2.(*Framer).WriteDataPadded");
+    std::string fn = VENDOR_SYMBOL("golang.org/x/net/http2.(*Framer).startWriteDataPadded");
     auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    if (args_map.empty()) {
+      fn = VENDOR_SYMBOL("golang.org/x/net/http2.(*Framer).WriteDataPadded");
+      args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    }
     LOG_ASSIGN(symaddrs->http2_WriteDataPadded_f_loc, GetArgOffset(args_map, "f"));
     LOG_ASSIGN(symaddrs->http2_WriteDataPadded_streamID_loc, GetArgOffset(args_map, "streamID"));
     LOG_ASSIGN(symaddrs->http2_WriteDataPadded_endStream_loc, GetArgOffset(args_map, "endStream"));
@@ -400,6 +725,20 @@ Status PopulateHTTP2DebugSymbols(GoOffsetLocator* offset_locator, std::string_vi
     auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
     LOG_ASSIGN(symaddrs->http2_checkFrameOrder_fr_loc, GetArgOffset(args_map, "fr"));
     LOG_ASSIGN(symaddrs->http2_checkFrameOrder_f_loc, GetArgOffset(args_map, "f"));
+  }
+
+  {
+    std::string_view fn = "net/http.(*http2Framer).ReadFrameForHeader";
+    auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    LOG_ASSIGN(symaddrs->http2Framer_ReadFrameForHeader_fr_loc, GetArgOffset(args_map, "fr"));
+    LOG_ASSIGN(symaddrs->http2Framer_ReadFrameForHeader_retval0_loc, GetArgOffset(args_map, "~r0"));
+  }
+
+  {
+    std::string fn = VENDOR_SYMBOL("golang.org/x/net/http2.(*Framer).ReadFrameForHeader");
+    auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    LOG_ASSIGN(symaddrs->http2_ReadFrameForHeader_fr_loc, GetArgOffset(args_map, "fr"));
+    LOG_ASSIGN(symaddrs->http2_ReadFrameForHeader_retval0_loc, GetArgOffset(args_map, "~r0"));
   }
 
   // Arguments of net/http.(*http2writeResHeaders).writeFrame.
@@ -516,11 +855,126 @@ Status PopulateGoTLSDebugSymbols(GoOffsetLocator* offset_locator,
   return Status::OK();
 }
 
+std::optional<std::string> ResolveOffsetVersion(const std::vector<std::string>& available,
+                                                std::string_view requested, bool same_minor_only) {
+  for (const auto& v : available) {
+    if (v == requested) {
+      return v;
+    }
+  }
+  StatusOr<SemVer> req = GetSemVer(std::string(requested), /*strict*/ false);
+  if (!req.ok()) {
+    return std::nullopt;
+  }
+  std::optional<std::pair<SemVer, std::string>> older;
+  std::optional<std::pair<SemVer, std::string>> newer;
+  for (const auto& v : available) {
+    StatusOr<SemVer> parsed = GetSemVer(v, /*strict*/ false);
+    if (!parsed.ok()) {
+      continue;
+    }
+    const bool same_minor = parsed.ValueOrDie().major == req.ValueOrDie().major &&
+                            parsed.ValueOrDie().minor == req.ValueOrDie().minor;
+    if (same_minor_only && !same_minor) {
+      continue;
+    }
+    if (parsed.ValueOrDie() <= req.ValueOrDie()) {
+      if (!older.has_value() || older->first < parsed.ValueOrDie()) {
+        older = std::make_pair(parsed.ValueOrDie(), v);
+      }
+    } else if (same_minor) {
+      if (!newer.has_value() || parsed.ValueOrDie() < newer->first) {
+        newer = std::make_pair(parsed.ValueOrDie(), v);
+      }
+    }
+  }
+  if (older.has_value()) {
+    return older->second;
+  }
+  if (newer.has_value()) {
+    return newer->second;
+  }
+  return std::nullopt;
+}
+
+StatusOr<GoBinaryInfo> AnalyzeGoBinary(const std::string& binary, ElfReader* elf_reader) {
+  if (!obj_tools::IsGoExecutable(elf_reader)) {
+    return error::NotFound("Binary $0 is not a Go executable", binary);
+  }
+  GoBinaryInfo info;
+  auto build_info_or = obj_tools::ReadGoBuildInfo(elf_reader);
+  if (build_info_or.ok()) {
+    auto& build_info_pair = build_info_or.ValueOrDie();
+    info.go_version = std::move(build_info_pair.first);
+    info.build_info = std::move(build_info_pair.second);
+  } else {
+    VLOG(1) << absl::Substitute("Failed to read build info from binary $0. Message = $1", binary,
+                                build_info_or.msg());
+  }
+
+  PX_RETURN_IF_ERROR(obj_tools::PopulateGoPclntabSymbols(elf_reader));
+
+  const bool has_debug_info = elf_reader->SectionWithName(".debug_info").ok() ||
+                              elf_reader->SectionWithName(".zdebug_info").ok();
+  if (!FLAGS_disable_dwarf_parsing && has_debug_info) {
+    auto dwarf_reader_or = DwarfReader::CreateIndexingAll(binary);
+    if (dwarf_reader_or.ok()) {
+      info.dwarf_reader = dwarf_reader_or.ConsumeValueOrDie();
+    } else {
+      VLOG(1) << absl::Substitute(
+          "No usable debug symbols in binary $0, using offsetgen offsets. Message = $1", binary,
+          dwarf_reader_or.msg());
+    }
+  }
+  return info;
+}
+
+StructOffsetMap& GetGoStructOffsets() { return g_struct_offsets; }
+
+FunctionArgMap& GetGoFunctionArgOffsets() { return g_function_arg_offsets; }
+
+void ParseGoOffsetgenFile(const std::string& offsetgen_file) {
+  ParseGoOffsetgenFile(offsetgen_file, &GetGoStructOffsets(), &GetGoFunctionArgOffsets());
+}
+
+void ParseGoOffsetgenFile(const std::string& offsetgen_file, StructOffsetMap* struct_offsets,
+                          FunctionArgMap* function_args) {
+  std::ifstream file(offsetgen_file, std::ios::binary);
+  std::string warning = "Uprobes will exclusively use DWARF to determine offsets.";
+
+  if (!file) {
+    LOG(WARNING) << absl::Substitute("Unable to open offsetgen file=$0 error=$1. $2",
+                                     offsetgen_file, strerror(errno), warning);
+    return;
+  }
+
+  rapidjson::IStreamWrapper isw(file);
+  GoOffsetgenHandler handler(struct_offsets, function_args);
+  rapidjson::Reader reader;
+
+  rapidjson::ParseResult result = reader.Parse(isw, handler);
+
+  if (!result) {
+    if (handler.HasError()) {
+      LOG(ERROR) << absl::Substitute("JSON semantic error: $0", handler.GetError());
+    } else {
+      LOG(ERROR) << absl::Substitute("JSON parse error at offset=$0: $1", result.Offset(),
+                                     rapidjson::GetParseError_En(result.Code()));
+    }
+    return;
+  }
+
+  if (handler.HasError()) {
+    LOG(ERROR) << absl::Substitute("Handler error: $0", handler.GetError());
+  }
+}
+
 StatusOr<struct go_common_symaddrs_t> GoCommonSymAddrs(ElfReader* elf_reader,
                                                        GoOffsetLocator* offset_locator) {
   struct go_common_symaddrs_t symaddrs;
 
   PX_ASSIGN_OR_RETURN(std::string vendor_prefix, InferHTTP2SymAddrVendorPrefix(elf_reader));
+  offset_locator->set_vendor_prefix(vendor_prefix);
 
   PX_RETURN_IF_ERROR(PopulateCommonTypeAddrs(elf_reader, vendor_prefix, &symaddrs));
   PX_RETURN_IF_ERROR(PopulateCommonDebugSymbols(offset_locator, vendor_prefix, &symaddrs));
@@ -533,6 +987,7 @@ StatusOr<struct go_http2_symaddrs_t> GoHTTP2SymAddrs(ElfReader* elf_reader,
   struct go_http2_symaddrs_t symaddrs;
 
   PX_ASSIGN_OR_RETURN(std::string vendor_prefix, InferHTTP2SymAddrVendorPrefix(elf_reader));
+  offset_locator->set_vendor_prefix(vendor_prefix);
 
   PX_RETURN_IF_ERROR(PopulateHTTP2TypeAddrs(elf_reader, vendor_prefix, &symaddrs));
   PX_RETURN_IF_ERROR(PopulateHTTP2DebugSymbols(offset_locator, vendor_prefix, &symaddrs));

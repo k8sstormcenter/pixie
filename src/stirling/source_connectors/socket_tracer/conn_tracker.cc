@@ -246,6 +246,7 @@ endpoint_role_t InferHTTP2Role(bool write_event, const std::unique_ptr<HTTP2Head
 
 void ConnTracker::AddHTTP2Header(std::unique_ptr<HTTP2HeaderEvent> hdr) {
   SetProtocol(kProtocolHTTP2, "inferred from http2 headers");
+  SetSSL(hdr->attr.ssl, hdr->attr.ssl_source, "inferred from http2 headers");
 
   if (protocol_ != kProtocolHTTP2) {
     return;
@@ -323,6 +324,7 @@ void ConnTracker::AddHTTP2Header(std::unique_ptr<HTTP2HeaderEvent> hdr) {
 
 void ConnTracker::AddHTTP2Data(std::unique_ptr<HTTP2DataEvent> data) {
   SetProtocol(kProtocolHTTP2, "inferred from http2 data");
+  SetSSL(data->attr.ssl, data->attr.ssl_source, "inferred from http2 data");
 
   if (protocol_ != kProtocolHTTP2) {
     return;

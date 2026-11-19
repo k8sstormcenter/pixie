@@ -36,6 +36,10 @@ class SocketTraceConnectorFriend : public SocketTraceConnector {
   }
   explicit SocketTraceConnectorFriend(std::string_view name) : SocketTraceConnector(name) {}
 
+  absl::flat_hash_set<md::UPID> UProbeTargetUPIDs(ConnectorContext* ctx) {
+    return SocketTraceConnector::UProbeTargetUPIDs(ctx);
+  }
+
   void AcceptDataEvent(std::unique_ptr<SocketDataEvent> event) {
     SocketTraceConnector::AcceptDataEvent(std::move(event));
   }

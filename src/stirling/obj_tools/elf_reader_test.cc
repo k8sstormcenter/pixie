@@ -18,22 +18,29 @@
 
 #include "src/stirling/obj_tools/elf_reader.h"
 
+#include <filesystem>
+
 #include "src/common/exec/exec.h"
 #include "src/common/testing/test_environment.h"
 #include "src/common/testing/testing.h"
 #include "src/stirling/obj_tools/testdata/cc/test_exe_fixture.h"
+#include "src/stirling/testing/go_https_server_fixture.h"
 
 namespace px {
 namespace stirling {
 namespace obj_tools {
+
+using ::px::stirling::testing::GoHTTPSServerFixture;
 
 const TestExeFixture kTestExeFixture;
 
 using ::px::stirling::obj_tools::ElfReader;
 using ::px::stirling::obj_tools::SymbolMatchType;
 using ::testing::ElementsAre;
+using ::testing::Eq;
 using ::testing::Field;
 using ::testing::IsEmpty;
+using ::testing::Optional;
 using ::testing::Pair;
 using ::testing::SizeIs;
 using ::testing::UnorderedElementsAre;
@@ -109,6 +116,36 @@ StatusOr<int64_t> NmSymbolNameToAddr(const std::string& nm_output_path,
   }
 
   return symbol_addr;
+}
+
+TEST(ElfReaderTest, BinaryByteCodeReadsTheOpenedFile) {
+  px::testing::TempDir temp_dir;
+  const std::filesystem::path binary = temp_dir.path() / "test_exe";
+  std::filesystem::copy_file(kTestExeFixture.Path(), binary);
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader, ElfReader::Create(binary));
+  ASSERT_OK_AND_ASSIGN(std::string before, elf_reader->BinaryByteCode<char>(0, 4));
+  ASSERT_EQ(before,
+            "\x7f"
+            "ELF");
+
+  const std::filesystem::path replacement = temp_dir.path() / "replacement";
+  ASSERT_OK(WriteFileFromString(replacement.string(), std::string(4096, 'x')));
+  std::filesystem::rename(replacement, binary);
+
+  ASSERT_OK_AND_ASSIGN(std::string after, elf_reader->BinaryByteCode<char>(0, 4));
+  EXPECT_EQ(after,
+            "\x7f"
+            "ELF");
+  ASSERT_OK_AND_ASSIGN(std::string later, elf_reader->BinaryByteCode<char>(1, 3));
+  EXPECT_EQ(later, "ELF");
+}
+
+TEST(ElfReaderTest, BinaryByteCodePastEndIsAnError) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
+                       ElfReader::Create(kTestExeFixture.Path()));
+  const uintmax_t size = std::filesystem::file_size(kTestExeFixture.Path());
+  EXPECT_NOT_OK(elf_reader->BinaryByteCode<char>(size - 2, 4));
+  EXPECT_OK(elf_reader->BinaryByteCode<char>(size - 4, 4));
 }
 
 TEST(ElfReaderTest, NonExistentPath) {
@@ -329,6 +366,84 @@ TEST(ElfReaderTest, VersionedSymbolsInDynamicLibrary) {
                                           SymbolNameIs("foo_old"),
                                           // @@ refers to the default version.
                                           SymbolNameIs("foo@@VER_2"), SymbolNameIs("foo@VER_1")));
+}
+
+std::vector<ElfReader::SymbolInfo> FakeFallbackSymbols() {
+  return {
+      {"crypto/tls.(*Conn).Write", ELFIO::STT_FUNC, 0x1000, 0x80},
+      {"crypto/tls.(*Conn).Read", ELFIO::STT_FUNC, 0x1080, 0x80},
+      {"go:itab.*net.TCPConn,net.Conn", ELFIO::STT_OBJECT, 0x2000, 0x28},
+  };
+}
+
+TEST(ElfReaderTest, FallbackSymbolsUsedWithoutSymtab) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
+                       ElfReader::Create(GoHTTPSServerFixture::StrippedPath("1_24")));
+  EXPECT_FALSE(elf_reader->HasSymtab());
+  EXPECT_FALSE(elf_reader->UsesFallbackSymbols());
+  auto before = elf_reader->SearchSymbols("crypto/tls", SymbolMatchType::kPrefix);
+  EXPECT_TRUE(!before.ok() || before.ValueOrDie().empty());
+
+  elf_reader->SetFallbackSymbols(FakeFallbackSymbols());
+  EXPECT_TRUE(elf_reader->UsesFallbackSymbols());
+
+  ASSERT_OK_AND_THAT(
+      elf_reader->ListFuncSymbols("crypto/tls.(*Conn).Write", SymbolMatchType::kSuffix),
+      ElementsAre(Field(&ElfReader::SymbolInfo::address, uint64_t{0x1000})));
+  ASSERT_OK_AND_THAT(elf_reader->ListFuncSymbols("crypto/tls.(*Conn).", SymbolMatchType::kPrefix),
+                     SizeIs(2));
+  ASSERT_OK_AND_THAT(elf_reader->ListFuncSymbols("go:itab.", SymbolMatchType::kPrefix), IsEmpty());
+  EXPECT_EQ(elf_reader->SymbolAddress("go:itab.*net.TCPConn,net.Conn"), 0x2000);
+  EXPECT_EQ(elf_reader->SymbolAddress("go:itab.*crypto/tls.Conn,net.Conn"), std::nullopt);
+  ASSERT_OK_AND_ASSIGN(ElfReader::SymbolInfo symbol,
+                       elf_reader->SearchTheOnlySymbol("crypto/tls.(*Conn).Read"));
+  EXPECT_EQ(symbol.size, 0x80);
+}
+
+TEST(ElfReaderTest, FallbackSymbolsResolveAddresses) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
+                       ElfReader::Create(GoHTTPSServerFixture::StrippedPath("1_24")));
+  elf_reader->SetFallbackSymbols(FakeFallbackSymbols());
+
+  ASSERT_OK_AND_THAT(elf_reader->InstrAddrToSymbol(0x1000),
+                     Optional(std::string("crypto/tls.(*Conn).Write")));
+  ASSERT_OK_AND_THAT(elf_reader->InstrAddrToSymbol(0x107f),
+                     Optional(std::string("crypto/tls.(*Conn).Write")));
+  ASSERT_OK_AND_THAT(elf_reader->InstrAddrToSymbol(0x1080),
+                     Optional(std::string("crypto/tls.(*Conn).Read")));
+  ASSERT_OK_AND_THAT(elf_reader->InstrAddrToSymbol(0x1100), Eq(std::nullopt));
+  ASSERT_OK_AND_THAT(elf_reader->InstrAddrToSymbol(0xfff), Eq(std::nullopt));
+
+  ASSERT_OK_AND_THAT(elf_reader->AddrToSymbol(0x2000),
+                     Optional(std::string("go:itab.*net.TCPConn,net.Conn")));
+  ASSERT_OK_AND_THAT(elf_reader->AddrToSymbol(0x1001), Eq(std::nullopt));
+}
+
+TEST(ElfReaderTest, FallbackSymbolsFillEntriesMissingFromSymtab) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
+                       ElfReader::Create(GoHTTPSServerFixture::Path("1_24")));
+  ASSERT_TRUE(elf_reader->HasSymtab());
+  EXPECT_EQ(elf_reader->SymbolAddress("go:itab.*example.com/fake.Conn,net.Conn"), std::nullopt);
+
+  elf_reader->SetFallbackSymbols(
+      {{"go:itab.*example.com/fake.Conn,net.Conn", ELFIO::STT_OBJECT, 0x3000, 0x20}});
+
+  EXPECT_EQ(elf_reader->SymbolAddress("go:itab.*example.com/fake.Conn,net.Conn"), 0x3000);
+  EXPECT_NE(elf_reader->SymbolAddress("go:itab.*net.TCPConn,net.Conn"), std::nullopt);
+  EXPECT_NE(elf_reader->SymbolAddress("go:itab.*net.TCPConn,net.Conn"), 0x3000);
+}
+
+TEST(ElfReaderTest, FallbackSymbolsIgnoredWithSymtab) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
+                       ElfReader::Create(GoHTTPSServerFixture::Path("1_24")));
+  EXPECT_TRUE(elf_reader->HasSymtab());
+  auto expected = elf_reader->SymbolAddress("crypto/tls.(*Conn).Write");
+  ASSERT_TRUE(expected.has_value());
+
+  elf_reader->SetFallbackSymbols(FakeFallbackSymbols());
+
+  EXPECT_FALSE(elf_reader->UsesFallbackSymbols());
+  EXPECT_EQ(elf_reader->SymbolAddress("crypto/tls.(*Conn).Write"), expected);
 }
 
 }  // namespace obj_tools

@@ -135,6 +135,12 @@ struct go_http2_symaddrs_t {
   struct location_t http2_checkFrameOrder_fr_loc;  // 8
   struct location_t http2_checkFrameOrder_f_loc;   // 16
 
+  struct location_t http2Framer_ReadFrameForHeader_fr_loc;
+  struct location_t http2Framer_ReadFrameForHeader_retval0_loc;
+
+  struct location_t http2_ReadFrameForHeader_fr_loc;
+  struct location_t http2_ReadFrameForHeader_retval0_loc;
+
   // Arguments of net/http.(*http2writeResHeaders).writeFrame.
   struct location_t writeFrame_w_loc;    // 8
   struct location_t writeFrame_ctx_loc;  // 16

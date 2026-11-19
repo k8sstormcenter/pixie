@@ -25,7 +25,10 @@ pl_cc_test_library(
     ),
     hdrs = glob(
         ["*.h"],
-        exclude = ["stirling_mock.h"],
+        exclude = [
+            "go_https_server_fixture.h",
+            "stirling_mock.h",
+        ],
     ),
     deps = [
         "//src/common/system:cc_library",
@@ -36,6 +39,12 @@ pl_cc_test_library(
 filegroup(
     name = "exec_snoop_bpftrace_script",
     srcs = ["exec_snoop.bpftrace.pxl"],
+)
+
+pl_cc_test_library(
+    name = "go_https_server_fixture",
+    srcs = ["go_https_server_fixture.h"],
+    data = ["//src/stirling/obj_tools/testdata/go:go_https_server_binaries"],
 )
 
 pl_cc_test_library(

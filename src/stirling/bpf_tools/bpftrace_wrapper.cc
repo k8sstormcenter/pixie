@@ -146,6 +146,11 @@ class CerrRedirect {
   std::streambuf* old_;
 };
 
+std::mutex& BPFTraceWrapper::bpftrace_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
 // This compile function is inspired from the bpftrace project's main.cpp.
 // Changes to bpftrace may need to be reflected back to this function on a bpftrace update.
 Status BPFTraceWrapper::Compile(std::string_view script, const std::vector<std::string>& params) {
@@ -153,7 +158,7 @@ Status BPFTraceWrapper::Compile(std::string_view script, const std::vector<std::
   // multiple simultaneous compiles may not be safe. For now, introduce a lock for safety.
   // TODO(oazizi): Update BPFTrace repo to avoid use of global state if possible.
 
-  const std::lock_guard<std::mutex> lock(compilation_mutex_);
+  const std::lock_guard<std::mutex> lock(bpftrace_mutex());
 
   // Some functions below return errors, while others success as positive numbers.
   // For readability, use two separate variables for the two models.
@@ -262,6 +267,7 @@ Status BPFTraceWrapper::Deploy(const PrintfCallback& printf_callback) {
     bpftrace_.printf_callback_ = printf_callback;
   }
 
+  const std::lock_guard<std::mutex> lock(bpftrace_mutex());
   int err = bpftrace_.deploy(bytecode_);
   if (err != 0) {
     return error::Internal("Failed to run BPF code.");

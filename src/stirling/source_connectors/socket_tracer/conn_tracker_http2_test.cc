@@ -109,6 +109,30 @@ TEST_F(ConnTrackerHTTP2Test, BasicHeader) {
 }
 
 // Tests that multiple data frames are exported to records.
+TEST_F(ConnTrackerHTTP2Test, HeaderEventMarksConnectionSSL) {
+  auto frame_generator = testing::StreamEventGenerator(&mock_clock_, kConnID, 7);
+  std::unique_ptr<HTTP2HeaderEvent> header_event =
+      frame_generator.GenHeader<kHeaderEventRead>(":method", "GET");
+  header_event->attr.ssl = true;
+  header_event->attr.ssl_source = kGoTLSSource;
+
+  tracker_.AddHTTP2Header(std::move(header_event));
+
+  EXPECT_TRUE(tracker_.ssl());
+}
+
+TEST_F(ConnTrackerHTTP2Test, DataEventMarksConnectionSSL) {
+  auto frame_generator = testing::StreamEventGenerator(&mock_clock_, kConnID, 7);
+  std::unique_ptr<HTTP2DataEvent> data_event =
+      frame_generator.GenDataFrame<kDataFrameEventRead>("Request");
+  data_event->attr.ssl = true;
+  data_event->attr.ssl_source = kGoTLSSource;
+
+  tracker_.AddHTTP2Data(std::move(data_event));
+
+  EXPECT_TRUE(tracker_.ssl());
+}
+
 TEST_F(ConnTrackerHTTP2Test, MultipleDataFrames) {
   const int kStreamID = 7;
   auto frame_generator = testing::StreamEventGenerator(&mock_clock_, kConnID, kStreamID);

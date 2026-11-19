@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -36,6 +37,7 @@
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/grpc_c.h"
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/socket_trace.hpp"
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/symaddrs.h"
+#include "src/stirling/source_connectors/socket_tracer/go_binary_cache.h"
 
 #include "src/stirling/source_connectors/socket_tracer/uprobe_symaddrs.h"
 #include "src/stirling/utils/detect_application.h"
@@ -55,11 +57,17 @@ namespace stirling {
  * Describes a UProbe template.
  * In particular, allows for partial symbol matches using SymbolMatchType.
  */
+std::string ProbedBinaryKey(const std::filesystem::path& binary);
+
+std::vector<obj_tools::ElfReader::SymbolInfo> SymbolsWithUniqueAddresses(
+    std::vector<obj_tools::ElfReader::SymbolInfo> symbols);
+
 struct UProbeTmpl {
   std::string_view symbol;
   obj_tools::SymbolMatchType match_type;
   std::string_view probe_fn;
   bpf_tools::BPFProbeAttachType attach_type = bpf_tools::BPFProbeAttachType::kEntry;
+  std::string_view superseded_by = {};
 };
 
 using px::stirling::bpf_tools::WrappedBCCMap;
@@ -131,10 +139,17 @@ class UProbeManager {
           .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
       },
       UProbeTmpl{
+          .symbol = "golang.org/x/net/http2.(*Framer).startWriteDataPadded",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_http2_framer_write_data",
+          .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+      },
+      UProbeTmpl{
           .symbol = "golang.org/x/net/http2.(*Framer).WriteDataPadded",
           .match_type = obj_tools::SymbolMatchType::kSuffix,
           .probe_fn = "probe_http2_framer_write_data",
           .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+          .superseded_by = "golang.org/x/net/http2.(*Framer).startWriteDataPadded",
       },
       UProbeTmpl{
           .symbol = "golang.org/x/net/http2.(*Framer).checkFrameOrder",
@@ -142,19 +157,50 @@ class UProbeManager {
           .probe_fn = "probe_http2_framer_check_frame_order",
           .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
       },
+      UProbeTmpl{
+          .symbol = "golang.org/x/net/http2.(*Framer).ReadFrameForHeader",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_http2_framer_read_frame_for_header",
+          .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+      },
+      UProbeTmpl{
+          .symbol = "golang.org/x/net/http2.(*Framer).ReadFrameForHeader",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_return_http2_framer_read_frame_for_header",
+          .attach_type = bpf_tools::BPFProbeAttachType::kReturnInsts,
+      },
 
       // Probes on Golang net/http's implementation of http2.
+      UProbeTmpl{
+          .symbol = "net/http.(*http2Framer).startWriteDataPadded",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_http_http2framer_write_data",
+          .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+      },
       UProbeTmpl{
           .symbol = "net/http.(*http2Framer).WriteDataPadded",
           .match_type = obj_tools::SymbolMatchType::kSuffix,
           .probe_fn = "probe_http_http2framer_write_data",
           .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+          .superseded_by = "net/http.(*http2Framer).startWriteDataPadded",
       },
       UProbeTmpl{
           .symbol = "net/http.(*http2Framer).checkFrameOrder",
           .match_type = obj_tools::SymbolMatchType::kSuffix,
           .probe_fn = "probe_http_http2framer_check_frame_order",
           .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+      },
+      UProbeTmpl{
+          .symbol = "net/http.(*http2Framer).ReadFrameForHeader",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_http_http2framer_read_frame_for_header",
+          .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+      },
+      UProbeTmpl{
+          .symbol = "net/http.(*http2Framer).ReadFrameForHeader",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_return_http_http2framer_read_frame_for_header",
+          .attach_type = bpf_tools::BPFProbeAttachType::kReturnInsts,
       },
       UProbeTmpl{
           .symbol = "net/http.(*http2writeResHeaders).writeFrame",
@@ -494,16 +540,9 @@ class UProbeManager {
    *
    * @param binary The path to the binary on which to deploy Go HTTP2 probes.
    * @param elf_reader ELF reader for the binary.
-   * @param offset_locator DWARF reader for the binary.
-   * @param pids The list of PIDs that are new instances of the binary. Used to populate symbol
-   *             addresses.
-   * @return The number of uprobes deployed, or error. It is not considered an error if the binary
-   *         is not a Go binary or doesn't use a Go HTTP2 library; instead the return value will be
-   *         zero.
+   * @return The number of uprobes deployed, or error. Zero if the binary was probed before.
    */
-  StatusOr<int> AttachGoHTTP2UProbes(const std::string& binary, obj_tools::ElfReader* elf_reader,
-                                     GoOffsetLocator* offset_locator,
-                                     const std::vector<int32_t>& pids);
+  StatusOr<int> AttachGoHTTP2UProbes(const std::string& binary, obj_tools::ElfReader* elf_reader);
 
   /**
    * Attaches the required probes for GoTLS tracing to the specified binary, if it is a compatible
@@ -511,15 +550,9 @@ class UProbeManager {
    *
    * @param binary The path to the binary on which to deploy Go HTTP2 probes.
    * @param elf_reader ELF reader for the binary.
-   * @param offset_locator DWARF reader for the binary.
-   * @param pids The list of PIDs that are new instances of the binary. Used to populate symbol
-   *             addresses.
-   * @return The number of uprobes deployed, or error. It is not an error if the binary
-   *         is not a Go binary or doesn't use Go TLS; instead the return value will be zero.
+   * @return The number of uprobes deployed, or error. Zero if the binary was probed before.
    */
-  StatusOr<int> AttachGoTLSUProbes(const std::string& binary, obj_tools::ElfReader* elf_reader,
-                                   GoOffsetLocator* offset_locator,
-                                   const std::vector<int32_t>& new_pids);
+  StatusOr<int> AttachGoTLSUProbes(const std::string& binary, obj_tools::ElfReader* elf_reader);
 
   /**
    * Attaches the required probes for OpenSSL tracing to the specified PID, if it uses OpenSSL.
@@ -580,11 +613,10 @@ class UProbeManager {
 
   Status UpdateOpenSSLSymAddrs(px::stirling::obj_tools::RawFptrManager* fptrManager,
                                std::filesystem::path container_lib, uint32_t pid);
-  Status UpdateGoCommonSymAddrs(obj_tools::ElfReader* elf_reader, GoOffsetLocator* offset_locator,
-                                const std::vector<int32_t>& pids);
-  Status UpdateGoHTTP2SymAddrs(obj_tools::ElfReader* elf_reader, GoOffsetLocator* offset_locator,
-                               const std::vector<int32_t>& pids);
-  Status UpdateGoTLSSymAddrs(GoOffsetLocator* offset_locator, const std::vector<int32_t>& pids);
+  void UpdateGoSymAddrs(const GoUProbeSymAddrs& symaddrs, const std::vector<int32_t>& pids);
+  void CacheGoSymAddrs(const std::string& binary, const FileVersion& version,
+                       const GoUProbeSymAddrs& symaddrs);
+  void ReportGoAnalysisFailure(const std::string& binary, const GoUProbeSymAddrs& symaddrs);
   Status UpdateNodeTLSWrapSymAddrs(int32_t pid, const std::filesystem::path& node_exe,
                                    const SemVer& ver);
 
@@ -633,6 +665,9 @@ class UProbeManager {
   absl::flat_hash_set<std::string> go_tls_probed_binaries_;
   absl::flat_hash_set<std::string> nodejs_binaries_;
   absl::flat_hash_set<std::string> grpc_c_probed_binaries_;
+
+  static constexpr size_t kGoBinaryCacheCapacity = 2048;
+  GoBinaryCache go_binary_cache_{kGoBinaryCacheCapacity};
 
   // BPF maps through which the addresses of symbols for a given pid are communicated to uprobes.
   std::unique_ptr<MapT<ssl_source_t>> openssl_source_map_;

@@ -47,6 +47,8 @@ enum http2_probe_type_t {
   k_probe_http_http2Framer_check_frame_order,
   k_probe_http2_framer_write_data,
   k_probe_http_http2Framer_write_data,
+  k_probe_http2_framer_read_frame_for_header,
+  k_probe_http_http2Framer_read_frame_for_header,
   k_probe_type_other,
 };
 
@@ -65,6 +67,8 @@ struct go_grpc_event_attr_t {
   struct conn_id_t conn_id;
   uint32_t stream_id;
   bool end_stream;
+  bool ssl;
+  enum ssl_source_t ssl_source;
 };
 
 struct go_grpc_http2_header_event_t {

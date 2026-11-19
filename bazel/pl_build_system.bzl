@@ -480,6 +480,9 @@ def pl_go_binary(**kwargs):
     _add_no_pie(kwargs)
     go_binary(**kwargs)
 
+def pl_go_pie_binary(**kwargs):
+    go_binary(linkmode = "pie", **kwargs)
+
 def pl_py_test(**kwargs):
     _add_test_runner(kwargs)
     _add_no_sysroot(kwargs)

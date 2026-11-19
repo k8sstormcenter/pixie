@@ -142,8 +142,8 @@ StatusOr<std::string> GoPclntab::LocatePclntab() {
   auto relro_or = elf_reader_->SectionWithName(kEmbeddedPclntabSection);
   if (relro_or.ok()) {
     ELFIO::section* section = relro_or.ValueOrDie();
-    PX_ASSIGN_OR_RETURN(std::string relro, elf_reader_->BinaryByteCode<char>(
-                                               section->get_offset(), section->get_size()));
+    PX_ASSIGN_OR_RETURN(std::string relro, elf_reader_->BinaryByteCode<char>(section->get_offset(),
+                                                                             section->get_size()));
     for (size_t pos = 0; pos + kPclntabHeaderSize <= relro.size(); pos += sizeof(uint64_t)) {
       if (IsPclntabHeader(std::string_view(relro).substr(pos, kPclntabHeaderSize))) {
         pclntab_addr_ = section->get_address() + pos;

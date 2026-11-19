@@ -230,7 +230,7 @@ Status UProbeManager::UpdateOpenSSLSymAddrs(obj_tools::RawFptrManager* fptr_mana
 }
 
 void UProbeManager::UpdateGoSymAddrs(const GoUProbeSymAddrs& symaddrs,
-                                    const std::vector<int32_t>& pids) {
+                                     const std::vector<int32_t>& pids) {
   for (int32_t pid : pids) {
     Status s = go_common_symaddrs_map_->SetValue(pid, symaddrs.common);
     if (s.ok() && symaddrs.tls.has_value()) {
@@ -259,8 +259,7 @@ void UProbeManager::ReportGoAnalysisFailure(const std::string& binary,
   if (symaddrs.failed_stage.empty()) {
     return;
   }
-  Status s(symaddrs.status.code(),
-           absl::Substitute("binary=$0 $1", binary, symaddrs.status.msg()));
+  Status s(symaddrs.status.code(), absl::Substitute("binary=$0 $1", binary, symaddrs.status.msg()));
   monitor_.AppendSourceStatusRecord("socket_tracer", s, std::string(symaddrs.failed_stage));
   LOG_FIRST_N(WARNING, 10) << absl::Substitute("Cannot deploy Go uprobes on binary $0 ($1): $2",
                                                binary, symaddrs.failed_stage,

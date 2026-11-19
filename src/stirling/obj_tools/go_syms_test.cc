@@ -400,10 +400,9 @@ StatusOr<int32_t> GAddrOffsetFromTLSSymbol(const std::string& path) {
     if (segment->get_type() != ELFIO::PT_TLS) {
       continue;
     }
-    const uint64_t memsz =
-        segment->get_memory_size() +
-        ((-segment->get_virtual_address() - segment->get_memory_size()) &
-         (segment->get_align() - 1));
+    const uint64_t memsz = segment->get_memory_size() +
+                           ((-segment->get_virtual_address() - segment->get_memory_size()) &
+                            (segment->get_align() - 1));
     return static_cast<int32_t>(tlsg.value() - static_cast<int64_t>(memsz));
   }
   return error::NotFound("No PT_TLS segment in $0", path);

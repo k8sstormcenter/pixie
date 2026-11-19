@@ -94,7 +94,8 @@ class UProbeManagerBPFTest
   bool IsServerRecord(const SourceStatusRecord& r) const {
     return r.context == "UpdateGoCommonSymAddrs" &&
            (absl::StrContains(r.error, absl::StrCat("/proc/", server_.child_pid(), "/root")) ||
-            absl::StrContains(r.error, absl::StrCat("/proc/", second_server_.child_pid(), "/root")));
+            absl::StrContains(r.error,
+                              absl::StrCat("/proc/", second_server_.child_pid(), "/root")));
   }
 
   ::px::testing::TempDir offsets_dir_;

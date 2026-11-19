@@ -109,8 +109,8 @@ StatusOr<int32_t> GoGAddrOffset(ElfReader* elf_reader) {
     for (size_t i = 0; i + kMovFsDisp32Size <= code.size(); ++i) {
       const bool fs_prefix = code[i] == 0x64;
       const bool rex_w = code[i + 1] == 0x48 || code[i + 1] == 0x4c;
-      const bool mov_sib_disp32 = code[i + 2] == 0x8b && (code[i + 3] & 0xc7) == 0x04 &&
-                                  code[i + 4] == 0x25;
+      const bool mov_sib_disp32 =
+          code[i + 2] == 0x8b && (code[i + 3] & 0xc7) == 0x04 && code[i + 4] == 0x25;
       if (fs_prefix && rex_w && mov_sib_disp32) {
         return ::px::utils::LEndianBytesToInt<int32_t>(u8string_view(code).substr(i + 5, 4));
       }

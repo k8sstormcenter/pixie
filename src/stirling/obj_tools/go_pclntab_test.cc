@@ -235,8 +235,9 @@ INSTANTIATE_TEST_SUITE_P(GoVersions, GoPclntabTest,
                          ::testing::ValuesIn(GoHTTPSServerFixture::kVersions));
 
 TEST(GoPclntabPIETest, FindsPclntabInsideDataRelRo) {
-  ASSERT_OK_AND_ASSIGN(auto elf, ElfReader::Create(px::testing::BazelRunfilePath(
-                                     "src/stirling/obj_tools/testdata/go/cgo_tls/cgo_tls_pie_binary")));
+  ASSERT_OK_AND_ASSIGN(auto elf,
+                       ElfReader::Create(px::testing::BazelRunfilePath(
+                           "src/stirling/obj_tools/testdata/go/cgo_tls/cgo_tls_pie_binary")));
   ASSERT_OK_AND_ASSIGN(
       auto stripped_elf,
       ElfReader::Create(px::testing::BazelRunfilePath(

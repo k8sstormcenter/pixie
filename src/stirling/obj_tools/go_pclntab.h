@@ -49,6 +49,7 @@ class GoPclntab {
   explicit GoPclntab(ElfReader* elf_reader) : elf_reader_(elf_reader) {}
 
   Status Init();
+  StatusOr<std::string> LocatePclntab();
   Status ReadFuncs(std::string_view pclntab, uint64_t nfunc, uint64_t funcname_offset,
                    uint64_t cu_offset, uint64_t pcln_offset);
   StatusOr<uint64_t> FindModuleData(uint64_t funcnametab_addr);

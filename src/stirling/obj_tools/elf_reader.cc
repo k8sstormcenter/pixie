@@ -392,10 +392,11 @@ void ElfReader::SetFallbackSymbols(std::vector<SymbolInfo> symbols) {
             [](const SymbolInfo& a, const SymbolInfo& b) { return a.address < b.address; });
 }
 
-const ElfReader::SymbolInfo* ElfReader::FallbackSymbolContaining(size_t addr) const {
-  auto it = std::upper_bound(fallback_symbols_.begin(), fallback_symbols_.end(), addr,
+const ElfReader::SymbolInfo* ElfReader::SymbolContaining(const std::vector<SymbolInfo>& symbols,
+                                                         size_t addr) {
+  auto it = std::upper_bound(symbols.begin(), symbols.end(), addr,
                              [](size_t addr, const SymbolInfo& s) { return addr < s.address; });
-  if (it == fallback_symbols_.begin()) {
+  if (it == symbols.begin()) {
     return nullptr;
   }
   --it;
@@ -431,7 +432,7 @@ std::optional<int64_t> ElfReader::SymbolAddress(std::string_view symbol) {
 
 StatusOr<std::optional<std::string>> ElfReader::AddrToSymbol(size_t sym_addr) {
   if (UsesFallbackSymbols()) {
-    const SymbolInfo* symbol = FallbackSymbolContaining(sym_addr);
+    const SymbolInfo* symbol = SymbolContaining(fallback_symbols_, sym_addr);
     if (symbol == nullptr || symbol->address != sym_addr) {
       return std::optional<std::string>();
     }
@@ -464,7 +465,7 @@ StatusOr<std::optional<std::string>> ElfReader::AddrToSymbol(size_t sym_addr) {
 //               are ordered.
 StatusOr<std::optional<std::string>> ElfReader::InstrAddrToSymbol(size_t sym_addr) {
   if (UsesFallbackSymbols()) {
-    const SymbolInfo* symbol = FallbackSymbolContaining(sym_addr);
+    const SymbolInfo* symbol = SymbolContaining(fallback_symbols_, sym_addr);
     if (symbol == nullptr) {
       return std::optional<std::string>();
     }

@@ -24,6 +24,8 @@
 #include <string_view>
 #include <vector>
 
+#include <absl/container/flat_hash_map.h>
+
 #include "src/common/base/base.h"
 #include "src/stirling/obj_tools/elf_reader.h"
 
@@ -53,6 +55,8 @@ class GoPclntab {
   Status ReadFuncs(std::string_view pclntab, uint64_t nfunc, uint64_t funcname_offset,
                    uint64_t cu_offset, uint64_t pcln_offset);
   StatusOr<uint64_t> FindModuleData(uint64_t funcnametab_addr);
+  bool IsModuleData(uint64_t candidate, uint64_t funcnametab_addr);
+  Status LoadRelativeRelocations();
   StatusOr<std::string> ReadVirtual(uint64_t vaddr, size_t length);
   StatusOr<uint64_t> ReadU64(uint64_t vaddr);
   StatusOr<std::string> ReadGoName(uint64_t vaddr);
@@ -69,6 +73,8 @@ class GoPclntab {
   uint64_t text_start_ = 0;
   uint64_t moduledata_addr_ = 0;
   std::vector<ElfReader::SymbolInfo> funcs_;
+  bool relocations_loaded_ = false;
+  absl::flat_hash_map<uint64_t, uint64_t> relative_relocations_;
 };
 
 }  // namespace obj_tools

@@ -65,6 +65,9 @@ constexpr uint64_t kMaxGoNameLength = 1 << 12;
 constexpr size_t kScanWindow = 1 << 20;
 
 constexpr std::string_view kUnreachableMethod = "runtime.unreachableMethod";
+constexpr size_t kRelaEntrySize = 24;
+constexpr uint32_t kX86_64RelativeReloc = 8;
+constexpr uint32_t kAArch64RelativeReloc = 1027;
 constexpr std::array<std::string_view, 2> kPclntabSections = {".gopclntab",
                                                               ".data.rel.ro.gopclntab"};
 constexpr std::string_view kEmbeddedPclntabSection = ".data.rel.ro";
@@ -243,11 +246,7 @@ StatusOr<uint64_t> GoPclntab::FindModuleData(uint64_t funcnametab_addr) {
                           elf_reader_->BinaryByteCode<char>(s->get_offset() + pos, length));
       for (size_t i = buf.find(want); i != std::string::npos; i = buf.find(want, i + 1)) {
         const uint64_t candidate = s->get_address() + pos + i;
-        if (candidate % sizeof(uint64_t) != 0) {
-          continue;
-        }
-        auto funcnametab = ReadU64(candidate + kModuleDataFuncnametabOffset);
-        if (funcnametab.ok() && funcnametab.ValueOrDie() == funcnametab_addr) {
+        if (IsModuleData(candidate, funcnametab_addr)) {
           return candidate;
         }
       }
@@ -257,8 +256,48 @@ StatusOr<uint64_t> GoPclntab::FindModuleData(uint64_t funcnametab_addr) {
       pos += length - (want.size() - 1);
     }
   }
+
+  PX_RETURN_IF_ERROR(LoadRelativeRelocations());
+  for (const auto& [offset, addend] : relative_relocations_) {
+    if (addend == pclntab_addr_ && IsModuleData(offset, funcnametab_addr)) {
+      return offset;
+    }
+  }
   return error::NotFound("runtime.firstmoduledata not found in binary=$0",
                          elf_reader_->binary_path());
+}
+
+bool GoPclntab::IsModuleData(uint64_t candidate, uint64_t funcnametab_addr) {
+  if (candidate % sizeof(uint64_t) != 0) {
+    return false;
+  }
+  auto funcnametab = ReadU64(candidate + kModuleDataFuncnametabOffset);
+  return funcnametab.ok() && funcnametab.ValueOrDie() == funcnametab_addr;
+}
+
+Status GoPclntab::LoadRelativeRelocations() {
+  if (relocations_loaded_) {
+    return Status::OK();
+  }
+  relocations_loaded_ = true;
+  for (ELFIO::section* s : elf_reader_->Sections()) {
+    if (s->get_type() != ELFIO::SHT_RELA || s->get_entry_size() != kRelaEntrySize) {
+      continue;
+    }
+    PX_ASSIGN_OR_RETURN(std::string relocs,
+                        elf_reader_->BinaryByteCode<char>(s->get_offset(), s->get_size()));
+    std::string_view entries(relocs);
+    for (size_t pos = 0; pos + kRelaEntrySize <= entries.size(); pos += kRelaEntrySize) {
+      const uint64_t offset = ::px::utils::LEndianBytesToInt<uint64_t>(entries.substr(pos));
+      const uint64_t info = ::px::utils::LEndianBytesToInt<uint64_t>(entries.substr(pos + 8));
+      const uint32_t type = static_cast<uint32_t>(info);
+      if (type == kX86_64RelativeReloc || type == kAArch64RelativeReloc) {
+        relative_relocations_[offset] =
+            ::px::utils::LEndianBytesToInt<uint64_t>(entries.substr(pos + 16));
+      }
+    }
+  }
+  return Status::OK();
 }
 
 StatusOr<std::string> GoPclntab::ReadVirtual(uint64_t vaddr, size_t length) {
@@ -268,7 +307,13 @@ StatusOr<std::string> GoPclntab::ReadVirtual(uint64_t vaddr, size_t length) {
 
 StatusOr<uint64_t> GoPclntab::ReadU64(uint64_t vaddr) {
   PX_ASSIGN_OR_RETURN(std::string buf, ReadVirtual(vaddr, sizeof(uint64_t)));
-  return ::px::utils::LEndianBytesToInt<uint64_t>(std::string_view(buf));
+  const uint64_t value = ::px::utils::LEndianBytesToInt<uint64_t>(std::string_view(buf));
+  if (value != 0) {
+    return value;
+  }
+  PX_RETURN_IF_ERROR(LoadRelativeRelocations());
+  auto reloc = relative_relocations_.find(vaddr);
+  return reloc == relative_relocations_.end() ? value : reloc->second;
 }
 
 StatusOr<std::string> GoPclntab::ReadGoName(uint64_t vaddr) {

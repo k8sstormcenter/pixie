@@ -50,6 +50,7 @@ genrule(
     toolchains = ["@bazel_tools//tools/cpp:current_cc_toolchain"],
 )
 
+# keep
 go_binary(
     name = "cgo_tls_pie",
     embed = [":cgo_tls_lib"],

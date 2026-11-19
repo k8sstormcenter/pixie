@@ -258,7 +258,7 @@ TEST(GoPclntabPIETest, FindsPclntabInsideDataRelRo) {
   for (const auto& f : pclntab->funcs()) {
     funcs.emplace(f.name, f);
   }
-  for (std::string_view name : {"main.main", "runtime.main", "fmt.Println"}) {
+  for (std::string_view name : {"main.main", "runtime.main", "fmt.Fprintln"}) {
     SCOPED_TRACE(name);
     auto sym = symtab.find(name);
     auto fn = funcs.find(name);

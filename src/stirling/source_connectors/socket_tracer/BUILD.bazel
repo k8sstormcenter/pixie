@@ -72,6 +72,33 @@ pl_cc_test(
 )
 
 pl_cc_test(
+    name = "go_binary_cache_test",
+    srcs = ["go_binary_cache_test.cc"],
+    deps = [":cc_library"],
+)
+
+pl_cc_bpf_test(
+    name = "go_binary_cache_bpf_test",
+    timeout = "moderate",
+    srcs = ["go_binary_cache_bpf_test.cc"],
+    data = [
+        "//src/stirling:offsetgen_offsets",
+        "//src/stirling/testing/demo_apps/go_https/server:server_certs",
+    ],
+    tags = [
+        "cpu:16",
+        "no_asan",
+        "requires_bpf",
+    ],
+    deps = [
+        ":cc_library",
+        "//src/common/exec:cc_library",
+        "//src/stirling/source_connectors/socket_tracer/testing:cc_library",
+        "//src/stirling/testing:go_https_server_fixture",
+    ],
+)
+
+pl_cc_test(
     name = "uprobe_symaddrs_test",
     srcs = ["uprobe_symaddrs_test.cc"],
     data = [

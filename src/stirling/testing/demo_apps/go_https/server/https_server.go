@@ -92,11 +92,13 @@ func main() {
 	certPath := flag.String("cert", "", "Path to the .crt file.")
 	keyPath := flag.String("key", "", "Path to the .key file.")
 	wrapConn := flag.Bool("wrap_conn", false, "Wrap accepted connections in a type that embeds net.Conn.")
+	httpsPortFlag := flag.Int("https_port", httpsPort, "Port of the HTTPS listener.")
+	httpPortFlag := flag.Int("http_port", httpPort, "Port of the HTTP listener.")
 	flag.Parse()
 
 	http.HandleFunc("/", basicHandler)
 	http.HandleFunc("/large", largeHandler)
 
-	go listenAndServeTLS(httpsPort, *certPath, *keyPath, *wrapConn)
-	listenAndServe(httpPort)
+	go listenAndServeTLS(*httpsPortFlag, *certPath, *keyPath, *wrapConn)
+	listenAndServe(*httpPortFlag)
 }

@@ -124,14 +124,18 @@ TEST(ElfReaderTest, BinaryByteCodeReadsTheOpenedFile) {
   std::filesystem::copy_file(kTestExeFixture.Path(), binary);
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader, ElfReader::Create(binary));
   ASSERT_OK_AND_ASSIGN(std::string before, elf_reader->BinaryByteCode<char>(0, 4));
-  ASSERT_EQ(before, "\x7f" "ELF");
+  ASSERT_EQ(before,
+            "\x7f"
+            "ELF");
 
   const std::filesystem::path replacement = temp_dir.path() / "replacement";
   ASSERT_OK(WriteFileFromString(replacement.string(), std::string(4096, 'x')));
   std::filesystem::rename(replacement, binary);
 
   ASSERT_OK_AND_ASSIGN(std::string after, elf_reader->BinaryByteCode<char>(0, 4));
-  EXPECT_EQ(after, "\x7f" "ELF");
+  EXPECT_EQ(after,
+            "\x7f"
+            "ELF");
   ASSERT_OK_AND_ASSIGN(std::string later, elf_reader->BinaryByteCode<char>(1, 3));
   EXPECT_EQ(later, "ELF");
 }

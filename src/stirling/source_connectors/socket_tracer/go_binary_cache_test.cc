@@ -36,8 +36,8 @@ GoUProbeSymAddrs SymAddrsWithFD(int32_t fd_offset) {
 }
 
 TEST(GoBinaryCacheTest, BinaryWithoutTCPConnIsNotAFailure) {
-  const std::string binary = ::px::testing::BazelRunfilePath(
-      "src/stirling/obj_tools/testdata/go/cgo_tls/cgo_tls_binary");
+  const std::string binary =
+      ::px::testing::BazelRunfilePath("src/stirling/obj_tools/testdata/go/cgo_tls/cgo_tls_binary");
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<obj_tools::ElfReader> elf_reader,
                        obj_tools::ElfReader::Create(binary));
 

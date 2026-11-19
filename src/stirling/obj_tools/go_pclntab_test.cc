@@ -234,6 +234,40 @@ TEST_P(GoPclntabTest, StrippedMatchesUnstripped) {
 INSTANTIATE_TEST_SUITE_P(GoVersions, GoPclntabTest,
                          ::testing::ValuesIn(GoHTTPSServerFixture::kVersions));
 
+TEST(GoPclntabPIETest, FindsPclntabInsideDataRelRo) {
+  ASSERT_OK_AND_ASSIGN(auto elf, ElfReader::Create(px::testing::BazelRunfilePath(
+                                     "src/stirling/obj_tools/testdata/go/cgo_tls/cgo_tls_pie_binary")));
+  ASSERT_OK_AND_ASSIGN(
+      auto stripped_elf,
+      ElfReader::Create(px::testing::BazelRunfilePath(
+          "src/stirling/obj_tools/testdata/go/cgo_tls/cgo_tls_pie_stripped_binary")));
+  EXPECT_NOT_OK(stripped_elf->SectionWithName(".gopclntab"));
+  EXPECT_NOT_OK(stripped_elf->SectionWithName(".data.rel.ro.gopclntab"));
+
+  ASSERT_OK_AND_ASSIGN(auto pclntab, GoPclntab::Create(stripped_elf.get()));
+
+  auto runtime_text = elf->SymbolAddress("runtime.text");
+  ASSERT_TRUE(runtime_text.has_value());
+  EXPECT_EQ(pclntab->text_start(), static_cast<uint64_t>(runtime_text.value()));
+  auto firstmoduledata = elf->SymbolAddress("runtime.firstmoduledata");
+  ASSERT_TRUE(firstmoduledata.has_value());
+  EXPECT_EQ(pclntab->moduledata_addr(), static_cast<uint64_t>(firstmoduledata.value()));
+
+  auto symtab = SymtabByName(elf.get(), "", ELFIO::STT_FUNC);
+  absl::flat_hash_map<std::string, ElfReader::SymbolInfo> funcs;
+  for (const auto& f : pclntab->funcs()) {
+    funcs.emplace(f.name, f);
+  }
+  for (std::string_view name : {"main.main", "runtime.main", "fmt.Println"}) {
+    SCOPED_TRACE(name);
+    auto sym = symtab.find(name);
+    auto fn = funcs.find(name);
+    ASSERT_NE(sym, symtab.end());
+    ASSERT_NE(fn, funcs.end());
+    EXPECT_EQ(fn->second.address, sym->second.address);
+  }
+}
+
 TEST(GoPclntabNonGoTest, ReturnsErrorWithoutPclntab) {
   const std::string path =
       px::testing::BazelRunfilePath("src/stirling/obj_tools/testdata/cc/prebuilt_test_exe");

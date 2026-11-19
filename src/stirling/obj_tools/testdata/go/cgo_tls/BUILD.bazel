@@ -14,7 +14,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
 load("//bazel:pl_build_system.bzl", "pl_go_binary")
 
 package(default_visibility = ["//src/stirling:__subpackages__"])
@@ -47,5 +47,27 @@ genrule(
     srcs = [":cgo_tls"],
     outs = ["cgo_tls_stripped_binary"],
     cmd = "$(OBJCOPY) --strip-all $(location :cgo_tls) $(location cgo_tls_stripped_binary)",
+    toolchains = ["@bazel_tools//tools/cpp:current_cc_toolchain"],
+)
+
+go_binary(
+    name = "cgo_tls_pie",
+    embed = [":cgo_tls_lib"],
+    gc_linkopts = ["-linkmode=external"],
+    linkmode = "pie",
+)
+
+genrule(
+    name = "cgo_tls_pie_binary_target",
+    srcs = [":cgo_tls_pie"],
+    outs = ["cgo_tls_pie_binary"],
+    cmd = "cp $(location :cgo_tls_pie) $(location cgo_tls_pie_binary)",
+)
+
+genrule(
+    name = "cgo_tls_pie_stripped_binary_target",
+    srcs = [":cgo_tls_pie"],
+    outs = ["cgo_tls_pie_stripped_binary"],
+    cmd = "$(OBJCOPY) --strip-all $(location :cgo_tls_pie) $(location cgo_tls_pie_stripped_binary)",
     toolchains = ["@bazel_tools//tools/cpp:current_cc_toolchain"],
 )

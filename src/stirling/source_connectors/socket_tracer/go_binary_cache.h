@@ -21,12 +21,14 @@
 #include <filesystem>
 #include <list>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 
 #include <absl/container/flat_hash_map.h>
 
 #include "src/common/base/base.h"
+#include "src/stirling/obj_tools/elf_reader.h"
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/symaddrs.h"
 
 namespace px {
@@ -75,6 +77,9 @@ class GoBinaryCache {
   std::list<Entry> lru_;
   absl::flat_hash_map<FileVersion, std::list<Entry>::iterator> index_;
 };
+
+GoUProbeSymAddrs AnalyzeGoUProbeBinary(const std::string& binary, obj_tools::ElfReader* elf_reader,
+                                       bool tls, bool http2);
 
 }  // namespace stirling
 }  // namespace px

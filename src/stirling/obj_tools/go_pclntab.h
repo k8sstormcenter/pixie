@@ -25,7 +25,6 @@
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
-#include <absl/container/node_hash_map.h>
 
 #include "src/common/base/base.h"
 #include "src/stirling/obj_tools/elf_reader.h"
@@ -79,7 +78,7 @@ class GoPclntab {
   bool relocations_loaded_ = false;
   absl::flat_hash_map<uint64_t, uint64_t> relative_relocations_;
   std::vector<ELFIO::section*> data_sections_;
-  absl::node_hash_map<uint64_t, std::string> blocks_;
+  absl::flat_hash_map<uint64_t, std::string> blocks_;
 };
 
 }  // namespace obj_tools

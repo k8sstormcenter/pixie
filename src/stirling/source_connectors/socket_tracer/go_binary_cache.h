@@ -29,6 +29,7 @@
 
 #include "src/common/base/base.h"
 #include "src/stirling/obj_tools/elf_reader.h"
+#include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/common.h"
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/symaddrs.h"
 
 namespace px {

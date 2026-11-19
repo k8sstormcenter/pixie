@@ -46,7 +46,9 @@ using ::px::stirling::testing::ToRecordVector;
 
 using ::testing::AllOf;
 using ::testing::Contains;
+using ::testing::Each;
 using ::testing::Field;
+using ::testing::IsTrue;
 using ::testing::UnorderedElementsAre;
 
 //-----------------------------------------------------------------------------
@@ -251,6 +253,8 @@ TYPED_TEST(GoTLSTraceTest, BasicHTTP2) {
     expected_record.resp.body = R"({"status":"ok"})";
 
     EXPECT_THAT(records, Contains(EqHTTPRecord(expected_record)));
+    EXPECT_THAT(testing::GetEncrypted(record_batch, kHTTPEncryptedIdx, target_record_indices),
+                Each(IsTrue()));
   }
 }
 

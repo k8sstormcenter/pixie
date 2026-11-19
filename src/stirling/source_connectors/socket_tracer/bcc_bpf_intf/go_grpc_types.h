@@ -67,6 +67,8 @@ struct go_grpc_event_attr_t {
   struct conn_id_t conn_id;
   uint32_t stream_id;
   bool end_stream;
+  bool ssl;
+  enum ssl_source_t ssl_source;
 };
 
 struct go_grpc_http2_header_event_t {

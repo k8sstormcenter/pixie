@@ -481,6 +481,8 @@ class ConnTracker : NotCopyMoveable {
    */
   void IterationPostTick();
 
+  bool MaybeUpgradeToWebSocket();
+
   /**
    * Sets the duration after which a connection is deemed to be inactive.
    * After becoming inactive, the connection may either (1) have its buffers purged,
@@ -703,6 +705,7 @@ class ConnTracker : NotCopyMoveable {
   bool is_tracked_upid_ = false;
 
   traffic_protocol_t protocol_ = kProtocolUnknown;
+  traffic_protocol_t upgraded_from_ = kProtocolUnknown;
   endpoint_role_t role_ = kRoleUnknown;
   bool ssl_ = false;
   ssl_source_t ssl_source_ = kSSLNone;

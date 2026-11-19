@@ -19,6 +19,7 @@
 #pragma once
 
 #include <chrono>
+#include <map>
 #include <string>
 
 #include "src/common/base/utils.h"
@@ -45,6 +46,7 @@ inline constexpr char kContentLength[] = "Content-Length";
 inline constexpr char kContentType[] = "Content-Type";
 inline constexpr char kTransferEncoding[] = "Transfer-Encoding";
 inline constexpr char kUpgrade[] = "Upgrade";
+inline constexpr char kWebSocketUpgrade[] = "websocket";
 
 struct Message : public FrameBase {
   message_type_t type = message_type_t::kUnknown;
@@ -102,6 +104,8 @@ struct Record {
 
 struct State {
   bool conn_closed = false;
+  bool websocket_upgrade_requested = false;
+  bool websocket_upgrade_accepted = false;
 };
 
 struct StateWrapper {

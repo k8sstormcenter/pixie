@@ -122,6 +122,11 @@ DEFINE_int32(
     gflags::Int32FromEnv("PX_STIRLING_ENABLE_TLS_TRACING", px::stirling::TraceMode::Off),
     "If true, stirling will trace and process TLS protocol (not the TLS payload) messages. Note: "
     "this disables tracing the plaintext within encrypted connections until gh#2095 is addressed.");
+DEFINE_int32(stirling_enable_websocket_tracing,
+             gflags::Int32FromEnv("PX_STIRLING_ENABLE_WEBSOCKET_TRACING",
+                                  px::stirling::TraceMode::Off),
+             "If true, stirling will trace and process WebSocket messages on upgraded HTTP "
+             "connections.");
 DEFINE_bool(stirling_disable_golang_tls_tracing,
             gflags::BoolFromEnv("PX_STIRLING_DISABLE_GOLANG_TLS_TRACING", false),
             "If true, stirling will not trace TLS traffic for Go applications. This implies "
@@ -308,6 +313,10 @@ void SocketTraceConnector::InitProtocolTransferSpecs() {
                                   kTLSTableNum,
                                   {kRoleClient, kRoleServer},
                                   TRANSFER_STREAM_PROTOCOL(tls)}},
+      {kProtocolWebSocket, TransferSpec{FLAGS_stirling_enable_websocket_tracing,
+                                        kWebSocketTableNum,
+                                        {kRoleClient, kRoleServer},
+                                        TRANSFER_STREAM_PROTOCOL(websocket)}},
       {kProtocolUnknown, TransferSpec{/* trace_mode */ px::stirling::TraceMode::Off,
                                       /* table_num */ static_cast<uint32_t>(-1),
                                       /* trace_roles */ {},
@@ -885,6 +894,9 @@ void SocketTraceConnector::TransferDataImpl(ConnectorContext* ctx) {
     if (transfer_spec.transfer_fn != nullptr) {
       current_conn_tracker_buffer_size +=
           transfer_spec.transfer_fn(*this, ctx, conn_tracker, data_table);
+      if (protocol_transfer_specs_[kProtocolWebSocket].enabled) {
+        conn_tracker->MaybeUpgradeToWebSocket();
+      }
     } else {
       // If there's no transfer function, then the tracker should not be holding any data.
       // http::ProtocolTraits is used as a placeholder; the frames deque is expected to be
@@ -1788,6 +1800,36 @@ void SocketTraceConnector::AppendMessage(ConnectorContext* ctx, const ConnTracke
   r.Append<r.ColIndex("resp_body")>(resp_message.body, kMaxTLSBodyBytes);
   r.Append<r.ColIndex("latency")>(
       CalculateLatency(req_message.timestamp_ns, resp_message.timestamp_ns));
+#ifndef NDEBUG
+  r.Append<r.ColIndex("px_info_")>(PXInfoString(conn_tracker, record));
+#endif
+}
+
+template <>
+void SocketTraceConnector::AppendMessage(ConnectorContext* ctx, const ConnTracker& conn_tracker,
+                                         protocols::websocket::Record record,
+                                         DataTable* data_table) {
+  protocols::websocket::Message& msg = record.msg;
+
+  md::UPID upid(ctx->GetASID(), conn_tracker.conn_id().upid.pid,
+                conn_tracker.conn_id().upid.start_time_ticks);
+
+  const size_t payload_size = msg.payload.size();
+  DataTable::RecordBuilder<&kWebSocketTable> r(data_table, msg.timestamp_ns);
+  r.Append<r.ColIndex("time_")>(msg.timestamp_ns);
+  r.Append<r.ColIndex("upid")>(upid.value());
+  r.Append<r.ColIndex("remote_addr")>(conn_tracker.remote_endpoint().AddrStr());
+  r.Append<r.ColIndex("remote_port")>(conn_tracker.remote_endpoint().port());
+  r.Append<r.ColIndex("local_addr")>(conn_tracker.local_endpoint().AddrStr());
+  r.Append<r.ColIndex("local_port")>(conn_tracker.local_endpoint().port());
+  r.Append<r.ColIndex("trace_role")>(conn_tracker.role());
+  r.Append<r.ColIndex("encrypted")>(conn_tracker.ssl());
+  r.Append<r.ColIndex("direction")>(static_cast<uint64_t>(msg.type));
+  r.Append<r.ColIndex("opcode")>(static_cast<uint64_t>(msg.opcode));
+  r.Append<r.ColIndex("compressed")>(msg.compressed);
+  r.Append<r.ColIndex("fragments")>(msg.fragments);
+  r.Append<r.ColIndex("payload")>(std::move(msg.payload), FLAGS_max_body_bytes);
+  r.Append<r.ColIndex("payload_size")>(payload_size);
 #ifndef NDEBUG
   r.Append<r.ColIndex("px_info_")>(PXInfoString(conn_tracker, record));
 #endif

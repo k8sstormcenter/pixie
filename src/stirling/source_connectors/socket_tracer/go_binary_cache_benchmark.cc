@@ -50,7 +50,7 @@ GoUProbeSymAddrs Analyze(const std::string& binary) {
   return AnalyzeGoUProbeBinary(binary, elf_reader.get(), /*tls*/ true, /*http2*/ true);
 }
 
-void BM_AnalyzePerProcess(benchmark::State& state, std::string_view rel_path) {
+static void BM_AnalyzePerProcess(benchmark::State& state, std::string_view rel_path) {
   LoadOffsets();
   const std::string binary = ::px::testing::BazelRunfilePath(rel_path).string();
   for (auto _ : state) {
@@ -63,7 +63,7 @@ void BM_AnalyzePerProcess(benchmark::State& state, std::string_view rel_path) {
   state.SetItemsProcessed(state.iterations() * state.range(0));
 }
 
-void BM_AnalyzePerFileVersion(benchmark::State& state, std::string_view rel_path) {
+static void BM_AnalyzePerFileVersion(benchmark::State& state, std::string_view rel_path) {
   LoadOffsets();
   const std::string binary = ::px::testing::BazelRunfilePath(rel_path).string();
   int64_t analyses = 0;

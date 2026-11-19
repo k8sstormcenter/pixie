@@ -14,8 +14,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
-load("//bazel:pl_build_system.bzl", "pl_go_binary")
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//bazel:pl_build_system.bzl", "pl_go_binary", "pl_go_pie_binary")
 
 package(default_visibility = ["//src/stirling:__subpackages__"])
 
@@ -50,12 +50,10 @@ genrule(
     toolchains = ["@bazel_tools//tools/cpp:current_cc_toolchain"],
 )
 
-# keep
-go_binary(
+pl_go_pie_binary(
     name = "cgo_tls_pie",
     embed = [":cgo_tls_lib"],
     gc_linkopts = ["-linkmode=external"],
-    linkmode = "pie",
 )
 
 genrule(

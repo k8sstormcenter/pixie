@@ -18,6 +18,11 @@
 
 #include "src/stirling/obj_tools/elf_reader.h"
 
+#include <fcntl.h>
+#include <unistd.h>
+
+#include <cerrno>
+
 #include <llvm-c/Disassembler.h>
 #include <llvm/Demangle/Demangle.h>
 #include <llvm/MC/MCDisassembler/MCDisassembler.h>
@@ -51,6 +56,28 @@ struct LowercaseHex {
 };
 }  // namespace
 
+ElfReader::~ElfReader() {
+  if (binary_fd_ >= 0) {
+    close(binary_fd_);
+  }
+}
+
+Status ElfReader::ReadBinary(size_t offset, char* buf, size_t length) {
+  size_t done = 0;
+  while (done < length) {
+    const ssize_t n = pread(binary_fd_, buf + done, length - done, offset + done);
+    if (n < 0 && errno == EINTR) {
+      continue;
+    }
+    if (n <= 0) {
+      return error::Internal("Failed to read size=$0 bytes from offset=$1 in binary=$2", length,
+                             offset, binary_path_);
+    }
+    done += n;
+  }
+  return Status::OK();
+}
+
 StatusOr<std::unique_ptr<ElfReader>> ElfReader::CreateImpl(
     const std::string& binary_path, const std::filesystem::path& debug_file_dir) {
   VLOG(1) << absl::Substitute("Creating ElfReader, [binary=$0] [debug_file_dir=$1]", binary_path,
@@ -61,6 +88,10 @@ StatusOr<std::unique_ptr<ElfReader>> ElfReader::CreateImpl(
 
   if (!elf_reader->elf_reader_.load_header_and_sections(binary_path)) {
     return error::Internal("Can't find or process ELF file $0", binary_path);
+  }
+  elf_reader->binary_fd_ = open(binary_path.c_str(), O_RDONLY | O_CLOEXEC);
+  if (elf_reader->binary_fd_ < 0) {
+    return error::Internal("Can't open ELF file $0", binary_path);
   }
 
   // Check for external debug symbols.

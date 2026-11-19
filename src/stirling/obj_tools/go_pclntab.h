@@ -57,6 +57,8 @@ class GoPclntab {
   StatusOr<uint64_t> FindModuleData(uint64_t funcnametab_addr);
   bool IsModuleData(uint64_t candidate, uint64_t funcnametab_addr);
   Status LoadRelativeRelocations();
+  ELFIO::section* DataSectionAt(uint64_t vaddr) const;
+  StatusOr<std::string_view> SectionBlock(ELFIO::section* section, uint64_t index);
   StatusOr<std::string> ReadVirtual(uint64_t vaddr, size_t length);
   StatusOr<uint64_t> ReadU64(uint64_t vaddr);
   StatusOr<std::string> ReadGoName(uint64_t vaddr);
@@ -75,6 +77,8 @@ class GoPclntab {
   std::vector<ElfReader::SymbolInfo> funcs_;
   bool relocations_loaded_ = false;
   absl::flat_hash_map<uint64_t, uint64_t> relative_relocations_;
+  std::vector<ELFIO::section*> data_sections_;
+  absl::flat_hash_map<uint64_t, std::string> blocks_;
 };
 
 }  // namespace obj_tools

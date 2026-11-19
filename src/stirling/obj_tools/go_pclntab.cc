@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <iterator>
 #include <utility>
 
 #include <absl/strings/match.h>
@@ -63,6 +64,7 @@ constexpr uint64_t kMaxITabTableSize = 1 << 28;
 constexpr uint64_t kMaxInterfaceMethods = 1 << 12;
 constexpr uint64_t kMaxGoNameLength = 1 << 12;
 constexpr size_t kScanWindow = 1 << 20;
+constexpr uint64_t kReadBlockSize = 1 << 16;
 
 constexpr std::string_view kUnreachableMethod = "runtime.unreachableMethod";
 constexpr size_t kRelaEntrySize = 24;
@@ -156,6 +158,16 @@ StatusOr<std::string> GoPclntab::LocatePclntab() {
 }
 
 Status GoPclntab::Init() {
+  for (ELFIO::section* s : elf_reader_->Sections()) {
+    if ((s->get_flags() & ELFIO::SHF_ALLOC) != 0 && s->get_type() != ELFIO::SHT_NOBITS &&
+        s->get_size() != 0) {
+      data_sections_.push_back(s);
+    }
+  }
+  std::sort(data_sections_.begin(), data_sections_.end(), [](ELFIO::section* a, ELFIO::section* b) {
+    return a->get_address() < b->get_address();
+  });
+
   PX_ASSIGN_OR_RETURN(std::string pclntab, LocatePclntab());
   if (pclntab_size_ < kPclntabHeaderSize) {
     return error::Internal("Malformed pclntab in binary=$0", elf_reader_->binary_path());
@@ -300,9 +312,42 @@ Status GoPclntab::LoadRelativeRelocations() {
   return Status::OK();
 }
 
+ELFIO::section* GoPclntab::DataSectionAt(uint64_t vaddr) const {
+  auto it =
+      std::upper_bound(data_sections_.begin(), data_sections_.end(), vaddr,
+                       [](uint64_t addr, ELFIO::section* s) { return addr < s->get_address(); });
+  if (it == data_sections_.begin()) {
+    return nullptr;
+  }
+  ELFIO::section* s = *std::prev(it);
+  return vaddr - s->get_address() < s->get_size() ? s : nullptr;
+}
+
+StatusOr<std::string_view> GoPclntab::SectionBlock(ELFIO::section* section, uint64_t index) {
+  const uint64_t offset = section->get_offset() + index * kReadBlockSize;
+  auto it = blocks_.find(offset);
+  if (it == blocks_.end()) {
+    const uint64_t length = std::min(kReadBlockSize, section->get_size() - index * kReadBlockSize);
+    PX_ASSIGN_OR_RETURN(std::string block, elf_reader_->BinaryByteCode<char>(offset, length));
+    it = blocks_.emplace(offset, std::move(block)).first;
+  }
+  return std::string_view(it->second);
+}
+
 StatusOr<std::string> GoPclntab::ReadVirtual(uint64_t vaddr, size_t length) {
-  PX_ASSIGN_OR_RETURN(uint64_t file_offset, elf_reader_->VirtualAddrToBinaryAddr(vaddr));
-  return elf_reader_->BinaryByteCode<char>(file_offset, length);
+  ELFIO::section* s = DataSectionAt(vaddr);
+  if (s == nullptr || length > s->get_address() + s->get_size() - vaddr) {
+    PX_ASSIGN_OR_RETURN(uint64_t file_offset, elf_reader_->VirtualAddrToBinaryAddr(vaddr));
+    return elf_reader_->BinaryByteCode<char>(file_offset, length);
+  }
+  std::string out;
+  out.reserve(length);
+  while (out.size() < length) {
+    const uint64_t pos = vaddr - s->get_address() + out.size();
+    PX_ASSIGN_OR_RETURN(std::string_view block, SectionBlock(s, pos / kReadBlockSize));
+    out.append(block.substr(pos % kReadBlockSize, length - out.size()));
+  }
+  return out;
 }
 
 StatusOr<uint64_t> GoPclntab::ReadU64(uint64_t vaddr) {

@@ -218,6 +218,8 @@ class ElfReader {
     return byte_code;
   }
 
+  uint64_t binary_reads() const { return binary_reads_; }
+
   ~ElfReader();
 
   ElfReader(const ElfReader&) = delete;
@@ -257,6 +259,8 @@ class ElfReader {
   std::string binary_path_;
 
   int binary_fd_ = -1;
+
+  uint64_t binary_reads_ = 0;
 
   std::filesystem::path debug_symbols_path_;
 

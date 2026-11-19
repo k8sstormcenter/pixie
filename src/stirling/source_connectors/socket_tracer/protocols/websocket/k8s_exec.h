@@ -29,6 +29,8 @@ namespace stirling {
 namespace protocols {
 namespace websocket {
 
+constexpr size_t kK8sChannelPayloadLimitBytes = 64 * 1024;
+
 bool IsK8sChannelProtocol(std::string_view subprotocol);
 
 std::string K8sExecCommand(std::string_view path);
@@ -41,6 +43,8 @@ std::string Printable(std::string_view data);
 
 void DecodeK8sExec(std::string_view path, std::vector<Message> messages, ExecState* state,
                    std::vector<Record>* records);
+
+void FinishK8sExec(ExecState* state, std::vector<Record>* records);
 
 }  // namespace websocket
 }  // namespace protocols

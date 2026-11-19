@@ -63,6 +63,7 @@ ElfReader::~ElfReader() {
 }
 
 Status ElfReader::ReadBinary(size_t offset, char* buf, size_t length) {
+  ++binary_reads_;
   size_t done = 0;
   while (done < length) {
     const ssize_t n = pread(binary_fd_, buf + done, length - done, offset + done);

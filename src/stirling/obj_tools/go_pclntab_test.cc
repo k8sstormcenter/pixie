@@ -231,6 +231,15 @@ TEST_P(GoPclntabTest, StrippedMatchesUnstripped) {
   }
 }
 
+TEST_P(GoPclntabTest, ITabsReadTheBinaryInBlocks) {
+  ASSERT_OK_AND_ASSIGN(auto pclntab, GoPclntab::Create(stripped_elf_.get()));
+  stripped_elf_->SetFallbackSymbols(pclntab->funcs());
+  const uint64_t reads_before = stripped_elf_->binary_reads();
+  ASSERT_OK_AND_ASSIGN(auto itabs, pclntab->ITabs());
+  ASSERT_GT(itabs.size(), 50);
+  EXPECT_LT(stripped_elf_->binary_reads() - reads_before, itabs.size());
+}
+
 INSTANTIATE_TEST_SUITE_P(GoVersions, GoPclntabTest,
                          ::testing::ValuesIn(GoHTTPSServerFixture::kVersions));
 

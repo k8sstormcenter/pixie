@@ -18,6 +18,8 @@
 
 #include "src/stirling/obj_tools/elf_reader.h"
 
+#include <filesystem>
+
 #include "src/common/exec/exec.h"
 #include "src/common/testing/test_environment.h"
 #include "src/common/testing/testing.h"
@@ -114,6 +116,36 @@ StatusOr<int64_t> NmSymbolNameToAddr(const std::string& nm_output_path,
   }
 
   return symbol_addr;
+}
+
+TEST(ElfReaderTest, BinaryByteCodeReadsTheOpenedFile) {
+  px::testing::TempDir temp_dir;
+  const std::filesystem::path binary = temp_dir.path() / "test_exe";
+  std::filesystem::copy_file(kTestExeFixture.Path(), binary);
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader, ElfReader::Create(binary));
+  ASSERT_OK_AND_ASSIGN(std::string before, elf_reader->BinaryByteCode<char>(0, 4));
+  ASSERT_EQ(before,
+            "\x7f"
+            "ELF");
+
+  const std::filesystem::path replacement = temp_dir.path() / "replacement";
+  ASSERT_OK(WriteFileFromString(replacement.string(), std::string(4096, 'x')));
+  std::filesystem::rename(replacement, binary);
+
+  ASSERT_OK_AND_ASSIGN(std::string after, elf_reader->BinaryByteCode<char>(0, 4));
+  EXPECT_EQ(after,
+            "\x7f"
+            "ELF");
+  ASSERT_OK_AND_ASSIGN(std::string later, elf_reader->BinaryByteCode<char>(1, 3));
+  EXPECT_EQ(later, "ELF");
+}
+
+TEST(ElfReaderTest, BinaryByteCodePastEndIsAnError) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
+                       ElfReader::Create(kTestExeFixture.Path()));
+  const uintmax_t size = std::filesystem::file_size(kTestExeFixture.Path());
+  EXPECT_NOT_OK(elf_reader->BinaryByteCode<char>(size - 2, 4));
+  EXPECT_OK(elf_reader->BinaryByteCode<char>(size - 4, 4));
 }
 
 TEST(ElfReaderTest, NonExistentPath) {

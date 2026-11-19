@@ -89,7 +89,9 @@ GoUProbeSymAddrs AnalyzeGoUProbeBinary(const std::string& binary, obj_tools::Elf
   StatusOr<struct go_common_symaddrs_t> common_or = GoCommonSymAddrs(elf_reader, &offset_locator);
   if (!common_or.ok()) {
     result.status = common_or.status();
-    result.failed_stage = "UpdateGoCommonSymAddrs";
+    if (!error::IsNotFound(result.status)) {
+      result.failed_stage = "UpdateGoCommonSymAddrs";
+    }
     return result;
   }
   result.common = common_or.ConsumeValueOrDie();

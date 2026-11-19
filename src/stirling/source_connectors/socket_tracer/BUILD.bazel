@@ -90,6 +90,7 @@ pl_cc_binary(
 pl_cc_test(
     name = "go_binary_cache_test",
     srcs = ["go_binary_cache_test.cc"],
+    data = ["//src/stirling/obj_tools/testdata/go/cgo_tls:cgo_tls_binary"],
     deps = [":cc_library"],
 )
 

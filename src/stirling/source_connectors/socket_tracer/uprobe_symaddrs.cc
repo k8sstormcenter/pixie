@@ -497,7 +497,7 @@ Status PopulateCommonTypeAddrs(ElfReader* elf_reader, std::string_view vendor_pr
   // It should be the last layer of nested interface, and contains the FD.
   // The other conns can be invalid, and will simply be ignored.
   if (symaddrs->net_TCPConn == -1) {
-    return error::Internal("TCPConn not found");
+    return error::NotFound("TCPConn not found");
   }
 
   return Status::OK();

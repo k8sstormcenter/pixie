@@ -21,8 +21,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include <cerrno>
-
 #include <llvm-c/Disassembler.h>
 #include <llvm/Demangle/Demangle.h>
 #include <llvm/MC/MCDisassembler/MCDisassembler.h>
@@ -30,6 +28,7 @@
 
 #include <absl/container/flat_hash_set.h>
 #include <algorithm>
+#include <cerrno>
 #include <set>
 #include <utility>
 

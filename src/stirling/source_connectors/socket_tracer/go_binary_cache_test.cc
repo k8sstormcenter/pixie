@@ -24,6 +24,7 @@
 
 #include "src/common/testing/temp_dir.h"
 #include "src/common/testing/testing.h"
+#include "src/stirling/obj_tools/elf_reader.h"
 
 namespace px {
 namespace stirling {
@@ -32,6 +33,20 @@ GoUProbeSymAddrs SymAddrsWithFD(int32_t fd_offset) {
   GoUProbeSymAddrs symaddrs;
   symaddrs.common.FD_Sysfd_offset = fd_offset;
   return symaddrs;
+}
+
+TEST(GoBinaryCacheTest, BinaryWithoutTCPConnIsNotAFailure) {
+  const std::string binary = ::px::testing::BazelRunfilePath(
+      "src/stirling/obj_tools/testdata/go/cgo_tls/cgo_tls_binary");
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<obj_tools::ElfReader> elf_reader,
+                       obj_tools::ElfReader::Create(binary));
+
+  GoUProbeSymAddrs symaddrs = AnalyzeGoUProbeBinary(binary, elf_reader.get(), true, true);
+
+  EXPECT_EQ(symaddrs.status.code(), px::statuspb::NOT_FOUND);
+  EXPECT_TRUE(symaddrs.failed_stage.empty());
+  EXPECT_FALSE(symaddrs.tls.has_value());
+  EXPECT_FALSE(symaddrs.http2.has_value());
 }
 
 TEST(GoBinaryCacheTest, FileVersionIdentifiesTheFile) {

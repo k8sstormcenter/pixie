@@ -164,8 +164,9 @@ Status GoPclntab::Init() {
       data_sections_.push_back(s);
     }
   }
-  std::sort(data_sections_.begin(), data_sections_.end(),
-            [](ELFIO::section* a, ELFIO::section* b) { return a->get_address() < b->get_address(); });
+  std::sort(data_sections_.begin(), data_sections_.end(), [](ELFIO::section* a, ELFIO::section* b) {
+    return a->get_address() < b->get_address();
+  });
 
   PX_ASSIGN_OR_RETURN(std::string pclntab, LocatePclntab());
   if (pclntab_size_ < kPclntabHeaderSize) {
@@ -312,9 +313,9 @@ Status GoPclntab::LoadRelativeRelocations() {
 }
 
 ELFIO::section* GoPclntab::DataSectionAt(uint64_t vaddr) const {
-  auto it = std::upper_bound(
-      data_sections_.begin(), data_sections_.end(), vaddr,
-      [](uint64_t addr, ELFIO::section* s) { return addr < s->get_address(); });
+  auto it =
+      std::upper_bound(data_sections_.begin(), data_sections_.end(), vaddr,
+                       [](uint64_t addr, ELFIO::section* s) { return addr < s->get_address(); });
   if (it == data_sections_.begin()) {
     return nullptr;
   }

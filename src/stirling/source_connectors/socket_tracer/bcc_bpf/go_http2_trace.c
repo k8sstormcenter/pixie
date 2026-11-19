@@ -201,6 +201,13 @@ static __inline void fill_header_field(struct go_grpc_http2_header_event_t* even
   copy_header_field(&event->value, &value);
 }
 
+static __inline void fill_conn_attr(struct go_grpc_event_attr_t* attr,
+                                    const struct conn_info_t* conn_info) {
+  attr->conn_id = conn_info->conn_id;
+  attr->ssl = conn_info->ssl;
+  attr->ssl_source = conn_info->ssl_source;
+}
+
 static __inline void submit_headers(struct pt_regs* ctx, enum http2_probe_type_t probe_type,
                                     enum grpc_event_type_t type, int32_t fd, uint32_t stream_id,
                                     bool end_stream, void* fields_ptr, int64_t fields_len,
@@ -219,7 +226,7 @@ static __inline void submit_headers(struct pt_regs* ctx, enum http2_probe_type_t
   event->attr.probe_type = probe_type;
   event->attr.event_type = type;
   event->attr.timestamp_ns = bpf_ktime_get_ns();
-  event->attr.conn_id = conn_info->conn_id;
+  fill_conn_attr(&event->attr, conn_info);
   event->attr.stream_id = stream_id;
   event->attr.end_stream = false;
 
@@ -260,6 +267,8 @@ static __inline void submit_header(struct pt_regs* ctx, enum http2_probe_type_t 
   event->attr.event_type = type;
   event->attr.timestamp_ns = bpf_ktime_get_ns();
   event->attr.conn_id = attr->conn_id;
+  event->attr.ssl = attr->ssl;
+  event->attr.ssl_source = attr->ssl_source;
   event->attr.stream_id = attr->stream_id;
   event->attr.end_stream = false;
 
@@ -771,7 +780,7 @@ int probe_http_http2writeResHeaders_write_frame(struct pt_regs* ctx) {
   }
 
   struct go_grpc_event_attr_t attr = {};
-  attr.conn_id = conn_info->conn_id;
+  fill_conn_attr(&attr, conn_info);
   attr.stream_id = stream_id;
 
   // We don't have the header values yet, and they are not easy to get from this probe,
@@ -792,7 +801,7 @@ int probe_http_http2writeResHeaders_write_frame(struct pt_regs* ctx) {
     event->attr.probe_type = k_probe_http_http2writeResHeaders_write_frame;
     event->attr.event_type = kHeaderEventWrite;
     event->attr.timestamp_ns = bpf_ktime_get_ns();
-    event->attr.conn_id = conn_info->conn_id;
+    fill_conn_attr(&event->attr, conn_info);
     event->attr.stream_id = stream_id;
     event->name.size = 0;
     event->value.size = 0;
@@ -826,7 +835,7 @@ static __inline void go_http2_submit_data(struct pt_regs* ctx, enum http2_probe_
     return;
   }
 
-  info->attr.conn_id = conn_info->conn_id;
+  fill_conn_attr(&info->attr, conn_info);
   info->attr.timestamp_ns = bpf_ktime_get_ns();
   info->attr.probe_type = probe_type;
   info->attr.event_type = type;

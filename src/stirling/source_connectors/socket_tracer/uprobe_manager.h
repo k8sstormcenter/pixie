@@ -37,6 +37,7 @@
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/grpc_c.h"
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/socket_trace.hpp"
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/symaddrs.h"
+#include "src/stirling/source_connectors/socket_tracer/go_binary_cache.h"
 
 #include "src/stirling/source_connectors/socket_tracer/uprobe_symaddrs.h"
 #include "src/stirling/utils/detect_application.h"
@@ -539,16 +540,9 @@ class UProbeManager {
    *
    * @param binary The path to the binary on which to deploy Go HTTP2 probes.
    * @param elf_reader ELF reader for the binary.
-   * @param offset_locator DWARF reader for the binary.
-   * @param pids The list of PIDs that are new instances of the binary. Used to populate symbol
-   *             addresses.
-   * @return The number of uprobes deployed, or error. It is not considered an error if the binary
-   *         is not a Go binary or doesn't use a Go HTTP2 library; instead the return value will be
-   *         zero.
+   * @return The number of uprobes deployed, or error. Zero if the binary was probed before.
    */
-  StatusOr<int> AttachGoHTTP2UProbes(const std::string& binary, obj_tools::ElfReader* elf_reader,
-                                     GoOffsetLocator* offset_locator,
-                                     const std::vector<int32_t>& pids);
+  StatusOr<int> AttachGoHTTP2UProbes(const std::string& binary, obj_tools::ElfReader* elf_reader);
 
   /**
    * Attaches the required probes for GoTLS tracing to the specified binary, if it is a compatible
@@ -556,15 +550,9 @@ class UProbeManager {
    *
    * @param binary The path to the binary on which to deploy Go HTTP2 probes.
    * @param elf_reader ELF reader for the binary.
-   * @param offset_locator DWARF reader for the binary.
-   * @param pids The list of PIDs that are new instances of the binary. Used to populate symbol
-   *             addresses.
-   * @return The number of uprobes deployed, or error. It is not an error if the binary
-   *         is not a Go binary or doesn't use Go TLS; instead the return value will be zero.
+   * @return The number of uprobes deployed, or error. Zero if the binary was probed before.
    */
-  StatusOr<int> AttachGoTLSUProbes(const std::string& binary, obj_tools::ElfReader* elf_reader,
-                                   GoOffsetLocator* offset_locator,
-                                   const std::vector<int32_t>& new_pids);
+  StatusOr<int> AttachGoTLSUProbes(const std::string& binary, obj_tools::ElfReader* elf_reader);
 
   /**
    * Attaches the required probes for OpenSSL tracing to the specified PID, if it uses OpenSSL.
@@ -625,11 +613,10 @@ class UProbeManager {
 
   Status UpdateOpenSSLSymAddrs(px::stirling::obj_tools::RawFptrManager* fptrManager,
                                std::filesystem::path container_lib, uint32_t pid);
-  Status UpdateGoCommonSymAddrs(obj_tools::ElfReader* elf_reader, GoOffsetLocator* offset_locator,
-                                const std::vector<int32_t>& pids);
-  Status UpdateGoHTTP2SymAddrs(obj_tools::ElfReader* elf_reader, GoOffsetLocator* offset_locator,
-                               const std::vector<int32_t>& pids);
-  Status UpdateGoTLSSymAddrs(GoOffsetLocator* offset_locator, const std::vector<int32_t>& pids);
+  void UpdateGoSymAddrs(const GoUProbeSymAddrs& symaddrs, const std::vector<int32_t>& pids);
+  void CacheGoSymAddrs(const std::string& binary, const FileVersion& version,
+                       const GoUProbeSymAddrs& symaddrs);
+  void ReportGoAnalysisFailure(const std::string& binary, const GoUProbeSymAddrs& symaddrs);
   Status UpdateNodeTLSWrapSymAddrs(int32_t pid, const std::filesystem::path& node_exe,
                                    const SemVer& ver);
 
@@ -678,6 +665,9 @@ class UProbeManager {
   absl::flat_hash_set<std::string> go_tls_probed_binaries_;
   absl::flat_hash_set<std::string> nodejs_binaries_;
   absl::flat_hash_set<std::string> grpc_c_probed_binaries_;
+
+  static constexpr size_t kGoBinaryCacheCapacity = 2048;
+  GoBinaryCache go_binary_cache_{kGoBinaryCacheCapacity};
 
   // BPF maps through which the addresses of symbols for a given pid are communicated to uprobes.
   std::unique_ptr<MapT<ssl_source_t>> openssl_source_map_;

@@ -229,39 +229,41 @@ Status UProbeManager::UpdateOpenSSLSymAddrs(obj_tools::RawFptrManager* fptr_mana
   return Status::OK();
 }
 
-Status UProbeManager::UpdateGoCommonSymAddrs(ElfReader* elf_reader, GoOffsetLocator* offset_locator,
-                                             const std::vector<int32_t>& pids) {
-  PX_ASSIGN_OR_RETURN(struct go_common_symaddrs_t symaddrs,
-                      GoCommonSymAddrs(elf_reader, offset_locator));
-
-  for (auto& pid : pids) {
-    PX_RETURN_IF_ERROR(go_common_symaddrs_map_->SetValue(pid, symaddrs));
+void UProbeManager::UpdateGoSymAddrs(const GoUProbeSymAddrs& symaddrs,
+                                     const std::vector<int32_t>& pids) {
+  for (int32_t pid : pids) {
+    Status s = go_common_symaddrs_map_->SetValue(pid, symaddrs.common);
+    if (s.ok() && symaddrs.tls.has_value()) {
+      s = go_tls_symaddrs_map_->SetValue(pid, symaddrs.tls.value());
+    }
+    if (s.ok() && symaddrs.http2.has_value()) {
+      s = go_http2_symaddrs_map_->SetValue(pid, symaddrs.http2.value());
+    }
+    if (!s.ok()) {
+      LOG_FIRST_N(WARNING, 10) << absl::Substitute("Failed to set Go symaddrs for pid $0: $1", pid,
+                                                   s.msg());
+    }
   }
-
-  return Status::OK();
 }
 
-Status UProbeManager::UpdateGoHTTP2SymAddrs(ElfReader* elf_reader, GoOffsetLocator* offset_locator,
-                                            const std::vector<int32_t>& pids) {
-  PX_ASSIGN_OR_RETURN(struct go_http2_symaddrs_t symaddrs,
-                      GoHTTP2SymAddrs(elf_reader, offset_locator));
-
-  for (auto& pid : pids) {
-    PX_RETURN_IF_ERROR(go_http2_symaddrs_map_->SetValue(pid, symaddrs));
+void UProbeManager::CacheGoSymAddrs(const std::string& binary, const FileVersion& version,
+                                    const GoUProbeSymAddrs& symaddrs) {
+  StatusOr<FileVersion> current = GetFileVersion(binary);
+  if (current.ok() && current.ValueOrDie() == version) {
+    go_binary_cache_.Insert(version, symaddrs);
   }
-
-  return Status::OK();
 }
 
-Status UProbeManager::UpdateGoTLSSymAddrs(GoOffsetLocator* offset_locator,
-                                          const std::vector<int32_t>& pids) {
-  PX_ASSIGN_OR_RETURN(struct go_tls_symaddrs_t symaddrs, GoTLSSymAddrs(offset_locator));
-
-  for (auto& pid : pids) {
-    PX_RETURN_IF_ERROR(go_tls_symaddrs_map_->SetValue(pid, symaddrs));
+void UProbeManager::ReportGoAnalysisFailure(const std::string& binary,
+                                            const GoUProbeSymAddrs& symaddrs) {
+  if (symaddrs.failed_stage.empty()) {
+    return;
   }
-
-  return Status::OK();
+  Status s(symaddrs.status.code(), absl::Substitute("binary=$0 $1", binary, symaddrs.status.msg()));
+  monitor_.AppendSourceStatusRecord("socket_tracer", s, std::string(symaddrs.failed_stage));
+  LOG_FIRST_N(WARNING, 10) << absl::Substitute("Cannot deploy Go uprobes on binary $0 ($1): $2",
+                                               binary, symaddrs.failed_stage,
+                                               symaddrs.status.msg());
 }
 
 Status UProbeManager::UpdateNodeTLSWrapSymAddrs(int32_t pid, const std::filesystem::path& node_exe,
@@ -578,19 +580,7 @@ StatusOr<int> UProbeManager::AttachNodeJsOpenSSLUprobes(const uint32_t pid,
 }
 
 StatusOr<int> UProbeManager::AttachGoTLSUProbes(const std::string& binary,
-                                                obj_tools::ElfReader* elf_reader,
-                                                GoOffsetLocator* offset_locator,
-                                                const std::vector<int32_t>& pids) {
-  // Step 1: Update BPF symbols_map on all new PIDs.
-  Status s = UpdateGoTLSSymAddrs(offset_locator, pids);
-  if (!s.ok()) {
-    // Doesn't appear to be a binary with the mandatory symbols.
-    // Might not even be a golang binary.
-    // Either way, not of interest to probe.
-    return 0;
-  }
-
-  // Step 2: Deploy uprobes on all new binaries.
+                                                obj_tools::ElfReader* elf_reader) {
   auto result = go_tls_probed_binaries_.insert(ProbedBinaryKey(binary));
   if (!result.second) {
     // This is not a new binary, so nothing more to do.
@@ -600,16 +590,7 @@ StatusOr<int> UProbeManager::AttachGoTLSUProbes(const std::string& binary,
 }
 
 StatusOr<int> UProbeManager::AttachGoHTTP2UProbes(const std::string& binary,
-                                                  obj_tools::ElfReader* elf_reader,
-                                                  GoOffsetLocator* offset_locator,
-                                                  const std::vector<int32_t>& pids) {
-  // Step 1: Update BPF symaddrs for this binary.
-  Status s = UpdateGoHTTP2SymAddrs(elf_reader, offset_locator, pids);
-  if (!s.ok()) {
-    return 0;
-  }
-
-  // Step 2: Deploy uprobes on all new binaries.
+                                                  obj_tools::ElfReader* elf_reader) {
   auto result = go_http2_probed_binaries_.insert(ProbedBinaryKey(binary));
   if (!result.second) {
     // This is not a new binary, so nothing more to do.
@@ -914,6 +895,15 @@ int UProbeManager::DeployGoUProbes(const absl::flat_hash_set<md::UPID>& pids) {
       }
     }
 
+    PX_ASSIGN_OR(const FileVersion version, GetFileVersion(binary), continue);
+    const GoUProbeSymAddrs* cached = go_binary_cache_.Find(version);
+    if (cached != nullptr) {
+      if (cached->status.ok()) {
+        UpdateGoSymAddrs(*cached, pid_vec);
+      }
+      continue;
+    }
+
     // Read binary's symbols.
     StatusOr<std::unique_ptr<ElfReader>> elf_reader_status = ElfReader::Create(binary);
     if (!elf_reader_status.ok()) {
@@ -926,42 +916,20 @@ int UProbeManager::DeployGoUProbes(const absl::flat_hash_set<md::UPID>& pids) {
     }
     std::unique_ptr<ElfReader> elf_reader = elf_reader_status.ConsumeValueOrDie();
 
-    // Avoid going past this point if not a golang program.
-    // The DwarfReader is memory intensive, and the remaining probes are Golang specific.
-    if (!IsGoExecutable(elf_reader.get())) {
+    const GoUProbeSymAddrs symaddrs =
+        AnalyzeGoUProbeBinary(binary, elf_reader.get(), !cfg_disable_go_tls_tracing_,
+                              !cfg_disable_go_tls_tracing_ && cfg_enable_http2_tracing_);
+    CacheGoSymAddrs(binary, version, symaddrs);
+    if (!symaddrs.status.ok()) {
+      ReportGoAnalysisFailure(binary, symaddrs);
       continue;
     }
-
-    StatusOr<GoBinaryInfo> go_binary_status = AnalyzeGoBinary(binary, elf_reader.get());
-    if (!go_binary_status.ok()) {
-      Status s(go_binary_status.code(),
-               absl::Substitute("binary=$0 $1", binary, go_binary_status.msg()));
-      monitor_.AppendSourceStatusRecord("socket_tracer", s, "AnalyzeGoBinary");
-      LOG_FIRST_N(WARNING, 10) << absl::Substitute("Cannot deploy Go uprobes on binary $0: $1",
-                                                   binary, go_binary_status.msg());
-      continue;
-    }
-    GoBinaryInfo go_binary = go_binary_status.ConsumeValueOrDie();
-
-    std::unique_ptr<GoOffsetLocator> offset_locator = std::make_unique<GoOffsetLocator>(
-        go_binary.dwarf_reader.get(), GetGoStructOffsets(), GetGoFunctionArgOffsets(),
-        go_binary.build_info, go_binary.go_version);
-    Status s = UpdateGoCommonSymAddrs(elf_reader.get(), offset_locator.get(), pid_vec);
-    if (!s.ok()) {
-      monitor_.AppendSourceStatusRecord(
-          "socket_tracer", Status(s.code(), absl::Substitute("binary=$0 $1", binary, s.msg())),
-          "UpdateGoCommonSymAddrs");
-      LOG_FIRST_N(WARNING, 10) << absl::Substitute(
-          "Golang binary $0 does not have the mandatory symbols or offsets (e.g. TCPConn): $1",
-          binary, s.msg());
-      continue;
-    }
+    UpdateGoSymAddrs(symaddrs, pid_vec);
 
     // GoTLS Probes.
-    if (!cfg_disable_go_tls_tracing_) {
+    if (symaddrs.tls.has_value()) {
       VLOG(1) << absl::Substitute("Attempting to attach Go TLS uprobes to binary $0", binary);
-      StatusOr<int> attach_status =
-          AttachGoTLSUProbes(binary, elf_reader.get(), offset_locator.get(), pid_vec);
+      StatusOr<int> attach_status = AttachGoTLSUProbes(binary, elf_reader.get());
       if (!attach_status.ok()) {
         monitor_.AppendSourceStatusRecord("socket_tracer", attach_status.status(),
                                           "AttachGoTLSUProbes");
@@ -973,9 +941,8 @@ int UProbeManager::DeployGoUProbes(const absl::flat_hash_set<md::UPID>& pids) {
     }
 
     // Go HTTP2 Probes.
-    if (!cfg_disable_go_tls_tracing_ && cfg_enable_http2_tracing_) {
-      StatusOr<int> attach_status =
-          AttachGoHTTP2UProbes(binary, elf_reader.get(), offset_locator.get(), pid_vec);
+    if (symaddrs.http2.has_value()) {
+      StatusOr<int> attach_status = AttachGoHTTP2UProbes(binary, elf_reader.get());
       if (!attach_status.ok()) {
         monitor_.AppendSourceStatusRecord("socket_tracer", attach_status.status(),
                                           "AttachGoHTTP2UProbes");

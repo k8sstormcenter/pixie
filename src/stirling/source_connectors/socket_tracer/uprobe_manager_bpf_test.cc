@@ -55,23 +55,32 @@ class UProbeManagerBPFTest
     FLAGS_offsetgen_filepath = empty_offsets.string();
 
     const std::filesystem::path server = GoHTTPSServerFixture::StrippedPath("1_24");
-    ASSERT_OK(server_.Start(
-        {server.string(),
-         absl::StrCat("--cert=", ::px::testing::BazelRunfilePath(kServerCert).string()),
-         absl::StrCat("--key=", ::px::testing::BazelRunfilePath(kServerKey).string())}));
-    WaitForExec(server.filename());
+    StartServer(server, 50101, 50100, &server_);
+    StartServer(server, 50111, 50110, &second_server_);
 
     SocketTraceBPFTestFixture::SetUp();
   }
 
   void TearDown() override {
     SocketTraceBPFTestFixture::TearDown();
-    server_.Kill();
-    server_.Wait();
+    for (SubProcess* server : {&server_, &second_server_}) {
+      server->Kill();
+      server->Wait();
+    }
   }
 
-  void WaitForExec(const std::filesystem::path& filename) {
-    const std::filesystem::path exe = system::ProcPidPath(server_.child_pid(), "exe");
+  void StartServer(const std::filesystem::path& server, int https_port, int http_port,
+                   SubProcess* process) {
+    ASSERT_OK(process->Start(
+        {server.string(),
+         absl::StrCat("--cert=", ::px::testing::BazelRunfilePath(kServerCert).string()),
+         absl::StrCat("--key=", ::px::testing::BazelRunfilePath(kServerKey).string()),
+         absl::StrCat("--https_port=", https_port), absl::StrCat("--http_port=", http_port)}));
+    WaitForExec(*process, server.filename());
+  }
+
+  void WaitForExec(const SubProcess& process, const std::filesystem::path& filename) {
+    const std::filesystem::path exe = system::ProcPidPath(process.child_pid(), "exe");
     for (int i = 0; i < 100; ++i) {
       std::error_code ec;
       if (std::filesystem::read_symlink(exe, ec).filename() == filename) {
@@ -82,21 +91,36 @@ class UProbeManagerBPFTest
     FAIL() << "Server did not start: " << exe;
   }
 
+  bool IsServerRecord(const SourceStatusRecord& r) const {
+    return r.context == "UpdateGoCommonSymAddrs" &&
+           (absl::StrContains(r.error, absl::StrCat("/proc/", server_.child_pid(), "/root")) ||
+            absl::StrContains(r.error,
+                              absl::StrCat("/proc/", second_server_.child_pid(), "/root")));
+  }
+
   ::px::testing::TempDir offsets_dir_;
   SubProcess server_;
+  SubProcess second_server_;
 };
 
 TEST_F(UProbeManagerBPFTest, GoBinaryWithoutOffsetsIsReported) {
-  const std::string server_root = absl::StrCat("/proc/", server_.child_pid(), "/root");
   std::vector<SourceStatusRecord> records =
       StirlingMonitor::GetInstance()->ConsumeSourceStatusRecords();
 
-  auto record = std::find_if(records.begin(), records.end(), [&](const SourceStatusRecord& r) {
-    return r.context == "UpdateGoCommonSymAddrs" && absl::StrContains(r.error, server_root);
-  });
+  auto record = std::find_if(records.begin(), records.end(),
+                             [&](const SourceStatusRecord& r) { return IsServerRecord(r); });
   ASSERT_NE(record, records.end());
   EXPECT_EQ(record->source_connector, "socket_tracer");
   EXPECT_NE(record->status, px::statuspb::Code::OK);
+}
+
+TEST_F(UProbeManagerBPFTest, GoBinaryFailureIsAnalyzedOncePerFile) {
+  std::vector<SourceStatusRecord> records =
+      StirlingMonitor::GetInstance()->ConsumeSourceStatusRecords();
+
+  EXPECT_EQ(std::count_if(records.begin(), records.end(),
+                          [&](const SourceStatusRecord& r) { return IsServerRecord(r); }),
+            1);
 }
 
 }  // namespace stirling

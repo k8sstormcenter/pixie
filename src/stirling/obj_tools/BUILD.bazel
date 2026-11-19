@@ -155,6 +155,8 @@ pl_cc_test(
     srcs = ["go_pclntab_test.cc"],
     data = [
         "//src/stirling/obj_tools/testdata/cc:prebuilt_exe",
+        "//src/stirling/obj_tools/testdata/go/cgo_tls:cgo_tls_pie_binary",
+        "//src/stirling/obj_tools/testdata/go/cgo_tls:cgo_tls_pie_stripped_binary",
     ],
     deps = [
         ":cc_library",

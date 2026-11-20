@@ -49,6 +49,9 @@ enum http2_probe_type_t {
   k_probe_http_http2Framer_write_data,
   k_probe_http2_framer_read_frame_for_header,
   k_probe_http_http2Framer_read_frame_for_header,
+  k_probe_grpc_framer_write_data,
+  k_probe_http2_client_handle_data,
+  k_probe_http2_server_handle_data,
   k_probe_type_other,
 };
 

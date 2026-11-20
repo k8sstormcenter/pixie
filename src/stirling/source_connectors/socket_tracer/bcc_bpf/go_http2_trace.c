@@ -27,7 +27,8 @@
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/go_grpc_types.h"
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/symaddrs.h"
 
-#define MAX_HEADER_COUNT 59
+#define MAX_HEADER_COUNT 58
+#define MAX_GRPC_DATA_SLICE_COUNT 4
 
 BPF_PERF_OUTPUT(go_grpc_events);
 
@@ -284,6 +285,14 @@ struct go_grpc_framer_t {
   void* http2_framer;
 };
 
+static __inline int32_t get_fd_from_grpc_framer(const void* framer_ptr,
+                                                const struct go_http2_symaddrs_t* symaddrs) {
+  struct go_grpc_framer_t go_grpc_framer;
+  BPF_PROBE_READ_VAR(go_grpc_framer, framer_ptr);
+
+  return get_fd_from_http2_Framer(go_grpc_framer.http2_framer, symaddrs);
+}
+
 // Probes (*loopyWriter).writeHeader() inside gRPC-go, which writes HTTP2 headers to the server.
 //
 // Function signature:
@@ -341,11 +350,7 @@ int probe_loopy_writer_write_header(struct pt_regs* ctx) {
   void* framer_ptr;
   BPF_PROBE_READ_VAR(framer_ptr, loopy_writer_ptr + symaddrs->loopyWriter_framer_offset);
 
-  // TODO(oazizi): Stop using mirrored go structs, and use DWARF info instead.
-  struct go_grpc_framer_t go_grpc_framer;
-  BPF_PROBE_READ_VAR(go_grpc_framer, framer_ptr);
-
-  const int32_t fd = get_fd_from_http2_Framer(go_grpc_framer.http2_framer, symaddrs);
+  const int32_t fd = get_fd_from_grpc_framer(framer_ptr, symaddrs);
   if (fd == kInvalidFD) {
     return 0;
   }
@@ -876,6 +881,37 @@ static __inline void go_http2_submit_data(struct pt_regs* ctx, enum http2_probe_
   }
 }
 
+static __inline void go_http2_submit_data_slice(struct pt_regs* ctx,
+                                                enum http2_probe_type_t probe_type, uint32_t tgid,
+                                                int32_t fd, enum grpc_event_type_t type,
+                                                uint32_t stream_id, bool end_stream,
+                                                const void* slice_ptr) {
+  char* data_ptr = NULL;
+  bpf_probe_read(&data_ptr, sizeof(char*), slice_ptr + kGoArrayPtrOffset);
+
+  int64_t data_len = 0;
+  bpf_probe_read(&data_len, sizeof(int64_t), slice_ptr + kGoArrayLenOffset);
+
+  go_http2_submit_data(ctx, probe_type, tgid, fd, type, stream_id, end_stream, data_ptr, data_len);
+}
+
+static __inline bool read_data_frame_header(const void* header_ptr, int32_t type_offset,
+                                            int32_t flags_offset, int32_t stream_id_offset,
+                                            uint32_t* stream_id, bool* end_stream) {
+  uint8_t frame_type;
+  bpf_probe_read(&frame_type, sizeof(uint8_t), header_ptr + type_offset);
+  if (frame_type != 0) {
+    return false;
+  }
+
+  uint8_t flags;
+  bpf_probe_read(&flags, sizeof(uint8_t), header_ptr + flags_offset);
+  *end_stream = flags & kFlagDataEndStream;
+
+  bpf_probe_read(stream_id, sizeof(uint32_t), header_ptr + stream_id_offset);
+  return true;
+}
+
 static __inline int submit_read_data_frame(struct pt_regs* ctx, enum http2_probe_type_t probe_type,
                                            uint32_t tgid, int32_t fd, void* frame_ptr,
                                            int32_t type_offset, int32_t flags_offset,
@@ -884,27 +920,180 @@ static __inline int submit_read_data_frame(struct pt_regs* ctx, enum http2_probe
     return 0;
   }
 
-  uint8_t frame_type;
-  bpf_probe_read(&frame_type, sizeof(uint8_t), frame_ptr + type_offset);
-  if (frame_type != 0) {
+  uint32_t stream_id;
+  bool end_stream;
+  if (!read_data_frame_header(frame_ptr, type_offset, flags_offset, stream_id_offset, &stream_id,
+                              &end_stream)) {
     return 0;
   }
 
-  uint8_t flags;
-  bpf_probe_read(&flags, sizeof(uint8_t), frame_ptr + flags_offset);
-  const bool end_stream = flags & kFlagDataEndStream;
+  go_http2_submit_data_slice(ctx, probe_type, tgid, fd, kDataFrameEventRead, stream_id, end_stream,
+                             frame_ptr + data_offset);
+  return 0;
+}
+
+static __inline const void* get_slice_from_mem_buffer(struct go_interface buffer_intf,
+                                                      const struct go_http2_symaddrs_t* symaddrs) {
+  const int kTypeKindOffset = 23;
+  const uint8_t kKindMask = 0x1f;
+  const uint8_t kKindPointer = 22;
+  const uint8_t kKindSlice = 23;
+
+  void* type_ptr = NULL;
+  bpf_probe_read(&type_ptr, sizeof(type_ptr), (void*)(buffer_intf.type + kITabTypeOffset));
+
+  uint8_t kind = 0;
+  bpf_probe_read(&kind, sizeof(kind), type_ptr + kTypeKindOffset);
+  kind &= kKindMask;
+
+  if (kind == kKindSlice) {
+    return buffer_intf.ptr;
+  }
+  if (kind == kKindPointer) {
+    return buffer_intf.ptr + symaddrs->mem_buffer_data_offset;
+  }
+  return NULL;
+}
+
+static __inline int submit_grpc_handle_data(struct pt_regs* ctx, enum http2_probe_type_t probe_type,
+                                            uint32_t tgid, struct location_t t_loc,
+                                            struct location_t f_loc, int32_t conn_offset,
+                                            const struct go_http2_symaddrs_t* symaddrs) {
+  REQUIRE_LOCATION(t_loc, 0);
+  REQUIRE_LOCATION(f_loc, 0);
+
+  REQUIRE_SYMADDR(conn_offset, 0);
+  REQUIRE_SYMADDR(symaddrs->FrameHeader_Type_offset, 0);
+  REQUIRE_SYMADDR(symaddrs->FrameHeader_Flags_offset, 0);
+  REQUIRE_SYMADDR(symaddrs->FrameHeader_StreamID_offset, 0);
+  REQUIRE_SYMADDR(symaddrs->parsedDataFrame_FrameHeader_offset, 0);
+  REQUIRE_SYMADDR(symaddrs->parsedDataFrame_data_offset, 0);
+  REQUIRE_SYMADDR(symaddrs->mem_buffer_data_offset, 0);
+
+  const void* sp = (const void*)ctx->sp;
+  uint64_t* regs = go_regabi_regs(ctx);
+  if (regs == NULL) {
+    return 0;
+  }
+
+  void* transport_ptr = NULL;
+  assign_arg(&transport_ptr, sizeof(transport_ptr), t_loc, sp, regs);
+
+  void* frame_ptr = NULL;
+  assign_arg(&frame_ptr, sizeof(frame_ptr), f_loc, sp, regs);
+  if (frame_ptr == NULL) {
+    return 0;
+  }
+
+  struct go_interface conn_intf;
+  bpf_probe_read(&conn_intf, sizeof(conn_intf), transport_ptr + conn_offset);
+
+  const int32_t fd = get_fd_from_conn_intf(conn_intf);
+  if (fd == kInvalidFD) {
+    return 0;
+  }
 
   uint32_t stream_id;
-  bpf_probe_read(&stream_id, sizeof(uint32_t), frame_ptr + stream_id_offset);
+  bool end_stream;
+  if (!read_data_frame_header(frame_ptr + symaddrs->parsedDataFrame_FrameHeader_offset,
+                              symaddrs->FrameHeader_Type_offset, symaddrs->FrameHeader_Flags_offset,
+                              symaddrs->FrameHeader_StreamID_offset, &stream_id, &end_stream)) {
+    return 0;
+  }
 
-  char* data_ptr;
-  bpf_probe_read(&data_ptr, sizeof(char*), frame_ptr + data_offset + kGoArrayPtrOffset);
+  struct go_interface buffer_intf = {};
+  BPF_PROBE_READ_VAR(buffer_intf, frame_ptr + symaddrs->parsedDataFrame_data_offset);
 
-  int64_t data_len;
-  bpf_probe_read(&data_len, sizeof(int64_t), frame_ptr + data_offset + kGoArrayLenOffset);
+  const void* slice_ptr = get_slice_from_mem_buffer(buffer_intf, symaddrs);
+  if (slice_ptr == NULL) {
+    return 0;
+  }
 
-  go_http2_submit_data(ctx, probe_type, tgid, fd, kDataFrameEventRead, stream_id, end_stream,
-                       data_ptr, data_len);
+  go_http2_submit_data_slice(ctx, probe_type, tgid, fd, kDataFrameEventRead, stream_id, end_stream,
+                             slice_ptr);
+  return 0;
+}
+
+int probe_http2_client_handle_data(struct pt_regs* ctx) {
+  uint32_t tgid = bpf_get_current_pid_tgid() >> 32;
+  struct go_http2_symaddrs_t* symaddrs = http2_symaddrs_map.lookup(&tgid);
+  if (symaddrs == NULL) {
+    return 0;
+  }
+
+  return submit_grpc_handle_data(
+      ctx, k_probe_http2_client_handle_data, tgid, symaddrs->http2Client_handleData_t_loc,
+      symaddrs->http2Client_handleData_f_loc, symaddrs->http2Client_conn_offset, symaddrs);
+}
+
+int probe_http2_server_handle_data(struct pt_regs* ctx) {
+  uint32_t tgid = bpf_get_current_pid_tgid() >> 32;
+  struct go_http2_symaddrs_t* symaddrs = http2_symaddrs_map.lookup(&tgid);
+  if (symaddrs == NULL) {
+    return 0;
+  }
+
+  return submit_grpc_handle_data(
+      ctx, k_probe_http2_server_handle_data, tgid, symaddrs->http2Server_handleData_t_loc,
+      symaddrs->http2Server_handleData_f_loc, symaddrs->http2Server_conn_offset, symaddrs);
+}
+
+int probe_grpc_framer_write_data(struct pt_regs* ctx) {
+  uint32_t tgid = bpf_get_current_pid_tgid() >> 32;
+  struct go_http2_symaddrs_t* symaddrs = http2_symaddrs_map.lookup(&tgid);
+  if (symaddrs == NULL) {
+    return 0;
+  }
+
+  REQUIRE_LOCATION(symaddrs->framer_writeData_f_loc, 0);
+  REQUIRE_LOCATION(symaddrs->framer_writeData_streamID_loc, 0);
+  REQUIRE_LOCATION(symaddrs->framer_writeData_endStream_loc, 0);
+  REQUIRE_LOCATION(symaddrs->framer_writeData_data_ptr_loc, 0);
+  REQUIRE_LOCATION(symaddrs->framer_writeData_data_len_loc, 0);
+
+  const void* sp = (const void*)ctx->sp;
+  uint64_t* regs = go_regabi_regs(ctx);
+  if (regs == NULL) {
+    return 0;
+  }
+
+  void* framer_ptr = NULL;
+  assign_arg(&framer_ptr, sizeof(framer_ptr), symaddrs->framer_writeData_f_loc, sp, regs);
+
+  uint32_t stream_id = 0;
+  assign_arg(&stream_id, sizeof(stream_id), symaddrs->framer_writeData_streamID_loc, sp, regs);
+
+  bool end_stream = false;
+  assign_arg(&end_stream, sizeof(end_stream), symaddrs->framer_writeData_endStream_loc, sp, regs);
+
+  void* slices_ptr = NULL;
+  assign_arg(&slices_ptr, sizeof(slices_ptr), symaddrs->framer_writeData_data_ptr_loc, sp, regs);
+
+  int64_t slices_len = 0;
+  assign_arg(&slices_len, sizeof(slices_len), symaddrs->framer_writeData_data_len_loc, sp, regs);
+
+  const int32_t fd = get_fd_from_grpc_framer(framer_ptr, symaddrs);
+  if (fd == kInvalidFD) {
+    return 0;
+  }
+
+  if (slices_len <= 0) {
+    go_http2_submit_data(ctx, k_probe_grpc_framer_write_data, tgid, fd, kDataFrameEventWrite,
+                         stream_id, end_stream, NULL, 0);
+    return 0;
+  }
+
+  const int kSizeOfSlice = 24;
+#pragma unroll
+  for (unsigned int i = 0; i < MAX_GRPC_DATA_SLICE_COUNT; ++i) {
+    if (i < slices_len) {
+      const bool last = i + 1 == slices_len || i + 1 == MAX_GRPC_DATA_SLICE_COUNT;
+      go_http2_submit_data_slice(ctx, k_probe_grpc_framer_write_data, tgid, fd,
+                                 kDataFrameEventWrite, stream_id, end_stream && last,
+                                 slices_ptr + i * kSizeOfSlice);
+    }
+  }
+
   return 0;
 }
 

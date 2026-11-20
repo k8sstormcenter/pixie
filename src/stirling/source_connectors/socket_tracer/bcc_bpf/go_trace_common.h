@@ -126,6 +126,8 @@ static inline uint64_t get_goid(struct pt_regs* ctx) {
   return goid;
 }
 
+const int kITabTypeOffset = 8;
+
 //-----------------------------------------------------------------------------
 // FD extraction functions
 //-----------------------------------------------------------------------------
@@ -203,7 +205,6 @@ static __inline int32_t get_fd_from_conn_intf_core(struct go_interface conn_intf
   }
 
   if (conn_intf.type != symaddrs->net_TCPConn && conn_intf.type != 0) {
-    const int kITabTypeOffset = 8;
     int64_t conn_type = 0;
     int64_t tcp_conn_type = 0;
     bpf_probe_read(&conn_type, sizeof(conn_type), (void*)(conn_intf.type + kITabTypeOffset));

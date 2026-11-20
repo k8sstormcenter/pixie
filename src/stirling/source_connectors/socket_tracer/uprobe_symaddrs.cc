@@ -667,6 +667,18 @@ Status PopulateHTTP2DebugSymbols(GoOffsetLocator* offset_locator, std::string_vi
                     offset_locator->GetStructMemberOffset(
                             "net/http.http2bufferedWriter",
                             "conn"));
+  LOG_ASSIGN_STATUSOR(symaddrs->parsedDataFrame_FrameHeader_offset,
+                    offset_locator->GetStructMemberOffset(
+                        VENDOR_SYMBOL("google.golang.org/grpc/internal/transport.parsedDataFrame"),
+                        "FrameHeader"));
+  LOG_ASSIGN_STATUSOR(symaddrs->parsedDataFrame_data_offset,
+                    offset_locator->GetStructMemberOffset(
+                        VENDOR_SYMBOL("google.golang.org/grpc/internal/transport.parsedDataFrame"),
+                        "data"));
+  LOG_ASSIGN_STATUSOR(symaddrs->mem_buffer_data_offset,
+                    offset_locator->GetStructMemberOffset(
+                            VENDOR_SYMBOL("google.golang.org/grpc/mem.buffer"),
+                            "data"));
   // clang-format on
 
   const std::map<std::string, obj_tools::ArgInfo> kEmptyMap;
@@ -801,6 +813,36 @@ Status PopulateHTTP2DebugSymbols(GoOffsetLocator* offset_locator, std::string_vi
 
     LOG_ASSIGN(symaddrs->writeHeader_hf_len_loc, GetArgOffset(args_map, "hf"));
     symaddrs->writeHeader_hf_len_loc.offset += kGoArrayLenOffset;
+  }
+
+  {
+    std::string fn = VENDOR_SYMBOL("google.golang.org/grpc/internal/transport.(*framer).writeData");
+    auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    LOG_ASSIGN(symaddrs->framer_writeData_f_loc, GetArgOffset(args_map, "f"));
+    LOG_ASSIGN(symaddrs->framer_writeData_streamID_loc, GetArgOffset(args_map, "streamID"));
+    LOG_ASSIGN(symaddrs->framer_writeData_endStream_loc, GetArgOffset(args_map, "endStream"));
+
+    LOG_ASSIGN(symaddrs->framer_writeData_data_ptr_loc, GetArgOffset(args_map, "data"));
+    symaddrs->framer_writeData_data_ptr_loc.offset += kGoArrayPtrOffset;
+
+    LOG_ASSIGN(symaddrs->framer_writeData_data_len_loc, GetArgOffset(args_map, "data"));
+    symaddrs->framer_writeData_data_len_loc.offset += kGoArrayLenOffset;
+  }
+
+  {
+    std::string fn =
+        VENDOR_SYMBOL("google.golang.org/grpc/internal/transport.(*http2Server).handleData");
+    auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    LOG_ASSIGN(symaddrs->http2Server_handleData_t_loc, GetArgOffset(args_map, "t"));
+    LOG_ASSIGN(symaddrs->http2Server_handleData_f_loc, GetArgOffset(args_map, "f"));
+  }
+
+  {
+    std::string fn =
+        VENDOR_SYMBOL("google.golang.org/grpc/internal/transport.(*http2Client).handleData");
+    auto args_map = offset_locator->GetFunctionArgInfo(fn).ValueOr(kEmptyMap);
+    LOG_ASSIGN(symaddrs->http2Client_handleData_t_loc, GetArgOffset(args_map, "t"));
+    LOG_ASSIGN(symaddrs->http2Client_handleData_f_loc, GetArgOffset(args_map, "f"));
   }
 
 #undef VENDOR_SYMBOL

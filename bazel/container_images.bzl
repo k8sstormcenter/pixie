@@ -273,7 +273,7 @@ def stirling_test_images():
         name = "go_grpc_h2c_image",
         registry = "ttl.sh",
         repository = "stirling-go-grpc-h2c-a92ebb6d8",
-        digest = "sha256:f654a6a43f25553d525381b925b988d27e769f75012e148f1cde33573c03645c",
+        digest = "sha256:a2bcd22d503f3f767326d3c9fe6220d5df0e8ae529c436852a2b0bc5617dade4",
     )
 
     # Built and pushed by src/stirling/testing/demo_apps/py_grpc/update_gcr.sh

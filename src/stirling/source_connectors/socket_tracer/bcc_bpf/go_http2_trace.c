@@ -27,7 +27,7 @@
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/go_grpc_types.h"
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/symaddrs.h"
 
-#define MAX_HEADER_COUNT 58
+#define MAX_HEADER_COUNT 59
 #define MAX_GRPC_DATA_SLICE_COUNT 4
 
 BPF_PERF_OUTPUT(go_grpc_events);

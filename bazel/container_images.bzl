@@ -267,6 +267,15 @@ def stirling_test_images():
         digest = "sha256:1726e4dd813190ad1eae7f3c42483a3a83dd1676832bb7b04256455c8968d82a",
     )
 
+    # Built from src/stirling/testing/demo_apps/go_grpc_h2c/Dockerfile.
+    # Arch: linux/amd64
+    container_pull(
+        name = "go_grpc_h2c_image",
+        registry = "ttl.sh",
+        repository = "stirling-go-grpc-h2c-a92ebb6d8",
+        digest = "sha256:f654a6a43f25553d525381b925b988d27e769f75012e148f1cde33573c03645c",
+    )
+
     # Built and pushed by src/stirling/testing/demo_apps/py_grpc/update_gcr.sh
     _container_image(
         name = "py_grpc_helloworld_image",

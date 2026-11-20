@@ -197,6 +197,11 @@ container_image(
 )
 
 container_image(
+    name = "go_grpc_h2c_image",
+    base = "@go_grpc_h2c_image//image",
+)
+
+container_image(
     name = "mongodb_image",
     base = "@mongo_7_0//image",
 )

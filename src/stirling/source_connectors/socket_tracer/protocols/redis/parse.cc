@@ -44,6 +44,18 @@ constexpr char kErrorMarker = '-';
 constexpr char kIntegerMarker = ':';
 constexpr char kBulkStringsMarker = '$';
 constexpr char kArrayMarker = '*';
+constexpr char kNullMarker = '_';
+constexpr char kBooleanMarker = '#';
+constexpr char kDoubleMarker = ',';
+constexpr char kBigNumberMarker = '(';
+constexpr char kVerbatimStringMarker = '=';
+constexpr char kBlobErrorMarker = '!';
+constexpr char kMapMarker = '%';
+constexpr char kSetMarker = '~';
+constexpr char kAttributeMarker = '|';
+constexpr char kPushMarker = '>';
+constexpr std::string_view kTypeMarkers = "+-:$*_#,(=!%~|>";
+constexpr std::string_view kNullPayload = "<NULL>";
 // This is Redis' universal terminating sequence.
 constexpr std::string_view kTerminalSequence = "\r\n";
 constexpr int kNullSize = -1;
@@ -83,10 +95,9 @@ Status ParseBulkString(BinaryDecoder* decoder, Message* msg) {
   }
 
   if (len == kNullSize) {
-    constexpr std::string_view kNullBulkString = "<NULL>";
     // TODO(yzhao): This appears wrong, as Redis has NULL value, here "<NULL>" is presented as
     // a string. ATM don't know how to output NULL value in Rapidjson. Research and update this.
-    msg->payload = kNullBulkString;
+    msg->payload = kNullPayload;
     return Status::OK();
   }
 
@@ -115,19 +126,52 @@ bool IsPubMsg(const std::vector<std::string>& payloads) {
 
 // This calls ParseMessage(), which eventually calls ParseArray() and are both recursive
 // functions. This is because Array message can include nested array messages.
-Status ParseArray(message_type_t type, BinaryDecoder* decoder, Message* msg);
+Status ParseArray(message_type_t type, BinaryDecoder* decoder, Message* msg,
+                  int elements_per_entry);
 
 Status ParseMessage(message_type_t type, BinaryDecoder* decoder, Message* msg) {
   PX_ASSIGN_OR_RETURN(const char type_marker, decoder->ExtractChar());
 
   switch (type_marker) {
-    case kSimpleStringMarker: {
+    case kSimpleStringMarker:
+    case kDoubleMarker:
+    case kBigNumberMarker: {
       PX_ASSIGN_OR_RETURN(std::string_view str, decoder->ExtractStringUntil(kTerminalSequence));
       msg->payload = str;
       break;
     }
+    case kNullMarker: {
+      PX_ASSIGN_OR_RETURN(std::string_view str, decoder->ExtractStringUntil(kTerminalSequence));
+      if (!str.empty()) {
+        return error::InvalidArgument("Null should have no payload, got '$0'", str);
+      }
+      msg->payload = kNullPayload;
+      break;
+    }
+    case kBooleanMarker: {
+      PX_ASSIGN_OR_RETURN(std::string_view str, decoder->ExtractStringUntil(kTerminalSequence));
+      if (str != "t" && str != "f") {
+        return error::InvalidArgument("Boolean should be 't' or 'f', got '$0'", str);
+      }
+      msg->payload = str == "t" ? "true" : "false";
+      break;
+    }
     case kBulkStringsMarker: {
       PX_RETURN_IF_ERROR(ParseBulkString(decoder, msg));
+      break;
+    }
+    case kVerbatimStringMarker: {
+      PX_RETURN_IF_ERROR(ParseBulkString(decoder, msg));
+      constexpr size_t kFormatPrefixSize = 4;
+      if (msg->payload.size() < kFormatPrefixSize || msg->payload[kFormatPrefixSize - 1] != ':') {
+        return error::InvalidArgument("Verbatim string should start with '<format>:'");
+      }
+      msg->payload.erase(0, kFormatPrefixSize);
+      break;
+    }
+    case kBlobErrorMarker: {
+      PX_RETURN_IF_ERROR(ParseBulkString(decoder, msg));
+      msg->payload = absl::StrCat("-", msg->payload);
       break;
     }
     case kErrorMarker: {
@@ -140,8 +184,20 @@ Status ParseMessage(message_type_t type, BinaryDecoder* decoder, Message* msg) {
       PX_ASSIGN_OR_RETURN(msg->payload, decoder->ExtractStringUntil(kTerminalSequence));
       break;
     }
-    case kArrayMarker: {
-      PX_RETURN_IF_ERROR(ParseArray(type, decoder, msg));
+    case kArrayMarker:
+    case kSetMarker:
+    case kPushMarker: {
+      PX_RETURN_IF_ERROR(ParseArray(type, decoder, msg, 1));
+      break;
+    }
+    case kMapMarker: {
+      PX_RETURN_IF_ERROR(ParseArray(type, decoder, msg, 2));
+      break;
+    }
+    case kAttributeMarker: {
+      Message attributes;
+      PX_RETURN_IF_ERROR(ParseArray(type, decoder, &attributes, 2));
+      PX_RETURN_IF_ERROR(ParseMessage(type, decoder, msg));
       break;
     }
     default:
@@ -153,7 +209,8 @@ Status ParseMessage(message_type_t type, BinaryDecoder* decoder, Message* msg) {
 }
 
 // Array is formatted as *<size_str>\r\n[one of simple string, error, bulk string, etc.]
-Status ParseArray(message_type_t type, BinaryDecoder* decoder, Message* msg) {
+Status ParseArray(message_type_t type, BinaryDecoder* decoder, Message* msg,
+                  int elements_per_entry) {
   PX_ASSIGN_OR_RETURN(int len, ParseSize(decoder));
 
   if (len == kNullSize) {
@@ -163,7 +220,7 @@ Status ParseArray(message_type_t type, BinaryDecoder* decoder, Message* msg) {
   }
 
   std::vector<std::string> payloads;
-  for (int i = 0; i < len; ++i) {
+  for (int i = 0; i < len * elements_per_entry; ++i) {
     Message tmp;
     PX_RETURN_IF_ERROR(ParseMessage(type, decoder, &tmp));
     payloads.push_back(std::move(tmp.payload));
@@ -181,15 +238,7 @@ Status ParseArray(message_type_t type, BinaryDecoder* decoder, Message* msg) {
 }  // namespace
 
 size_t FindMessageBoundary(std::string_view buf, size_t start_pos) {
-  for (; start_pos < buf.size(); ++start_pos) {
-    const char type_marker = buf[start_pos];
-    if (type_marker == kSimpleStringMarker || type_marker == kErrorMarker ||
-        type_marker == kIntegerMarker || type_marker == kBulkStringsMarker ||
-        type_marker == kArrayMarker) {
-      return start_pos;
-    }
-  }
-  return std::string_view::npos;
+  return buf.find_first_of(kTypeMarkers, start_pos);
 }
 
 // Redis protocol specification: https://redis.io/topics/protocol

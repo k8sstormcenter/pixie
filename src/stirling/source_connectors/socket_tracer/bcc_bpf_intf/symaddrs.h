@@ -172,6 +172,18 @@ struct go_http2_symaddrs_t {
   struct location_t writeHeader_hf_ptr_loc;     // 24
   struct location_t writeHeader_hf_len_loc;     // 32
 
+  struct location_t framer_writeData_f_loc;
+  struct location_t framer_writeData_streamID_loc;
+  struct location_t framer_writeData_endStream_loc;
+  struct location_t framer_writeData_data_ptr_loc;
+  struct location_t framer_writeData_data_len_loc;
+
+  struct location_t http2Server_handleData_t_loc;
+  struct location_t http2Server_handleData_f_loc;
+
+  struct location_t http2Client_handleData_t_loc;
+  struct location_t http2Client_handleData_f_loc;
+
   // ---- struct member offsets ----
 
   // Struct member offsets.
@@ -243,6 +255,11 @@ struct go_http2_symaddrs_t {
   int32_t http2bufferedWriter_w_offset;  // 0
   // Go 1.24 switched from a w io.Writer member to a conn net.Conn one.
   int32_t http2bufferedWriter_conn_offset;
+
+  int32_t parsedDataFrame_FrameHeader_offset;
+  int32_t parsedDataFrame_data_offset;
+
+  int32_t mem_buffer_data_offset;
 };
 
 struct go_tls_symaddrs_t {

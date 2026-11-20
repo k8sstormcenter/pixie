@@ -637,6 +637,63 @@ TEST_P(GoFixtureTest, StrippedSymAddrsMatchUnstripped) {
 INSTANTIATE_TEST_SUITE_P(GoVersions, GoFixtureTest,
                          ::testing::ValuesIn(GoHTTPSServerFixture::kVersions));
 
+class GoGRPCDataFrameSymAddrsTest : public UprobeSymaddrsTest {
+ protected:
+  void SetUp() override {
+    UprobeSymaddrsTest::SetUp();
+    ParseGoOffsetgenFile(px::testing::BazelRunfilePath(kOffsetgenOffsetsFile), &struct_offsets_,
+                         &function_args_);
+    ASSERT_GT(struct_offsets_.size(), 0);
+  }
+
+  StatusOr<struct go_http2_symaddrs_t> SymAddrsFromOffsetTable(std::string_view grpc_version) {
+    obj_tools::BuildInfo build_info;
+    build_info.deps.push_back(
+        obj_tools::Module{"google.golang.org/grpc", absl::StrCat("v", grpc_version), "", nullptr});
+    build_info.deps.push_back(obj_tools::Module{"golang.org/x/net", "v0.58.0", "", nullptr});
+    GoOffsetLocator from_table(nullptr, struct_offsets_, function_args_, build_info, "1.27.1");
+    return GoHTTP2SymAddrs(elf_reader_.get(), &from_table);
+  }
+};
+
+TEST_F(GoGRPCDataFrameSymAddrsTest, DataFrameLocationsComeFromOffsetTable) {
+  for (std::string_view version : {"1.77.0", "1.78.0", "1.83.2", "1.86.0-dev"}) {
+    SCOPED_TRACE(version);
+    ASSERT_OK_AND_ASSIGN(auto h2, SymAddrsFromOffsetTable(version));
+    EXPECT_EQ(h2.framer_writeData_f_loc, (location_t{.type = kLocationTypeRegisters, .offset = 0}));
+    EXPECT_EQ(h2.framer_writeData_streamID_loc,
+              (location_t{.type = kLocationTypeRegisters, .offset = 8}));
+    EXPECT_EQ(h2.framer_writeData_endStream_loc,
+              (location_t{.type = kLocationTypeRegisters, .offset = 16}));
+    EXPECT_EQ(h2.framer_writeData_data_ptr_loc,
+              (location_t{.type = kLocationTypeRegisters, .offset = 24}));
+    EXPECT_EQ(h2.framer_writeData_data_len_loc,
+              (location_t{.type = kLocationTypeRegisters, .offset = 32}));
+    EXPECT_EQ(h2.http2Server_handleData_t_loc,
+              (location_t{.type = kLocationTypeRegisters, .offset = 0}));
+    EXPECT_EQ(h2.http2Server_handleData_f_loc,
+              (location_t{.type = kLocationTypeRegisters, .offset = 8}));
+    EXPECT_EQ(h2.http2Client_handleData_t_loc,
+              (location_t{.type = kLocationTypeRegisters, .offset = 0}));
+    EXPECT_EQ(h2.http2Client_handleData_f_loc,
+              (location_t{.type = kLocationTypeRegisters, .offset = 8}));
+    EXPECT_EQ(h2.parsedDataFrame_FrameHeader_offset, 0);
+    EXPECT_EQ(h2.parsedDataFrame_data_offset, 16);
+    EXPECT_EQ(h2.mem_buffer_data_offset, 8);
+  }
+}
+
+TEST_F(GoGRPCDataFrameSymAddrsTest, NoDataFrameLocationsForVersionsUsingTheHTTP2Framer) {
+  for (std::string_view version : {"1.76.0", "1.77.0-dev", "1.78.0-dev"}) {
+    SCOPED_TRACE(version);
+    ASSERT_OK_AND_ASSIGN(auto h2, SymAddrsFromOffsetTable(version));
+    EXPECT_EQ(h2.framer_writeData_f_loc.type, kLocationTypeInvalid);
+    EXPECT_EQ(h2.http2Server_handleData_f_loc.type, kLocationTypeInvalid);
+    EXPECT_EQ(h2.http2Client_handleData_f_loc.type, kLocationTypeInvalid);
+    EXPECT_EQ(h2.parsedDataFrame_data_offset, -1);
+  }
+}
+
 TEST(AnalyzeGoBinaryTest, NonGoBinaryIsAnError) {
   const std::string path =
       px::testing::BazelRunfilePath("src/stirling/obj_tools/testdata/cc/stripped_test_exe");

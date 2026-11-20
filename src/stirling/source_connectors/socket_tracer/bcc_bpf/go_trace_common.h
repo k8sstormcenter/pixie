@@ -202,6 +202,18 @@ static __inline int32_t get_fd_from_conn_intf_core(struct go_interface conn_intf
     bpf_probe_read(&conn_intf, sizeof(conn_intf), conn_intf.ptr + symaddrs->tlsConn_conn_offset);
   }
 
+  if (conn_intf.type != symaddrs->net_TCPConn && conn_intf.type != 0) {
+    const int kITabTypeOffset = 8;
+    int64_t conn_type = 0;
+    int64_t tcp_conn_type = 0;
+    bpf_probe_read(&conn_type, sizeof(conn_type), (void*)(conn_intf.type + kITabTypeOffset));
+    bpf_probe_read(&tcp_conn_type, sizeof(tcp_conn_type),
+                   (void*)(symaddrs->net_TCPConn + kITabTypeOffset));
+    if (conn_type != 0 && conn_type == tcp_conn_type) {
+      conn_intf.type = symaddrs->net_TCPConn;
+    }
+  }
+
   if (conn_intf.type != symaddrs->net_TCPConn) {
     bpf_probe_read(&conn_intf, sizeof(conn_intf), conn_intf.ptr);
   }

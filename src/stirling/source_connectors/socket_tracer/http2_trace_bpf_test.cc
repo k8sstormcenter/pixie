@@ -22,6 +22,7 @@
 #include "src/common/exec/subprocess.h"
 #include "src/stirling/core/output.h"
 #include "src/stirling/source_connectors/socket_tracer/testing/container_images/go_grpc_client_containers.h"
+#include "src/stirling/source_connectors/socket_tracer/testing/container_images/go_grpc_h2c_container.h"
 #include "src/stirling/source_connectors/socket_tracer/testing/container_images/go_grpc_server_containers.h"
 #include "src/stirling/source_connectors/socket_tracer/testing/container_images/product_catalog_client_container.h"
 #include "src/stirling/source_connectors/socket_tracer/testing/container_images/product_catalog_service_container.h"
@@ -341,6 +342,52 @@ TEST_F(ProductCatalogServiceTraceTest, Basic) {
     EXPECT_THAT(records, Contains(EqHTTPRecord(expected_record1)));
     EXPECT_THAT(records, Contains(EqHTTPRecord(expected_record2)));
     EXPECT_THAT(records, Contains(EqHTTPRecord(expected_record3)));
+  }
+}
+
+//-----------------------------------------------------------------------------
+// GoGRPCH2CTraceTest
+//-----------------------------------------------------------------------------
+
+class GoGRPCH2CTraceTest
+    : public testing::SocketTraceBPFTestFixture</* TClientSideTracing */ false> {
+ protected:
+  GoGRPCH2CTraceTest() {
+    PX_CHECK_OK(server_.Run(std::chrono::seconds{60}));
+
+    auto f = ::px::testing::BazelRunfilePath("src/stirling/offsetgen_offsets.json");
+    FLAGS_offsetgen_filepath = f.string();
+  }
+
+  ::px::stirling::testing::GoGRPCH2CServerContainer server_;
+  ::px::stirling::testing::GoGRPCH2CClientContainer client_;
+};
+
+TEST_F(GoGRPCH2CTraceTest, CapturesUnaryCallsOnStrippedGo127Server) {
+  StartTransferDataThread();
+
+  PX_CHECK_OK(client_.Run(std::chrono::seconds{30},
+                          {absl::Substitute("--network=container:$0", server_.container_name())},
+                          {"-client", "-addr", "127.0.0.1:50051", "-count", "3"}));
+  client_.Wait();
+
+  StopTransferDataThread();
+
+  std::vector<TaggedRecordBatch> tablets = ConsumeRecords(SocketTraceConnector::kHTTPTableNum);
+  ASSERT_NOT_EMPTY_AND_GET_RECORDS(const types::ColumnWrapperRecordBatch& rb, tablets);
+
+  const std::vector<size_t> target_record_indices =
+      FindRecordIdxMatchesPID(rb, kHTTPUPIDIdx, server_.process_pid());
+  std::vector<http::Record> records = ToRecordVector<http::Record>(rb, target_record_indices);
+
+  ASSERT_THAT(records, SizeIs(3));
+  for (const auto& record : records) {
+    EXPECT_EQ(record.req.req_path, "/grpc.health.v1.Health/Check");
+    EXPECT_EQ(record.req.req_method, "POST");
+    EXPECT_EQ(record.resp.resp_status, 200);
+  }
+  for (const auto& idx : target_record_indices) {
+    EXPECT_EQ(AccessRecordBatch<types::Int64Value>(rb, kHTTPMajorVersionIdx, idx).val, 2);
   }
 }
 

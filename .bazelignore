@@ -11,3 +11,4 @@ src/datagen/pii/privy
 # build-agent to replace with a bazel target. Until then, keep it out of gazelle.
 src/e2e_test/adaptive_export_loadtest/tools/loadgen
 src/e2e_test/adaptive_export_loadtest/suite
+src/stirling/testing/demo_apps/go_grpc_h2c

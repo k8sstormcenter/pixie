@@ -1474,8 +1474,8 @@ void SocketTraceConnector::AppendMessage(ConnectorContext* ctx, const ConnTracke
   // Do not apply truncation at this point, as the truncation was already done on serialized
   // protobuf message. This might result into longer text format data here, but the increase is
   // minimal.
-  r.Append<r.ColIndex("req_body")>(
-      protocols::http::RedactCredentialBody(req_stream->ConsumeData()), kNoTruncation);
+  r.Append<r.ColIndex("req_body")>(protocols::http::RedactCredentialBody(req_stream->ConsumeData()),
+                                   kNoTruncation);
   r.Append<r.ColIndex("resp_body_size")>(resp_stream->original_data_size());
   r.Append<r.ColIndex("resp_body")>(
       protocols::http::RedactCredentialBody(resp_stream->ConsumeData()), kNoTruncation);

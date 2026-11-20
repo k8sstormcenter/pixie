@@ -139,6 +139,24 @@ class UProbeManager {
           .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
       },
       UProbeTmpl{
+          .symbol = "google.golang.org/grpc/internal/transport.(*framer).writeData",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_grpc_framer_write_data",
+          .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+      },
+      UProbeTmpl{
+          .symbol = "google.golang.org/grpc/internal/transport.(*http2Client).handleData",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_http2_client_handle_data",
+          .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+      },
+      UProbeTmpl{
+          .symbol = "google.golang.org/grpc/internal/transport.(*http2Server).handleData",
+          .match_type = obj_tools::SymbolMatchType::kSuffix,
+          .probe_fn = "probe_http2_server_handle_data",
+          .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+      },
+      UProbeTmpl{
           .symbol = "golang.org/x/net/http2.(*Framer).startWriteDataPadded",
           .match_type = obj_tools::SymbolMatchType::kSuffix,
           .probe_fn = "probe_http2_framer_write_data",

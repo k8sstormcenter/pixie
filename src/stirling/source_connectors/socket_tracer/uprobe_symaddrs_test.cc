@@ -651,7 +651,7 @@ class GoGRPCDataFrameSymAddrsTest : public UprobeSymaddrsTest {
     build_info.deps.push_back(
         obj_tools::Module{"google.golang.org/grpc", absl::StrCat("v", grpc_version), "", nullptr});
     build_info.deps.push_back(obj_tools::Module{"golang.org/x/net", "v0.58.0", "", nullptr});
-    GoOffsetLocator from_table(nullptr, struct_offsets_, function_args_, build_info, "1.27.1");
+    GoOffsetLocator from_table(nullptr, struct_offsets_, function_args_, build_info, go_version_);
     return GoHTTP2SymAddrs(elf_reader_.get(), &from_table);
   }
 };

@@ -183,6 +183,7 @@ TEST_P(GRPCTraceTest, CaptureRPCTraceRecord) {
   EXPECT_EQ(static_cast<uint64_t>(HTTPContentType::kGRPC),
             rb[kHTTPContentTypeIdx]->Get<types::Int64Value>(idx).val);
 
+  EXPECT_EQ(rb[kHTTPReqBodyIdx]->Get<types::StringValue>(idx).string(), R"(1: "PixieLabs")");
   EXPECT_EQ(rb[kHTTPRespBodyIdx]->Get<types::StringValue>(idx).string(), R"(1: "Hello PixieLabs")");
 }
 

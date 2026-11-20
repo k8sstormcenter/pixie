@@ -74,11 +74,11 @@ class GRPCServer {
     PX_CHECK_OK(s_.Start({server_path, https_flag, port_flag}));
     LOG(INFO) << "Server PID: " << s_.child_pid();
 
-    // Give some time for the server to start up.
-    sleep(2);
-
     std::string port_str;
-    PX_CHECK_OK(s_.Stdout(&port_str));
+    for (int i = 0; i < 30 && port_str.empty(); ++i) {
+      sleep(1);
+      PX_CHECK_OK(s_.Stdout(&port_str));
+    }
     CHECK(absl::SimpleAtoi(port_str, &port_));
     CHECK_NE(0, port_);
   }
@@ -183,6 +183,7 @@ TEST_P(GRPCTraceTest, CaptureRPCTraceRecord) {
   EXPECT_EQ(static_cast<uint64_t>(HTTPContentType::kGRPC),
             rb[kHTTPContentTypeIdx]->Get<types::Int64Value>(idx).val);
 
+  EXPECT_EQ(rb[kHTTPReqBodyIdx]->Get<types::StringValue>(idx).string(), R"(1: "PixieLabs")");
   EXPECT_EQ(rb[kHTTPRespBodyIdx]->Get<types::StringValue>(idx).string(), R"(1: "Hello PixieLabs")");
 }
 

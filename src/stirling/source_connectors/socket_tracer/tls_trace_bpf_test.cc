@@ -43,9 +43,9 @@ using ::px::stirling::testing::GetTargetRecords;
 using ::px::stirling::testing::SocketTraceBPFTestFixture;
 using ::px::stirling::testing::ToRecordVector;
 
+using ::testing::HasSubstr;
 using ::testing::IsTrue;
 using ::testing::SizeIs;
-using ::testing::StrEq;
 using ::testing::UnorderedElementsAre;
 
 class NginxOpenSSL_3_0_8_ContainerWrapper
@@ -113,9 +113,11 @@ class TLSVersionParameterizedTest
 
     auto records = this->GetTraceRecords(this->server_.PID());
     EXPECT_THAT(records, SizeIs(1));
-    EXPECT_GT(records[0].req.body.size(), 0);
-    auto sni_str = R"({"extensions":{"server_name":["test-host"]}})";
-    EXPECT_THAT(records[0].req.body, StrEq(sni_str));
+    EXPECT_THAT(records[0].req.body, HasSubstr(R"("server_name":["test-host"])"));
+    EXPECT_THAT(records[0].req.body, HasSubstr(R"("supported_groups":[)"));
+    EXPECT_THAT(records[0].resp.body, HasSubstr(R"("version":771,"cipher_suite":)"));
+    EXPECT_THAT(records[0].resp.body,
+                HasSubstr(R"("group":0,"group_source":"not_in_server_hello")"));
   }
 
   // Returns the trace records of the process specified by the input pid.

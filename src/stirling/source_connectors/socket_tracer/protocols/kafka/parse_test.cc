@@ -17,12 +17,16 @@
  */
 
 #include <absl/container/flat_hash_map.h>
+#include <absl/strings/str_cat.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <deque>
 #include <random>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "src/common/base/types.h"
 #include "src/stirling/source_connectors/socket_tracer/protocols/kafka/parse.h"
@@ -138,6 +142,32 @@ TEST(KafkaParserTest, ParseInvalidInput) {
   EXPECT_EQ(ParseState::kInvalid, result.state);
   EXPECT_THAT(parsed_messages, ElementsAre());
   EXPECT_TRUE(state.global.seen_correlation_ids.empty());
+}
+
+std::vector<std::string_view> CurrentAPIVersionRequests() {
+  return {CreateStringView<char>(CharArrayStringView<uint8_t>(testdata::kFetchV16Request)),
+          CreateStringView<char>(CharArrayStringView<uint8_t>(testdata::kFetchV18Request)),
+          CreateStringView<char>(CharArrayStringView<uint8_t>(testdata::kOffsetCommitV9Request)),
+          CreateStringView<char>(CharArrayStringView<uint8_t>(testdata::kMetadataV13Request)),
+          CreateStringView<char>(CharArrayStringView<uint8_t>(testdata::kListOffsetsV11Request))};
+}
+
+TEST(KafkaParserTest, ParsesCurrentAPIVersionRequests) {
+  for (std::string_view frame : CurrentAPIVersionRequests()) {
+    Packet packet;
+    State state;
+    std::string_view buf = frame;
+    EXPECT_EQ(ParseFrame(message_type_t::kRequest, &buf, &packet, &state), ParseState::kSuccess);
+    EXPECT_TRUE(buf.empty());
+  }
+}
+
+TEST(KafkaFindFrameBoundaryTest, FindsCurrentAPIVersionRequests) {
+  for (std::string_view frame : CurrentAPIVersionRequests()) {
+    State state;
+    const std::string buf = absl::StrCat("\xff\xff", frame);
+    EXPECT_EQ(FindFrameBoundary(message_type_t::kRequest, buf, 0, &state), 2U);
+  }
 }
 
 TEST(KafkaFindFrameBoundaryTest, FindReqBoundaryAligned) {

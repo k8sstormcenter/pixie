@@ -42,6 +42,7 @@
 #include "src/stirling/source_connectors/socket_tracer/conn_trackers_manager.h"
 #include "src/stirling/source_connectors/socket_tracer/metrics.h"
 #include "src/stirling/utils/enum_map.h"
+#include "src/stirling/utils/monitor.h"
 
 DEFINE_bool(treat_loopback_as_in_cluster, true,
             "Whether loopback is treated as inside the cluster of not");
@@ -872,14 +873,30 @@ void ConnTracker::IterationPostTick() {
 
   if ((send_data().ParseFailureRate() > kParseFailureRateThreshold) ||
       (recv_data().ParseFailureRate() > kParseFailureRateThreshold)) {
-    Disable(absl::Substitute("Connection does not appear parseable as protocol $0",
-                             magic_enum::enum_name(protocol())));
+    DisableAndReport(absl::Substitute("Connection does not appear parseable as protocol $0",
+                                      magic_enum::enum_name(protocol())));
   }
 
   if (StitchFailureRate() > kStitchFailureRateThreshold) {
-    Disable(absl::Substitute("Connection does not appear to produce valid records of protocol $0",
-                             magic_enum::enum_name(protocol())));
+    DisableAndReport(
+        absl::Substitute("Connection does not appear to produce valid records of protocol $0",
+                         magic_enum::enum_name(protocol())));
   }
+}
+
+void ConnTracker::DisableAndReport(std::string_view reason) {
+  if (state_ == State::kDisabled) {
+    return;
+  }
+  Disable(reason);
+  StirlingMonitor::GetInstance()->AppendProbeStatusRecord(
+      "socket_tracer", "conn_tracker", error::FailedPrecondition(std::string(reason)),
+      absl::Substitute(
+          R"({"pid":$0,"start_time_ticks":$1,"fd":$2,"protocol":"$3","role":"$4",)"
+          R"("remote_addr":"$5","remote_port":$6})",
+          conn_id_.upid.pid, conn_id_.upid.start_time_ticks, conn_id_.fd,
+          magic_enum::enum_name(protocol()), magic_enum::enum_name(role()),
+          open_info_.remote_addr.AddrStr(), open_info_.remote_addr.port()));
 }
 
 void ConnTracker::CheckProcForConnClose() {

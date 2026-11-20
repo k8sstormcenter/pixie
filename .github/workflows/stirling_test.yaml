@@ -108,8 +108,11 @@ jobs:
         fi
         read -r -a extra_args <<< "${EXTRA_ARGS}"
         read -r -a targets <<< "${TARGETS}"
+        retval=0
         ./scripts/bazel_ignore_codes.sh test "${bazel_args[@]}" "${extra_args[@]}" -- "${targets[@]}" \
-          2> >(tee bazel_stderr) | tee bazel_output
+          > bazel_output 2> >(tee bazel_stderr) || retval="$?"
+        cat bazel_output
+        exit "${retval}"
     - name: Results
       if: always()
       shell: bash

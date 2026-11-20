@@ -33,6 +33,7 @@
 #include "src/stirling/source_connectors/socket_tracer/protocols/mysql/test_utils.h"
 #include "src/stirling/source_connectors/socket_tracer/testing/event_generator.h"
 #include "src/stirling/testing/common.h"
+#include "src/stirling/utils/monitor.h"
 
 namespace px {
 namespace stirling {
@@ -44,6 +45,7 @@ namespace http = protocols::http;
 namespace mysql = protocols::mysql;
 
 using ::testing::Field;
+using ::testing::HasSubstr;
 using ::testing::IsEmpty;
 using ::testing::SizeIs;
 
@@ -491,6 +493,7 @@ TEST_F(ConnTrackerTest, MessagesErasedAfterExpiration) {
 
 // Tests that tracker state is kDisabled if the remote address is in the cluster's CIDR range.
 TEST_F(ConnTrackerTest, DisabledForIntraClusterRemoteEndpoint) {
+  StirlingMonitor::GetInstance()->ConsumeProbeStatusRecords();
   struct socket_control_event_t conn = event_gen_.InitConn();
 
   // Set an address that falls in the intra-cluster address range.
@@ -507,6 +510,7 @@ TEST_F(ConnTrackerTest, DisabledForIntraClusterRemoteEndpoint) {
   EXPECT_EQ(tracker.state(), ConnTracker::State::kDisabled);
   EXPECT_EQ(std::string(tracker.disable_reason()),
             std::string("No client-side tracing: Remote endpoint is inside the cluster."));
+  EXPECT_THAT(StirlingMonitor::GetInstance()->ConsumeProbeStatusRecords(), IsEmpty());
 }
 
 // Tests that tracker state is kDisabled if the remote address is localhost.
@@ -630,6 +634,7 @@ TEST_F(ConnTrackerTest, DisabledForNonTrackedUPID) {
 }
 
 TEST_F(ConnTrackerTest, DisabledDueToParsingFailureRate) {
+  StirlingMonitor::GetInstance()->ConsumeProbeStatusRecords();
   using mysql::testutils::GenErr;
   using mysql::testutils::GenRawPacket;
 
@@ -709,9 +714,19 @@ TEST_F(ConnTrackerTest, DisabledDueToParsingFailureRate) {
   EXPECT_EQ(std::string(tracker.disable_reason()),
             std::string("Connection does not appear parseable as protocol kProtocolMySQL"));
   EXPECT_EQ(records.size(), 0);
+
+  std::vector<ProbeStatusRecord> status =
+      StirlingMonitor::GetInstance()->ConsumeProbeStatusRecords();
+  ASSERT_THAT(status, SizeIs(1));
+  EXPECT_EQ(status[0].source_connector, "socket_tracer");
+  EXPECT_EQ(status[0].tracepoint, "conn_tracker");
+  EXPECT_EQ(status[0].status, px::statuspb::FAILED_PRECONDITION);
+  EXPECT_EQ(status[0].error, "Connection does not appear parseable as protocol kProtocolMySQL");
+  EXPECT_THAT(status[0].info, HasSubstr(R"("protocol":"kProtocolMySQL")"));
 }
 
 TEST_F(ConnTrackerTest, DisabledDueToStitchingFailureRate) {
+  StirlingMonitor::GetInstance()->ConsumeProbeStatusRecords();
   using mysql::testutils::GenErr;
   using mysql::testutils::GenRawPacket;
 
@@ -760,6 +775,13 @@ TEST_F(ConnTrackerTest, DisabledDueToStitchingFailureRate) {
   EXPECT_EQ(std::string(tracker.disable_reason()),
             "Connection does not appear to produce valid records of protocol kProtocolMySQL");
   EXPECT_EQ(records.size(), 0);
+
+  std::vector<ProbeStatusRecord> status =
+      StirlingMonitor::GetInstance()->ConsumeProbeStatusRecords();
+  ASSERT_THAT(status, SizeIs(1));
+  EXPECT_EQ(status[0].tracepoint, "conn_tracker");
+  EXPECT_EQ(status[0].error,
+            "Connection does not appear to produce valid records of protocol kProtocolMySQL");
 }
 
 TEST_F(ConnTrackerTest, ConnStats) {

@@ -52,6 +52,7 @@ class SocketTraceBPFTestFixture : public ::testing::Test {
 
     source_.reset(dynamic_cast<SocketTraceConnector*>(source_connector.release()));
     ASSERT_OK(source_->Init());
+    source_->SetDebugLevel(2);
 
     source_->set_data_tables(data_tables_.tables());
 

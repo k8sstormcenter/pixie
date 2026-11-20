@@ -116,6 +116,8 @@ class ElfReader {
 
   void SetFallbackSymbols(std::vector<SymbolInfo> symbols);
 
+  static const SymbolInfo* SymbolContaining(const std::vector<SymbolInfo>& symbols, size_t addr);
+
   bool UsesFallbackSymbols();
 
   /**
@@ -234,8 +236,6 @@ class ElfReader {
   Status ReadBinary(size_t offset, char* buf, size_t length);
 
   StatusOr<ELFIO::section*> SymtabSection();
-
-  const SymbolInfo* FallbackSymbolContaining(size_t addr) const;
 
   std::vector<SymbolInfo> SearchFallbackSymbols(std::string_view search_symbol,
                                                 SymbolMatchType match_type,

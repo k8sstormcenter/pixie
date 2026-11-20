@@ -231,6 +231,19 @@ TEST_P(GoPclntabTest, StrippedMatchesUnstripped) {
   }
 }
 
+TEST_P(GoPclntabTest, ITabsResolveMethodsWithoutFallbackSymbols) {
+  ASSERT_OK_AND_ASSIGN(auto pclntab, GoPclntab::Create(elf_.get()));
+  ASSERT_OK_AND_ASSIGN(auto stripped, GoPclntab::Create(stripped_elf_.get()));
+  ASSERT_OK_AND_ASSIGN(auto itabs, pclntab->ITabs());
+  ASSERT_OK_AND_ASSIGN(auto stripped_itabs, stripped->ITabs());
+  ASSERT_GT(itabs.size(), 50);
+  ASSERT_EQ(stripped_itabs.size(), itabs.size());
+  for (size_t i = 0; i < itabs.size(); ++i) {
+    EXPECT_EQ(stripped_itabs[i].name, itabs[i].name);
+    EXPECT_EQ(stripped_itabs[i].address, itabs[i].address);
+  }
+}
+
 TEST_P(GoPclntabTest, ITabsReadTheBinaryInBlocks) {
   ASSERT_OK_AND_ASSIGN(auto pclntab, GoPclntab::Create(stripped_elf_.get()));
   stripped_elf_->SetFallbackSymbols(pclntab->funcs());

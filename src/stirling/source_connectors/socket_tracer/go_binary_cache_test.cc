@@ -21,6 +21,8 @@
 #include <unistd.h>
 
 #include <fstream>
+#include <memory>
+#include <string>
 
 #include "src/common/testing/temp_dir.h"
 #include "src/common/testing/testing.h"

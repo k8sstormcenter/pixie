@@ -411,12 +411,11 @@ std::optional<std::string> GoPclntab::ITabReceiver(uint64_t itab_addr, uint64_t 
     if (!fun.ok()) {
       return std::nullopt;
     }
-    auto method = elf_reader_->InstrAddrToSymbol(fun.ValueOrDie());
-    if (!method.ok() || !method.ValueOrDie().has_value() ||
-        method.ValueOrDie().value() == kUnreachableMethod) {
+    const ElfReader::SymbolInfo* method = ElfReader::SymbolContaining(funcs_, fun.ValueOrDie());
+    if (method == nullptr || method->name == kUnreachableMethod) {
       continue;
     }
-    return ReceiverFromMethod(method.ValueOrDie().value());
+    return ReceiverFromMethod(method->name);
   }
   return std::nullopt;
 }

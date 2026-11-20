@@ -34,6 +34,31 @@ on:
         required: false
         default: ''
         type: string
+  workflow_call:
+    inputs:
+      ref:
+        required: false
+        default: ''
+        type: string
+      targets:
+        required: true
+        type: string
+      config:
+        required: true
+        type: string
+      kernel:
+        required: false
+        default: '6.8.12'
+        type: string
+      args:
+        required: false
+        default: ''
+        type: string
+      label:
+        description: "Suffix that keeps artifact names unique within one run"
+        required: false
+        default: ''
+        type: string
 permissions:
   contents: read
 jobs:
@@ -84,13 +109,24 @@ jobs:
         read -r -a extra_args <<< "${EXTRA_ARGS}"
         read -r -a targets <<< "${TARGETS}"
         ./scripts/bazel_ignore_codes.sh test "${bazel_args[@]}" "${extra_args[@]}" -- "${targets[@]}" \
-          2> >(tee bazel_stderr)
+          2> >(tee bazel_stderr) | tee bazel_output
+    - name: Results
+      if: always()
+      shell: bash
+      run: |
+        touch bazel_output
+        sed 's/\x1b\[[0-9;]*m//g' bazel_output \
+          | grep -aE '^//[^ ]+ .*(PASSED|FAILED|FLAKY|TIMEOUT|NO STATUS)' \
+          | sed "s|^|${CONFIG} ${KERNEL} |" > results.txt || true
+        [[ -s results.txt ]] || echo "${CONFIG} ${KERNEL} ${TARGETS} NO RESULT" > results.txt
+        tee -a "${GITHUB_STEP_SUMMARY}" < results.txt
     - name: Upload test logs
       if: always()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
       with:
-        name: testlogs
+        name: testlogs${{ inputs.label && format('-{0}', inputs.label) || '' }}
         path: |
+          results.txt
           bazel-testlogs/**/test.log
           bazel-testlogs/**/test.xml
         if-no-files-found: ignore

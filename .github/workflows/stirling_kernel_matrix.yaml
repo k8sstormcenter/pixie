@@ -1,0 +1,117 @@
+---
+name: stirling-kernel-matrix
+run-name: ${{ inputs.suite || 'custom' }} ${{ inputs.ref || github.ref_name }}
+on:
+  push:
+    branches:
+    - 'ci/stirling-tests'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or commit to test"
+        required: true
+        type: string
+      suite:
+        description: "Set of BPF tests to run on every kernel"
+        required: true
+        type: choice
+        default: probes
+        options:
+        - probes
+        - go
+        - socket_tracer
+        - stirling
+        - custom
+      targets:
+        description: "Space separated list of bazel test targets for the custom suite"
+        required: false
+        default: ''
+        type: string
+      kernels:
+        description: "Space separated list of kernel versions"
+        required: false
+        default: '4.14.254 4.19.254 5.4.254 5.10.224 5.15.165 6.1.106 6.8.12'
+        type: string
+      per_target:
+        description: "Run every target in its own job"
+        required: false
+        default: false
+        type: boolean
+      args:
+        description: "Extra bazel flags"
+        required: false
+        default: '--cache_test_results=no --flaky_test_attempts=2'
+        type: string
+permissions:
+  contents: read
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      kernels: ${{ steps.plan.outputs.kernels }}
+      groups: ${{ steps.plan.outputs.groups }}
+    env:
+      SUITE: ${{ inputs.suite || 'custom' }}
+      TARGETS: ${{ inputs.targets || '//src/stirling/bpf_tools:bcc_wrapper_bpf_test' }}
+      KERNELS: ${{ inputs.kernels || '6.8.12' }}
+      PER_TARGET: ${{ inputs.per_target || false }}
+    steps:
+    - id: plan
+      shell: bash
+      run: |
+        socket_tracer="//src/stirling/source_connectors/socket_tracer"
+        case "${SUITE}" in
+          probes)
+            targets="${socket_tracer}:uprobe_manager_bpf_test"
+            ;;
+          go)
+            targets="${socket_tracer}:http2_trace_bpf_test ${socket_tracer}:grpc_trace_bpf_test"
+            targets+=" ${socket_tracer}:go_tls_trace_bpf_test"
+            ;;
+          socket_tracer)
+            targets="${socket_tracer}/..."
+            ;;
+          stirling)
+            targets="//src/stirling/..."
+            ;;
+          *)
+            targets="${TARGETS}"
+            ;;
+        esac
+        split='split(" ") | map(select(length > 0))'
+        groups="$(jq -cn --arg v "${targets}" '[$v]')"
+        if [[ "${PER_TARGET}" == "true" ]]; then
+          groups="$(jq -cn --arg v "${targets}" "\$v | ${split}")"
+        fi
+        echo "kernels=$(jq -cn --arg v "${KERNELS}" "\$v | ${split}")" >> "${GITHUB_OUTPUT}"
+        echo "groups=${groups}" >> "${GITHUB_OUTPUT}"
+  test:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel: ${{ fromJson(needs.plan.outputs.kernels) }}
+        targets: ${{ fromJson(needs.plan.outputs.groups) }}
+    uses: ./.github/workflows/stirling_test.yaml
+    with:
+      ref: ${{ inputs.ref }}
+      targets: ${{ matrix.targets }}
+      config: qemu-bpf
+      kernel: ${{ matrix.kernel }}
+      args: ${{ inputs.args || '--cache_test_results=no --flaky_test_attempts=2' }}
+      label: ${{ matrix.kernel }}-${{ strategy.job-index }}
+    secrets: inherit
+  report:
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+      with:
+        pattern: testlogs-*
+        path: logs
+    - name: Results
+      shell: bash
+      run: |
+        sort -V logs/*/results.txt | tee -a "${GITHUB_STEP_SUMMARY}"
+        ! grep -qE 'FAILED|TIMEOUT|NO STATUS|NO RESULT' logs/*/results.txt

@@ -891,12 +891,11 @@ void ConnTracker::DisableAndReport(std::string_view reason) {
   Disable(reason);
   StirlingMonitor::GetInstance()->AppendProbeStatusRecord(
       "socket_tracer", "conn_tracker", error::FailedPrecondition(std::string(reason)),
-      absl::Substitute(
-          R"({"pid":$0,"start_time_ticks":$1,"fd":$2,"protocol":"$3","role":"$4",)"
-          R"("remote_addr":"$5","remote_port":$6})",
-          conn_id_.upid.pid, conn_id_.upid.start_time_ticks, conn_id_.fd,
-          magic_enum::enum_name(protocol()), magic_enum::enum_name(role()),
-          open_info_.remote_addr.AddrStr(), open_info_.remote_addr.port()));
+      absl::Substitute(R"({"pid":$0,"start_time_ticks":$1,"fd":$2,"protocol":"$3","role":"$4",)"
+                       R"("remote_addr":"$5","remote_port":$6})",
+                       conn_id_.upid.pid, conn_id_.upid.start_time_ticks, conn_id_.fd,
+                       magic_enum::enum_name(protocol()), magic_enum::enum_name(role()),
+                       open_info_.remote_addr.AddrStr(), open_info_.remote_addr.port()));
 }
 
 void ConnTracker::CheckProcForConnClose() {

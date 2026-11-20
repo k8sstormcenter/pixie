@@ -28,6 +28,7 @@ pl_cc_library(
         exclude = [
             "**/*_test.cc",
             "**/*_benchmark.cc",
+            "**/*_tool.cc",
         ],
     ),
     hdrs = glob(["*.h"]),
@@ -69,6 +70,12 @@ pl_cc_test(
         "//src/stirling/source_connectors/socket_tracer/testing:cc_library",
         "//src/stirling/testing:cc_library",
     ],
+)
+
+pl_cc_binary(
+    name = "go_uprobe_analyze_tool",
+    srcs = ["go_uprobe_analyze_tool.cc"],
+    deps = [":cc_library"],
 )
 
 pl_cc_binary(

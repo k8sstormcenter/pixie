@@ -175,8 +175,8 @@ TEST(ParsePubMsgTest, DetectPushedMessage) {
 TEST(FindFrameBoundaryTest, FindsResp3Markers) {
   for (std::string_view msg : {kNullMsg, kTrueMsg, kDoubleMsg, kBigNumberMsg, kVerbatimStringMsg,
                                kBlobErrorMsg, kMapMsg, kSetMsg, kAttributeMsg, kPushPubMsg}) {
-    EXPECT_EQ(FindFrameBoundary<Message>(message_type_t::kResponse, absl::StrCat("xx", msg), 0,
-                                         nullptr),
+    EXPECT_EQ(FindFrameBoundary<Message, NoState>(message_type_t::kResponse,
+                                                  absl::StrCat("xx", msg), 0, nullptr),
               2U)
         << msg;
   }

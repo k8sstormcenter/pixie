@@ -368,7 +368,7 @@ TEST_F(GoGRPCH2CTraceTest, CapturesUnaryCallsOnStrippedGo127Server) {
 
   PX_CHECK_OK(client_.Run(std::chrono::seconds{30},
                           {absl::Substitute("--network=container:$0", server_.container_name())},
-                          {"-client", "-count", "3"}));
+                          {"-client", "-addr", "127.0.0.1:50051", "-count", "3"}));
   client_.Wait();
 
   StopTransferDataThread();

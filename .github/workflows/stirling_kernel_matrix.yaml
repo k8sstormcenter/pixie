@@ -89,6 +89,7 @@ jobs:
     needs: plan
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         kernel: ${{ fromJson(needs.plan.outputs.kernels) }}
         targets: ${{ fromJson(needs.plan.outputs.groups) }}

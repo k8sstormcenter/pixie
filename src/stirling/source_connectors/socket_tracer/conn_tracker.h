@@ -632,6 +632,8 @@ class ConnTracker : NotCopyMoveable {
   }
 
  private:
+  void DisableAndReport(std::string_view reason);
+
   /**
    * The iterations given for protocol detection by uprobes. The value is given to the worst
    * situation when the uprobe events are polled after the kprobe events.

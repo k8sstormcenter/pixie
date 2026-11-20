@@ -42,6 +42,10 @@ constexpr size_t kSNIExtensionMinimumLength = 3;
 // In TLS 1.2 and earlier, gmt_unix_time is 4 bytes and Random is 28 bytes.
 constexpr size_t kRandomStructLength = 32;
 
+constexpr std::string_view kHelloRetryRequestRandom =
+    "\xCF\x21\xAD\x74\xE5\x9A\x61\x11\xBE\x1D\x8C\x02\x1E\x65\xB8\x91"
+    "\xC2\xA2\x11\x16\x7A\xBB\x8C\x5E\x07\x9E\x09\xE2\xC8\xA8\x33\x9C";
+
 StatusOr<ParseState> ExtractSNIExtension(SharedExtensions* exts, BinaryDecoder* decoder) {
   PX_ASSIGN_OR(auto server_name_list_length, decoder->ExtractBEInt<uint16_t>(),
                return ParseState::kInvalid);
@@ -61,6 +65,61 @@ StatusOr<ParseState> ExtractSNIExtension(SharedExtensions* exts, BinaryDecoder* 
     server_name_list_length -= kSNIExtensionMinimumLength + server_name_length;
   }
   return ParseState::kSuccess;
+}
+
+Status ExtractUint16List(std::vector<int32_t>* values, BinaryDecoder* decoder) {
+  while (!decoder->eof()) {
+    PX_ASSIGN_OR_RETURN(auto value, decoder->ExtractBEInt<uint16_t>());
+    values->push_back(value);
+  }
+  return Status::OK();
+}
+
+Status ExtractKeyShareExtension(bool client_hello, SharedExtensions* exts, BinaryDecoder* decoder) {
+  if (client_hello) {
+    PX_RETURN_IF_ERROR(decoder->ExtractBufIgnore(sizeof(uint16_t)));
+  }
+  while (!decoder->eof()) {
+    PX_ASSIGN_OR_RETURN(auto group, decoder->ExtractBEInt<uint16_t>());
+    exts->key_share.push_back(group);
+    if (decoder->eof()) {
+      break;
+    }
+    PX_ASSIGN_OR_RETURN(auto key_exchange_length, decoder->ExtractBEInt<uint16_t>());
+    PX_RETURN_IF_ERROR(decoder->ExtractBufIgnore(key_exchange_length));
+  }
+  return Status::OK();
+}
+
+Status ExtractALPNExtension(SharedExtensions* exts, BinaryDecoder* decoder) {
+  PX_RETURN_IF_ERROR(decoder->ExtractBufIgnore(sizeof(uint16_t)));
+  while (!decoder->eof()) {
+    PX_ASSIGN_OR_RETURN(auto protocol_length, decoder->ExtractBEInt<uint8_t>());
+    PX_ASSIGN_OR_RETURN(auto protocol, decoder->ExtractString(protocol_length));
+    exts->alpn.push_back(std::string(protocol));
+  }
+  return Status::OK();
+}
+
+Status ExtractExtension(ExtensionType extension_type, bool client_hello, SharedExtensions* exts,
+                        BinaryDecoder* decoder) {
+  if (extension_type == ExtensionType::kSupportedGroups) {
+    PX_RETURN_IF_ERROR(decoder->ExtractBufIgnore(sizeof(uint16_t)));
+    return ExtractUint16List(&exts->supported_groups, decoder);
+  }
+  if (extension_type == ExtensionType::kSupportedVersions) {
+    if (client_hello) {
+      PX_RETURN_IF_ERROR(decoder->ExtractBufIgnore(sizeof(uint8_t)));
+    }
+    return ExtractUint16List(&exts->supported_versions, decoder);
+  }
+  if (extension_type == ExtensionType::kKeyShare) {
+    return ExtractKeyShareExtension(client_hello, exts, decoder);
+  }
+  if (extension_type == ExtensionType::kALPN) {
+    return ExtractALPNExtension(exts, decoder);
+  }
+  return Status::OK();
 }
 
 /*
@@ -124,10 +183,8 @@ ParseState ParseFullFrame(SharedExtensions* extensions, BinaryDecoder* decoder, 
   }
   frame->handshake_version = handshake_version.value();
 
-  // Skip the random struct.
-  if (!decoder->ExtractBufIgnore(kRandomStructLength).ok()) {
-    return ParseState::kInvalid;
-  }
+  PX_ASSIGN_OR(auto random, decoder->ExtractString(kRandomStructLength),
+               return ParseState::kInvalid);
 
   PX_ASSIGN_OR(auto session_id_len, decoder->ExtractBEInt<uint8_t>(), return ParseState::kInvalid);
   if (session_id_len > 32) {
@@ -139,10 +196,10 @@ ParseState ParseFullFrame(SharedExtensions* extensions, BinaryDecoder* decoder, 
                  return ParseState::kInvalid);
   }
 
-  PX_ASSIGN_OR(auto cipher_suite_length, decoder->ExtractBEInt<uint16_t>(),
+  PX_ASSIGN_OR(auto cipher_suite_or_length, decoder->ExtractBEInt<uint16_t>(),
                return ParseState::kInvalid);
   if (frame->handshake_type == HandshakeType::kClientHello) {
-    if (!decoder->ExtractBufIgnore(cipher_suite_length).ok()) {
+    if (!decoder->ExtractBufIgnore(cipher_suite_or_length).ok()) {
       return ParseState::kInvalid;
     }
   }
@@ -155,11 +212,9 @@ ParseState ParseFullFrame(SharedExtensions* extensions, BinaryDecoder* decoder, 
     }
   }
 
-  // TODO(ddelnano): Test TLS 1.2 and earlier where extensions are not present
-  PX_ASSIGN_OR(auto extensions_length, decoder->ExtractBEInt<uint16_t>(),
-               return ParseState::kInvalid);
-  if (extensions_length == 0) {
-    return ParseState::kSuccess;
+  uint16_t extensions_length = 0;
+  if (!decoder->eof()) {
+    PX_ASSIGN_OR(extensions_length, decoder->ExtractBEInt<uint16_t>(), return ParseState::kInvalid);
   }
 
   while (extensions_length > 0) {
@@ -174,7 +229,13 @@ ParseState ParseFullFrame(SharedExtensions* extensions, BinaryDecoder* decoder, 
           return ParseState::kInvalid;
         }
       } else {
-        if (!decoder->ExtractBufIgnore(extension_length).ok()) {
+        PX_ASSIGN_OR(auto extension_data, decoder->ExtractString(extension_length),
+                     return ParseState::kInvalid);
+        BinaryDecoder extension_decoder(extension_data);
+        if (!ExtractExtension(static_cast<ExtensionType>(extension_type),
+                              frame->handshake_type == HandshakeType::kClientHello, extensions,
+                              &extension_decoder)
+                 .ok()) {
           return ParseState::kInvalid;
         }
       }
@@ -184,6 +245,19 @@ ParseState ParseFullFrame(SharedExtensions* extensions, BinaryDecoder* decoder, 
   }
   JSONObjectBuilder body_builder;
   body_builder.WriteKVRecursive("extensions", *extensions);
+  if (frame->handshake_type == HandshakeType::kServerHello) {
+    const auto& versions = extensions->supported_versions;
+    const auto& key_share = extensions->key_share;
+    std::string_view group_source = "not_in_server_hello";
+    if (!key_share.empty()) {
+      group_source = random == kHelloRetryRequestRandom ? "hello_retry_request" : "key_share";
+    }
+    body_builder.WriteKV("version", versions.empty() ? static_cast<int>(frame->handshake_version)
+                                                     : versions.front());
+    body_builder.WriteKV("cipher_suite", static_cast<int>(cipher_suite_or_length));
+    body_builder.WriteKV("group", key_share.empty() ? 0 : key_share.front());
+    body_builder.WriteKV("group_source", group_source);
+  }
   frame->body = body_builder.GetString();
 
   return ParseState::kSuccess;
@@ -202,7 +276,7 @@ ParseState ParseFrame(message_type_t type, std::string_view* buf, tls::Frame* fr
     return ParseState::kNeedsMoreData;
   }
 
-  BinaryDecoder decoder(*buf);
+  BinaryDecoder decoder(buf->substr(0, length + tls::kTLSRecordHeaderLength));
   std::unique_ptr<tls::SharedExtensions> extensions;
   if (type == kRequest) {
     extensions = std::make_unique<tls::ReqExtensions>();

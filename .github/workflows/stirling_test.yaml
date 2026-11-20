@@ -74,6 +74,7 @@ jobs:
         sysctl -w net.ipv6.conf.lo.disable_ipv6=0
 
         bazel_args=("--config=${CONFIG}" "--compilation_mode=opt" "--local_ram_resources=28000")
+        bazel_args+=("--test_output=errors")
         if [[ "${CONFIG}" == "qemu-bpf" ]]; then
           # Our qemu builds require unprivileged user namespaces to run.
           sysctl -w kernel.unprivileged_userns_clone=1

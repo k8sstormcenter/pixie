@@ -1,7 +1,12 @@
 ---
 name: go-protos
-run-name: go-protos ${{ inputs.ref }}
+run-name: go-protos ${{ inputs.ref || github.ref_name }}
 on:
+  push:
+    branches:
+    - 'ci/stirling-tests'
+    paths:
+    - '.github/workflows/go_protos.yaml'
   workflow_dispatch:
     inputs:
       ref:
@@ -21,6 +26,7 @@ jobs:
       image-base-name: "dev_image"
       ref: ${{ inputs.ref }}
   generate:
+    if: ${{ inputs.labels != '' }}
     runs-on: oracle-vm-16cpu-64gb-x86-64
     needs: get-dev-image
     timeout-minutes: 120

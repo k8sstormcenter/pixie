@@ -514,6 +514,27 @@ StatusOr<std::array<UProbeTmpl, 6>> UProbeManager::GetNodeOpensslUProbeTmpls(con
   return iter->second;
 }
 
+std::set<std::string> UProbeManager::ProbeFuncs() {
+  std::set<std::string> probe_fns;
+  auto add = [&probe_fns](const auto& probes) {
+    for (const auto& probe : probes) {
+      probe_fns.emplace(probe.probe_fn);
+    }
+  };
+  add(kHTTP2ProbeTmpls);
+  add(kGoTLSUProbeTmpls);
+  add(kNodeOpenSSLUProbeTmplsV12_3_1);
+  add(kNodeOpenSSLUProbeTmplsV15_0_0);
+  add(kGrpcCUProbes);
+  add(kGrpcCDataParserParseUProbes);
+  add(kOpenSSLUProbes);
+  for (const auto& spec : kOpenSSLUProbes) {
+    probe_fns.insert(
+        ProbeFuncForSocketAccessMethod(spec.probe_fn, SSLSocketFDAccess::kNestedSyscall));
+  }
+  return probe_fns;
+}
+
 StatusOr<int> UProbeManager::AttachOpenSSLUProbesOnStaticBinary(
     const uint32_t pid, const std::filesystem::path& proc_exe) {
   const auto host_proc_exe = ProcPidRootPath(pid, proc_exe);

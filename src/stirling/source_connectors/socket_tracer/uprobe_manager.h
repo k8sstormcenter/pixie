@@ -22,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -116,6 +117,8 @@ class UProbeManager {
    * Returns true if a previously dispatched thread (via RunDeployUProbesThread is still running).
    */
   bool ThreadsRunning() { return num_deploy_uprobes_threads_ != 0; }
+
+  static std::set<std::string> ProbeFuncs();
 
  private:
   inline static constexpr auto kHTTP2ProbeTmpls = MakeArray<UProbeTmpl>({

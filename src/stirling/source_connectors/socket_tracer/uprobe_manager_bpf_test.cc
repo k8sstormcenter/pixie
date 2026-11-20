@@ -32,6 +32,7 @@
 #include "src/common/testing/temp_dir.h"
 #include "src/common/testing/testing.h"
 #include "src/stirling/source_connectors/socket_tracer/testing/socket_trace_bpf_test_fixture.h"
+#include "src/stirling/source_connectors/socket_tracer/uprobe_manager.h"
 #include "src/stirling/testing/go_https_server_fixture.h"
 #include "src/stirling/utils/monitor.h"
 
@@ -121,6 +122,19 @@ TEST_F(UProbeManagerBPFTest, GoBinaryFailureIsAnalyzedOncePerFile) {
   EXPECT_EQ(std::count_if(records.begin(), records.end(),
                           [&](const SourceStatusRecord& r) { return IsServerRecord(r); }),
             1);
+}
+
+class UProbeLoadBPFTest
+    : public testing::SocketTraceBPFTestFixture</* TClientSideTracing */ false> {};
+
+TEST_F(UProbeLoadBPFTest, EveryProbeLoads) {
+  ebpf::BPF* bpf = source_->BCC().BPF().ConsumeValueOrDie();
+
+  for (const std::string& probe_fn : UProbeManager::ProbeFuncs()) {
+    int fd = -1;
+    const ebpf::StatusTuple status = bpf->load_func(probe_fn, BPF_PROG_TYPE_KPROBE, fd);
+    EXPECT_TRUE(status.ok()) << probe_fn << ": " << status.msg();
+  }
 }
 
 }  // namespace stirling

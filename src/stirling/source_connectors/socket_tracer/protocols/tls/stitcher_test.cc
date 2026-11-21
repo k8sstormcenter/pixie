@@ -139,6 +139,29 @@ TEST_F(StitchFramesTest, HelloRetryRequestRecordPrecedesFinalServerHello) {
   EXPECT_THAT(resps, IsEmpty());
 }
 
+TEST_F(StitchFramesTest, ResponseIsNotMatchedWithLaterRequest) {
+  std::deque<tls::Frame> reqs = {
+      CreateNonHandshakeFrame(2, tls::ContentType::kChangeCipherSpec, tls::LegacyVersion::kTLS1_2),
+      CreateTLSFrame(3, tls::ContentType::kHandshake, tls::LegacyVersion::kTLS1_2,
+                     tls::HandshakeType::kClientHello, "session_id"),
+  };
+  std::deque<tls::Frame> resps = {
+      CreateTLSFrame(1, tls::ContentType::kHandshake, tls::LegacyVersion::kTLS1_2,
+                     tls::HandshakeType::kServerHello, "session_id"),
+      CreateNonHandshakeFrame(2, tls::ContentType::kChangeCipherSpec, tls::LegacyVersion::kTLS1_2),
+      CreateTLSFrame(4, tls::ContentType::kHandshake, tls::LegacyVersion::kTLS1_2,
+                     tls::HandshakeType::kServerHello, "session_id"),
+  };
+  resps[0].body = R"({"group_source":"hello_retry_request"})";
+  resps[2].body = R"({"group_source":"key_share"})";
+  RecordsWithErrorCount<tls::Record> result = tls::StitchFrames(&reqs, &resps);
+  ASSERT_THAT(result.records, SizeIs(1));
+  EXPECT_EQ(result.records[0].req.timestamp_ns, 3);
+  EXPECT_THAT(result.records[0].resp.body, StrEq(R"({"group_source":"key_share"})"));
+  EXPECT_THAT(reqs, IsEmpty());
+  EXPECT_THAT(resps, IsEmpty());
+}
+
 }  // namespace protocols
 }  // namespace stirling
 }  // namespace px

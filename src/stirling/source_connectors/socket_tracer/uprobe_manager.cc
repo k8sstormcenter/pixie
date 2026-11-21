@@ -514,27 +514,6 @@ StatusOr<std::array<UProbeTmpl, 6>> UProbeManager::GetNodeOpensslUProbeTmpls(con
   return iter->second;
 }
 
-std::set<std::string> UProbeManager::ProbeFuncs() {
-  std::set<std::string> probe_fns;
-  auto add = [&probe_fns](const auto& probes) {
-    for (const auto& probe : probes) {
-      probe_fns.emplace(probe.probe_fn);
-    }
-  };
-  add(kHTTP2ProbeTmpls);
-  add(kGoTLSUProbeTmpls);
-  add(kNodeOpenSSLUProbeTmplsV12_3_1);
-  add(kNodeOpenSSLUProbeTmplsV15_0_0);
-  add(kGrpcCUProbes);
-  add(kGrpcCDataParserParseUProbes);
-  add(kOpenSSLUProbes);
-  for (const auto& spec : kOpenSSLUProbes) {
-    probe_fns.insert(
-        ProbeFuncForSocketAccessMethod(spec.probe_fn, SSLSocketFDAccess::kNestedSyscall));
-  }
-  return probe_fns;
-}
-
 StatusOr<int> UProbeManager::AttachOpenSSLUProbesOnStaticBinary(
     const uint32_t pid, const std::filesystem::path& proc_exe) {
   const auto host_proc_exe = ProcPidRootPath(pid, proc_exe);
@@ -593,11 +572,14 @@ StatusOr<int> UProbeManager::AttachNodeJsOpenSSLUprobes(const uint32_t pid,
   }
 
   // These are node-specific probes.
+  bpf_tools::UProbeSpec ssl_new_spec = kNodeSSLNewUProbe;
+  ssl_new_spec.binary_path = host_proc_exe.string();
+  PX_RETURN_IF_ERROR(LogAndAttachUProbe(ssl_new_spec));
   PX_ASSIGN_OR_RETURN(auto uprobe_tmpls, GetNodeOpensslUProbeTmpls(ver));
   PX_ASSIGN_OR_RETURN(auto elf_reader, ElfReader::Create(host_proc_exe));
   PX_ASSIGN_OR_RETURN(int count, AttachUProbeTmpl(uprobe_tmpls, host_proc_exe, elf_reader.get()));
 
-  return kOpenSSLUProbes.size() + count;
+  return kOpenSSLUProbes.size() + 1 + count;
 }
 
 StatusOr<int> UProbeManager::AttachGoTLSUProbes(const std::string& binary,
@@ -1033,6 +1015,32 @@ bool KernelVersionAllowsGRPCCTracing() {
     return order == KernelVersionOrder::kSame || order == KernelVersionOrder::kNewer;
   }
   return false;
+}
+
+std::set<std::string> UProbeManager::ProbeFuncs() {
+  std::set<std::string> probe_fns;
+  auto add = [&probe_fns](const auto& probes) {
+    for (const auto& probe : probes) {
+      probe_fns.emplace(probe.probe_fn);
+    }
+  };
+  add(kHTTP2ProbeTmpls);
+  add(kGoTLSUProbeTmpls);
+  add(kNodeOpenSSLUProbeTmplsV12_3_1);
+  add(kNodeOpenSSLUProbeTmplsV15_0_0);
+  probe_fns.emplace(kNodeSSLNewUProbe.probe_fn);
+  if (KernelVersionAllowsGRPCCTracing()) {
+    add(kGrpcCUProbes);
+    add(kGrpcCDataParserParseUProbes);
+  }
+  for (const auto& spec : kOpenSSLUProbes) {
+    if (!spec.is_optional) {
+      probe_fns.emplace(spec.probe_fn);
+    }
+    probe_fns.insert(
+        ProbeFuncForSocketAccessMethod(spec.probe_fn, SSLSocketFDAccess::kNestedSyscall));
+  }
+  return probe_fns;
 }
 
 void UProbeManager::DeployUProbes(const absl::flat_hash_set<md::UPID>& pids) {

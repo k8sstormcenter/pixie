@@ -517,15 +517,15 @@ class UProbeManager {
           .probe_fn = "probe_ret_SSL_read_ex",
           .is_optional = true,
       },
-      // Used by node tracing to record the mapping from SSL object to TLSWrap object.
-      // TODO(yzhao): Move this to a separate list for node application only.
-      bpf_tools::UProbeSpec{
-          .binary_path = "/usr/lib/x86_64-linux-gnu/libssl.so.1.1",
-          .symbol = "SSL_new",
-          .attach_type = bpf_tools::BPFProbeAttachType::kReturn,
-          .probe_fn = "probe_ret_SSL_new",
-      },
   });
+
+  // Used by node tracing to record the mapping from SSL object to TLSWrap object.
+  inline static const bpf_tools::UProbeSpec kNodeSSLNewUProbe{
+      .binary_path = "/usr/lib/x86_64-linux-gnu/libssl.so.1.1",
+      .symbol = "SSL_new",
+      .attach_type = bpf_tools::BPFProbeAttachType::kReturn,
+      .probe_fn = "probe_ret_SSL_new",
+  };
 
   /**
    * Deploys all available uprobe types (HTTP2, OpenSSL, etc.) on new processes.

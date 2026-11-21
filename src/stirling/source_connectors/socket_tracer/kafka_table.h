@@ -35,6 +35,7 @@ static const std::map<int64_t, std::string_view> kKafkaAPIKeyDecoder =
 static constexpr DataElement kKafkaElements[] = {
       canonical_data_elements::kTime,
       canonical_data_elements::kUPID,
+      canonical_data_elements::kConnID,
       canonical_data_elements::kRemoteAddr,
       canonical_data_elements::kRemotePort,
       canonical_data_elements::kLocalAddr,

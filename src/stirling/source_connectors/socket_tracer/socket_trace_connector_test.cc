@@ -304,9 +304,8 @@ TEST_F(SocketTraceConnectorTest, ConnectionsTableHasOneRowPerChangedConnection) 
               UnorderedElementsAre(20, 2));
   EXPECT_THAT(ToIntVector<types::Int64Value>(records[kConnectionsTable.ColIndex("bytes_recv")]),
               UnorderedElementsAre(10, 1));
-  EXPECT_THAT(
-      ToIntVector<types::Int64Value>(records[kConnectionsTable.ColIndex("wire_tls_bytes")]),
-      UnorderedElementsAre(30, 0));
+  EXPECT_THAT(ToIntVector<types::Int64Value>(records[kConnectionsTable.ColIndex("wire_tls_bytes")]),
+              UnorderedElementsAre(30, 0));
   EXPECT_THAT(
       ToIntVector<types::Int64Value>(records[kConnectionsTable.ColIndex("wire_non_tls_bytes")]),
       UnorderedElementsAre(0, 3));

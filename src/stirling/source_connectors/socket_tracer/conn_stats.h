@@ -20,6 +20,7 @@
 
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <absl/container/flat_hash_map.h>
 #include <absl/container/flat_hash_set.h>
@@ -107,8 +108,14 @@ class ConnStats {
 
   bool Active(const Stats& stats) { return update_counter_ == stats.last_update; }
 
+  /**
+   * The trackers whose stats changed in the last call to UpdateStats().
+   */
+  const std::vector<ConnTracker*>& changed_trackers() const { return changed_trackers_; }
+
  private:
   absl::flat_hash_map<AggKey, Stats> agg_stats_;
+  std::vector<ConnTracker*> changed_trackers_;
 
   ConnTrackersManager* conn_trackers_mgr_ = nullptr;
 

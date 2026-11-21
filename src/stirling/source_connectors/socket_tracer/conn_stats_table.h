@@ -26,41 +26,69 @@ namespace px {
 namespace stirling {
 
 // clang-format off
+namespace conn_stats_elements {
+constexpr DataElement kAddrFamily =
+    {"addr_family", "The socket address family of the connection.",
+     types::DataType::INT64, types::SemanticType::ST_NONE, types::PatternType::GENERAL_ENUM,
+     &kSockAddrFamilyDecoder};
+constexpr DataElement kProtocol =
+    {"protocol", "The protocol of the traffic on the connections.",
+     types::DataType::INT64, types::SemanticType::ST_NONE, types::PatternType::GENERAL_ENUM,
+     &kTrafficProtocolDecoder};
+constexpr DataElement kSSL =
+    {"ssl", "Was SSL traffic detected on this connection.",
+     types::DataType::BOOLEAN, types::SemanticType::ST_NONE, types::PatternType::GENERAL_ENUM};
+constexpr DataElement kConnOpen =
+    {"conn_open", "The number of connections opened since the beginning of tracing.",
+     types::DataType::INT64, types::SemanticType::ST_NONE, types::PatternType::METRIC_COUNTER};
+constexpr DataElement kConnClose =
+    {"conn_close", "The number of connections closed since the beginning of tracing.",
+     types::DataType::INT64, types::SemanticType::ST_NONE, types::PatternType::METRIC_COUNTER};
+constexpr DataElement kConnActive =
+    {"conn_active", "The number of active connections",
+     types::DataType::INT64, types::SemanticType::ST_NONE, types::PatternType::METRIC_GAUGE};
+constexpr DataElement kBytesSent =
+    {"bytes_sent", "The number of bytes sent to the remote endpoint(s).",
+     types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER};
+constexpr DataElement kBytesRecv =
+    {"bytes_recv", "The number of bytes received from the remote endpoint(s).",
+     types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER};
+constexpr DataElement kWireTLSBytes =
+    {"wire_tls_bytes",
+     "The number of bytes passed to socket syscalls inside TLS records, in both directions. "
+     "With kernel TLS the syscalls carry plaintext, which is not counted here.",
+     types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER};
+constexpr DataElement kWireNonTLSBytes =
+    {"wire_non_tls_bytes",
+     "The number of bytes passed to socket syscalls outside TLS records, in both directions.",
+     types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER};
+constexpr DataElement kWireUnexaminedBytes =
+    {"wire_unexamined_bytes",
+     "The number of bytes passed to socket syscalls that were not matched against the TLS "
+     "record layer, in both directions.",
+     types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER};
+constexpr DataElement kClosed =
+    {"closed", "Whether the connection has been closed.",
+     types::DataType::BOOLEAN, types::SemanticType::ST_NONE, types::PatternType::GENERAL_ENUM};
+}  // namespace conn_stats_elements
+
 constexpr DataElement kConnStatsElements[] = {
         canonical_data_elements::kTime,
         canonical_data_elements::kUPID,
         canonical_data_elements::kRemoteAddr,
         canonical_data_elements::kRemotePort,
         canonical_data_elements::kTraceRole,
-        {"addr_family", "The socket address family of the connection.",
-         types::DataType::INT64, types::SemanticType::ST_NONE, types::PatternType::GENERAL_ENUM,
-         &kSockAddrFamilyDecoder},
-        {"protocol", "The protocol of the traffic on the connections.",
-         types::DataType::INT64, types::SemanticType::ST_NONE, types::PatternType::GENERAL_ENUM,
-         &kTrafficProtocolDecoder},
-        {"ssl", "Was SSL traffic detected on this connection.",
-         types::DataType::BOOLEAN, types::SemanticType::ST_NONE, types::PatternType::GENERAL_ENUM},
-        {"conn_open", "The number of connections opened since the beginning of tracing.",
-         types::DataType::INT64, types::SemanticType::ST_NONE, types::PatternType::METRIC_COUNTER},
-        {"conn_close", "The number of connections closed since the beginning of tracing.",
-         types::DataType::INT64, types::SemanticType::ST_NONE, types::PatternType::METRIC_COUNTER},
-        {"conn_active", "The number of active connections",
-         types::DataType::INT64, types::SemanticType::ST_NONE, types::PatternType::METRIC_GAUGE},
-        {"bytes_sent", "The number of bytes sent to the remote endpoint(s).",
-         types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER},
-        {"bytes_recv", "The number of bytes received from the remote endpoint(s).",
-         types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER},
-        {"wire_tls_bytes",
-         "The number of bytes passed to socket syscalls inside TLS records, in both directions. "
-         "With kernel TLS the syscalls carry plaintext, which is not counted here.",
-         types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER},
-        {"wire_non_tls_bytes",
-         "The number of bytes passed to socket syscalls outside TLS records, in both directions.",
-         types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER},
-        {"wire_unexamined_bytes",
-         "The number of bytes passed to socket syscalls that were not matched against the TLS "
-         "record layer, in both directions.",
-         types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER},
+        conn_stats_elements::kAddrFamily,
+        conn_stats_elements::kProtocol,
+        conn_stats_elements::kSSL,
+        conn_stats_elements::kConnOpen,
+        conn_stats_elements::kConnClose,
+        conn_stats_elements::kConnActive,
+        conn_stats_elements::kBytesSent,
+        conn_stats_elements::kBytesRecv,
+        conn_stats_elements::kWireTLSBytes,
+        conn_stats_elements::kWireNonTLSBytes,
+        conn_stats_elements::kWireUnexaminedBytes,
 #ifndef NDEBUG
         canonical_data_elements::kPXInfo,
 #endif
@@ -74,6 +102,39 @@ constexpr DataTableSchema kConnStatsTable(
     "Network-Layer Stats (network_stats) table.",
     kConnStatsElements);
 DEFINE_PRINT_TABLE(ConnStats)
+
+// clang-format off
+constexpr DataElement kConnectionsElements[] = {
+        canonical_data_elements::kTime,
+        canonical_data_elements::kUPID,
+        canonical_data_elements::kConnID,
+        canonical_data_elements::kRemoteAddr,
+        canonical_data_elements::kRemotePort,
+        canonical_data_elements::kLocalAddr,
+        canonical_data_elements::kLocalPort,
+        canonical_data_elements::kTraceRole,
+        conn_stats_elements::kAddrFamily,
+        conn_stats_elements::kProtocol,
+        conn_stats_elements::kSSL,
+        conn_stats_elements::kClosed,
+        conn_stats_elements::kBytesSent,
+        conn_stats_elements::kBytesRecv,
+        conn_stats_elements::kWireTLSBytes,
+        conn_stats_elements::kWireNonTLSBytes,
+        conn_stats_elements::kWireUnexaminedBytes,
+#ifndef NDEBUG
+        canonical_data_elements::kPXInfo,
+#endif
+};
+// clang-format on
+
+constexpr DataTableSchema kConnectionsTable(
+    "connections",
+    "Per-connection stats. This table contains one row per connection for every reporting "
+    "interval in which the connection changed, with counters since the connection was first "
+    "traced.",
+    kConnectionsElements);
+DEFINE_PRINT_TABLE(Connections)
 
 namespace conn_stats_idx {
 

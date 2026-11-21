@@ -19,6 +19,7 @@
 #pragma once
 
 #include <absl/container/flat_hash_map.h>
+#include <absl/numeric/int128.h>
 #include <any>
 #include <deque>
 #include <list>
@@ -146,6 +147,9 @@ class ConnTracker : NotCopyMoveable {
 
     int64_t bytes_recv() const { return bytes_recv_; }
     int64_t bytes_sent() const { return bytes_sent_; }
+    int64_t wire_tls_bytes() const { return wire_tls_bytes_; }
+    int64_t wire_non_tls_bytes() const { return wire_non_tls_bytes_; }
+    int64_t wire_unexamined_bytes() const { return wire_unexamined_bytes_; }
     bool closed() const { return closed_; }
 
     bool OpenSinceLastRead() {
@@ -358,6 +362,9 @@ class ConnTracker : NotCopyMoveable {
   }
 
   const conn_id_t& conn_id() const { return conn_id_; }
+  absl::uint128 conn_id_value() const {
+    return absl::MakeUint128(static_cast<uint32_t>(conn_id_.fd), conn_id_.tsid);
+  }
   traffic_protocol_t protocol() const { return protocol_; }
   endpoint_role_t role() const { return role_; }
   bool ssl() const { return ssl_; }

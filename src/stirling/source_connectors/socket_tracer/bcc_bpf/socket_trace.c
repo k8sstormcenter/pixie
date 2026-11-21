@@ -908,9 +908,8 @@ static __inline void submit_tls_handshake(struct pt_regs* ctx, enum traffic_dire
   perf_submit_buf(ctx, direction, (const char*)scan->buf, scan->buf_size, conn_info, event);
 }
 
-static __attribute__((noinline)) int scan_wire_bytes(struct pt_regs* ctx,
-                                                     struct conn_info_t* conn_info,
-                                                     struct tls_record_scan_t* scan) {
+static noinline int scan_wire_bytes(struct pt_regs* ctx, struct conn_info_t* conn_info,
+                                    struct tls_record_scan_t* scan) {
   enum traffic_direction_t direction = scan->direction;
   update_wire_tls_bytes(conn_info, direction, scan);
   if (scan->trace_handshake) {

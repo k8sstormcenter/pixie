@@ -572,11 +572,14 @@ StatusOr<int> UProbeManager::AttachNodeJsOpenSSLUprobes(const uint32_t pid,
   }
 
   // These are node-specific probes.
+  bpf_tools::UProbeSpec ssl_new_spec = kNodeSSLNewUProbe;
+  ssl_new_spec.binary_path = host_proc_exe.string();
+  PX_RETURN_IF_ERROR(LogAndAttachUProbe(ssl_new_spec));
   PX_ASSIGN_OR_RETURN(auto uprobe_tmpls, GetNodeOpensslUProbeTmpls(ver));
   PX_ASSIGN_OR_RETURN(auto elf_reader, ElfReader::Create(host_proc_exe));
   PX_ASSIGN_OR_RETURN(int count, AttachUProbeTmpl(uprobe_tmpls, host_proc_exe, elf_reader.get()));
 
-  return kOpenSSLUProbes.size() + count;
+  return kOpenSSLUProbes.size() + 1 + count;
 }
 
 StatusOr<int> UProbeManager::AttachGoTLSUProbes(const std::string& binary,
@@ -1025,6 +1028,7 @@ std::set<std::string> UProbeManager::ProbeFuncs() {
   add(kGoTLSUProbeTmpls);
   add(kNodeOpenSSLUProbeTmplsV12_3_1);
   add(kNodeOpenSSLUProbeTmplsV15_0_0);
+  probe_fns.emplace(kNodeSSLNewUProbe.probe_fn);
   if (KernelVersionAllowsGRPCCTracing()) {
     add(kGrpcCUProbes);
     add(kGrpcCDataParserParseUProbes);

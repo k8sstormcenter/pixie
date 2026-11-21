@@ -40,7 +40,7 @@
 #if BPF_LOOP_LIMIT > 41
 #define TLS_RECORD_LIMIT 16
 #else
-#define TLS_RECORD_LIMIT 2
+#define TLS_RECORD_LIMIT 1
 #endif
 #define TLS_RECORD_HEADER_SIZE 5
 
@@ -825,13 +825,13 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
       return;
     }
 
-    uint64_t chunk = 0;
+    state->chunk = 0;
     if (i == TLS_RECORD_LIMIT || pos >= buf_size ||
-        bpf_probe_read(&chunk, TLS_RECORD_HEADER_SIZE, buf + pos) != 0) {
+        bpf_probe_read(&state->chunk, TLS_RECORD_HEADER_SIZE, buf + pos) != 0) {
       break;
     }
     uint8_t held = state->header_len & 0x7;
-    uint64_t header = state->header | (chunk << (8 * held));
+    uint64_t header = state->header | (state->chunk << (8 * held));
     size_t available = buf_size - pos;
     if (held + available < TLS_RECORD_HEADER_SIZE) {
       if (buf_size != bytes_count) {

@@ -44,10 +44,11 @@ union sockaddr_t {
 // This struct contains information collected when a connection is established,
 // via an accept() syscall.
 struct tls_record_state_t {
-  bool synced;
-  uint8_t header_len;
+  uint64_t chunk;
   uint32_t remaining;
-  uint64_t header;
+  uint32_t header;
+  uint8_t header_len;
+  bool synced;
 };
 
 struct conn_info_t {

@@ -249,6 +249,8 @@ class ConnTracker : NotCopyMoveable {
    */
   void AddDataEvent(std::unique_ptr<SocketDataEvent> event);
 
+  void AddHandshakeEvent(std::unique_ptr<SocketDataEvent> event);
+
   /**
    * Registers a BPF connection stats event into the tracker.
    *
@@ -493,6 +495,8 @@ class ConnTracker : NotCopyMoveable {
     current_time_ = time;
     recv_data_.set_current_time(time);
     send_data_.set_current_time(time);
+    handshake_recv_data_.set_current_time(time);
+    handshake_send_data_.set_current_time(time);
 
     // If there's no previous activity, set to current time.
     if (last_activity_timestamp_.time_since_epoch().count() == 0) {
@@ -518,6 +522,12 @@ class ConnTracker : NotCopyMoveable {
    * Should be called once per sampling, after ProcessToRecords().
    */
   void IterationPostTick();
+
+  std::vector<protocols::tls::Record> ProcessHandshakeToRecords();
+
+  void CleanupHandshake(size_t frame_size_limit_bytes, size_t buffer_size_limit_bytes,
+                        std::chrono::time_point<std::chrono::steady_clock> frame_expiry_timestamp,
+                        std::chrono::time_point<std::chrono::steady_clock> buffer_expiry_timestamp);
 
   bool MaybeUpgradeToWebSocket();
 
@@ -758,6 +768,9 @@ class ConnTracker : NotCopyMoveable {
   // The data collected by the stream, one per direction.
   DataStream send_data_;
   DataStream recv_data_;
+
+  DataStream handshake_send_data_;
+  DataStream handshake_recv_data_;
 
   // Uprobe-based HTTP2 uses a different scheme, where it holds client and server-initiated streams,
   // instead of send and recv messages. As such, we create aliases for HTTP2.

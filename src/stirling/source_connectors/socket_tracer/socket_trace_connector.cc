@@ -908,6 +908,10 @@ void SocketTraceConnector::TransferDataImpl(ConnectorContext* ctx) {
       DCHECK((conn_tracker->recv_data().Empty<stream_id_t, message_t>()));
     }
 
+    if (protocol_transfer_specs_[kProtocolTLS].enabled) {
+      TransferHandshake(ctx, conn_tracker, data_tables_[kTLSTableNum]);
+    }
+
     conn_tracker->IterationPostTick();
   }
   total_conn_tracker_mem_usage_ = current_conn_tracker_buffer_size;
@@ -1937,6 +1941,22 @@ void SocketTraceConnector::WriteDataEvent(const SocketDataEvent& event) {
 //-----------------------------------------------------------------------------
 // TransferData Helpers
 //-----------------------------------------------------------------------------
+
+void SocketTraceConnector::TransferHandshake(ConnectorContext* ctx, ConnTracker* tracker,
+                                             DataTable* data_table) {
+  if (data_table != nullptr && tracker->state() == ConnTracker::State::kTransferring) {
+    for (auto& record : tracker->ProcessHandshakeToRecords()) {
+      protocols::tls::ProtocolTraits::ConvertTimestamps(
+          &record, [&](uint64_t mono_time) { return ConvertToRealTime(mono_time); });
+      AppendMessage(ctx, *tracker, std::move(record), data_table);
+    }
+  }
+
+  tracker->CleanupHandshake(
+      FLAGS_messages_size_limit_bytes, FLAGS_datastream_buffer_retention_size,
+      iteration_time() - std::chrono::seconds(FLAGS_messages_expiry_duration_secs),
+      iteration_time() - std::chrono::seconds(FLAGS_datastream_buffer_expiry_duration_secs));
+}
 
 template <typename TProtocolTraits>
 size_t SocketTraceConnector::TransferStream(ConnectorContext* ctx, ConnTracker* tracker,

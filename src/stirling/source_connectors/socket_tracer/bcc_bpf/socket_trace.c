@@ -39,6 +39,8 @@
 #define PROTOCOL_VEC_LIMIT 3
 #define TLS_RECORD_LIMIT (BPF_LOOP_LIMIT > 41 ? 16 : 1)
 #define TLS_RECORD_HEADER_SIZE 5
+#define TLS_HANDSHAKE_CONTENT_TYPE 0x16
+#define TLS_HANDSHAKE_BYTES_LIMIT 4096
 
 const int32_t kInvalidFD = -1;
 
@@ -858,6 +860,9 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
       }
       return;
     }
+    if (!state->synced && (uint8_t)header != TLS_HANDSHAKE_CONTENT_TYPE) {
+      state->handshake_bytes = TLS_HANDSHAKE_BYTES_LIMIT;
+    }
     state->synced = true;
     conn_info->wire_tls_bytes += held;
     state->remaining =
@@ -865,6 +870,34 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
   }
 
   skip_wire_tls_bytes(conn_info, state, scan->bytes_count - scan->pos);
+}
+
+static __inline void submit_tls_handshake(struct pt_regs* ctx, enum traffic_direction_t direction,
+                                          enum source_function_t source_fn, bool force_trace_tgid,
+                                          struct conn_info_t* conn_info,
+                                          struct tls_record_scan_t* scan) {
+  struct tls_record_state_t* state = &conn_info->tls_record_state[direction & 1];
+  if (state->handshake_bytes >= TLS_HANDSHAKE_BYTES_LIMIT ||
+      (!state->synced && state->header_len == 0)) {
+    return;
+  }
+
+  uint32_t protocol = kProtocolTLS;
+  uint64_t kZero = 0;
+  uint64_t control = *control_map.lookup_or_init(&protocol, &kZero);
+  if (!force_trace_tgid && !(control & conn_info->role)) {
+    return;
+  }
+
+  struct socket_data_event_t* event = fill_socket_data_event(source_fn, direction, conn_info);
+  if (event == NULL) {
+    return;
+  }
+  event->attr.protocol = kProtocolTLS;
+  event->attr.pos = state->handshake_bytes;
+  event->attr.prepend_length_header = false;
+  state->handshake_bytes += scan->bytes_count;
+  perf_submit_buf(ctx, direction, (const char*)scan->buf, scan->buf_size, conn_info, event);
 }
 
 static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t id,
@@ -979,6 +1012,10 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
       scan->buf_size = min_size_t(scan->buf_size, bytes_count);
     }
     update_wire_tls_bytes(conn_info, direction, scan);
+    if (ENABLE_TLS_TRACING && !is_stirling_tgid(tgid) &&
+        conn_info->conn_id.tsid > conn_disabled_tsid) {
+      submit_tls_handshake(ctx, direction, args->source_fn, force_trace_tgid, conn_info, scan);
+    }
   }
 
   return;

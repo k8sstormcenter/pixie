@@ -221,6 +221,7 @@ class SocketTraceConnector : public BCCSourceConnector {
 
   template <typename TProtocolTraits>
   size_t TransferStream(ConnectorContext* ctx, ConnTracker* tracker, DataTable* data_table);
+  void TransferHandshake(ConnectorContext* ctx, ConnTracker* tracker, DataTable* data_table);
   void TransferConnStats(ConnectorContext* ctx, DataTable* data_table,
                          DataTable* connections_table);
 

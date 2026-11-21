@@ -224,6 +224,24 @@ TEST_F(StitchFramesTest, SyncDoesNotHoldBackLaterRequests) {
   }
 }
 
+TEST_F(StitchFramesTest, PortalDescribeIsAnsweredByRowDescOrNoData) {
+  const std::string req_data =
+      absl::StrCat(kParseData1, kBindData, kDescPortalData, kExecData, kSyncData);
+
+  for (const std::string_view desc_resp : {kRowDescData, kNoDataData}) {
+    const std::string resp_data = absl::StrCat(kParseCmplData, kBindCmplData, desc_resp,
+                                               kDataRowData, kCmdCmplData, kReadyForQueryData);
+    ASSERT_OK_AND_ASSIGN(std::deque<RegularMessage> reqs, ParseRegularMessages(req_data));
+    ASSERT_OK_AND_ASSIGN(std::deque<RegularMessage> resps, ParseRegularMessages(resp_data));
+
+    RecordsWithErrorCount<pgsql::Record> records_and_err_count =
+        StitchFrames(&reqs, &resps, &state_);
+    EXPECT_THAT(records_and_err_count.records, SizeIs(4));
+    EXPECT_EQ(0, records_and_err_count.error_count);
+    EXPECT_THAT(reqs, IsEmpty());
+  }
+}
+
 TEST_F(StitchFramesTest, HandleParseErrResp) {
   ASSERT_OK_AND_ASSIGN(std::deque<RegularMessage> reqs, ParseRegularMessages(kParseData1));
   ASSERT_OK_AND_ASSIGN(std::deque<RegularMessage> resps, ParseRegularMessages(kErrRespData));

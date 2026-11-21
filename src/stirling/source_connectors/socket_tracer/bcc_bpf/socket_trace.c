@@ -129,6 +129,7 @@ BPF_HASH(active_sendfile_args_map, uint64_t, struct sendfile_args_t);
 // and use it as a heap allocated value.
 BPF_PERCPU_ARRAY(socket_data_event_buffer_heap, struct socket_data_event_t, 1);
 BPF_PERCPU_ARRAY(conn_stats_event_buffer_heap, struct conn_stats_event_t, 1);
+BPF_PERCPU_ARRAY(tls_record_scan_heap, struct tls_record_scan_t, 1);
 
 // This array records singular values that are used by probes. We group them together to reduce the
 // number of arrays with only 1 element.
@@ -810,31 +811,32 @@ static __inline bool is_tls_record_header(uint64_t header) {
 }
 
 static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
-                                           enum traffic_direction_t direction, const char* buf,
-                                           size_t buf_size, size_t bytes_count) {
+                                           enum traffic_direction_t direction,
+                                           struct tls_record_scan_t* scan) {
   struct tls_record_state_t* state = &conn_info->tls_record_state[direction & 1];
-  size_t pos = 0;
+  scan->pos = 0;
 
 #pragma unroll
   for (int i = 0; i <= TLS_RECORD_LIMIT; ++i) {
-    size_t in_record = min_size_t(state->remaining, bytes_count - pos);
+    size_t in_record = min_size_t(state->remaining, scan->bytes_count - scan->pos);
     conn_info->wire_tls_bytes += in_record;
     state->remaining -= in_record;
-    pos += in_record;
-    if (pos >= bytes_count) {
+    scan->pos += in_record;
+    if (scan->pos >= scan->bytes_count) {
       return;
     }
 
-    state->chunk = 0;
-    if (i == TLS_RECORD_LIMIT || pos >= buf_size ||
-        bpf_probe_read(&state->chunk, TLS_RECORD_HEADER_SIZE, buf + pos) != 0) {
+    scan->chunk = 0;
+    if (i == TLS_RECORD_LIMIT || scan->pos >= scan->buf_size ||
+        bpf_probe_read(&scan->chunk, TLS_RECORD_HEADER_SIZE,
+                       (const char*)(scan->buf + scan->pos)) != 0) {
       break;
     }
     uint8_t held = state->header_len & 0x7;
-    uint64_t header = state->header | (state->chunk << (8 * held));
-    size_t available = buf_size - pos;
+    uint64_t header = state->header | (scan->chunk << (8 * held));
+    size_t available = scan->buf_size - scan->pos;
     if (held + available < TLS_RECORD_HEADER_SIZE) {
-      if (buf_size != bytes_count) {
+      if (scan->buf_size != scan->bytes_count) {
         break;
       }
       state->header = header & ((1ULL << (8 * (held + available))) - 1);
@@ -845,9 +847,9 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
     state->header_len = 0;
     if (!is_tls_record_header(header)) {
       if (state->synced) {
-        conn_info->wire_non_tls_bytes += held + bytes_count - pos;
+        conn_info->wire_non_tls_bytes += held + scan->bytes_count - scan->pos;
       } else {
-        conn_info->wire_unexamined_bytes += held + bytes_count - pos;
+        conn_info->wire_unexamined_bytes += held + scan->bytes_count - scan->pos;
       }
       return;
     }
@@ -857,7 +859,7 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
         TLS_RECORD_HEADER_SIZE - held + (((header >> 24) & 0xff) << 8 | ((header >> 32) & 0xff));
   }
 
-  conn_info->wire_unexamined_bytes += state->header_len + bytes_count - pos;
+  conn_info->wire_unexamined_bytes += state->header_len + scan->bytes_count - scan->pos;
   state->synced = false;
   state->remaining = 0;
   state->header = 0;
@@ -958,16 +960,22 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
   }
 
   if (!ssl) {
-    if (!vecs) {
-      update_wire_tls_bytes(conn_info, direction, args->buf, bytes_count, bytes_count);
-    } else {
-      struct tls_record_state_t* state = &conn_info->tls_record_state[direction & 1];
-      state->iov[0] = 0;
-      state->iov[1] = 0;
-      bpf_probe_read(state->iov, sizeof(state->iov), &args->iov[0]);
-      update_wire_tls_bytes(conn_info, direction, (const char*)state->iov[0],
-                            min_size_t(state->iov[1], bytes_count), bytes_count);
+    int kZero = 0;
+    struct tls_record_scan_t* scan = tls_record_scan_heap.lookup(&kZero);
+    if (scan == NULL) {
+      return;
     }
+    scan->bytes_count = bytes_count;
+    if (!vecs) {
+      scan->buf = (uint64_t)args->buf;
+      scan->buf_size = bytes_count;
+    } else {
+      scan->buf = 0;
+      scan->buf_size = 0;
+      bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[0]);
+      scan->buf_size = min_size_t(scan->buf_size, bytes_count);
+    }
+    update_wire_tls_bytes(conn_info, direction, scan);
   }
 
   return;

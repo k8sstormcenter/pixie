@@ -349,21 +349,32 @@ Status FillStmtDescResp(MsgDeqIter* resp_iter, const MsgDeqIter& end, DescReqRes
 }
 
 Status FillPortalDescResp(MsgDeqIter* resp_iter, const MsgDeqIter& end, DescReqResp::Resp* resp) {
-  auto iter = std::find_if(*resp_iter, end, TagMatcher({Tag::kParamDesc, Tag::kErrResp}));
+  auto iter =
+      std::find_if(*resp_iter, end, TagMatcher({Tag::kRowDesc, Tag::kNoData, Tag::kErrResp}));
 
   if (iter == end) {
-    return error::InvalidArgument("Could not find kParamDesc or kErrResp message");
+    return error::InvalidArgument("Could not find kRowDesc, kNoData or kErrResp message");
   }
+
+  resp->timestamp_ns = iter->timestamp_ns;
 
   *resp_iter = iter + 1;
 
   if (iter->tag == Tag::kErrResp) {
     resp->is_err_resp = true;
     PX_RETURN_IF_ERROR(ParseErrResp(*iter, &resp->err_resp));
+    iter->consumed = true;
+    return Status::OK();
+  }
+
+  if (iter->tag == Tag::kNoData) {
+    resp->is_no_data = true;
+    iter->consumed = true;
     return Status::OK();
   }
 
   PX_RETURN_IF_ERROR(ParseRowDesc(*iter, &resp->row_desc));
+  iter->consumed = true;
 
   return Status::OK();
 }

@@ -130,6 +130,7 @@ BPF_HASH(active_sendfile_args_map, uint64_t, struct sendfile_args_t);
 BPF_PERCPU_ARRAY(socket_data_event_buffer_heap, struct socket_data_event_t, 1);
 BPF_PERCPU_ARRAY(conn_stats_event_buffer_heap, struct conn_stats_event_t, 1);
 BPF_PERCPU_ARRAY(tls_record_scan_heap, struct tls_record_scan_t, 1);
+BPF_PERCPU_ARRAY(conn_info_heap, struct conn_info_t, 1);
 
 // This array records singular values that are used by probes. We group them together to reduce the
 // number of arrays with only 1 element.
@@ -164,9 +165,14 @@ static __inline void init_conn_info(uint32_t tgid, int32_t fd, struct conn_info_
 // the relevant map entries every time a ConnTracker is destroyed.
 static __inline struct conn_info_t* get_or_create_conn_info(uint32_t tgid, int32_t fd) {
   uint64_t tgid_fd = gen_tgid_fd(tgid, fd);
-  struct conn_info_t new_conn_info = {};
-  init_conn_info(tgid, fd, &new_conn_info);
-  return conn_info_map.lookup_or_init(&tgid_fd, &new_conn_info);
+  int kZero = 0;
+  struct conn_info_t* new_conn_info = conn_info_heap.lookup(&kZero);
+  if (new_conn_info == NULL) {
+    return NULL;
+  }
+  __builtin_memset(new_conn_info, 0, sizeof(struct conn_info_t));
+  init_conn_info(tgid, fd, new_conn_info);
+  return conn_info_map.lookup_or_init(&tgid_fd, new_conn_info);
 }
 
 static __inline enum ssl_source_t get_ssl_source(uint32_t tgid) {

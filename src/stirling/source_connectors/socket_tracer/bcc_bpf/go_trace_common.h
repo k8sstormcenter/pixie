@@ -128,6 +128,20 @@ static inline uint64_t get_goid(struct pt_regs* ctx) {
 
 const int kITabTypeOffset = 8;
 
+static __inline void unwrap_tls_conn(struct go_interface* conn_intf,
+                                     const struct go_common_symaddrs_t* symaddrs) {
+  if (conn_intf->type != symaddrs->tls_Conn) {
+    return;
+  }
+  // TODO(ddelnano): The 4.14 verifier has stricter bounds checking limits when reading memory
+  // offsets. Without this check, the verifier rejects the program. This can be removed when 4.14
+  // kernel support is dropped.
+  if (symaddrs->tlsConn_conn_offset < 0 || symaddrs->tlsConn_conn_offset > 1024) {
+    return;
+  }
+  bpf_probe_read(conn_intf, sizeof(*conn_intf), conn_intf->ptr + symaddrs->tlsConn_conn_offset);
+}
+
 //-----------------------------------------------------------------------------
 // FD extraction functions
 //-----------------------------------------------------------------------------
@@ -193,16 +207,7 @@ static __inline int32_t get_fd_from_conn_intf_core(struct go_interface conn_intf
                    conn_intf.ptr + symaddrs->syscallConn_conn_offset);
   }
 
-  if (conn_intf.type == symaddrs->tls_Conn) {
-    // TODO(ddelnano): The 4.14 verifier has stricter bounds checking limits when reading memory
-    // offsets. Without this check, the verifier rejects the program. This can be removed when 4.14
-    // kernel support is dropped.
-    if (symaddrs->tlsConn_conn_offset < 0 || symaddrs->tlsConn_conn_offset > 1024) {
-      return kInvalidFD;
-    }
-    REQUIRE_SYMADDR(symaddrs->tlsConn_conn_offset, kInvalidFD);
-    bpf_probe_read(&conn_intf, sizeof(conn_intf), conn_intf.ptr + symaddrs->tlsConn_conn_offset);
-  }
+  unwrap_tls_conn(&conn_intf, symaddrs);
 
   if (conn_intf.type != symaddrs->net_TCPConn && conn_intf.type != 0) {
     int64_t conn_type = 0;
@@ -217,6 +222,7 @@ static __inline int32_t get_fd_from_conn_intf_core(struct go_interface conn_intf
 
   if (conn_intf.type != symaddrs->net_TCPConn) {
     bpf_probe_read(&conn_intf, sizeof(conn_intf), conn_intf.ptr);
+    unwrap_tls_conn(&conn_intf, symaddrs);
   }
 
   if (conn_intf.type != symaddrs->net_TCPConn) {

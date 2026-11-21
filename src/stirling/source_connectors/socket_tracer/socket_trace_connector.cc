@@ -127,7 +127,7 @@ DEFINE_int32(
     "this disables tracing the plaintext within encrypted connections until gh#2095 is addressed.");
 DEFINE_int32(stirling_enable_websocket_tracing,
              gflags::Int32FromEnv("PX_STIRLING_ENABLE_WEBSOCKET_TRACING",
-                                  px::stirling::TraceMode::Off),
+                                  px::stirling::TraceMode::On),
              "If true, stirling will trace and process WebSocket messages on upgraded HTTP "
              "connections.");
 DEFINE_bool(stirling_disable_golang_tls_tracing,

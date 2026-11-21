@@ -1008,29 +1008,12 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
         scan->buf_size = 0;
         bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[0]);
         scan->buf_size = min_size_t(scan->buf_size, bytes_count);
-        scan->bytes_count = scan->buf_size;
       }
       update_wire_tls_bytes(conn_info, direction, scan);
       if (ENABLE_TLS_TRACING && !is_stirling_tgid(tgid) &&
           conn_info->conn_id.tsid > conn_disabled_tsid) {
         submit_tls_handshake(ctx, direction, args->source_fn, force_trace_tgid, conn_info, scan,
                              bytes_count);
-      }
-      if (vecs) {
-        size_t left = bytes_count - scan->bytes_count;
-#pragma unroll
-        for (int i = 1; i < TLS_IOVEC_LIMIT && i < args->iovlen && left > 0; ++i) {
-          scan->buf = 0;
-          scan->buf_size = 0;
-          bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[i]);
-          scan->buf_size = min_size_t(scan->buf_size, left);
-          scan->bytes_count = scan->buf_size;
-          update_wire_tls_bytes(conn_info, direction, scan);
-          left -= scan->bytes_count;
-        }
-        if (left > 0) {
-          skip_wire_tls_bytes(conn_info, &conn_info->tls_record_state[direction & 1], left);
-        }
       }
     }
   }

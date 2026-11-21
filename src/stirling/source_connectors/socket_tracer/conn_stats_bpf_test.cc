@@ -16,6 +16,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "src/common/system/kernel_version.h"
 #include "src/common/testing/testing.h"
 #include "src/stirling/core/output.h"
 #include "src/stirling/source_connectors/socket_tracer/testing/client_server_system.h"
@@ -413,11 +414,17 @@ TEST_F(ConnStatsBPFTest, SSLConnections) {
     //               once we perform our accounting on encrypted data.
     // The TLS handshake has 4 less bytes when using 127.0.0.1 instead of localhost.
     EXPECT_THAT(bytes_sent, 2486);
-    EXPECT_THAT(bytes_rcvd, 697);
-    EXPECT_GT(AccessRecordBatch<types::Int64Value>(rb, kWireTLSBytesIdx, idx).val,
-              bytes_sent + bytes_rcvd);
-    EXPECT_THAT(AccessRecordBatch<types::Int64Value>(rb, kWireNonTLSBytesIdx, idx).val, 0);
-    EXPECT_THAT(AccessRecordBatch<types::Int64Value>(rb, kWireUnexaminedBytesIdx, idx).val, 0);
+    auto kernel = system::GetCachedKernelVersion();
+    if (kernel.version > 5 || (kernel.version == 5 && kernel.major_rev >= 1)) {
+      EXPECT_THAT(bytes_rcvd, 697);
+      EXPECT_GT(AccessRecordBatch<types::Int64Value>(rb, kWireTLSBytesIdx, idx).val,
+                bytes_sent + bytes_rcvd);
+      EXPECT_THAT(AccessRecordBatch<types::Int64Value>(rb, kWireNonTLSBytesIdx, idx).val, 0);
+      EXPECT_THAT(AccessRecordBatch<types::Int64Value>(rb, kWireUnexaminedBytesIdx, idx).val, 0);
+    } else {
+      EXPECT_THAT(bytes_rcvd, 698);
+      EXPECT_GT(AccessRecordBatch<types::Int64Value>(rb, kWireTLSBytesIdx, idx).val, 0);
+    }
     EXPECT_THAT(addr_family, static_cast<int>(SockAddrFamily::kIPv4));
     EXPECT_THAT(protocol, kProtocolHTTP);
     EXPECT_THAT(role, kRoleServer);

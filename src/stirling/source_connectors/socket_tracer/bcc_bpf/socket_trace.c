@@ -37,11 +37,7 @@
 // This keeps instruction count below BPF's limit of 4096 per probe.
 #define LOOP_LIMIT BPF_LOOP_LIMIT
 #define PROTOCOL_VEC_LIMIT 3
-#if BPF_LOOP_LIMIT > 41
-#define TLS_RECORD_LIMIT 16
-#else
-#define TLS_RECORD_LIMIT 1
-#endif
+#define TLS_RECORD_LIMIT (BPF_LOOP_LIMIT > 41 ? 16 : 1)
 #define TLS_RECORD_HEADER_SIZE 5
 
 const int32_t kInvalidFD = -1;
@@ -810,6 +806,15 @@ static __inline bool is_tls_record_header(uint64_t header) {
          version_minor <= 0x04 && length <= 16384 + 2048;
 }
 
+static __inline void skip_wire_tls_bytes(struct conn_info_t* conn_info,
+                                         struct tls_record_state_t* state, size_t bytes_count) {
+  conn_info->wire_unexamined_bytes += state->header_len + bytes_count;
+  state->synced = false;
+  state->remaining = 0;
+  state->header = 0;
+  state->header_len = 0;
+}
+
 static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
                                            enum traffic_direction_t direction,
                                            struct tls_record_scan_t* scan) {
@@ -859,11 +864,7 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
         TLS_RECORD_HEADER_SIZE - held + (((header >> 24) & 0xff) << 8 | ((header >> 32) & 0xff));
   }
 
-  conn_info->wire_unexamined_bytes += state->header_len + scan->bytes_count - scan->pos;
-  state->synced = false;
-  state->remaining = 0;
-  state->header = 0;
-  state->header_len = 0;
+  skip_wire_tls_bytes(conn_info, state, scan->bytes_count - scan->pos);
 }
 
 static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t id,
@@ -959,7 +960,9 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
     update_conn_stats(ctx, conn_info, direction, bytes_count);
   }
 
-  if (!ssl) {
+  if (!ssl && vecs && BPF_LOOP_LIMIT <= 41) {
+    skip_wire_tls_bytes(conn_info, &conn_info->tls_record_state[direction & 1], bytes_count);
+  } else if (!ssl) {
     int kZero = 0;
     struct tls_record_scan_t* scan = tls_record_scan_heap.lookup(&kZero);
     if (scan == NULL) {
@@ -1386,6 +1389,10 @@ int syscall__probe_entry_recvfrom(struct pt_regs* ctx, int sockfd, char* buf, si
   uint64_t id = bpf_get_current_pid_tgid();
 
   propagate_fd_to_user_space_call(id, sockfd);
+
+  if (flags & MSG_PEEK) {
+    return 0;
+  }
 
   // Stash arguments.
   if (src_addr != NULL) {

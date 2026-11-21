@@ -805,8 +805,14 @@ void SocketTraceConnector::ReportOpenSSLCallsWithoutFD() {
     info.WriteKV("start_time_ticks",
                  proc_parser_->GetPIDStartTimeTicks(static_cast<int32_t>(tgid)).ValueOr(0));
     info.WriteKV("comm", calls.comm);
+    const std::string_view kind =
+        calls.writes == 0 && calls.socket_io_calls > 0 ? "partial-reads" : "no-socket-io";
+    info.WriteKV("kind", kind);
     info.WriteKV("reads", calls.reads);
     info.WriteKV("writes", calls.writes);
+    info.WriteKV("read_bytes", calls.read_bytes);
+    info.WriteKV("write_bytes", calls.write_bytes);
+    info.WriteKV("socket_io_calls", calls.socket_io_calls);
     StirlingMonitor::GetInstance()->AppendProbeStatusRecord(
         "socket_tracer", "openssl",
         error::FailedPrecondition("SSL calls returned data without socket I/O"), info.GetString());

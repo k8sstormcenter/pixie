@@ -284,6 +284,9 @@ struct openssl_no_fd_calls_t {
   char comm[MAX_CMD_SIZE];
   uint64_t reads;
   uint64_t writes;
+  uint64_t read_bytes;
+  uint64_t write_bytes;
+  uint64_t socket_io_calls;
 };
 
 // For reading file descriptor from a TLSWrap pointer.

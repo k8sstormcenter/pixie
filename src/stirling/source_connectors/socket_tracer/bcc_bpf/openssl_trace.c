@@ -41,9 +41,7 @@ BPF_HASH(openssl_no_fd_calls, uint32_t, struct openssl_no_fd_calls_t);
  * General helpers
  ***********************************************************/
 
-static __inline void process_openssl_data(struct pt_regs* ctx, uint64_t id,
-                                          const enum traffic_direction_t direction,
-                                          const struct data_args_t* args, bool is_ex_call) {
+static __inline int get_openssl_bytes_count(struct pt_regs* ctx, const struct data_args_t* args) {
   // Do not change bytes_count to 'ssize_t' or 'long'.
   // Using a 64b data type for bytes_count causes negative values,
   // returned as 'int' from open-ssl, to be aliased into positive
@@ -63,12 +61,23 @@ static __inline void process_openssl_data(struct pt_regs* ctx, uint64_t id,
     BPF_PROBE_READ_VAR(ex_bytes, args->ssl_ex_len);
     bytes_count = ex_bytes;
   }
-  process_data(/* vecs */ false, ctx, id, direction, args, bytes_count, /* ssl */ true);
+  return bytes_count;
+}
+
+static __inline void process_openssl_data(struct pt_regs* ctx, uint64_t id,
+                                          const enum traffic_direction_t direction,
+                                          const struct data_args_t* args, bool is_ex_call) {
+  process_data(/* vecs */ false, ctx, id, direction, args, get_openssl_bytes_count(ctx, args),
+               /* ssl */ true);
 }
 
 static __inline void count_call_without_fd(struct pt_regs* ctx, uint64_t id,
-                                           const enum traffic_direction_t direction) {
-  int bytes_count = PT_REGS_RC(ctx);
+                                           const enum traffic_direction_t direction,
+                                           const struct data_args_t* args) {
+  if (args == NULL) {
+    return;
+  }
+  int bytes_count = get_openssl_bytes_count(ctx, args);
   if (bytes_count <= 0) {
     return;
   }
@@ -78,13 +87,26 @@ static __inline void count_call_without_fd(struct pt_regs* ctx, uint64_t id,
   if (calls == NULL) {
     struct openssl_no_fd_calls_t first = {};
     bpf_get_current_comm(&first.comm, sizeof(first.comm));
-    first.reads = direction == kIngress;
-    first.writes = direction == kEgress;
-    openssl_no_fd_calls.update(&tgid, &first);
-    return;
+    calls = openssl_no_fd_calls.lookup_or_init(&tgid, &first);
+    if (calls == NULL) {
+      return;
+    }
   }
-  calls->reads += direction == kIngress;
-  calls->writes += direction == kEgress;
+  if (direction == kIngress) {
+    calls->reads += 1;
+    calls->read_bytes += bytes_count;
+  } else {
+    calls->writes += 1;
+    calls->write_bytes += bytes_count;
+  }
+}
+
+static __inline void count_call_with_fd(uint64_t id) {
+  uint32_t tgid = id >> 32;
+  struct openssl_no_fd_calls_t* calls = openssl_no_fd_calls.lookup(&tgid);
+  if (calls != NULL) {
+    calls->socket_io_calls += 1;
+  }
 }
 
 /***********************************************************
@@ -300,12 +322,13 @@ static int probe_ret_SSL_write_syscall_fd_access_agnostic(struct pt_regs* ctx, b
   uint64_t id = bpf_get_current_pid_tgid();
 
   int fd = get_fd_and_eval_nested_syscall_detection(id);
+  struct data_args_t* write_args = active_ssl_write_args_map.lookup(&id);
   if (fd == kInvalidFD) {
-    count_call_without_fd(ctx, id, kEgress);
+    count_call_without_fd(ctx, id, kEgress, write_args);
     return 0;
   }
+  count_call_with_fd(id);
 
-  struct data_args_t* write_args = active_ssl_write_args_map.lookup(&id);
   // Set socket fd
   if (write_args != NULL) {
     write_args->fd = fd;
@@ -368,12 +391,13 @@ static int probe_ret_SSL_read_syscall_fd_access_agnostic(struct pt_regs* ctx, bo
   uint64_t id = bpf_get_current_pid_tgid();
 
   int fd = get_fd_and_eval_nested_syscall_detection(id);
+  struct data_args_t* read_args = active_ssl_read_args_map.lookup(&id);
   if (fd == kInvalidFD) {
-    count_call_without_fd(ctx, id, kIngress);
+    count_call_without_fd(ctx, id, kIngress, read_args);
     return 0;
   }
+  count_call_with_fd(id);
 
-  struct data_args_t* read_args = active_ssl_read_args_map.lookup(&id);
   if (read_args != NULL) {
     read_args->fd = fd;
     process_openssl_data(ctx, id, kIngress, read_args, is_ex_call);

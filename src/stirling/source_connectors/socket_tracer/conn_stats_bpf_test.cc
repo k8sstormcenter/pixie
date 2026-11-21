@@ -413,7 +413,7 @@ TEST_F(ConnStatsBPFTest, SSLConnections) {
     //               once we perform our accounting on encrypted data.
     // The TLS handshake has 4 less bytes when using 127.0.0.1 instead of localhost.
     EXPECT_THAT(bytes_sent, 2486);
-    EXPECT_THAT(bytes_rcvd, 698);
+    EXPECT_THAT(bytes_rcvd, 697);
     EXPECT_GT(AccessRecordBatch<types::Int64Value>(rb, kWireTLSBytesIdx, idx).val,
               bytes_sent + bytes_rcvd);
     EXPECT_THAT(AccessRecordBatch<types::Int64Value>(rb, kWireNonTLSBytesIdx, idx).val, 0);

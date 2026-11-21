@@ -887,9 +887,8 @@ static __inline void submit_tls_handshake(struct pt_regs* ctx, enum traffic_dire
   }
 
   uint32_t protocol = kProtocolTLS;
-  uint64_t kZero = 0;
-  uint64_t control = *control_map.lookup_or_init(&protocol, &kZero);
-  if (!force_trace_tgid && !(control & conn_info->role)) {
+  uint64_t* control = control_map.lookup(&protocol);
+  if (!force_trace_tgid && (control == NULL || !(*control & conn_info->role))) {
     return;
   }
 

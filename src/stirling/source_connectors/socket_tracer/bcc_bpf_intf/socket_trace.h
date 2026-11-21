@@ -43,6 +43,13 @@ union sockaddr_t {
 
 // This struct contains information collected when a connection is established,
 // via an accept() syscall.
+struct tls_record_state_t {
+  bool synced;
+  uint8_t header_len;
+  uint32_t remaining;
+  uint64_t header;
+};
+
 struct conn_info_t {
   // Connection identifier (PID, FD, etc.).
   struct conn_id_t conn_id;
@@ -75,6 +82,8 @@ struct conn_info_t {
   int64_t wire_tls_bytes;
   int64_t wire_non_tls_bytes;
   int64_t wire_unexamined_bytes;
+
+  struct tls_record_state_t tls_record_state[2];
 
   // The number of bytes written by application (for uprobe) on this connection.
   int64_t app_wr_bytes;

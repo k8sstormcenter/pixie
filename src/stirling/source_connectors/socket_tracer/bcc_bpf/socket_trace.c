@@ -37,6 +37,12 @@
 // This keeps instruction count below BPF's limit of 4096 per probe.
 #define LOOP_LIMIT BPF_LOOP_LIMIT
 #define PROTOCOL_VEC_LIMIT 3
+#if BPF_LOOP_LIMIT > 41
+#define TLS_RECORD_LIMIT 16
+#else
+#define TLS_RECORD_LIMIT 2
+#endif
+#define TLS_RECORD_HEADER_SIZE 5
 
 const int32_t kInvalidFD = -1;
 
@@ -393,6 +399,8 @@ static __inline void submit_new_conn(struct pt_regs* ctx, uint32_t tgid, int32_t
     conn_info.raddr = *((union sockaddr_t*)addr);
   }
   conn_info.role = role;
+  conn_info.tls_record_state[kEgress].synced = role != kRoleUnknown;
+  conn_info.tls_record_state[kIngress].synced = role != kRoleUnknown;
 
   uint64_t tgid_fd = gen_tgid_fd(tgid, fd);
   conn_info_map.update(&tgid_fd, &conn_info);
@@ -792,6 +800,70 @@ static __inline void update_conn_stats(struct pt_regs* ctx, struct conn_info_t* 
   }
 }
 
+static __inline bool is_tls_record_header(uint64_t header) {
+  uint8_t content_type = header;
+  uint8_t version_major = header >> 8;
+  uint8_t version_minor = header >> 16;
+  uint32_t length = ((header >> 24) & 0xff) << 8 | ((header >> 32) & 0xff);
+  return content_type >= 0x14 && content_type <= 0x17 && version_major == 0x03 &&
+         version_minor <= 0x04 && length <= 16384 + 2048;
+}
+
+static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
+                                           enum traffic_direction_t direction, const char* buf,
+                                           size_t buf_size, size_t bytes_count) {
+  struct tls_record_state_t* state = &conn_info->tls_record_state[direction & 1];
+  size_t pos = 0;
+
+#pragma unroll
+  for (int i = 0; i <= TLS_RECORD_LIMIT; ++i) {
+    size_t in_record = min_size_t(state->remaining, bytes_count - pos);
+    conn_info->wire_tls_bytes += in_record;
+    state->remaining -= in_record;
+    pos += in_record;
+    if (pos >= bytes_count) {
+      return;
+    }
+
+    uint64_t chunk = 0;
+    if (i == TLS_RECORD_LIMIT || pos >= buf_size ||
+        bpf_probe_read(&chunk, TLS_RECORD_HEADER_SIZE, buf + pos) != 0) {
+      break;
+    }
+    uint8_t held = state->header_len & 0x7;
+    uint64_t header = state->header | (chunk << (8 * held));
+    size_t available = buf_size - pos;
+    if (held + available < TLS_RECORD_HEADER_SIZE) {
+      if (buf_size != bytes_count) {
+        break;
+      }
+      state->header = header & ((1ULL << (8 * (held + available))) - 1);
+      state->header_len = held + available;
+      return;
+    }
+    state->header = 0;
+    state->header_len = 0;
+    if (!is_tls_record_header(header)) {
+      if (state->synced) {
+        conn_info->wire_non_tls_bytes += held + bytes_count - pos;
+      } else {
+        conn_info->wire_unexamined_bytes += held + bytes_count - pos;
+      }
+      return;
+    }
+    state->synced = true;
+    conn_info->wire_tls_bytes += held;
+    state->remaining =
+        TLS_RECORD_HEADER_SIZE - held + (((header >> 24) & 0xff) << 8 | ((header >> 32) & 0xff));
+  }
+
+  conn_info->wire_unexamined_bytes += state->header_len + bytes_count - pos;
+  state->synced = false;
+  state->remaining = 0;
+  state->header = 0;
+  state->header_len = 0;
+}
+
 static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t id,
                                   const enum traffic_direction_t direction,
                                   const struct data_args_t* args, ssize_t bytes_count, bool ssl) {
@@ -832,6 +904,17 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
   uint64_t tgid_fd = gen_tgid_fd(tgid, args->fd);
   uint64_t* conn_disabled_tsid_ptr = conn_disabled_map.lookup(&tgid_fd);
   uint64_t conn_disabled_tsid = (conn_disabled_tsid_ptr == NULL) ? 0 : *conn_disabled_tsid_ptr;
+
+  if (!ssl) {
+    if (!vecs) {
+      update_wire_tls_bytes(conn_info, direction, args->buf, bytes_count, bytes_count);
+    } else {
+      struct iovec first_iov;
+      BPF_PROBE_READ_VAR(first_iov, &args->iov[0]);
+      update_wire_tls_bytes(conn_info, direction, first_iov.iov_base,
+                            min_size_t(first_iov.iov_len, bytes_count), bytes_count);
+    }
+  }
 
   // Only process plaintext data.
   if (conn_info->ssl == ssl) {
@@ -958,6 +1041,7 @@ static __inline void process_syscall_sendfile(struct pt_regs* ctx, uint64_t id,
     socket_data_events.perf_submit(ctx, event, sizeof(event->attr));
   }
 
+  conn_info->wire_non_tls_bytes += bytes_count;
   update_conn_stats(ctx, conn_info, kEgress, bytes_count);
 
   return;

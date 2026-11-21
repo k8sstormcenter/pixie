@@ -205,6 +205,20 @@ class PyGRPCTraceTest : public testing::SocketTraceBPFTestFixture</* TClientSide
     // This enables uprobe attachment after stirling has started running.
     FLAGS_stirling_rescan_for_dlopen = true;
   }
+
+  void WaitForGrpcCProbes(uint32_t pid) {
+    auto versions =
+        bpf_tools::WrappedBCCMap<uint32_t, uint64_t>::Create(&source_->BCC(), "grpc_c_versions");
+    for (int i = 0; i < 1200; ++i) {
+      if (versions->GetValue(pid).ok()) {
+        std::this_thread::sleep_for(kTransferDataPeriod);
+        LOG(INFO) << absl::Substitute("gRPC C probes for pid $0 after $1 ms", pid, 50 * i);
+        return;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    FAIL() << "No gRPC C probes for pid " << pid;
+  }
 };
 
 // Test that socket tracker can trace Python gRPC server's message.
@@ -228,6 +242,7 @@ TEST_F(PyGRPCTraceTest, VerifyTraceRecords) {
   // First start the server so the process can be detected by socket tracer.
   PX_CHECK_OK(server.Run(std::chrono::seconds{60}, /*options*/ {},
                          /*args*/ {"python", "helloworld/greeter_server.py"}));
+  WaitForGrpcCProbes(server.process_pid());
   PX_CHECK_OK(
       client.Run(std::chrono::seconds{60},
                  /*options*/ {absl::Substitute("--network=container:$0", server.container_name())},

@@ -993,6 +993,14 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
     }
   }
 
+  // TODO(oazizi): For conn stats, we should be using the encrypted traffic to do the accounting,
+  //               but that will break things with how we track data positions.
+  //               For now, keep using plaintext data. In the future, this if statement should be:
+  //                     if (!ssl) { ... }
+  if (conn_info->ssl == ssl) {
+    update_conn_stats(ctx, conn_info, direction, bytes_count);
+  }
+
   if (!ssl && vecs && BPF_LOOP_LIMIT <= 41) {
     conn_info->wire_unexamined_bytes += bytes_count;
   } else if (!ssl) {
@@ -1033,14 +1041,6 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
         }
       }
     }
-  }
-
-  // TODO(oazizi): For conn stats, we should be using the encrypted traffic to do the accounting,
-  //               but that will break things with how we track data positions.
-  //               For now, keep using plaintext data. In the future, this if statement should be:
-  //                     if (!ssl) { ... }
-  if (conn_info->ssl == ssl) {
-    update_conn_stats(ctx, conn_info, direction, bytes_count);
   }
 
   return;

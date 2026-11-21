@@ -30,6 +30,7 @@ import (
 	"strings"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	_ "google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/reflection"
 
@@ -96,6 +97,7 @@ func main() {
 	https := flag.Bool("https", false, "Whether or not to use https")
 	cert := flag.String("cert", "", "Path to the .crt file.")
 	key := flag.String("key", "", "Path to the .key file.")
+	creds := flag.Bool("creds", false, "Whether or not to serve TLS through gRPC transport credentials")
 	streaming := flag.Bool("streaming", false, "Whether or not to call streaming RPC")
 
 	const keyPairBase = "src/stirling/source_connectors/socket_tracer/protocols/http2/testing/go_grpc_server"
@@ -106,6 +108,7 @@ func main() {
 
 	var lis net.Listener
 	var err error
+	var opts []grpc.ServerOption
 	if *https {
 		certFile := keyPairBase + "/https-server.crt"
 		if len(*cert) > 0 {
@@ -123,7 +126,12 @@ func main() {
 		tlsConfig := &tls.Config{Certificates: []tls.Certificate{c}}
 
 		log.Printf("Starting https server on port : %s cert: %s key: %s", portStr, certFile, keyFile)
-		lis, err = tls.Listen("tcp", portStr, tlsConfig)
+		if *creds {
+			opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
+			lis, err = net.Listen("tcp", portStr)
+		} else {
+			lis, err = tls.Listen("tcp", portStr, tlsConfig)
+		}
 	} else {
 		log.Printf("Starting http server on port : %s", portStr)
 		lis, err = net.Listen("tcp", portStr)
@@ -135,7 +143,7 @@ func main() {
 
 	fmt.Print(lis.Addr().(*net.TCPAddr).Port)
 
-	s := grpc.NewServer()
+	s := grpc.NewServer(opts...)
 
 	if *streaming {
 		log.Printf("Launching streaming server")

@@ -62,7 +62,7 @@ class GRPCServer {
 
   GRPCServer() = default;
 
-  void LaunchServer(std::string go_version, bool use_https) {
+  void LaunchServer(std::string go_version, bool use_https, bool use_creds) {
     std::string server_path = absl::Substitute(kServerPath, go_version);
     server_path = px::testing::BazelRunfilePath(server_path).string();
     CHECK(fs::Exists(server_path));
@@ -71,7 +71,8 @@ class GRPCServer {
     // Let server pick random port in order avoid conflicting.
     const std::string port_flag = "--port=0";
 
-    PX_CHECK_OK(s_.Start({server_path, https_flag, port_flag}));
+    const std::string creds_flag = use_creds ? "--creds=true" : "--creds=false";
+    PX_CHECK_OK(s_.Start({server_path, https_flag, port_flag, creds_flag}));
     LOG(INFO) << "Server PID: " << s_.child_pid();
 
     std::string port_str;
@@ -118,6 +119,7 @@ struct TestParams {
   std::string go_version;
   bool use_compression;
   bool use_https;
+  bool use_creds = false;
 };
 
 using TestFixture = testing::SocketTraceBPFTestFixture</* TClientSideTracing */ false>;
@@ -140,7 +142,7 @@ TEST_P(GRPCTraceTest, CaptureRPCTraceRecord) {
   auto params = GetParam();
 
   PX_SET_FOR_SCOPE(FLAGS_socket_tracer_enable_http2_gzip, params.use_compression);
-  server_.LaunchServer(params.go_version, params.use_https);
+  server_.LaunchServer(params.go_version, params.use_https, params.use_creds);
 
   // Deploy uprobes on the newly launched server.
   RefreshContext(/* blocking_deploy_uprobes */ true);
@@ -194,7 +196,8 @@ INSTANTIATE_TEST_SUITE_P(SecurityModeTest, GRPCTraceTest,
                              // our knowledge, and to minimize test size to reduce flakiness.
                              TestParams{"1_23", true, true}, TestParams{"1_23", true, false},
                              TestParams{"1_24", true, true}, TestParams{"1_24", true, false},
-                             TestParams{"boringcrypto", true, true}));
+                             TestParams{"boringcrypto", true, true},
+                             TestParams{"1_24", true, true, true}));
 
 class PyGRPCTraceTest : public testing::SocketTraceBPFTestFixture</* TClientSideTracing */ false> {
  protected:

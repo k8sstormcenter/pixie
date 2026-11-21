@@ -191,7 +191,7 @@ DEFINE_bool(
     "If true, stirling will tls trace binaries statically linked with OpenSSL or BoringSSL");
 
 DEFINE_bool(stirling_deploy_uprobes_on_host_processes,
-            gflags::BoolFromEnv("PX_DEPLOY_UPROBES_ON_HOST_PROCESSES", false),
+            gflags::BoolFromEnv("PX_DEPLOY_UPROBES_ON_HOST_PROCESSES", true),
             "If true, stirling also deploys uprobes on processes that are not in a container, such "
             "as the kubelet");
 

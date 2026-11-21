@@ -55,7 +55,26 @@ constexpr int kSSLIdx = conn_stats_idx::kSSL;
 class ConnStatsBPFTest : public testing::SocketTraceBPFTestFixture</* TClientSideTracing */ false> {
  public:
   ConnStatsBPFTest() { FLAGS_stirling_conn_stats_sampling_ratio = 1; }
+
+  void ExpectServerWireBytes(uint32_t server_pid, int64_t tls, int64_t non_tls,
+                             int64_t unexamined) {
+    std::vector<TaggedRecordBatch> tablets =
+        ConsumeRecords(SocketTraceConnector::kConnStatsTableNum);
+    ASSERT_NOT_EMPTY_AND_GET_RECORDS(const types::ColumnWrapperRecordBatch& rb, tablets);
+    auto indices = FindRecordIdxMatchesPID(rb, kUPIDIdx, server_pid);
+    ASSERT_FALSE(indices.empty());
+    int idx = indices.back();
+    EXPECT_THAT(AccessRecordBatch<types::Int64Value>(rb, kWireTLSBytesIdx, idx).val, tls);
+    EXPECT_THAT(AccessRecordBatch<types::Int64Value>(rb, kWireNonTLSBytesIdx, idx).val, non_tls);
+    EXPECT_THAT(AccessRecordBatch<types::Int64Value>(rb, kWireUnexaminedBytesIdx, idx).val,
+                unexamined);
+  }
 };
+
+constexpr std::string_view kTLSRecord{
+    "\x16\x03\x03\x00\x02"
+    "ab",
+    7};
 
 TEST_F(ConnStatsBPFTest, UnclassifiedEvents) {
   StartTransferDataThread();
@@ -131,6 +150,36 @@ TEST_F(ConnStatsBPFTest, UnclassifiedEvents) {
     EXPECT_THAT(role, kRoleClient);
     EXPECT_THAT(ssl, false);
   }
+}
+
+TEST_F(ConnStatsBPFTest, PreambleBeforeTLSRecords) {
+  StartTransferDataThread();
+
+  SendRecvScript script = {{{"req1"}, {"S"}}, {{"req2"}, {kTLSRecord}}};
+
+  std::chrono::milliseconds server_response_latency{200};
+
+  ClientServerSystem cs(server_response_latency);
+  cs.RunClientServer<&TCPSocket::Read, &TCPSocket::Write>(script);
+
+  StopTransferDataThread();
+
+  ExpectServerWireBytes(cs.ServerPID(), 7, 9, 0);
+}
+
+TEST_F(ConnStatsBPFTest, VectoredTLSRecords) {
+  StartTransferDataThread();
+
+  SendRecvScript script = {{{"req1"}, {kTLSRecord, kTLSRecord}}};
+
+  std::chrono::milliseconds server_response_latency{200};
+
+  ClientServerSystem cs(server_response_latency);
+  cs.RunClientServer<&TCPSocket::ReadV, &TCPSocket::WriteV>(script);
+
+  StopTransferDataThread();
+
+  ExpectServerWireBytes(cs.ServerPID(), 14, 4, 0);
 }
 
 // This test checks that BPF is recording the role properly with only the accept/connect syscalls.

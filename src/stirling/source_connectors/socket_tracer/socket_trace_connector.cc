@@ -127,7 +127,7 @@ DEFINE_int32(
     "this disables tracing the plaintext within encrypted connections until gh#2095 is addressed.");
 DEFINE_int32(stirling_enable_websocket_tracing,
              gflags::Int32FromEnv("PX_STIRLING_ENABLE_WEBSOCKET_TRACING",
-                                  px::stirling::TraceMode::Off),
+                                  px::stirling::TraceMode::On),
              "If true, stirling will trace and process WebSocket messages on upgraded HTTP "
              "connections.");
 DEFINE_bool(stirling_disable_golang_tls_tracing,
@@ -191,7 +191,7 @@ DEFINE_bool(
     "If true, stirling will tls trace binaries statically linked with OpenSSL or BoringSSL");
 
 DEFINE_bool(stirling_deploy_uprobes_on_host_processes,
-            gflags::BoolFromEnv("PX_DEPLOY_UPROBES_ON_HOST_PROCESSES", false),
+            gflags::BoolFromEnv("PX_DEPLOY_UPROBES_ON_HOST_PROCESSES", true),
             "If true, stirling also deploys uprobes on processes that are not in a container, such "
             "as the kubelet");
 

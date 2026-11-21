@@ -268,13 +268,6 @@ TEST_F(SocketTraceConnectorTest, HTTPCredentialsAreRedacted) {
 
 class SocketTraceConnectorWebSocketTest : public SocketTraceConnectorTest {
  protected:
-  void SetUp() override {
-    FLAGS_stirling_enable_websocket_tracing = TraceMode::On;
-    SocketTraceConnectorTest::SetUp();
-  }
-
-  void TearDown() override { FLAGS_stirling_enable_websocket_tracing = TraceMode::Off; }
-
   RecordBatch TransferUpgradedServerFrames(std::string_view frames) {
     source_->AcceptControlEvent(event_gen_.InitConn());
     source_->AcceptDataEvent(event_gen_.InitSendEvent<kProtocolHTTP>(testing::kHTTPUpgradeReq));
@@ -1144,15 +1137,15 @@ TEST_F(SocketTraceConnectorTest, UntrackedUPIDDoesNotTransferData) {
 
 constexpr std::string_view kTestProcPath = "src/common/system/testdata/proc";
 
-TEST_F(SocketTraceConnectorTest, UProbeTargetsAreContextUPIDsByDefault) {
+TEST_F(SocketTraceConnectorTest, UProbeTargetsAreContextUPIDsWhenHostProcessesAreOff) {
+  PX_SET_FOR_SCOPE(FLAGS_stirling_deploy_uprobes_on_host_processes, false);
   PX_SET_FOR_SCOPE(FLAGS_proc_path, ::px::testing::BazelRunfilePath(kTestProcPath).string());
 
   EXPECT_THAT(source_->UProbeTargetUPIDs(ctx_.get()),
               UnorderedElementsAre(md::UPID(kASID, kPID, kPIDStartTimeTicks)));
 }
 
-TEST_F(SocketTraceConnectorTest, UProbeTargetsIncludeHostProcessesWhenEnabled) {
-  PX_SET_FOR_SCOPE(FLAGS_stirling_deploy_uprobes_on_host_processes, true);
+TEST_F(SocketTraceConnectorTest, UProbeTargetsIncludeHostProcessesByDefault) {
   PX_SET_FOR_SCOPE(FLAGS_proc_path, ::px::testing::BazelRunfilePath(kTestProcPath).string());
 
   EXPECT_THAT(source_->UProbeTargetUPIDs(ctx_.get()),

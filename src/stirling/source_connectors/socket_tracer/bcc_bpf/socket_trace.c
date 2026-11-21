@@ -398,35 +398,40 @@ static __inline void read_sockaddr_kernel(struct conn_info_t* conn_info, const s
 static __inline void submit_new_conn(struct pt_regs* ctx, uint32_t tgid, int32_t fd,
                                      const struct sockaddr* addr, const struct sock* sock,
                                      enum endpoint_role_t role, enum source_function_t source_fn) {
-  struct conn_info_t conn_info = {};
-  init_conn_info(tgid, fd, &conn_info);
+  int kZero = 0;
+  struct conn_info_t* conn_info = conn_info_heap.lookup(&kZero);
+  if (conn_info == NULL) {
+    return;
+  }
+  __builtin_memset(conn_info, 0, sizeof(struct conn_info_t));
+  init_conn_info(tgid, fd, conn_info);
   if (sock != NULL) {
     read_sockaddr_kernel(&conn_info, sock);
   } else if (addr != NULL) {
-    conn_info.raddr = *((union sockaddr_t*)addr);
+    conn_info->raddr = *((union sockaddr_t*)addr);
   }
-  conn_info.role = role;
-  conn_info.tls_record_state[kEgress].synced = role != kRoleUnknown;
-  conn_info.tls_record_state[kIngress].synced = role != kRoleUnknown;
+  conn_info->role = role;
+  conn_info->tls_record_state[kEgress].synced = role != kRoleUnknown;
+  conn_info->tls_record_state[kIngress].synced = role != kRoleUnknown;
 
   uint64_t tgid_fd = gen_tgid_fd(tgid, fd);
-  conn_info_map.update(&tgid_fd, &conn_info);
+  conn_info_map.update(&tgid_fd, conn_info);
 
   // While we keep all sa_family types in conn_info_map,
   // we only send connections with supported protocols to user-space.
   // We use the same filter function to avoid sending data of unwanted connections as well.
-  if (!should_trace_sockaddr_family(conn_info.raddr.sa.sa_family)) {
+  if (!should_trace_sockaddr_family(conn_info->raddr.sa.sa_family)) {
     return;
   }
 
   struct socket_control_event_t control_event = {};
   control_event.type = kConnOpen;
   control_event.timestamp_ns = bpf_ktime_get_ns();
-  control_event.conn_id = conn_info.conn_id;
+  control_event.conn_id = conn_info->conn_id;
   control_event.source_fn = source_fn;
-  control_event.open.raddr = conn_info.raddr;
-  control_event.open.laddr = conn_info.laddr;
-  control_event.open.role = conn_info.role;
+  control_event.open.raddr = conn_info->raddr;
+  control_event.open.laddr = conn_info->laddr;
+  control_event.open.role = conn_info->role;
 
   socket_control_events.perf_submit(ctx, &control_event, sizeof(struct socket_control_event_t));
 }

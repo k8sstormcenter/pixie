@@ -774,7 +774,7 @@ static __inline bool should_send_data(uint32_t tgid, uint64_t conn_disabled_tsid
   return (force_trace_tgid || should_trace_protocol_data(conn_info));
 }
 
-static __inline void update_conn_stats(struct pt_regs* ctx, struct conn_info_t* conn_info,
+static noinline void update_conn_stats(struct pt_regs* ctx, struct conn_info_t* conn_info,
                                        enum traffic_direction_t direction, ssize_t bytes_count) {
   // Update state of the connection.
   switch (direction) {

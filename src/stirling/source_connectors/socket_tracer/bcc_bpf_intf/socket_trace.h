@@ -49,6 +49,13 @@ struct tls_record_scan_t {
   uint64_t bytes_count;
   uint64_t pos;
   uint64_t chunk;
+  uint64_t total_bytes;
+  uint64_t iov;
+  uint64_t iovlen;
+  uint32_t direction;
+  uint32_t source_fn;
+  bool trace_handshake;
+  bool force_trace_tgid;
 };
 
 struct tls_record_state_t {

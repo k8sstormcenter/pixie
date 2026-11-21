@@ -799,13 +799,14 @@ static __inline void update_conn_stats(struct pt_regs* ctx, struct conn_info_t* 
   }
 }
 
-static __inline bool is_tls_record_header(uint64_t header) {
+static __inline bool is_tls_record_header(uint64_t header, uint8_t len) {
   uint8_t content_type = header;
   uint8_t version_major = header >> 8;
   uint8_t version_minor = header >> 16;
   uint32_t length = ((header >> 24) & 0xff) << 8 | ((header >> 32) & 0xff);
-  return content_type >= 0x14 && content_type <= 0x17 && version_major == 0x03 &&
-         version_minor <= 0x04 && length <= 16384 + 2048;
+  return content_type >= 0x14 && content_type <= 0x17 && (len < 2 || version_major == 0x03) &&
+         (len < 3 || version_minor <= 0x04) &&
+         (len < TLS_RECORD_HEADER_SIZE || length <= 16384 + 2048);
 }
 
 static __inline void skip_wire_tls_bytes(struct conn_info_t* conn_info,
@@ -842,7 +843,9 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
     uint8_t held = state->header_len & 0x7;
     uint64_t header = state->header | (scan->chunk << (8 * held));
     size_t available = scan->buf_size - scan->pos;
-    if (held + available < TLS_RECORD_HEADER_SIZE) {
+    bool is_header =
+        is_tls_record_header(header, min_size_t(held + available, TLS_RECORD_HEADER_SIZE));
+    if (is_header && held + available < TLS_RECORD_HEADER_SIZE) {
       if (scan->buf_size != scan->bytes_count) {
         break;
       }
@@ -852,7 +855,7 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
     }
     state->header = 0;
     state->header_len = 0;
-    if (!is_tls_record_header(header)) {
+    if (!is_header) {
       if (state->synced) {
         conn_info->wire_non_tls_bytes += held + scan->bytes_count - scan->pos;
       } else {
@@ -860,10 +863,11 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
       }
       return;
     }
-    if (!state->synced && (uint8_t)header != TLS_HANDSHAKE_CONTENT_TYPE) {
+    if (!state->tls && (uint8_t)header != TLS_HANDSHAKE_CONTENT_TYPE) {
       state->handshake_bytes = TLS_HANDSHAKE_BYTES_LIMIT;
     }
     state->synced = true;
+    state->tls = true;
     conn_info->wire_tls_bytes += held;
     state->remaining =
         TLS_RECORD_HEADER_SIZE - held + (((header >> 24) & 0xff) << 8 | ((header >> 32) & 0xff));
@@ -878,7 +882,7 @@ static __inline void submit_tls_handshake(struct pt_regs* ctx, enum traffic_dire
                                           struct tls_record_scan_t* scan) {
   struct tls_record_state_t* state = &conn_info->tls_record_state[direction & 1];
   if (state->handshake_bytes >= TLS_HANDSHAKE_BYTES_LIMIT ||
-      (!state->synced && state->header_len == 0)) {
+      (!state->tls && state->header_len == 0)) {
     return;
   }
 

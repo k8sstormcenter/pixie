@@ -56,6 +56,7 @@ struct tls_record_state_t {
   uint32_t header;
   uint8_t header_len;
   bool synced;
+  bool tls;
   uint32_t handshake_bytes;
 };
 

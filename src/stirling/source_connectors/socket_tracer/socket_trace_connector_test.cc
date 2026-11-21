@@ -268,13 +268,6 @@ TEST_F(SocketTraceConnectorTest, HTTPCredentialsAreRedacted) {
 
 class SocketTraceConnectorWebSocketTest : public SocketTraceConnectorTest {
  protected:
-  void SetUp() override {
-    FLAGS_stirling_enable_websocket_tracing = TraceMode::On;
-    SocketTraceConnectorTest::SetUp();
-  }
-
-  void TearDown() override { FLAGS_stirling_enable_websocket_tracing = TraceMode::Off; }
-
   RecordBatch TransferUpgradedServerFrames(std::string_view frames) {
     source_->AcceptControlEvent(event_gen_.InitConn());
     source_->AcceptDataEvent(event_gen_.InitSendEvent<kProtocolHTTP>(testing::kHTTPUpgradeReq));

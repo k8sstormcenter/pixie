@@ -152,6 +152,27 @@ TEST_F(ConnStatsBPFTest, UnclassifiedEvents) {
   }
 }
 
+TEST_F(ConnStatsBPFTest, ReportsAConnectionBeforeItCloses) {
+  StartTransferDataThread();
+
+  SendRecvScript script = {{{"req1"}, {"resp1"}}, {{"req2"}, {"resp2"}}, {{"req3"}, {"resp3"}}};
+
+  std::chrono::milliseconds server_response_latency{1500};
+
+  ClientServerSystem cs(server_response_latency);
+  cs.RunClientServer<&TCPSocket::Read, &TCPSocket::Write>(script);
+
+  StopTransferDataThread();
+
+  std::vector<TaggedRecordBatch> tablets = ConsumeRecords(SocketTraceConnector::kConnStatsTableNum);
+  ASSERT_NOT_EMPTY_AND_GET_RECORDS(const types::ColumnWrapperRecordBatch& rb, tablets);
+  auto indices = FindRecordIdxMatchesPID(rb, kUPIDIdx, cs.ServerPID());
+  ASSERT_FALSE(indices.empty());
+  int idx = indices.front();
+  EXPECT_THAT(AccessRecordBatch<types::Int64Value>(rb, kConnCloseIdx, idx).val, 0);
+  EXPECT_GT(AccessRecordBatch<types::Int64Value>(rb, kBytesRecvIdx, idx).val, 0);
+}
+
 TEST_F(ConnStatsBPFTest, PreambleBeforeTLSRecords) {
   StartTransferDataThread();
 

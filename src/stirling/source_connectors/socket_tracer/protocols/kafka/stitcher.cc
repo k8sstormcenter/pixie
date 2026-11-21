@@ -100,6 +100,9 @@ Status ProcessReq(Packet* req_packet, Request* req) {
   PacketDecoder decoder(*req_packet);
   // Extracts api_key, api_version, and correlation_id.
   PX_RETURN_IF_ERROR(decoder.ExtractReqHeader(req));
+  if (!IsDecodedAPIVersion(req->api_key, req->api_version)) {
+    return Status::OK();
+  }
 
   // TODO(chengruizhe): Add support for more api keys.
   switch (req->api_key) {
@@ -125,6 +128,9 @@ Status ProcessResp(Packet* resp_packet, Response* resp, APIKey api_key, int16_t 
   decoder.SetAPIInfo(api_key, api_version);
 
   PX_RETURN_IF_ERROR(decoder.ExtractRespHeader(resp));
+  if (!IsDecodedAPIVersion(api_key, api_version)) {
+    return Status::OK();
+  }
 
   switch (api_key) {
     case APIKey::kProduce:

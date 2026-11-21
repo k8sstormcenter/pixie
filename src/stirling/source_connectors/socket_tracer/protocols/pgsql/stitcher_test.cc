@@ -205,6 +205,25 @@ TEST_F(StitchFramesTest, VerifySingleOutputMessage) {
   EXPECT_EQ(0, records_and_err_count.error_count);
 }
 
+TEST_F(StitchFramesTest, SyncDoesNotHoldBackLaterRequests) {
+  const std::string req_data = absl::StrCat(kParseData1, kBindData, kExecData, kSyncData);
+  const std::string resp_data =
+      absl::StrCat(kParseCmplData, kBindCmplData, kDataRowData, kCmdCmplData, kReadyForQueryData);
+
+  std::deque<RegularMessage> reqs;
+  for (int round = 0; round < 3; ++round) {
+    ASSERT_OK_AND_ASSIGN(std::deque<RegularMessage> new_reqs, ParseRegularMessages(req_data));
+    ASSERT_OK_AND_ASSIGN(std::deque<RegularMessage> resps, ParseRegularMessages(resp_data));
+    reqs.insert(reqs.end(), new_reqs.begin(), new_reqs.end());
+
+    RecordsWithErrorCount<pgsql::Record> records_and_err_count =
+        StitchFrames(&reqs, &resps, &state_);
+    EXPECT_THAT(records_and_err_count.records, SizeIs(3));
+    EXPECT_EQ(0, records_and_err_count.error_count);
+    EXPECT_THAT(reqs, IsEmpty());
+  }
+}
+
 TEST_F(StitchFramesTest, HandleParseErrResp) {
   ASSERT_OK_AND_ASSIGN(std::deque<RegularMessage> reqs, ParseRegularMessages(kParseData1));
   ASSERT_OK_AND_ASSIGN(std::deque<RegularMessage> resps, ParseRegularMessages(kErrRespData));

@@ -18,6 +18,7 @@
 
 #include "src/stirling/utils/proc_tracker.h"
 
+#include <algorithm>
 #include <utility>
 
 #include "src/common/system/proc_parser.h"
@@ -25,17 +26,42 @@
 namespace px {
 namespace stirling {
 
+std::filesystem::path ProcTracker::ExePath(const md::UPID& upid) const {
+  return proc_parser_.GetExePath(upid.pid()).ConsumeValueOr({});
+}
+
+bool ProcTracker::ExeChanged(const md::UPID& upid) {
+  ExeCheck& check = exe_checks_[upid];
+  if (update_count_ < check.due) {
+    return false;
+  }
+  std::filesystem::path exe = ExePath(upid);
+  const bool changed = exe != check.exe;
+  check.exe = std::move(exe);
+  check.period = changed ? 1 : std::min(2 * check.period, kMaxExeCheckPeriod);
+  check.due = update_count_ + check.period;
+  return changed;
+}
+
 void ProcTracker::Update(absl::flat_hash_set<md::UPID> upids) {
+  ++update_count_;
   new_upids_.clear();
   for (const auto& upid : upids) {
     auto iter = upids_.find(upid);
     if (iter != upids_.end()) {
       upids_.erase(iter);
+      if (ExeChanged(upid)) {
+        new_upids_.emplace(upid);
+      }
       continue;
     }
     new_upids_.emplace(upid);
+    exe_checks_[upid] = {ExePath(upid), 1, update_count_ + 1};
   }
   deleted_upids_ = std::move(upids_);
+  for (const auto& upid : deleted_upids_) {
+    exe_checks_.erase(upid);
+  }
   upids_ = std::move(upids);
 }
 

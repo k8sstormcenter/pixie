@@ -18,8 +18,10 @@
 
 #pragma once
 
+#include <absl/container/flat_hash_map.h>
 #include <absl/container/flat_hash_set.h>
 
+#include <filesystem>
 #include <utility>
 
 #include "src/common/system/proc_parser.h"
@@ -47,7 +49,7 @@ class ProcTracker : NotCopyMoveable {
   const auto& upids() const { return upids_; }
 
   /**
-   * Returns new upids discovered by call to Update().
+   * Returns new upids discovered by call to Update(), and upids whose executable has changed.
    */
   const auto& new_upids() const { return new_upids_; }
 
@@ -57,6 +59,20 @@ class ProcTracker : NotCopyMoveable {
   const auto& deleted_upids() const { return deleted_upids_; }
 
  private:
+  struct ExeCheck {
+    std::filesystem::path exe;
+    uint64_t period = 1;
+    uint64_t due = 0;
+  };
+
+  static constexpr uint64_t kMaxExeCheckPeriod = 256;
+
+  std::filesystem::path ExePath(const md::UPID& upid) const;
+  bool ExeChanged(const md::UPID& upid);
+
+  system::ProcParser proc_parser_;
+  uint64_t update_count_ = 0;
+  absl::flat_hash_map<md::UPID, ExeCheck> exe_checks_;
   absl::flat_hash_set<md::UPID> upids_;
   absl::flat_hash_set<md::UPID> new_upids_;
   absl::flat_hash_set<md::UPID> deleted_upids_;

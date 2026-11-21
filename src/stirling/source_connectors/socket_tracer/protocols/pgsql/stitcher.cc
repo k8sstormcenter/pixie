@@ -449,6 +449,7 @@ RecordsWithErrorCount<pgsql::Record> StitchFrames(std::deque<pgsql::RegularMessa
       case Tag::kClose:
       case Tag::kPasswd:
         VLOG(1) << "Ignore tag: " << static_cast<char>(req.tag);
+        req.consumed = true;
         break;
       case Tag::kQuery: {
         CALL_HANDLER(QueryReqResp, HandleQuery(req, &resp_iter, resps->end(), &req_resp));

@@ -21,6 +21,12 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <filesystem>
+
+#include "src/common/system/proc_pid_path.h"
+#include "src/common/testing/temp_dir.h"
+#include "src/common/testing/test_environment.h"
+
 namespace px {
 namespace stirling {
 
@@ -59,6 +65,36 @@ TEST_F(ProcTrackerTest, Basic) {
   EXPECT_THAT(proc_tracker_.upids(), UnorderedElementsAre(kUPID1, kUPID4));
   EXPECT_THAT(proc_tracker_.new_upids(), UnorderedElementsAre(kUPID4));
   EXPECT_THAT(proc_tracker_.deleted_upids(), UnorderedElementsAre(kUPID3));
+}
+
+TEST_F(ProcTrackerTest, ReportsUPIDAgainWhenExeChanges) {
+  using UPIDSet = absl::flat_hash_set<md::UPID>;
+
+  ::px::testing::TempDir proc;
+  PX_SET_FOR_SCOPE(FLAGS_proc_path, proc.path().string());
+  const std::filesystem::path exe = proc.path() / "123" / "exe";
+  std::filesystem::create_directories(exe.parent_path());
+  std::filesystem::create_symlink("/runc", exe);
+
+  const md::UPID kUPID = md::UPID(0, 123, 111);
+
+  proc_tracker_.Update(UPIDSet{kUPID});
+  EXPECT_THAT(proc_tracker_.new_upids(), UnorderedElementsAre(kUPID));
+
+  proc_tracker_.Update(UPIDSet{kUPID});
+  EXPECT_THAT(proc_tracker_.new_upids(), IsEmpty());
+
+  std::filesystem::remove(exe);
+  std::filesystem::create_symlink("/app", exe);
+
+  for (int i = 0; i < 512 && proc_tracker_.new_upids().empty(); ++i) {
+    proc_tracker_.Update(UPIDSet{kUPID});
+  }
+  EXPECT_THAT(proc_tracker_.new_upids(), UnorderedElementsAre(kUPID));
+  EXPECT_THAT(proc_tracker_.deleted_upids(), IsEmpty());
+
+  proc_tracker_.Update(UPIDSet{kUPID});
+  EXPECT_THAT(proc_tracker_.new_upids(), IsEmpty());
 }
 
 }  // namespace stirling

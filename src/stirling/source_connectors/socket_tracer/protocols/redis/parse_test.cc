@@ -21,6 +21,8 @@
 #include <string>
 #include <vector>
 
+#include <absl/strings/str_cat.h>
+
 #include "src/common/testing/testing.h"
 
 namespace px {
@@ -56,6 +58,18 @@ constexpr std::string_view kSwapDBMsg = "*3\r\n$6\r\nswapdb\r\n$3\r\nfoo\r\n$3\r
 constexpr std::string_view kEvalSHAMsg =
     "*5\r\n$7\r\nevalsha\r\n$3\r\nsha\r\n:3\r\n$3\r\nfoo\r\n$3\r\nbar\r\n";
 constexpr std::string_view kHSetMsg = "*4\r\n$4\r\nhset\r\n$3\r\nfoo\r\n$3\r\nval\r\n:3\r\n";
+constexpr std::string_view kNullMsg = "_\r\n";
+constexpr std::string_view kTrueMsg = "#t\r\n";
+constexpr std::string_view kFalseMsg = "#f\r\n";
+constexpr std::string_view kDoubleMsg = ",3.14\r\n";
+constexpr std::string_view kBigNumberMsg = "(3492890328409238509324850943850943825024385\r\n";
+constexpr std::string_view kVerbatimStringMsg = "=15\r\ntxt:Some string\r\n";
+constexpr std::string_view kBlobErrorMsg = "!21\r\nSYNTAX invalid syntax\r\n";
+constexpr std::string_view kMapMsg = "%2\r\n+first\r\n:1\r\n+second\r\n_\r\n";
+constexpr std::string_view kSetMsg = "~2\r\n+a\r\n#t\r\n";
+constexpr std::string_view kAttributeMsg =
+    "|1\r\n+key-popularity\r\n%1\r\n$1\r\na\r\n,0.19\r\n*2\r\n:2039123\r\n:9543892\r\n";
+constexpr std::string_view kPushPubMsg = ">3\r\n$7\r\nmessage\r\n$3\r\nfoo\r\n$4\r\ntest\r\n";
 
 struct WellFormedTestCase {
   std::string_view input;
@@ -125,7 +139,17 @@ INSTANTIATE_TEST_SUITE_P(
                            {message_type_t::kRequest}},
         WellFormedTestCase{kHSetMsg, "HSET",
                            R"({"key":"foo","field value":[{"field":"val"},{"value":"3"}]})",
-                           {message_type_t::kRequest, message_type_t::kResponse}}));
+                           {message_type_t::kRequest, message_type_t::kResponse}},
+        WellFormedTestCase{kNullMsg, "", "<NULL>"},
+        WellFormedTestCase{kTrueMsg, "", "true"},
+        WellFormedTestCase{kFalseMsg, "", "false"},
+        WellFormedTestCase{kDoubleMsg, "", "3.14"},
+        WellFormedTestCase{kBigNumberMsg, "", "3492890328409238509324850943850943825024385"},
+        WellFormedTestCase{kVerbatimStringMsg, "", "Some string"},
+        WellFormedTestCase{kBlobErrorMsg, "", "-SYNTAX invalid syntax"},
+        WellFormedTestCase{kMapMsg, "", R"(["first","1","second","<NULL>"])"},
+        WellFormedTestCase{kSetMsg, "", R"(["a","true"])"},
+        WellFormedTestCase{kAttributeMsg, "", R"(["2039123","9543892"])"}));
 // clang-format on
 
 TEST(ParsePubMsgTest, DetectPublishedMessage) {
@@ -136,6 +160,25 @@ TEST(ParsePubMsgTest, DetectPublishedMessage) {
   EXPECT_THAT(resp, IsEmpty());
   EXPECT_THAT(msg.payload, StrEq(R"(["message","foo","test"])"));
   EXPECT_TRUE(msg.is_published_message);
+}
+
+TEST(ParsePubMsgTest, DetectPushedMessage) {
+  std::string_view resp = kPushPubMsg;
+  Message msg;
+
+  EXPECT_EQ(ParseFrame(message_type_t::kResponse, &resp, &msg), ParseState::kSuccess);
+  EXPECT_THAT(resp, IsEmpty());
+  EXPECT_THAT(msg.payload, StrEq(R"(["message","foo","test"])"));
+  EXPECT_TRUE(msg.is_published_message);
+}
+
+TEST(FindFrameBoundaryTest, FindsResp3Markers) {
+  for (std::string_view msg : {kNullMsg, kTrueMsg, kDoubleMsg, kBigNumberMsg, kVerbatimStringMsg,
+                               kBlobErrorMsg, kMapMsg, kSetMsg, kAttributeMsg, kPushPubMsg}) {
+    const std::string buf = absl::StrCat("xx", msg);
+    size_t pos = FindFrameBoundary<Message, NoState>(message_type_t::kResponse, buf, 0, nullptr);
+    EXPECT_EQ(pos, 2U) << msg;
+  }
 }
 
 class ParseIncompleteInputTest : public ::testing::TestWithParam<std::string> {};
@@ -160,7 +203,8 @@ INSTANTIATE_TEST_SUITE_P(
                       "*3\r\n+OK\r\n-Error message\r\n$11\r", "*3\r\n+OK\r\n-Error message\r\n$11",
                       "*3\r\n+OK\r\n-Error message\r\n", "*3\r\n+OK\r\n-Error message\r",
                       "*3\r\n+OK\r\n-Error message", "*3\r\n+OK\r\n", "*3\r\n+OK\r", "*3\r\n+OK",
-                      "*3\r\n", "*3\r", "*3"));
+                      "*3\r\n", "*3\r", "*3", "_", "_\r", "#t", ",3.1", "=15\r\ntxt:Some",
+                      "%2\r\n+first\r\n:1\r\n", "~2\r\n+a\r\n", "|1\r\n+k\r\n:1\r\n"));
 
 class ParseInvalidInputTest : public ::testing::TestWithParam<std::string> {};
 
@@ -176,7 +220,7 @@ TEST_P(ParseInvalidInputTest, InvalidInput) {
 INSTANTIATE_TEST_SUITE_P(AllDataTypes, ParseInvalidInputTest,
                          ::testing::Values(
                              // Invalid markers
-                             "a", "b", "c",
+                             "a", "b", "c", "#x\r\n",
                              // Bulk string should end with \r\n
                              "$1\r\nabc"
                              // Length cannot be <-1

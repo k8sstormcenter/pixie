@@ -40,6 +40,7 @@
 #include "src/stirling/source_connectors/socket_tracer/testing/socket_trace_bpf_test_fixture.h"
 #include "src/stirling/source_connectors/socket_tracer/uprobe_symaddrs.h"
 #include "src/stirling/testing/common.h"
+#include "src/stirling/utils/monitor.h"
 
 namespace px {
 namespace stirling {
@@ -52,6 +53,10 @@ using ::px::stirling::testing::GetTargetRecords;
 using ::px::stirling::testing::SocketTraceBPFTestFixture;
 using ::px::stirling::testing::ToRecordVector;
 
+using ::testing::AllOf;
+using ::testing::Contains;
+using ::testing::Field;
+using ::testing::HasSubstr;
 using ::testing::IsTrue;
 using ::testing::StrEq;
 using ::testing::Types;
@@ -279,6 +284,65 @@ TYPED_TEST(OpenSSLTraceTest, ssl_capture_node_client) {
   EXPECT_THAT(records.http_records, UnorderedElementsAre(EqHTTPRecord(expected_record)));
   EXPECT_THAT(records.remote_address, UnorderedElementsAre(StrEq("127.0.0.1")));
   EXPECT_THAT(records.encrypted, UnorderedElementsAre(IsTrue()));
+}
+
+constexpr std::string_view kAsyncioHTTPSScript = R"(
+import asyncio
+import ssl
+
+
+async def handle(reader, writer):
+    await reader.readuntil(b"\r\n\r\n")
+    writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+    await writer.drain()
+    writer.close()
+
+
+async def main():
+    server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_ctx.load_cert_chain("/etc/ssl/server.crt", "/etc/ssl/server.key")
+    await asyncio.start_server(handle, "127.0.0.1", 443, ssl=server_ctx)
+    client_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    client_ctx.check_hostname = False
+    client_ctx.verify_mode = ssl.CERT_NONE
+    print("INFO", flush=True)
+    while True:
+        reader, writer = await asyncio.open_connection("127.0.0.1", 443, ssl=client_ctx)
+        writer.write(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        await writer.drain()
+        await reader.read()
+        writer.close()
+        await asyncio.sleep(0.2)
+
+
+asyncio.run(main())
+)";
+
+class OpenSSLMemoryBIOTest : public SocketTraceBPFTestFixture</* TClientSideTracing */ false> {
+ protected:
+  OpenSSLMemoryBIOTest() {
+    constexpr bool kHostPid = false;
+    PX_CHECK_OK(server_.Run(std::chrono::seconds{60}, {"--entrypoint=/usr/bin/python3"},
+                            {"-c", std::string(kAsyncioHTTPSScript)}, kHostPid));
+  }
+
+  PythonMin310ContainerWrapper server_;
+};
+
+TEST_F(OpenSSLMemoryBIOTest, calls_without_socket_io_are_reported) {
+  StirlingMonitor::GetInstance()->ConsumeProbeStatusRecords();
+
+  StartTransferDataThread();
+  sleep(3);
+  StopTransferDataThread();
+
+  EXPECT_THAT(
+      StirlingMonitor::GetInstance()->ConsumeProbeStatusRecords(),
+      Contains(AllOf(Field(&ProbeStatusRecord::source_connector, "socket_tracer"),
+                     Field(&ProbeStatusRecord::tracepoint, "openssl"),
+                     Field(&ProbeStatusRecord::error, "SSL calls returned data without socket I/O"),
+                     Field(&ProbeStatusRecord::info,
+                           HasSubstr(absl::Substitute(R"("pid":$0,)", server_.PID()))))));
 }
 
 }  // namespace stirling

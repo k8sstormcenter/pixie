@@ -406,7 +406,7 @@ static __inline void submit_new_conn(struct pt_regs* ctx, uint32_t tgid, int32_t
   __builtin_memset(conn_info, 0, sizeof(struct conn_info_t));
   init_conn_info(tgid, fd, conn_info);
   if (sock != NULL) {
-    read_sockaddr_kernel(&conn_info, sock);
+    read_sockaddr_kernel(conn_info, sock);
   } else if (addr != NULL) {
     conn_info->raddr = *((union sockaddr_t*)addr);
   }

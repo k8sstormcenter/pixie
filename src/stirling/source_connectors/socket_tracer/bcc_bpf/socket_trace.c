@@ -48,6 +48,7 @@ const int32_t kInvalidFD = -1;
 // This is the amount of activity required on a connection before a new ConnStats event
 // is reported to user-space. It applies to read and write traffic combined.
 const int kConnStatsDataThreshold = 65536;
+const uint64_t kConnStatsTimeThresholdNS = 1000000000;
 
 // This is the perf buffer for BPF program to export data from kernel to user space.
 BPF_PERF_OUTPUT(socket_data_events);
@@ -788,8 +789,10 @@ static __inline void update_conn_stats(struct pt_regs* ctx, struct conn_info_t* 
   // Only send event if there's been enough of a change.
   // TODO(oazizi): Add elapsed time since last send as a triggering condition too.
   uint64_t total_bytes = conn_info->wr_bytes + conn_info->rd_bytes;
+  uint64_t now = bpf_ktime_get_ns();
   bool meets_activity_threshold =
-      total_bytes >= conn_info->last_reported_bytes + kConnStatsDataThreshold;
+      total_bytes >= conn_info->last_reported_bytes + kConnStatsDataThreshold ||
+      now >= conn_info->last_reported_ns + kConnStatsTimeThresholdNS;
   if (meets_activity_threshold) {
     struct conn_stats_event_t* event = fill_conn_stats_event(conn_info);
     if (event != NULL) {
@@ -797,6 +800,7 @@ static __inline void update_conn_stats(struct pt_regs* ctx, struct conn_info_t* 
     }
 
     conn_info->last_reported_bytes = conn_info->rd_bytes + conn_info->wr_bytes;
+    conn_info->last_reported_ns = now;
   }
 }
 
@@ -990,55 +994,54 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
     }
   }
 
+  if (!ssl && vecs && BPF_LOOP_LIMIT <= 41) {
+    conn_info->wire_unexamined_bytes += bytes_count;
+  } else if (!ssl) {
+    int kZero = 0;
+    struct tls_record_scan_t* scan = tls_record_scan_heap.lookup(&kZero);
+    if (scan != NULL) {
+      scan->bytes_count = bytes_count;
+      if (!vecs) {
+        scan->buf = (uint64_t)args->buf;
+        scan->buf_size = bytes_count;
+      } else {
+        scan->buf = 0;
+        scan->buf_size = 0;
+        bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[0]);
+        scan->buf_size = min_size_t(scan->buf_size, bytes_count);
+        scan->bytes_count = scan->buf_size;
+      }
+      update_wire_tls_bytes(conn_info, direction, scan);
+      if (ENABLE_TLS_TRACING && !is_stirling_tgid(tgid) &&
+          conn_info->conn_id.tsid > conn_disabled_tsid) {
+        submit_tls_handshake(ctx, direction, args->source_fn, force_trace_tgid, conn_info, scan,
+                             bytes_count);
+      }
+      if (vecs) {
+        size_t left = bytes_count - scan->bytes_count;
+#pragma unroll
+        for (int i = 1; i < TLS_IOVEC_LIMIT && i < args->iovlen && left > 0; ++i) {
+          scan->buf = 0;
+          scan->buf_size = 0;
+          bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[i]);
+          scan->buf_size = min_size_t(scan->buf_size, left);
+          scan->bytes_count = scan->buf_size;
+          update_wire_tls_bytes(conn_info, direction, scan);
+          left -= scan->bytes_count;
+        }
+        if (left > 0) {
+          skip_wire_tls_bytes(conn_info, &conn_info->tls_record_state[direction & 1], left);
+        }
+      }
+    }
+  }
+
   // TODO(oazizi): For conn stats, we should be using the encrypted traffic to do the accounting,
   //               but that will break things with how we track data positions.
   //               For now, keep using plaintext data. In the future, this if statement should be:
   //                     if (!ssl) { ... }
   if (conn_info->ssl == ssl) {
     update_conn_stats(ctx, conn_info, direction, bytes_count);
-  }
-
-  if (!ssl && vecs && BPF_LOOP_LIMIT <= 41) {
-    conn_info->wire_unexamined_bytes += bytes_count;
-  } else if (!ssl) {
-    int kZero = 0;
-    struct tls_record_scan_t* scan = tls_record_scan_heap.lookup(&kZero);
-    if (scan == NULL) {
-      return;
-    }
-    scan->bytes_count = bytes_count;
-    if (!vecs) {
-      scan->buf = (uint64_t)args->buf;
-      scan->buf_size = bytes_count;
-    } else {
-      scan->buf = 0;
-      scan->buf_size = 0;
-      bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[0]);
-      scan->buf_size = min_size_t(scan->buf_size, bytes_count);
-      scan->bytes_count = scan->buf_size;
-    }
-    update_wire_tls_bytes(conn_info, direction, scan);
-    if (ENABLE_TLS_TRACING && !is_stirling_tgid(tgid) &&
-        conn_info->conn_id.tsid > conn_disabled_tsid) {
-      submit_tls_handshake(ctx, direction, args->source_fn, force_trace_tgid, conn_info, scan,
-                           bytes_count);
-    }
-    if (vecs) {
-      size_t left = bytes_count - scan->bytes_count;
-#pragma unroll
-      for (int i = 1; i < TLS_IOVEC_LIMIT && i < args->iovlen && left > 0; ++i) {
-        scan->buf = 0;
-        scan->buf_size = 0;
-        bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[i]);
-        scan->buf_size = min_size_t(scan->buf_size, left);
-        scan->bytes_count = scan->buf_size;
-        update_wire_tls_bytes(conn_info, direction, scan);
-        left -= scan->bytes_count;
-      }
-      if (left > 0) {
-        skip_wire_tls_bytes(conn_info, &conn_info->tls_record_state[direction & 1], left);
-      }
-    }
   }
 
   return;

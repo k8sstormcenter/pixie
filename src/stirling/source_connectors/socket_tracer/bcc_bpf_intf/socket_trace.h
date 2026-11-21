@@ -87,6 +87,7 @@ struct conn_info_t {
   // The previously reported values of bytes written/read.
   // Used for determining when to send updated conn_stats values.
   int64_t last_reported_bytes;
+  uint64_t last_reported_ns;
 
   // The number of bytes passed to socket syscalls, by where they fall in the TLS record layer.
   int64_t wire_tls_bytes;

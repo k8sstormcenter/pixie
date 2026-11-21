@@ -265,6 +265,53 @@ TEST_F(SocketTraceConnectorTest, HTTPRecordsCarryTheConnectionID) {
               ElementsAre(absl::MakeUint128(conn.conn_id.fd, conn.conn_id.tsid)));
 }
 
+class SocketTraceConnectorHandshakeTest : public SocketTraceConnectorTest {
+ protected:
+  void SetUp() override {
+    FLAGS_stirling_enable_tls_tracing = true;
+    SocketTraceConnectorTest::SetUp();
+  }
+
+  void TearDown() override { FLAGS_stirling_enable_tls_tracing = false; }
+
+  DataTable* tls_table_ = data_tables_[SocketTraceConnector::kTLSTableNum];
+};
+
+TEST_F(SocketTraceConnectorHandshakeTest, OneConnectionYieldsItsHandshakeAndItsHTTPRecords) {
+  const std::string random(32, '\x7b');
+  const std::string client_hello = std::string("\x16\x03\x01\x00\x2f\x01\x00\x00\x2b\x03\x03", 11) +
+                                   random + std::string("\x00\x00\x02\x13\x01\x01\x00\x00\x00", 9);
+  const std::string server_hello = std::string("\x16\x03\x03\x00\x2c\x02\x00\x00\x28\x03\x03", 11) +
+                                   random + std::string("\x00\x13\x01\x00\x00\x00", 6);
+  const std::string_view client_hello_view(client_hello);
+
+  testing::EventGenerator handshake_gen(&mock_clock_);
+  handshake_gen.InitConn();
+  struct socket_control_event_t conn = event_gen_.InitConn();
+  source_->AcceptControlEvent(conn);
+  source_->AcceptDataEvent(
+      handshake_gen.InitSendEvent<kProtocolTLS>(client_hello_view.substr(0, 5)));
+  source_->AcceptDataEvent(handshake_gen.InitSendEvent<kProtocolTLS>(client_hello_view.substr(5)));
+  source_->AcceptDataEvent(handshake_gen.InitRecvEvent<kProtocolTLS>(server_hello));
+  source_->AcceptDataEvent(event_gen_.InitSendEvent<kProtocolHTTP>(kReq0));
+  source_->AcceptDataEvent(event_gen_.InitRecvEvent<kProtocolHTTP>(kJSONResp));
+  source_->AcceptControlEvent(event_gen_.InitClose());
+
+  connector_->TransferData(ctx_.get());
+
+  const absl::uint128 conn_id = absl::MakeUint128(conn.conn_id.fd, conn.conn_id.tsid);
+  {
+    std::vector<TaggedRecordBatch> tablets = tls_table_->ConsumeRecords();
+    ASSERT_NOT_EMPTY_AND_GET_RECORDS(RecordBatch & records, tablets);
+    EXPECT_THAT(ToUInt128Vector(records[kTLSTable.ColIndex("conn_id")]), ElementsAre(conn_id));
+  }
+  {
+    std::vector<TaggedRecordBatch> tablets = http_table_->ConsumeRecords();
+    ASSERT_NOT_EMPTY_AND_GET_RECORDS(RecordBatch & records, tablets);
+    EXPECT_THAT(ToUInt128Vector(records[kHTTPTable.ColIndex("conn_id")]), ElementsAre(conn_id));
+  }
+}
+
 TEST_F(SocketTraceConnectorTest, ConnectionsTableHasOneRowPerChangedConnection) {
   struct conn_stats_event_t event = {};
   event.conn_id.upid.pid = kPID;

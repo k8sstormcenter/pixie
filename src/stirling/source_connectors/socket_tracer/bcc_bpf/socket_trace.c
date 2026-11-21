@@ -962,8 +962,6 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
 
   if (!ssl && vecs && BPF_LOOP_LIMIT <= 41) {
     conn_info->wire_unexamined_bytes += bytes_count;
-    conn_info->tls_record_state[direction & 1].synced = false;
-    conn_info->tls_record_state[direction & 1].remaining = 0;
   } else if (!ssl) {
     int kZero = 0;
     struct tls_record_scan_t* scan = tls_record_scan_heap.lookup(&kZero);

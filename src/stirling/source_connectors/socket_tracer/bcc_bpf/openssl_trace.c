@@ -35,6 +35,7 @@ BPF_HASH(openssl_symaddrs_map, uint32_t, struct openssl_symaddrs_t);
 
 BPF_ARRAY(openssl_trace_state, int, 1);
 BPF_HASH(openssl_trace_state_debug, uint32_t, struct openssl_trace_state_debug_t);
+BPF_HASH(openssl_no_fd_calls, uint32_t, struct openssl_no_fd_calls_t);
 
 /***********************************************************
  * General helpers
@@ -63,6 +64,27 @@ static __inline void process_openssl_data(struct pt_regs* ctx, uint64_t id,
     bytes_count = ex_bytes;
   }
   process_data(/* vecs */ false, ctx, id, direction, args, bytes_count, /* ssl */ true);
+}
+
+static __inline void count_call_without_fd(struct pt_regs* ctx, uint64_t id,
+                                           const enum traffic_direction_t direction) {
+  int bytes_count = PT_REGS_RC(ctx);
+  if (bytes_count <= 0) {
+    return;
+  }
+
+  uint32_t tgid = id >> 32;
+  struct openssl_no_fd_calls_t* calls = openssl_no_fd_calls.lookup(&tgid);
+  if (calls == NULL) {
+    struct openssl_no_fd_calls_t first = {};
+    bpf_get_current_comm(&first.comm, sizeof(first.comm));
+    first.reads = direction == kIngress;
+    first.writes = direction == kEgress;
+    openssl_no_fd_calls.update(&tgid, &first);
+    return;
+  }
+  calls->reads += direction == kIngress;
+  calls->writes += direction == kEgress;
 }
 
 /***********************************************************
@@ -279,6 +301,7 @@ static int probe_ret_SSL_write_syscall_fd_access_agnostic(struct pt_regs* ctx, b
 
   int fd = get_fd_and_eval_nested_syscall_detection(id);
   if (fd == kInvalidFD) {
+    count_call_without_fd(ctx, id, kEgress);
     return 0;
   }
 
@@ -346,6 +369,7 @@ static int probe_ret_SSL_read_syscall_fd_access_agnostic(struct pt_regs* ctx, bo
 
   int fd = get_fd_and_eval_nested_syscall_detection(id);
   if (fd == kInvalidFD) {
+    count_call_without_fd(ctx, id, kIngress);
     return 0;
   }
 

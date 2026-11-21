@@ -280,6 +280,12 @@ struct openssl_trace_state_debug_t {
   bool mismatched_fd;
 };
 
+struct openssl_no_fd_calls_t {
+  char comm[MAX_CMD_SIZE];
+  uint64_t reads;
+  uint64_t writes;
+};
+
 // For reading file descriptor from a TLSWrap pointer.
 struct node_tlswrap_symaddrs_t {
   // Offset of StreamListener base class of TLSWrap class.

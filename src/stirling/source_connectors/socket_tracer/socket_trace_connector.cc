@@ -51,6 +51,7 @@
 #include "src/stirling/source_connectors/socket_tracer/protocols/http2/grpc.h"
 #include "src/stirling/source_connectors/socket_tracer/protocols/websocket/k8s_exec.h"
 #include "src/stirling/utils/linux_headers.h"
+#include "src/stirling/utils/monitor.h"
 #include "src/stirling/utils/proc_path_tools.h"
 
 // 50 X less often than the normal sampling frequency. Based on the conn_stats_table.h's
@@ -199,6 +200,11 @@ DEFINE_bool(
     stirling_debug_tls_sources, gflags::BoolFromEnv("PX_DEBUG_TLS_SOURCES", false),
     "If true, stirling will add additional prometheus metrics regarding the traced tls sources");
 
+DEFINE_uint32(stirling_openssl_no_fd_report_period_secs,
+              gflags::Uint32FromEnv("PX_STIRLING_OPENSSL_NO_FD_REPORT_PERIOD_SECS", 300),
+              "The period at which SSL calls that returned data without socket I/O are reported "
+              "for each process");
+
 DEFINE_uint32(stirling_bpf_loop_limit, 41,
               "The maximum number of iovecs to capture for syscalls. "
               "Set conservatively for older kernels by default to keep the instruction count below "
@@ -238,6 +244,9 @@ constexpr char openssl_mismatched_fds_help[] =
 constexpr char openssl_tls_source_metric[] = "openssl_tls_source_debug";
 constexpr char openssl_tls_source_help[] =
     "Records the number of times a protocol was traced along with additional debugging information";
+constexpr char openssl_no_fd_metric[] = "openssl_trace_no_fd";
+constexpr char openssl_no_fd_help[] =
+    "Count of the SSL calls that returned data without socket I/O, whose data is not captured";
 
 SocketTraceConnector::SocketTraceConnector(std::string_view source_name)
     : BCCSourceConnector(source_name, kTables),
@@ -246,6 +255,8 @@ SocketTraceConnector::SocketTraceConnector(std::string_view source_name)
           BuildCounterFamily(openssl_mismatched_fds_metric, openssl_mismatched_fds_help)),
       openssl_trace_tls_source_counter_family_(
           BuildCounterFamily(openssl_tls_source_metric, openssl_tls_source_help)),
+      openssl_trace_no_fd_counter_family_(
+          BuildCounterFamily(openssl_no_fd_metric, openssl_no_fd_help)),
       uprobe_mgr_(&this->BCC()) {
   proc_parser_ = std::make_unique<system::ProcParser>();
   InitProtocolTransferSpecs();
@@ -611,6 +622,8 @@ Status SocketTraceConnector::InitImpl() {
   openssl_trace_state_ = WrappedBCCArrayTable<int>::Create(bcc_.get(), "openssl_trace_state");
   openssl_trace_state_debug_ = WrappedBCCMap<uint32_t, struct openssl_trace_state_debug_t>::Create(
       bcc_.get(), "openssl_trace_state_debug");
+  openssl_no_fd_calls_ = WrappedBCCMap<uint32_t, struct openssl_no_fd_calls_t>::Create(
+      bcc_.get(), "openssl_no_fd_calls");
 
   return Status::OK();
 }
@@ -774,6 +787,32 @@ void SocketTraceConnector::UpdateTrackerTraceLevel(ConnTracker* tracker) {
   }
 }
 
+void SocketTraceConnector::ReportOpenSSLCallsWithoutFD() {
+  const auto now = now_fn_();
+  if (openssl_no_fd_report_time_.has_value() &&
+      now - openssl_no_fd_report_time_.value() <
+          std::chrono::seconds{FLAGS_stirling_openssl_no_fd_report_period_secs}) {
+    return;
+  }
+  openssl_no_fd_report_time_ = now;
+
+  for (const auto& [tgid, calls] : openssl_no_fd_calls_->GetTableOffline(true)) {
+    openssl_trace_no_fd_counter_family_.Add({{"name", openssl_no_fd_metric}, {"exe", calls.comm}})
+        .Increment(static_cast<double>(calls.reads + calls.writes));
+
+    utils::JSONObjectBuilder info;
+    info.WriteKV("pid", tgid);
+    info.WriteKV("start_time_ticks",
+                 proc_parser_->GetPIDStartTimeTicks(static_cast<int32_t>(tgid)).ValueOr(0));
+    info.WriteKV("comm", calls.comm);
+    info.WriteKV("reads", calls.reads);
+    info.WriteKV("writes", calls.writes);
+    StirlingMonitor::GetInstance()->AppendProbeStatusRecord(
+        "socket_tracer", "openssl",
+        error::FailedPrecondition("SSL calls returned data without socket I/O"), info.GetString());
+  }
+}
+
 // Verifies that our openssl tracing does not encounter conditions that invalidate our
 // assumptions and records error conditions in prometheus metrics.
 void SocketTraceConnector::CheckTracerState() {
@@ -782,6 +821,8 @@ void SocketTraceConnector::CheckTracerState() {
   if (state() == State::kUninitialized) {
     return;
   }
+
+  ReportOpenSSLCallsWithoutFD();
 
   const int error_code =
       openssl_trace_state_->GetValue(kOpenSSLTraceStatusIdx).ConsumeValueOr(kOpenSSLTraceOk);

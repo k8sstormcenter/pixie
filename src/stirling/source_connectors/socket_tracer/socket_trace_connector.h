@@ -83,6 +83,7 @@ DECLARE_uint32(datastream_buffer_expiry_duration_secs);
 DECLARE_uint32(datastream_buffer_retention_size);
 
 DECLARE_uint64(max_body_bytes);
+DECLARE_uint32(stirling_openssl_no_fd_report_period_secs);
 
 namespace px {
 namespace stirling {
@@ -133,6 +134,7 @@ class SocketTraceConnector : public BCCSourceConnector {
   void TransferDataImpl(ConnectorContext* ctx) override;
 
   void CheckTracerState();
+  void ReportOpenSSLCallsWithoutFD();
 
   // Perform actions that are not specifically targeting a table.
   // For example, drain perf buffers, deploy new uprobes, and update socket info manager.
@@ -252,6 +254,9 @@ class SocketTraceConnector : public BCCSourceConnector {
       openssl_trace_state_debug_;
   prometheus::Family<prometheus::Counter>& openssl_trace_mismatched_fds_counter_family_;
   prometheus::Family<prometheus::Counter>& openssl_trace_tls_source_counter_family_;
+  std::unique_ptr<WrappedBCCMap<uint32_t, struct openssl_no_fd_calls_t>> openssl_no_fd_calls_;
+  prometheus::Family<prometheus::Counter>& openssl_trace_no_fd_counter_family_;
+  std::optional<std::chrono::steady_clock::time_point> openssl_no_fd_report_time_;
 
   absl::flat_hash_set<int> pids_to_trace_disable_;
 

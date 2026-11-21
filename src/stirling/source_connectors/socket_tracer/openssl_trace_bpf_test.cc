@@ -321,6 +321,8 @@ asyncio.run(main())
 class OpenSSLMemoryBIOTest : public SocketTraceBPFTestFixture</* TClientSideTracing */ false> {
  protected:
   OpenSSLMemoryBIOTest() {
+    FLAGS_stirling_openssl_no_fd_report_period_secs = 0;
+
     constexpr bool kHostPid = false;
     PX_CHECK_OK(server_.Run(std::chrono::seconds{60}, {"--entrypoint=/usr/bin/python3"},
                             {"-c", std::string(kAsyncioHTTPSScript)}, kHostPid));

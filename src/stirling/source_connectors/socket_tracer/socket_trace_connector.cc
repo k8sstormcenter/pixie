@@ -2001,6 +2001,9 @@ void SocketTraceConnector::TransferConnStats(ConnectorContext* ctx, DataTable* d
       r.Append<idx::kConnActive>(stats.conn_open - stats.conn_close);
       r.Append<idx::kBytesSent>(stats.bytes_sent);
       r.Append<idx::kBytesRecv>(stats.bytes_recv);
+      r.Append<idx::kWireTLSBytes>(stats.wire_tls_bytes);
+      r.Append<idx::kWireNonTLSBytes>(stats.wire_non_tls_bytes);
+      r.Append<idx::kWireUnexaminedBytes>(stats.wire_unexamined_bytes);
 #ifndef NDEBUG
       r.Append<idx::kPxInfo>("");
 #endif

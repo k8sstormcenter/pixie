@@ -75,6 +75,9 @@ class ConnStats {
     uint64_t conn_close = 0;
     uint64_t bytes_sent = 0;
     uint64_t bytes_recv = 0;
+    uint64_t wire_tls_bytes = 0;
+    uint64_t wire_non_tls_bytes = 0;
+    uint64_t wire_unexamined_bytes = 0;
 
     // Keep track of whether this stats object has ever been previously reported.
     // Used to determine whether it should be reported in the future, after the connection

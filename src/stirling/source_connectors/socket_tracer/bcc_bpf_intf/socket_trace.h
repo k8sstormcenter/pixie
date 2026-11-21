@@ -43,6 +43,21 @@ union sockaddr_t {
 
 // This struct contains information collected when a connection is established,
 // via an accept() syscall.
+struct tls_record_scan_t {
+  uint64_t buf;
+  uint64_t buf_size;
+  uint64_t bytes_count;
+  uint64_t pos;
+  uint64_t chunk;
+};
+
+struct tls_record_state_t {
+  uint32_t remaining;
+  uint32_t header;
+  uint8_t header_len;
+  bool synced;
+};
+
 struct conn_info_t {
   // Connection identifier (PID, FD, etc.).
   struct conn_id_t conn_id;
@@ -70,6 +85,13 @@ struct conn_info_t {
   // The previously reported values of bytes written/read.
   // Used for determining when to send updated conn_stats values.
   int64_t last_reported_bytes;
+
+  // The number of bytes passed to socket syscalls, by where they fall in the TLS record layer.
+  int64_t wire_tls_bytes;
+  int64_t wire_non_tls_bytes;
+  int64_t wire_unexamined_bytes;
+
+  struct tls_record_state_t tls_record_state[2];
 
   // The number of bytes written by application (for uprobe) on this connection.
   int64_t app_wr_bytes;
@@ -237,6 +259,11 @@ struct conn_stats_event_t {
   int64_t wr_bytes;
   // The number of bytes read on this connection.
   int64_t rd_bytes;
+
+  // See conn_info_t for descriptions of the members.
+  int64_t wire_tls_bytes;
+  int64_t wire_non_tls_bytes;
+  int64_t wire_unexamined_bytes;
 
   // Bitmask of flags specifying whether conn open or close have been observed.
   uint32_t conn_events;

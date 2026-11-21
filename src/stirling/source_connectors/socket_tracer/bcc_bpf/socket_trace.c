@@ -37,6 +37,8 @@
 // This keeps instruction count below BPF's limit of 4096 per probe.
 #define LOOP_LIMIT BPF_LOOP_LIMIT
 #define PROTOCOL_VEC_LIMIT 3
+#define TLS_RECORD_LIMIT (BPF_LOOP_LIMIT > 41 ? 16 : 1)
+#define TLS_RECORD_HEADER_SIZE 5
 
 const int32_t kInvalidFD = -1;
 
@@ -123,6 +125,7 @@ BPF_HASH(active_sendfile_args_map, uint64_t, struct sendfile_args_t);
 // and use it as a heap allocated value.
 BPF_PERCPU_ARRAY(socket_data_event_buffer_heap, struct socket_data_event_t, 1);
 BPF_PERCPU_ARRAY(conn_stats_event_buffer_heap, struct conn_stats_event_t, 1);
+BPF_PERCPU_ARRAY(tls_record_scan_heap, struct tls_record_scan_t, 1);
 
 // This array records singular values that are used by probes. We group them together to reduce the
 // number of arrays with only 1 element.
@@ -238,6 +241,9 @@ static __inline struct conn_stats_event_t* fill_conn_stats_event(
   event->role = conn_info->role;
   event->wr_bytes = conn_info->wr_bytes;
   event->rd_bytes = conn_info->rd_bytes;
+  event->wire_tls_bytes = conn_info->wire_tls_bytes;
+  event->wire_non_tls_bytes = conn_info->wire_non_tls_bytes;
+  event->wire_unexamined_bytes = conn_info->wire_unexamined_bytes;
   event->conn_events = 0;
   event->timestamp_ns = bpf_ktime_get_ns();
   return event;
@@ -390,6 +396,8 @@ static __inline void submit_new_conn(struct pt_regs* ctx, uint32_t tgid, int32_t
     conn_info.raddr = *((union sockaddr_t*)addr);
   }
   conn_info.role = role;
+  conn_info.tls_record_state[kEgress].synced = role != kRoleUnknown;
+  conn_info.tls_record_state[kIngress].synced = role != kRoleUnknown;
 
   uint64_t tgid_fd = gen_tgid_fd(tgid, fd);
   conn_info_map.update(&tgid_fd, &conn_info);
@@ -789,6 +797,76 @@ static __inline void update_conn_stats(struct pt_regs* ctx, struct conn_info_t* 
   }
 }
 
+static __inline bool is_tls_record_header(uint64_t header) {
+  uint8_t content_type = header;
+  uint8_t version_major = header >> 8;
+  uint8_t version_minor = header >> 16;
+  uint32_t length = ((header >> 24) & 0xff) << 8 | ((header >> 32) & 0xff);
+  return content_type >= 0x14 && content_type <= 0x17 && version_major == 0x03 &&
+         version_minor <= 0x04 && length <= 16384 + 2048;
+}
+
+static __inline void skip_wire_tls_bytes(struct conn_info_t* conn_info,
+                                         struct tls_record_state_t* state, size_t bytes_count) {
+  conn_info->wire_unexamined_bytes += state->header_len + bytes_count;
+  state->synced = false;
+  state->remaining = 0;
+  state->header = 0;
+  state->header_len = 0;
+}
+
+static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
+                                           enum traffic_direction_t direction,
+                                           struct tls_record_scan_t* scan) {
+  struct tls_record_state_t* state = &conn_info->tls_record_state[direction & 1];
+  scan->pos = 0;
+
+#pragma unroll
+  for (int i = 0; i <= TLS_RECORD_LIMIT; ++i) {
+    size_t in_record = min_size_t(state->remaining, scan->bytes_count - scan->pos);
+    conn_info->wire_tls_bytes += in_record;
+    state->remaining -= in_record;
+    scan->pos += in_record;
+    if (scan->pos >= scan->bytes_count) {
+      return;
+    }
+
+    scan->chunk = 0;
+    if (i == TLS_RECORD_LIMIT || scan->pos >= scan->buf_size ||
+        bpf_probe_read(&scan->chunk, TLS_RECORD_HEADER_SIZE,
+                       (const char*)(scan->buf + scan->pos)) != 0) {
+      break;
+    }
+    uint8_t held = state->header_len & 0x7;
+    uint64_t header = state->header | (scan->chunk << (8 * held));
+    size_t available = scan->buf_size - scan->pos;
+    if (held + available < TLS_RECORD_HEADER_SIZE) {
+      if (scan->buf_size != scan->bytes_count) {
+        break;
+      }
+      state->header = header & ((1ULL << (8 * (held + available))) - 1);
+      state->header_len = held + available;
+      return;
+    }
+    state->header = 0;
+    state->header_len = 0;
+    if (!is_tls_record_header(header)) {
+      if (state->synced) {
+        conn_info->wire_non_tls_bytes += held + scan->bytes_count - scan->pos;
+      } else {
+        conn_info->wire_unexamined_bytes += held + scan->bytes_count - scan->pos;
+      }
+      return;
+    }
+    state->synced = true;
+    conn_info->wire_tls_bytes += held;
+    state->remaining =
+        TLS_RECORD_HEADER_SIZE - held + (((header >> 24) & 0xff) << 8 | ((header >> 32) & 0xff));
+  }
+
+  skip_wire_tls_bytes(conn_info, state, scan->bytes_count - scan->pos);
+}
+
 static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t id,
                                   const enum traffic_direction_t direction,
                                   const struct data_args_t* args, ssize_t bytes_count, bool ssl) {
@@ -882,6 +960,27 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
     update_conn_stats(ctx, conn_info, direction, bytes_count);
   }
 
+  if (!ssl && vecs && BPF_LOOP_LIMIT <= 41) {
+    conn_info->wire_unexamined_bytes += bytes_count;
+  } else if (!ssl) {
+    int kZero = 0;
+    struct tls_record_scan_t* scan = tls_record_scan_heap.lookup(&kZero);
+    if (scan == NULL) {
+      return;
+    }
+    scan->bytes_count = bytes_count;
+    if (!vecs) {
+      scan->buf = (uint64_t)args->buf;
+      scan->buf_size = bytes_count;
+    } else {
+      scan->buf = 0;
+      scan->buf_size = 0;
+      bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[0]);
+      scan->buf_size = min_size_t(scan->buf_size, bytes_count);
+    }
+    update_wire_tls_bytes(conn_info, direction, scan);
+  }
+
   return;
 }
 
@@ -955,6 +1054,7 @@ static __inline void process_syscall_sendfile(struct pt_regs* ctx, uint64_t id,
     socket_data_events.perf_submit(ctx, event, sizeof(event->attr));
   }
 
+  conn_info->wire_non_tls_bytes += bytes_count;
   update_conn_stats(ctx, conn_info, kEgress, bytes_count);
 
   return;
@@ -1289,6 +1389,10 @@ int syscall__probe_entry_recvfrom(struct pt_regs* ctx, int sockfd, char* buf, si
   uint64_t id = bpf_get_current_pid_tgid();
 
   propagate_fd_to_user_space_call(id, sockfd);
+
+  if (flags & MSG_PEEK) {
+    return 0;
+  }
 
   // Stash arguments.
   if (src_addr != NULL) {

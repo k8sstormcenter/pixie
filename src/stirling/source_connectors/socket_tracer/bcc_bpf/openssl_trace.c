@@ -87,7 +87,7 @@ static __inline void count_call_without_fd(struct pt_regs* ctx, uint64_t id,
   if (calls == NULL) {
     struct openssl_no_fd_calls_t first = {};
     bpf_get_current_comm(&first.comm, sizeof(first.comm));
-    calls = openssl_no_fd_calls.lookup_or_init(&tgid, &first);
+    calls = openssl_no_fd_calls.lookup_or_try_init(&tgid, &first);
     if (calls == NULL) {
       return;
     }

@@ -815,11 +815,13 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
                                            struct tls_record_scan_t* scan) {
   struct tls_record_state_t* state = &conn_info->tls_record_state[direction & 1];
   scan->pos = 0;
+  uint64_t sh = 24 * (direction & 1);
+  uint64_t why = 0;
 
 #pragma unroll
   for (int i = 0; i <= TLS_RECORD_LIMIT; ++i) {
     size_t in_record = min_size_t(state->remaining, scan->bytes_count - scan->pos);
-    conn_info->wire_tls_bytes += in_record;
+    conn_info->wire_tls_bytes += ((uint64_t)(in_record)) << sh;
     state->remaining -= in_record;
     scan->pos += in_record;
     if (scan->pos >= scan->bytes_count) {
@@ -827,9 +829,17 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
     }
 
     scan->chunk = 0;
-    if (i == TLS_RECORD_LIMIT || scan->pos >= scan->buf_size ||
-        bpf_probe_read(&scan->chunk, TLS_RECORD_HEADER_SIZE,
+    if (i == TLS_RECORD_LIMIT) {
+      why = 1ULL << 48;
+      break;
+    }
+    if (scan->pos >= scan->buf_size) {
+      why = 1ULL << 52;
+      break;
+    }
+    if (bpf_probe_read(&scan->chunk, TLS_RECORD_HEADER_SIZE,
                        (const char*)(scan->buf + scan->pos)) != 0) {
+      why = 1ULL << 56;
       break;
     }
     uint8_t held = state->header_len & 0x7;
@@ -837,6 +847,7 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
     size_t available = scan->buf_size - scan->pos;
     if (held + available < TLS_RECORD_HEADER_SIZE) {
       if (scan->buf_size != scan->bytes_count) {
+        why = 1ULL << 60;
         break;
       }
       state->header = header & ((1ULL << (8 * (held + available))) - 1);
@@ -847,19 +858,21 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
     state->header_len = 0;
     if (!is_tls_record_header(header)) {
       if (state->synced) {
-        conn_info->wire_non_tls_bytes += held + scan->bytes_count - scan->pos;
+        conn_info->wire_non_tls_bytes += ((uint64_t)(held + scan->bytes_count - scan->pos)) << sh;
       } else {
-        conn_info->wire_unexamined_bytes += held + scan->bytes_count - scan->pos;
+        conn_info->wire_unexamined_bytes += ((uint64_t)(held + scan->bytes_count - scan->pos)) << sh;
       }
       return;
     }
     state->synced = true;
-    conn_info->wire_tls_bytes += held;
+    conn_info->wire_tls_bytes += ((uint64_t)(held)) << sh;
     state->remaining =
         TLS_RECORD_HEADER_SIZE - held + (((header >> 24) & 0xff) << 8 | ((header >> 32) & 0xff));
   }
 
-  conn_info->wire_unexamined_bytes += state->header_len + scan->bytes_count - scan->pos;
+  conn_info->wire_unexamined_bytes += ((uint64_t)(state->header_len + scan->bytes_count - scan->pos)) << sh;
+  conn_info->wire_unexamined_bytes += why;
+  conn_info->wire_tls_bytes += 1ULL << (48 + 8 * (direction & 1));
   state->synced = false;
   state->remaining = 0;
   state->header = 0;

@@ -16,16 +16,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <sys/stat.h>
+
 #include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <absl/strings/str_cat.h>
 
 #include "src/common/exec/subprocess.h"
 #include "src/common/system/proc_pid_path.h"
+#include "src/common/testing/temp_dir.h"
 #include "src/common/testing/testing.h"
 #include "src/stirling/bpf_tools/bcc_wrapper.h"
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/common.h"
@@ -66,14 +71,16 @@ class GoBinaryCacheBPFTest
     }
   }
 
-  void StartServer(const std::filesystem::path& server, int https_port, int http_port,
-                   SubProcess* process) {
-    ASSERT_OK(process->Start(
-        {server.string(),
-         absl::StrCat("--cert=", ::px::testing::BazelRunfilePath(kServerCert).string()),
-         absl::StrCat("--key=", ::px::testing::BazelRunfilePath(kServerKey).string()),
-         absl::StrCat("--https_port=", https_port), absl::StrCat("--http_port=", http_port)}));
-    const std::filesystem::path exe = system::ProcPidPath(process->child_pid(), "exe");
+  std::vector<std::string> ServerArgs(const std::filesystem::path& server, int https_port,
+                                      int http_port) {
+    return {server.string(),
+            absl::StrCat("--cert=", ::px::testing::BazelRunfilePath(kServerCert).string()),
+            absl::StrCat("--key=", ::px::testing::BazelRunfilePath(kServerKey).string()),
+            absl::StrCat("--https_port=", https_port), absl::StrCat("--http_port=", http_port)};
+  }
+
+  void WaitForExec(const SubProcess& process, const std::filesystem::path& server) {
+    const std::filesystem::path exe = system::ProcPidPath(process.child_pid(), "exe");
     for (int i = 0; i < 100; ++i) {
       std::error_code ec;
       if (std::filesystem::read_symlink(exe, ec).filename() == server.filename()) {
@@ -82,6 +89,12 @@ class GoBinaryCacheBPFTest
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     FAIL() << "Server did not start: " << exe;
+  }
+
+  void StartServer(const std::filesystem::path& server, int https_port, int http_port,
+                   SubProcess* process) {
+    ASSERT_OK(process->Start(ServerArgs(server, https_port, http_port)));
+    WaitForExec(*process, server);
   }
 
   template <typename V>
@@ -100,6 +113,35 @@ TEST_F(GoBinaryCacheBPFTest, EveryProcessOfABinaryGetsItsSymAddrs) {
   ExpectSameValueForBothServers<struct go_common_symaddrs_t>("go_common_symaddrs_map");
   ExpectSameValueForBothServers<struct go_tls_symaddrs_t>("go_tls_symaddrs_map");
   ExpectSameValueForBothServers<struct go_http2_symaddrs_t>("http2_symaddrs_map");
+}
+
+TEST_F(GoBinaryCacheBPFTest, ProcessThatExecsLaterGetsItsSymAddrs) {
+  ::px::testing::TempDir dir;
+  const std::filesystem::path fifo = dir.path() / "start";
+  ASSERT_EQ(mkfifo(fifo.c_str(), 0600), 0);
+
+  const std::filesystem::path server = GoHTTPSServerFixture::StrippedPath("1_24");
+  std::vector<std::string> args = {"/bin/sh", "-c", R"(read line < "$0"; exec "$@")",
+                                   fifo.string()};
+  for (const std::string& arg : ServerArgs(server, 50141, 50140)) {
+    args.push_back(arg);
+  }
+  SubProcess late_server;
+  ASSERT_OK(late_server.Start(args));
+
+  RefreshContext(true);
+
+  std::ofstream(fifo) << std::endl;
+  WaitForExec(late_server, server);
+
+  RefreshContext(true);
+
+  auto map = WrappedBCCMap<uint32_t, struct go_tls_symaddrs_t>::Create(&source_->BCC(),
+                                                                       "go_tls_symaddrs_map");
+  EXPECT_OK(map->GetValue(late_server.child_pid()));
+
+  late_server.Kill();
+  late_server.Wait();
 }
 
 }  // namespace stirling

@@ -76,6 +76,9 @@ absl::flat_hash_map<ConnStats::AggKey, ConnStats::Stats>& ConnStats::UpdateStats
     stats.conn_close += conn_close;
     stats.bytes_recv += bytes_recv;
     stats.bytes_sent += bytes_sent;
+    stats.wire_tls_bytes += conn_stats.WireTLSBytesSinceLastRead();
+    stats.wire_non_tls_bytes += conn_stats.WireNonTLSBytesSinceLastRead();
+    stats.wire_unexamined_bytes += conn_stats.WireUnexaminedBytesSinceLastRead();
 
     stats.last_update = update_counter_;
   }

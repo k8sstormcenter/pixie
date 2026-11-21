@@ -218,6 +218,8 @@ void ConnTracker::AddConnStats(const conn_stats_event_t& event) {
 
     conn_stats_.set_bytes_recv(event.rd_bytes);
     conn_stats_.set_bytes_sent(event.wr_bytes);
+    conn_stats_.set_wire_bytes(event.wire_tls_bytes, event.wire_non_tls_bytes,
+                               event.wire_unexamined_bytes);
     conn_stats_.set_closed(event.conn_events & CONN_CLOSE);
 
     last_conn_stats_update_ = event.timestamp_ns;

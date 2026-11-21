@@ -71,6 +71,11 @@ struct conn_info_t {
   // Used for determining when to send updated conn_stats values.
   int64_t last_reported_bytes;
 
+  // The number of bytes passed to socket syscalls, by where they fall in the TLS record layer.
+  int64_t wire_tls_bytes;
+  int64_t wire_non_tls_bytes;
+  int64_t wire_unexamined_bytes;
+
   // The number of bytes written by application (for uprobe) on this connection.
   int64_t app_wr_bytes;
   // The number of bytes read by application (for uprobe) on this connection.
@@ -237,6 +242,11 @@ struct conn_stats_event_t {
   int64_t wr_bytes;
   // The number of bytes read on this connection.
   int64_t rd_bytes;
+
+  // See conn_info_t for descriptions of the members.
+  int64_t wire_tls_bytes;
+  int64_t wire_non_tls_bytes;
+  int64_t wire_unexamined_bytes;
 
   // Bitmask of flags specifying whether conn open or close have been observed.
   uint32_t conn_events;

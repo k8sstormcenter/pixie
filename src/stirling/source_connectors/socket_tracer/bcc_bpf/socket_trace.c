@@ -238,6 +238,9 @@ static __inline struct conn_stats_event_t* fill_conn_stats_event(
   event->role = conn_info->role;
   event->wr_bytes = conn_info->wr_bytes;
   event->rd_bytes = conn_info->rd_bytes;
+  event->wire_tls_bytes = conn_info->wire_tls_bytes;
+  event->wire_non_tls_bytes = conn_info->wire_non_tls_bytes;
+  event->wire_unexamined_bytes = conn_info->wire_unexamined_bytes;
   event->conn_events = 0;
   event->timestamp_ns = bpf_ktime_get_ns();
   return event;

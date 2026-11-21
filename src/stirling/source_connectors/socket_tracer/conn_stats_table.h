@@ -50,6 +50,17 @@ constexpr DataElement kConnStatsElements[] = {
          types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER},
         {"bytes_recv", "The number of bytes received from the remote endpoint(s).",
          types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER},
+        {"wire_tls_bytes",
+         "The number of bytes passed to socket syscalls inside TLS records, in both directions. "
+         "With kernel TLS the syscalls carry plaintext, which is not counted here.",
+         types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER},
+        {"wire_non_tls_bytes",
+         "The number of bytes passed to socket syscalls outside TLS records, in both directions.",
+         types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER},
+        {"wire_unexamined_bytes",
+         "The number of bytes passed to socket syscalls that were not matched against the TLS "
+         "record layer, in both directions.",
+         types::DataType::INT64, types::SemanticType::ST_BYTES, types::PatternType::METRIC_COUNTER},
 #ifndef NDEBUG
         canonical_data_elements::kPXInfo,
 #endif
@@ -79,6 +90,9 @@ constexpr int kConnClose = kConnStatsTable.ColIndex("conn_close");
 constexpr int kConnActive = kConnStatsTable.ColIndex("conn_active");
 constexpr int kBytesSent = kConnStatsTable.ColIndex("bytes_sent");
 constexpr int kBytesRecv = kConnStatsTable.ColIndex("bytes_recv");
+constexpr int kWireTLSBytes = kConnStatsTable.ColIndex("wire_tls_bytes");
+constexpr int kWireNonTLSBytes = kConnStatsTable.ColIndex("wire_non_tls_bytes");
+constexpr int kWireUnexaminedBytes = kConnStatsTable.ColIndex("wire_unexamined_bytes");
 #ifndef NDEBUG
 constexpr int kPxInfo = kConnStatsTable.ColIndex("px_info_");
 #endif

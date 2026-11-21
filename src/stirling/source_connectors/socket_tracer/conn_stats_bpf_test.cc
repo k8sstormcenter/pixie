@@ -41,6 +41,9 @@ constexpr int kConnOpenIdx = conn_stats_idx::kConnOpen;
 constexpr int kConnCloseIdx = conn_stats_idx::kConnClose;
 constexpr int kBytesSentIdx = conn_stats_idx::kBytesSent;
 constexpr int kBytesRecvIdx = conn_stats_idx::kBytesRecv;
+constexpr int kWireTLSBytesIdx = conn_stats_idx::kWireTLSBytes;
+constexpr int kWireNonTLSBytesIdx = conn_stats_idx::kWireNonTLSBytes;
+constexpr int kWireUnexaminedBytesIdx = conn_stats_idx::kWireUnexaminedBytes;
 constexpr int kAddrFamilyIdx = conn_stats_idx::kAddrFamily;
 constexpr int kProtocolIdx = conn_stats_idx::kProtocol;
 constexpr int kRoleIdx = conn_stats_idx::kRole;
@@ -95,6 +98,9 @@ TEST_F(ConnStatsBPFTest, UnclassifiedEvents) {
     EXPECT_THAT(addr_family, static_cast<int>(SockAddrFamily::kIPv4));
     EXPECT_THAT(protocol, kProtocolUnknown);
     EXPECT_THAT(role, kRoleServer);
+    EXPECT_THAT(AccessRecordBatch<types::Int64Value>(rb, kWireTLSBytesIdx, idx).val, 0);
+    EXPECT_THAT(AccessRecordBatch<types::Int64Value>(rb, kWireNonTLSBytesIdx, idx).val, 18);
+    EXPECT_THAT(AccessRecordBatch<types::Int64Value>(rb, kWireUnexaminedBytesIdx, idx).val, 0);
   }
 
   // Check client-side stats.
@@ -408,6 +414,10 @@ TEST_F(ConnStatsBPFTest, SSLConnections) {
     // The TLS handshake has 4 less bytes when using 127.0.0.1 instead of localhost.
     EXPECT_THAT(bytes_sent, 2486);
     EXPECT_THAT(bytes_rcvd, 698);
+    EXPECT_GT(AccessRecordBatch<types::Int64Value>(rb, kWireTLSBytesIdx, idx).val,
+              bytes_sent + bytes_rcvd);
+    EXPECT_THAT(AccessRecordBatch<types::Int64Value>(rb, kWireNonTLSBytesIdx, idx).val, 0);
+    EXPECT_THAT(AccessRecordBatch<types::Int64Value>(rb, kWireUnexaminedBytesIdx, idx).val, 0);
     EXPECT_THAT(addr_family, static_cast<int>(SockAddrFamily::kIPv4));
     EXPECT_THAT(protocol, kProtocolHTTP);
     EXPECT_THAT(role, kRoleServer);

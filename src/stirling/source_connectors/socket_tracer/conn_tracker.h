@@ -138,6 +138,12 @@ class ConnTracker : NotCopyMoveable {
 
     void set_bytes_sent(int64_t bytes_sent) { bytes_sent_ = bytes_sent; }
 
+    void set_wire_bytes(int64_t tls, int64_t non_tls, int64_t unexamined) {
+      wire_tls_bytes_ = tls;
+      wire_non_tls_bytes_ = non_tls;
+      wire_unexamined_bytes_ = unexamined;
+    }
+
     int64_t bytes_recv() const { return bytes_recv_; }
     int64_t bytes_sent() const { return bytes_sent_; }
     bool closed() const { return closed_; }
@@ -166,13 +172,37 @@ class ConnTracker : NotCopyMoveable {
       return val;
     }
 
+    int64_t WireTLSBytesSinceLastRead() {
+      int64_t val = wire_tls_bytes_ - last_reported_wire_tls_bytes_;
+      last_reported_wire_tls_bytes_ = wire_tls_bytes_;
+      return val;
+    }
+
+    int64_t WireNonTLSBytesSinceLastRead() {
+      int64_t val = wire_non_tls_bytes_ - last_reported_wire_non_tls_bytes_;
+      last_reported_wire_non_tls_bytes_ = wire_non_tls_bytes_;
+      return val;
+    }
+
+    int64_t WireUnexaminedBytesSinceLastRead() {
+      int64_t val = wire_unexamined_bytes_ - last_reported_wire_unexamined_bytes_;
+      last_reported_wire_unexamined_bytes_ = wire_unexamined_bytes_;
+      return val;
+    }
+
    private:
     int64_t bytes_recv_ = 0;
     int64_t bytes_sent_ = 0;
+    int64_t wire_tls_bytes_ = 0;
+    int64_t wire_non_tls_bytes_ = 0;
+    int64_t wire_unexamined_bytes_ = 0;
     bool closed_ = false;
 
     int64_t last_reported_bytes_recv_ = 0;
     int64_t last_reported_bytes_sent_ = 0;
+    int64_t last_reported_wire_tls_bytes_ = 0;
+    int64_t last_reported_wire_non_tls_bytes_ = 0;
+    int64_t last_reported_wire_unexamined_bytes_ = 0;
     bool last_reported_open_ = false;
     bool last_reported_close_ = false;
   };

@@ -55,6 +55,7 @@ using ::px::stirling::testing::ToRecordVector;
 
 using ::testing::AllOf;
 using ::testing::Contains;
+using ::testing::ContainsRegex;
 using ::testing::Field;
 using ::testing::HasSubstr;
 using ::testing::IsTrue;
@@ -318,20 +319,57 @@ async def main():
 asyncio.run(main())
 )";
 
-class OpenSSLMemoryBIOTest : public SocketTraceBPFTestFixture</* TClientSideTracing */ false> {
+constexpr std::string_view kSmallReadsHTTPSScript = R"(
+import socket
+import ssl
+import threading
+import time
+
+def serve(listener):
+    while True:
+        conn, _ = listener.accept()
+        conn.recv(4096)
+        conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+        conn.close()
+
+server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+server_ctx.load_cert_chain("/etc/ssl/server.crt", "/etc/ssl/server.key")
+listener = server_ctx.wrap_socket(socket.create_server(("127.0.0.1", 443)), server_side=True)
+threading.Thread(target=serve, args=(listener,), daemon=True).start()
+client_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+client_ctx.check_hostname = False
+client_ctx.verify_mode = ssl.CERT_NONE
+print("INFO", flush=True)
+while True:
+    conn = client_ctx.wrap_socket(socket.create_connection(("127.0.0.1", 443)))
+    conn.sendall(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    for _ in range(40):
+        conn.recv(1)
+    conn.close()
+    time.sleep(0.01)
+)";
+
+struct CallsWithoutSocketIOTestCase {
+  std::string_view script;
+  std::string info_regex;
+};
+
+class OpenSSLCallsWithoutSocketIOTest
+    : public SocketTraceBPFTestFixture</* TClientSideTracing */ false>,
+      public ::testing::WithParamInterface<CallsWithoutSocketIOTestCase> {
  protected:
-  OpenSSLMemoryBIOTest() {
+  OpenSSLCallsWithoutSocketIOTest() {
     FLAGS_stirling_openssl_no_fd_report_period_secs = 0;
 
     constexpr bool kHostPid = false;
     PX_CHECK_OK(server_.Run(std::chrono::seconds{60}, {"--entrypoint=/usr/bin/python3"},
-                            {"-c", std::string(kAsyncioHTTPSScript)}, kHostPid));
+                            {"-c", std::string(GetParam().script)}, kHostPid));
   }
 
   PythonMin310ContainerWrapper server_;
 };
 
-TEST_F(OpenSSLMemoryBIOTest, calls_without_socket_io_are_reported) {
+TEST_P(OpenSSLCallsWithoutSocketIOTest, calls_without_socket_io_are_reported) {
   StirlingMonitor::GetInstance()->ConsumeProbeStatusRecords();
 
   StartTransferDataThread();
@@ -344,8 +382,21 @@ TEST_F(OpenSSLMemoryBIOTest, calls_without_socket_io_are_reported) {
                      Field(&ProbeStatusRecord::tracepoint, "openssl"),
                      Field(&ProbeStatusRecord::error, "SSL calls returned data without socket I/O"),
                      Field(&ProbeStatusRecord::info,
-                           HasSubstr(absl::Substitute(R"("pid":$0,)", server_.PID()))))));
+                           AllOf(HasSubstr(absl::Substitute(R"("pid":$0,)", server_.PID())),
+                                 ContainsRegex(GetParam().info_regex))))));
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    OpenSSLCallsWithoutSocketIO, OpenSSLCallsWithoutSocketIOTest,
+    ::testing::Values(
+        CallsWithoutSocketIOTestCase{
+            kAsyncioHTTPSScript,
+            R"("kind":"no-socket-io","reads":[1-9][0-9]*,"writes":[1-9][0-9]*,)"
+            R"("read_bytes":[1-9][0-9]*,"write_bytes":[1-9][0-9]*,"socket_io_calls":0)"},
+        CallsWithoutSocketIOTestCase{
+            kSmallReadsHTTPSScript,
+            R"("kind":"partial-reads","reads":[1-9][0-9]*,"writes":0,)"
+            R"("read_bytes":[1-9][0-9]*,"write_bytes":0,"socket_io_calls":[1-9])"}));
 
 }  // namespace stirling
 }  // namespace px

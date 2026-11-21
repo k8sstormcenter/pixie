@@ -905,17 +905,6 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
   uint64_t* conn_disabled_tsid_ptr = conn_disabled_map.lookup(&tgid_fd);
   uint64_t conn_disabled_tsid = (conn_disabled_tsid_ptr == NULL) ? 0 : *conn_disabled_tsid_ptr;
 
-  if (!ssl) {
-    if (!vecs) {
-      update_wire_tls_bytes(conn_info, direction, args->buf, bytes_count, bytes_count);
-    } else {
-      struct iovec first_iov;
-      BPF_PROBE_READ_VAR(first_iov, &args->iov[0]);
-      update_wire_tls_bytes(conn_info, direction, first_iov.iov_base,
-                            min_size_t(first_iov.iov_len, bytes_count), bytes_count);
-    }
-  }
-
   // Only process plaintext data.
   if (conn_info->ssl == ssl) {
     // TODO(yzhao): Split the interface such that the singular buf case and multiple bufs in msghdr
@@ -966,6 +955,19 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
   //                     if (!ssl) { ... }
   if (conn_info->ssl == ssl) {
     update_conn_stats(ctx, conn_info, direction, bytes_count);
+  }
+
+  if (!ssl) {
+    if (!vecs) {
+      update_wire_tls_bytes(conn_info, direction, args->buf, bytes_count, bytes_count);
+    } else {
+      struct tls_record_state_t* state = &conn_info->tls_record_state[direction & 1];
+      state->iov[0] = 0;
+      state->iov[1] = 0;
+      bpf_probe_read(state->iov, sizeof(state->iov), &args->iov[0]);
+      update_wire_tls_bytes(conn_info, direction, (const char*)state->iov[0],
+                            min_size_t(state->iov[1], bytes_count), bytes_count);
+    }
   }
 
   return;

@@ -45,6 +45,7 @@ union sockaddr_t {
 // via an accept() syscall.
 struct tls_record_state_t {
   uint64_t chunk;
+  uint64_t iov[2];
   uint32_t remaining;
   uint32_t header;
   uint8_t header_len;

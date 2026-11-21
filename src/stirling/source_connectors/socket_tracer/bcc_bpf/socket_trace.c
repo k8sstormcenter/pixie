@@ -38,6 +38,7 @@
 #define LOOP_LIMIT BPF_LOOP_LIMIT
 #define PROTOCOL_VEC_LIMIT 3
 #define TLS_RECORD_LIMIT (BPF_LOOP_LIMIT > 41 ? 16 : 1)
+#define TLS_IOVEC_LIMIT 4
 #define TLS_RECORD_HEADER_SIZE 5
 #define TLS_HANDSHAKE_CONTENT_TYPE 0x16
 #define TLS_HANDSHAKE_BYTES_LIMIT 4096
@@ -879,7 +880,7 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
 static __inline void submit_tls_handshake(struct pt_regs* ctx, enum traffic_direction_t direction,
                                           enum source_function_t source_fn, bool force_trace_tgid,
                                           struct conn_info_t* conn_info,
-                                          struct tls_record_scan_t* scan) {
+                                          struct tls_record_scan_t* scan, size_t bytes_count) {
   struct tls_record_state_t* state = &conn_info->tls_record_state[direction & 1];
   if (state->handshake_bytes >= TLS_HANDSHAKE_BYTES_LIMIT ||
       (!state->tls && state->header_len == 0)) {
@@ -900,7 +901,7 @@ static __inline void submit_tls_handshake(struct pt_regs* ctx, enum traffic_dire
   event->attr.protocol = kProtocolTLS;
   event->attr.pos = state->handshake_bytes;
   event->attr.prepend_length_header = false;
-  state->handshake_bytes += scan->bytes_count;
+  state->handshake_bytes += bytes_count;
   perf_submit_buf(ctx, direction, (const char*)scan->buf, scan->buf_size, conn_info, event);
 }
 
@@ -1014,11 +1015,29 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
       scan->buf_size = 0;
       bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[0]);
       scan->buf_size = min_size_t(scan->buf_size, bytes_count);
+      scan->bytes_count = scan->buf_size;
     }
     update_wire_tls_bytes(conn_info, direction, scan);
     if (ENABLE_TLS_TRACING && !is_stirling_tgid(tgid) &&
         conn_info->conn_id.tsid > conn_disabled_tsid) {
-      submit_tls_handshake(ctx, direction, args->source_fn, force_trace_tgid, conn_info, scan);
+      submit_tls_handshake(ctx, direction, args->source_fn, force_trace_tgid, conn_info, scan,
+                           bytes_count);
+    }
+    if (vecs) {
+      size_t left = bytes_count - scan->bytes_count;
+#pragma unroll
+      for (int i = 1; i < TLS_IOVEC_LIMIT && i < args->iovlen && left > 0; ++i) {
+        scan->buf = 0;
+        scan->buf_size = 0;
+        bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[i]);
+        scan->buf_size = min_size_t(scan->buf_size, left);
+        scan->bytes_count = scan->buf_size;
+        update_wire_tls_bytes(conn_info, direction, scan);
+        left -= scan->bytes_count;
+      }
+      if (left > 0) {
+        skip_wire_tls_bytes(conn_info, &conn_info->tls_record_state[direction & 1], left);
+      }
     }
   }
 

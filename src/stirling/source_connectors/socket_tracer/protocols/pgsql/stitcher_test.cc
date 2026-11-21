@@ -207,8 +207,8 @@ TEST_F(StitchFramesTest, VerifySingleOutputMessage) {
 
 TEST_F(StitchFramesTest, SyncDoesNotHoldBackLaterRequests) {
   const std::string req_data = absl::StrCat(kParseData1, kBindData, kExecData, kSyncData);
-  const std::string resp_data = absl::StrCat(kParseCmplData, kBindCmplData, kDataRowData,
-                                             kCmdCmplData, kReadyForQueryData);
+  const std::string resp_data =
+      absl::StrCat(kParseCmplData, kBindCmplData, kDataRowData, kCmdCmplData, kReadyForQueryData);
 
   std::deque<RegularMessage> reqs;
   for (int round = 0; round < 3; ++round) {

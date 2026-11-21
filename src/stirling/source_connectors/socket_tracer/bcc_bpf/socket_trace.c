@@ -977,6 +977,35 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
   uint64_t* conn_disabled_tsid_ptr = conn_disabled_map.lookup(&tgid_fd);
   uint64_t conn_disabled_tsid = (conn_disabled_tsid_ptr == NULL) ? 0 : *conn_disabled_tsid_ptr;
 
+  if (!ssl && vecs && BPF_LOOP_LIMIT <= 41) {
+    conn_info->wire_unexamined_bytes += bytes_count;
+  } else if (!ssl) {
+    int kZero = 0;
+    struct tls_record_scan_t* scan = tls_record_scan_heap.lookup(&kZero);
+    if (scan != NULL) {
+      scan->bytes_count = bytes_count;
+      if (!vecs) {
+        scan->buf = (uint64_t)args->buf;
+        scan->buf_size = bytes_count;
+      } else {
+        scan->buf = 0;
+        scan->buf_size = 0;
+        bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[0]);
+        scan->buf_size = min_size_t(scan->buf_size, bytes_count);
+        scan->bytes_count = scan->buf_size;
+      }
+      scan->total_bytes = bytes_count;
+      scan->iov = vecs ? (uint64_t)args->iov : 0;
+      scan->iovlen = args->iovlen;
+      scan->direction = direction;
+      scan->source_fn = args->source_fn;
+      scan->trace_handshake = ENABLE_TLS_TRACING && !is_stirling_tgid(tgid) &&
+                              conn_info->conn_id.tsid > conn_disabled_tsid;
+      scan->force_trace_tgid = force_trace_tgid;
+      scan_wire_bytes(ctx, conn_info, scan);
+    }
+  }
+
   // Only process plaintext data.
   if (conn_info->ssl == ssl) {
     // TODO(yzhao): Split the interface such that the singular buf case and multiple bufs in msghdr
@@ -1018,35 +1047,6 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
         // return probes respectively. Consider remove one copy.
         perf_submit_iovecs(ctx, direction, args->iov, args->iovlen, bytes_count, conn_info, event);
       }
-    }
-  }
-
-  if (!ssl && vecs && BPF_LOOP_LIMIT <= 41) {
-    conn_info->wire_unexamined_bytes += bytes_count;
-  } else if (!ssl) {
-    int kZero = 0;
-    struct tls_record_scan_t* scan = tls_record_scan_heap.lookup(&kZero);
-    if (scan != NULL) {
-      scan->bytes_count = bytes_count;
-      if (!vecs) {
-        scan->buf = (uint64_t)args->buf;
-        scan->buf_size = bytes_count;
-      } else {
-        scan->buf = 0;
-        scan->buf_size = 0;
-        bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[0]);
-        scan->buf_size = min_size_t(scan->buf_size, bytes_count);
-        scan->bytes_count = scan->buf_size;
-      }
-      scan->total_bytes = bytes_count;
-      scan->iov = vecs ? (uint64_t)args->iov : 0;
-      scan->iovlen = args->iovlen;
-      scan->direction = direction;
-      scan->source_fn = args->source_fn;
-      scan->trace_handshake = ENABLE_TLS_TRACING && !is_stirling_tgid(tgid) &&
-                              conn_info->conn_id.tsid > conn_disabled_tsid;
-      scan->force_trace_tgid = force_trace_tgid;
-      scan_wire_bytes(ctx, conn_info, scan);
     }
   }
 

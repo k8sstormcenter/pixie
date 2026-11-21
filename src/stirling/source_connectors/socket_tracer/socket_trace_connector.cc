@@ -800,7 +800,7 @@ void SocketTraceConnector::ReportOpenSSLCallsWithoutFD() {
     openssl_trace_no_fd_counter_family_.Add({{"name", openssl_no_fd_metric}, {"exe", calls.comm}})
         .Increment(static_cast<double>(calls.reads + calls.writes));
 
-    utils::JSONObjectBuilder info;
+    ::px::utils::JSONObjectBuilder info;
     info.WriteKV("pid", tgid);
     info.WriteKV("start_time_ticks",
                  proc_parser_->GetPIDStartTimeTicks(static_cast<int32_t>(tgid)).ValueOr(0));

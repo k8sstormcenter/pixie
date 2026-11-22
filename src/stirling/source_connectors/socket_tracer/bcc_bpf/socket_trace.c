@@ -883,6 +883,10 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
     if (!state->tls && (uint8_t)header != TLS_HANDSHAKE_CONTENT_TYPE) {
       state->handshake_bytes = TLS_HANDSHAKE_BYTES_LIMIT;
     }
+    if (!state->tls && (uint8_t)header == TLS_HANDSHAKE_CONTENT_TYPE &&
+        conn_info->role == kRoleUnknown && !conn_info->tls_record_state[(direction ^ 1) & 1].tls) {
+      conn_info->role = direction == kIngress ? kRoleServer : kRoleClient;
+    }
     state->synced = true;
     state->tls = true;
     conn_info->wire_tls_bytes += held;

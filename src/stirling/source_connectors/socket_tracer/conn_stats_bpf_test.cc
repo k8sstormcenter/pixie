@@ -188,10 +188,11 @@ TEST_F(ConnStatsBPFTest, PreambleBeforeTLSRecords) {
   ExpectServerWireBytes(cs.ServerPID(), 7, 9, 0);
 }
 
-TEST_F(ConnStatsBPFTest, PGSQLTLSRequestReadByAForkedServer) {
-  StartTransferDataThread();
+constexpr std::string_view kHTTPReq = "GET /index.html HTTP/1.1\r\nHost: test\r\n\r\n";
+constexpr std::string_view kHTTPResp = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+constexpr int64_t kHTTPBytes = kHTTPReq.size() + kHTTPResp.size();
 
-  constexpr std::string_view kPGSQLTLSRequest{"\x00\x00\x00\x08\x04\xd2\x16\x2f", 8};
+pid_t RunForkedServer(std::string_view preamble) {
   std::chrono::milliseconds server_response_latency{200};
 
   TCPSocket server;
@@ -202,9 +203,11 @@ TEST_F(ConnStatsBPFTest, PGSQLTLSRequestReadByAForkedServer) {
     TCPSocket client;
     std::string data;
     client.Connect(server);
-    client.Write(kPGSQLTLSRequest);
+    client.Write(preamble);
     client.Read(&data);
     client.Write(kTLSRecord);
+    client.Read(&data);
+    client.Write(kHTTPReq);
     client.Read(&data);
     client.Close();
     exit(0);
@@ -220,6 +223,9 @@ TEST_F(ConnStatsBPFTest, PGSQLTLSRequestReadByAForkedServer) {
     conn->Read(&data);
     std::this_thread::sleep_for(server_response_latency);
     conn->Write(kTLSRecord);
+    conn->Read(&data);
+    std::this_thread::sleep_for(server_response_latency);
+    conn->Write(kHTTPResp);
     conn->Close();
     exit(0);
   }
@@ -227,10 +233,29 @@ TEST_F(ConnStatsBPFTest, PGSQLTLSRequestReadByAForkedServer) {
   waitpid(server_pid, 0, 0);
   waitpid(client_pid, 0, 0);
   server.Close();
+  return server_pid;
+}
+
+TEST_F(ConnStatsBPFTest, PGSQLTLSRequestReadByAForkedServer) {
+  StartTransferDataThread();
+
+  constexpr std::string_view kPGSQLTLSRequest{"\x00\x00\x00\x08\x04\xd2\x16\x2f", 8};
+  pid_t server_pid = RunForkedServer(kPGSQLTLSRequest);
 
   StopTransferDataThread();
 
-  ExpectServerWireBytes(server_pid, 14, 9, 0);
+  ExpectServerWireBytes(server_pid, 14, 9 + kHTTPBytes, 0);
+}
+
+TEST_F(ConnStatsBPFTest, OtherPreambleReadByAForkedServer) {
+  StartTransferDataThread();
+
+  constexpr std::string_view kPreamble{"\x00\x00\x00\x08\x04\xd2\x16\x2e", 8};
+  pid_t server_pid = RunForkedServer(kPreamble);
+
+  StopTransferDataThread();
+
+  ExpectServerWireBytes(server_pid, 14, kHTTPBytes, 9);
 }
 
 TEST_F(ConnStatsBPFTest, VectoredTLSRecords) {

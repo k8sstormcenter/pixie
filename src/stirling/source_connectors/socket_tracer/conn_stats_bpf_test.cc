@@ -225,7 +225,7 @@ pid_t RunForkedServer(std::string_view preamble, bool http = true) {
     std::this_thread::sleep_for(server_response_latency);
     conn->Write("S");
     conn->Read(&data);
-    std::this_thread::sleep_for(server_response_latency);
+    std::this_thread::sleep_for(http ? server_response_latency : std::chrono::milliseconds{1200});
     conn->Write(kTLSRecord);
     if (http) {
       conn->Read(&data);

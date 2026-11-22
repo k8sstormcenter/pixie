@@ -188,6 +188,10 @@ TEST_F(ConnStatsBPFTest, PreambleBeforeTLSRecords) {
   ExpectServerWireBytes(cs.ServerPID(), 7, 9, 0);
 }
 
+constexpr std::string_view kHTTPReq = "GET /index.html HTTP/1.1\r\nHost: test\r\n\r\n";
+constexpr std::string_view kHTTPResp = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+constexpr int64_t kHTTPBytes = kHTTPReq.size() + kHTTPResp.size();
+
 pid_t RunForkedServer(std::string_view preamble) {
   std::chrono::milliseconds server_response_latency{200};
 
@@ -203,6 +207,8 @@ pid_t RunForkedServer(std::string_view preamble) {
     client.Read(&data);
     client.Write(kTLSRecord);
     client.Read(&data);
+    client.Write(kHTTPReq);
+    client.Read(&data);
     client.Close();
     exit(0);
   }
@@ -217,6 +223,9 @@ pid_t RunForkedServer(std::string_view preamble) {
     conn->Read(&data);
     std::this_thread::sleep_for(server_response_latency);
     conn->Write(kTLSRecord);
+    conn->Read(&data);
+    std::this_thread::sleep_for(server_response_latency);
+    conn->Write(kHTTPResp);
     conn->Close();
     exit(0);
   }
@@ -235,7 +244,7 @@ TEST_F(ConnStatsBPFTest, PGSQLTLSRequestReadByAForkedServer) {
 
   StopTransferDataThread();
 
-  ExpectServerWireBytes(server_pid, 14, 9, 0);
+  ExpectServerWireBytes(server_pid, 14, 9 + kHTTPBytes, 0);
 }
 
 TEST_F(ConnStatsBPFTest, OtherPreambleReadByAForkedServer) {
@@ -246,7 +255,7 @@ TEST_F(ConnStatsBPFTest, OtherPreambleReadByAForkedServer) {
 
   StopTransferDataThread();
 
-  ExpectServerWireBytes(server_pid, 14, 0, 9);
+  ExpectServerWireBytes(server_pid, 14, kHTTPBytes, 9);
 }
 
 TEST_F(ConnStatsBPFTest, VectoredTLSRecords) {

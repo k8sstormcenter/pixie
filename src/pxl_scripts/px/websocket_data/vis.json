@@ -1,0 +1,102 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "The start time of the window in time units before now.",
+      "defaultValue": "-5m"
+    },
+    {
+      "name": "endpoint_filter",
+      "type": "PX_STRING",
+      "description": "The partial string to match the 'endpoint' column (pod, or node for host processes).",
+      "defaultValue": ""
+    },
+    {
+      "name": "kind_filter",
+      "type": "PX_STRING",
+      "description": "The partial string to match the 'kind' column (frame, exec, exit, ...).",
+      "defaultValue": ""
+    },
+    {
+      "name": "max_num_records",
+      "type": "PX_INT64",
+      "description": "Max number of records to show.",
+      "defaultValue": "1000"
+    }
+  ],
+  "globalFuncs": [
+    {
+      "outputName": "summary",
+      "func": {
+        "name": "websocket_summary",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "endpoint_filter",
+            "variable": "endpoint_filter"
+          },
+          {
+            "name": "kind_filter",
+            "variable": "kind_filter"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "frames",
+      "func": {
+        "name": "websocket_data",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "endpoint_filter",
+            "variable": "endpoint_filter"
+          },
+          {
+            "name": "kind_filter",
+            "variable": "kind_filter"
+          },
+          {
+            "name": "num_head",
+            "variable": "max_num_records"
+          }
+        ]
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "name": "Sessions by endpoint",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 2
+      },
+      "globalFuncOutputName": "summary",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Frames",
+      "position": {
+        "x": 0,
+        "y": 2,
+        "w": 12,
+        "h": 5
+      },
+      "globalFuncOutputName": "frames",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    }
+  ]
+}

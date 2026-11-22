@@ -192,7 +192,9 @@ constexpr std::string_view kHTTPReq = "GET /index.html HTTP/1.1\r\nHost: test\r\
 constexpr std::string_view kHTTPResp = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
 constexpr int64_t kHTTPBytes = kHTTPReq.size() + kHTTPResp.size();
 
-pid_t RunForkedServer(std::string_view preamble) {
+constexpr std::string_view kPGSQLTLSRequest{"\x00\x00\x00\x08\x04\xd2\x16\x2f", 8};
+
+pid_t RunForkedServer(std::string_view preamble, bool http = true) {
   std::chrono::milliseconds server_response_latency{200};
 
   TCPSocket server;
@@ -207,8 +209,10 @@ pid_t RunForkedServer(std::string_view preamble) {
     client.Read(&data);
     client.Write(kTLSRecord);
     client.Read(&data);
-    client.Write(kHTTPReq);
-    client.Read(&data);
+    if (http) {
+      client.Write(kHTTPReq);
+      client.Read(&data);
+    }
     client.Close();
     exit(0);
   }
@@ -223,9 +227,11 @@ pid_t RunForkedServer(std::string_view preamble) {
     conn->Read(&data);
     std::this_thread::sleep_for(server_response_latency);
     conn->Write(kTLSRecord);
-    conn->Read(&data);
-    std::this_thread::sleep_for(server_response_latency);
-    conn->Write(kHTTPResp);
+    if (http) {
+      conn->Read(&data);
+      std::this_thread::sleep_for(server_response_latency);
+      conn->Write(kHTTPResp);
+    }
     conn->Close();
     exit(0);
   }
@@ -239,7 +245,6 @@ pid_t RunForkedServer(std::string_view preamble) {
 TEST_F(ConnStatsBPFTest, PGSQLTLSRequestReadByAForkedServer) {
   StartTransferDataThread();
 
-  constexpr std::string_view kPGSQLTLSRequest{"\x00\x00\x00\x08\x04\xd2\x16\x2f", 8};
   pid_t server_pid = RunForkedServer(kPGSQLTLSRequest);
 
   StopTransferDataThread();
@@ -256,6 +261,16 @@ TEST_F(ConnStatsBPFTest, OtherPreambleReadByAForkedServer) {
   StopTransferDataThread();
 
   ExpectServerWireBytes(server_pid, 14, kHTTPBytes, 9);
+}
+
+TEST_F(ConnStatsBPFTest, ForkedServerRoleFromTheFirstTLSRecord) {
+  StartTransferDataThread();
+
+  pid_t server_pid = RunForkedServer(kPGSQLTLSRequest, false);
+
+  StopTransferDataThread();
+
+  ExpectServerWireBytes(server_pid, 14, 9, 0);
 }
 
 TEST_F(ConnStatsBPFTest, VectoredTLSRecords) {

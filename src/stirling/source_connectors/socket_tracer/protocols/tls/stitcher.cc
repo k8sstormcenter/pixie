@@ -116,7 +116,7 @@ RecordsWithErrorCount<tls::Record> StitchFrames(std::deque<tls::Frame>* reqs,
 
       if (req.content_type == ContentType::kHandshake &&
           req.handshake_type == HandshakeType::kClientHello &&
-          resp.content_type == ContentType::kHandshake &&
+          req.timestamp_ns < resp.timestamp_ns && resp.content_type == ContentType::kHandshake &&
           resp.handshake_type == HandshakeType::kServerHello) {
         req.consumed = true;
         resp.consumed = true;

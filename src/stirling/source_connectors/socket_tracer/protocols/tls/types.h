@@ -188,6 +188,10 @@ enum class ExtensionType : uint16_t {
 // of a TLS handshake
 struct SharedExtensions {
   std::vector<std::string> server_names;
+  std::vector<int32_t> supported_versions;
+  std::vector<int32_t> supported_groups;
+  std::vector<int32_t> key_share;
+  std::vector<std::string> alpn;
 
   virtual void ToJSON(::px::utils::JSONObjectBuilder* /*builder*/) const {}
   virtual ~SharedExtensions() = default;
@@ -197,12 +201,19 @@ struct ReqExtensions : public SharedExtensions {
   void ToJSON(::px::utils::JSONObjectBuilder* builder) const override {
     SharedExtensions::ToJSON(builder);
     builder->WriteKV("server_name", server_names);
+    builder->WriteKV("supported_versions", supported_versions);
+    builder->WriteKV("supported_groups", supported_groups);
+    builder->WriteKV("key_share", key_share);
+    builder->WriteKV("alpn", alpn);
   }
 };
 
 struct RespExtensions : public SharedExtensions {
   void ToJSON(::px::utils::JSONObjectBuilder* builder) const override {
     SharedExtensions::ToJSON(builder);
+    if (supported_versions.empty()) {
+      builder->WriteKV("alpn", alpn);
+    }
   }
 };
 

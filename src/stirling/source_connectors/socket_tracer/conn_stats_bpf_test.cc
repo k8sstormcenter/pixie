@@ -211,8 +211,8 @@ pid_t RunForkedServer(std::string_view preamble, bool http = true) {
     client.Read(&data);
     if (http) {
       client.Write(kHTTPReq);
-      client.Read(&data);
     }
+    client.Read(&data);
     client.Close();
     exit(0);
   }

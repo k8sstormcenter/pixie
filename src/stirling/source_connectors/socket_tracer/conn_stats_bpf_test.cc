@@ -237,6 +237,7 @@ pid_t RunForkedServer(std::string_view preamble, bool http = true) {
     conn->Close();
     exit(0);
   }
+  FLAGS_stirling_conn_trace_pid = server_pid;
   conn->Close();
   waitpid(server_pid, 0, 0);
   waitpid(client_pid, 0, 0);

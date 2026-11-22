@@ -769,6 +769,11 @@ bool ShouldTraceProtocolRole(traffic_protocol_t protocol, endpoint_role_t role) 
 
 }  // namespace
 
+bool ConnTracker::ShouldTransferHandshake() const {
+  return state_ == State::kTransferring ||
+         (state_ == State::kCollecting && ShouldTraceProtocolRole(kProtocolTLS, role_));
+}
+
 void ConnTracker::UpdateState(const std::vector<CIDRBlock>& cluster_cidrs) {
   if (state_ == State::kDisabled) {
     return;

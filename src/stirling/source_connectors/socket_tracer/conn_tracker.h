@@ -523,6 +523,8 @@ class ConnTracker : NotCopyMoveable {
    */
   void IterationPostTick();
 
+  bool ShouldTransferHandshake() const;
+
   std::vector<protocols::tls::Record> ProcessHandshakeToRecords();
 
   void CleanupHandshake(size_t frame_size_limit_bytes, size_t buffer_size_limit_bytes,

@@ -1944,7 +1944,7 @@ void SocketTraceConnector::WriteDataEvent(const SocketDataEvent& event) {
 
 void SocketTraceConnector::TransferHandshake(ConnectorContext* ctx, ConnTracker* tracker,
                                              DataTable* data_table) {
-  if (data_table != nullptr && tracker->state() == ConnTracker::State::kTransferring) {
+  if (data_table != nullptr && tracker->ShouldTransferHandshake()) {
     for (auto& record : tracker->ProcessHandshakeToRecords()) {
       protocols::tls::ProtocolTraits::ConvertTimestamps(
           &record, [&](uint64_t mono_time) { return ConvertToRealTime(mono_time); });

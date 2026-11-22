@@ -47,6 +47,7 @@ namespace http = protocols::http;
 using ::testing::AllOf;
 using ::testing::ElementsAre;
 using ::testing::HasSubstr;
+using ::testing::IsEmpty;
 using ::testing::Not;
 using ::testing::UnorderedElementsAre;
 
@@ -229,6 +230,136 @@ TEST_F(SocketTraceConnectorTest, Basic) {
   ASSERT_THAT(records, RecordBatchSizeIs(1));
   EXPECT_THAT(ToStringVector(records[kHTTPReqBodyIdx]), ElementsAre("I have a message body"));
   EXPECT_THAT(ToStringVector(records[kHTTPRespBodyIdx]), ElementsAre("foo"));
+}
+
+auto ToUInt128Vector(const types::SharedColumnWrapper& col) {
+  std::vector<absl::uint128> result;
+  for (size_t i = 0; i < col->Size(); ++i) {
+    result.push_back(col->Get<types::UInt128Value>(i).val);
+  }
+  return result;
+}
+
+TEST_F(SocketTraceConnectorTest, EveryTableButTheAggregateHasTheConnectionID) {
+  for (const auto& table : SocketTraceConnector::kTables) {
+    bool has_conn_id = false;
+    for (const auto& element : table.elements()) {
+      has_conn_id |= element.name() == "conn_id";
+    }
+    EXPECT_EQ(has_conn_id, table.name() != kConnStatsTable.name()) << table.name();
+  }
+}
+
+TEST_F(SocketTraceConnectorTest, HTTPRecordsCarryTheConnectionID) {
+  struct socket_control_event_t conn = event_gen_.InitConn();
+  source_->AcceptControlEvent(conn);
+  source_->AcceptDataEvent(event_gen_.InitSendEvent<kProtocolHTTP>(kReq0));
+  source_->AcceptDataEvent(event_gen_.InitRecvEvent<kProtocolHTTP>(kJSONResp));
+  source_->AcceptControlEvent(event_gen_.InitClose());
+
+  connector_->TransferData(ctx_.get());
+
+  std::vector<TaggedRecordBatch> tablets = http_table_->ConsumeRecords();
+  ASSERT_NOT_EMPTY_AND_GET_RECORDS(RecordBatch & records, tablets);
+  EXPECT_THAT(ToUInt128Vector(records[kHTTPTable.ColIndex("conn_id")]),
+              ElementsAre(absl::MakeUint128(conn.conn_id.fd, conn.conn_id.tsid)));
+}
+
+class SocketTraceConnectorHandshakeTest : public SocketTraceConnectorTest {
+ protected:
+  void SetUp() override {
+    FLAGS_stirling_enable_tls_tracing = true;
+    SocketTraceConnectorTest::SetUp();
+  }
+
+  void TearDown() override { FLAGS_stirling_enable_tls_tracing = false; }
+
+  DataTable* tls_table_ = data_tables_[SocketTraceConnector::kTLSTableNum];
+};
+
+TEST_F(SocketTraceConnectorHandshakeTest, OneConnectionYieldsItsHandshakeAndItsHTTPRecords) {
+  const std::string random(32, '\x7b');
+  const std::string client_hello = std::string("\x16\x03\x01\x00\x2f\x01\x00\x00\x2b\x03\x03", 11) +
+                                   random + std::string("\x00\x00\x02\x13\x01\x01\x00\x00\x00", 9);
+  const std::string server_hello = std::string("\x16\x03\x03\x00\x2c\x02\x00\x00\x28\x03\x03", 11) +
+                                   random + std::string("\x00\x13\x01\x00\x00\x00", 6);
+  const std::string_view client_hello_view(client_hello);
+
+  testing::EventGenerator handshake_gen(&mock_clock_);
+  handshake_gen.InitConn();
+  struct socket_control_event_t conn = event_gen_.InitConn();
+  source_->AcceptControlEvent(conn);
+  source_->AcceptDataEvent(
+      handshake_gen.InitSendEvent<kProtocolTLS>(client_hello_view.substr(0, 5)));
+  source_->AcceptDataEvent(handshake_gen.InitSendEvent<kProtocolTLS>(client_hello_view.substr(5)));
+  source_->AcceptDataEvent(handshake_gen.InitRecvEvent<kProtocolTLS>(server_hello));
+  source_->AcceptDataEvent(event_gen_.InitSendEvent<kProtocolHTTP>(kReq0));
+  source_->AcceptDataEvent(event_gen_.InitRecvEvent<kProtocolHTTP>(kJSONResp));
+  source_->AcceptControlEvent(event_gen_.InitClose());
+
+  connector_->TransferData(ctx_.get());
+
+  const absl::uint128 conn_id = absl::MakeUint128(conn.conn_id.fd, conn.conn_id.tsid);
+  {
+    std::vector<TaggedRecordBatch> tablets = tls_table_->ConsumeRecords();
+    ASSERT_NOT_EMPTY_AND_GET_RECORDS(RecordBatch & records, tablets);
+    EXPECT_THAT(ToUInt128Vector(records[kTLSTable.ColIndex("conn_id")]), ElementsAre(conn_id));
+  }
+  {
+    std::vector<TaggedRecordBatch> tablets = http_table_->ConsumeRecords();
+    ASSERT_NOT_EMPTY_AND_GET_RECORDS(RecordBatch & records, tablets);
+    EXPECT_THAT(ToUInt128Vector(records[kHTTPTable.ColIndex("conn_id")]), ElementsAre(conn_id));
+  }
+}
+
+TEST_F(SocketTraceConnectorTest, ConnectionsTableHasOneRowPerChangedConnection) {
+  struct conn_stats_event_t event = {};
+  event.conn_id.upid.pid = kPID;
+  event.conn_id.upid.start_time_ticks = kPIDStartTimeTicks;
+  event.role = kRoleServer;
+  event.raddr.in4.sin_family = AF_INET;
+  event.raddr.in4.sin_port = htons(40000);
+  event.raddr.in4.sin_addr.s_addr = 0x01010101;
+  event.conn_events = CONN_OPEN;
+  event.timestamp_ns = 1;
+
+  event.conn_id.fd = 7;
+  event.conn_id.tsid = 100;
+  event.wr_bytes = 20;
+  event.rd_bytes = 10;
+  event.wire_tls_bytes = 30;
+  source_->AcceptConnStatsEvent(event);
+
+  event.conn_id.fd = 8;
+  event.conn_id.tsid = 200;
+  event.wr_bytes = 2;
+  event.rd_bytes = 1;
+  event.wire_tls_bytes = 0;
+  event.wire_non_tls_bytes = 3;
+  source_->AcceptConnStatsEvent(event);
+
+  connector_->TransferData(ctx_.get());
+
+  DataTable* connections_table = data_tables_[SocketTraceConnector::kConnectionsTableNum];
+  std::vector<TaggedRecordBatch> tablets = connections_table->ConsumeRecords();
+  ASSERT_NOT_EMPTY_AND_GET_RECORDS(RecordBatch & records, tablets);
+  EXPECT_THAT(ToUInt128Vector(records[kConnectionsTable.ColIndex("conn_id")]),
+              UnorderedElementsAre(absl::MakeUint128(7, 100), absl::MakeUint128(8, 200)));
+  EXPECT_THAT(ToIntVector<types::Int64Value>(records[kConnectionsTable.ColIndex("remote_port")]),
+              ElementsAre(40000, 40000));
+  EXPECT_THAT(ToIntVector<types::Int64Value>(records[kConnectionsTable.ColIndex("bytes_sent")]),
+              UnorderedElementsAre(20, 2));
+  EXPECT_THAT(ToIntVector<types::Int64Value>(records[kConnectionsTable.ColIndex("bytes_recv")]),
+              UnorderedElementsAre(10, 1));
+  EXPECT_THAT(ToIntVector<types::Int64Value>(records[kConnectionsTable.ColIndex("wire_tls_bytes")]),
+              UnorderedElementsAre(30, 0));
+  EXPECT_THAT(
+      ToIntVector<types::Int64Value>(records[kConnectionsTable.ColIndex("wire_non_tls_bytes")]),
+      UnorderedElementsAre(0, 3));
+
+  connector_->TransferData(ctx_.get());
+
+  EXPECT_THAT(connections_table->ConsumeRecords(), IsEmpty());
 }
 
 TEST_F(SocketTraceConnectorTest, HTTPCredentialsAreRedacted) {

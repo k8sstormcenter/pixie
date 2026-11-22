@@ -45,6 +45,15 @@ constexpr DataElement kRemotePort = {
     types::PatternType::GENERAL,
 };
 
+constexpr DataElement kConnID = {
+    "conn_id",
+    "An opaque numeric ID that, together with the upid, identifies one connection of a process "
+    "from its first traced byte to its close.",
+    types::DataType::UINT128,
+    types::SemanticType::ST_NONE,
+    types::PatternType::GENERAL,
+};
+
 constexpr DataElement kLocalAddr = {
     "local_addr",
     "IP address of the local endpoint.",

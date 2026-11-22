@@ -95,19 +95,20 @@ class TLSVersionParameterizedTest
 
   void TestTLSVersion(const std::string& tls_version, const std::string& tls_max_version) {
     FLAGS_stirling_conn_trace_pid = this->server_.PID();
+    const std::string port = tls_version == "1.3" ? "8443" : "443";
 
     this->StartTransferDataThread();
 
     // Make an SSL request with curl.
     ::px::stirling::testing::CurlContainer client;
     constexpr bool kHostPid = false;
-    ASSERT_OK(
-        client.Run(std::chrono::seconds{60},
-                   {absl::Substitute("--network=container:$0", this->server_.container_name())},
-                   {"--insecure", "-s", "-S", "--resolve", "test-host:443:127.0.0.1",
-                    absl::Substitute("--tlsv$0", tls_version), "--tls-max", tls_max_version,
-                    "https://test-host/index.html"},
-                   kHostPid));
+    ASSERT_OK(client.Run(
+        std::chrono::seconds{60},
+        {absl::Substitute("--network=container:$0", this->server_.container_name())},
+        {"--insecure", "-s", "-S", "--resolve", absl::Substitute("test-host:$0:127.0.0.1", port),
+         absl::Substitute("--tlsv$0", tls_version), "--tls-max", tls_max_version,
+         absl::Substitute("https://test-host:$0/index.html", port)},
+        kHostPid));
     client.Wait();
     this->StopTransferDataThread();
 
@@ -116,6 +117,24 @@ class TLSVersionParameterizedTest
     EXPECT_GT(records[0].req.body.size(), 0);
     auto sni_str = R"({"extensions":{"server_name":["test-host"]}})";
     EXPECT_THAT(records[0].req.body, StrEq(sni_str));
+
+    std::vector<absl::uint128> http_conn_ids =
+        ConnIDs(SocketTraceConnector::kHTTPTableNum, kHTTPUPIDIdx, kHTTPTable.ColIndex("conn_id"));
+    EXPECT_THAT(http_conn_ids, SizeIs(1));
+    EXPECT_EQ(http_conn_ids, tls_conn_ids_);
+  }
+
+  std::vector<absl::uint128> ConnIDs(int table_num, int upid_idx, int conn_id_idx) {
+    std::vector<absl::uint128> conn_ids;
+    std::vector<TaggedRecordBatch> tablets = this->ConsumeRecords(table_num);
+    if (tablets.empty()) {
+      return conn_ids;
+    }
+    types::ColumnWrapperRecordBatch record_batch = tablets[0].records;
+    for (size_t idx : FindRecordIdxMatchesPID(record_batch, upid_idx, this->server_.PID())) {
+      conn_ids.push_back(record_batch[conn_id_idx]->Get<types::UInt128Value>(idx).val);
+    }
+    return conn_ids;
   }
 
   // Returns the trace records of the process specified by the input pid.
@@ -128,13 +147,19 @@ class TLSVersionParameterizedTest
     types::ColumnWrapperRecordBatch record_batch = tablets[0].records;
     std::vector<size_t> server_record_indices =
         FindRecordIdxMatchesPID(record_batch, kTLSUPIDIdx, pid);
+    tls_conn_ids_.clear();
+    for (size_t idx : server_record_indices) {
+      tls_conn_ids_.push_back(
+          record_batch[kTLSTable.ColIndex("conn_id")]->Get<types::UInt128Value>(idx).val);
+    }
     return ToRecordVector<tls::Record>(record_batch, server_record_indices);
   }
 
   NginxOpenSSL_3_0_8_ContainerWrapper server_;
+  std::vector<absl::uint128> tls_conn_ids_;
 };
 
-INSTANTIATE_TEST_SUITE_P(TLSVersions, TLSVersionParameterizedTest, ::testing::Values("1.2"));
+INSTANTIATE_TEST_SUITE_P(TLSVersions, TLSVersionParameterizedTest, ::testing::Values("1.2", "1.3"));
 
 TEST_P(TLSVersionParameterizedTest, TestTLSVersions) {
   const std::string& tls_version = GetParam();

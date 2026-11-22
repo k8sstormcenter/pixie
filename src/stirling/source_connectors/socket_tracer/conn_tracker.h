@@ -19,6 +19,7 @@
 #pragma once
 
 #include <absl/container/flat_hash_map.h>
+#include <absl/numeric/int128.h>
 #include <any>
 #include <deque>
 #include <list>
@@ -146,6 +147,9 @@ class ConnTracker : NotCopyMoveable {
 
     int64_t bytes_recv() const { return bytes_recv_; }
     int64_t bytes_sent() const { return bytes_sent_; }
+    int64_t wire_tls_bytes() const { return wire_tls_bytes_; }
+    int64_t wire_non_tls_bytes() const { return wire_non_tls_bytes_; }
+    int64_t wire_unexamined_bytes() const { return wire_unexamined_bytes_; }
     bool closed() const { return closed_; }
 
     bool OpenSinceLastRead() {
@@ -244,6 +248,8 @@ class ConnTracker : NotCopyMoveable {
    * @param event The data event from BPF.
    */
   void AddDataEvent(std::unique_ptr<SocketDataEvent> event);
+
+  void AddHandshakeEvent(std::unique_ptr<SocketDataEvent> event);
 
   /**
    * Registers a BPF connection stats event into the tracker.
@@ -358,6 +364,9 @@ class ConnTracker : NotCopyMoveable {
   }
 
   const conn_id_t& conn_id() const { return conn_id_; }
+  absl::uint128 conn_id_value() const {
+    return absl::MakeUint128(static_cast<uint32_t>(conn_id_.fd), conn_id_.tsid);
+  }
   traffic_protocol_t protocol() const { return protocol_; }
   endpoint_role_t role() const { return role_; }
   bool ssl() const { return ssl_; }
@@ -486,6 +495,8 @@ class ConnTracker : NotCopyMoveable {
     current_time_ = time;
     recv_data_.set_current_time(time);
     send_data_.set_current_time(time);
+    handshake_recv_data_.set_current_time(time);
+    handshake_send_data_.set_current_time(time);
 
     // If there's no previous activity, set to current time.
     if (last_activity_timestamp_.time_since_epoch().count() == 0) {
@@ -511,6 +522,12 @@ class ConnTracker : NotCopyMoveable {
    * Should be called once per sampling, after ProcessToRecords().
    */
   void IterationPostTick();
+
+  std::vector<protocols::tls::Record> ProcessHandshakeToRecords();
+
+  void CleanupHandshake(size_t frame_size_limit_bytes, size_t buffer_size_limit_bytes,
+                        std::chrono::time_point<std::chrono::steady_clock> frame_expiry_timestamp,
+                        std::chrono::time_point<std::chrono::steady_clock> buffer_expiry_timestamp);
 
   bool MaybeUpgradeToWebSocket();
 
@@ -751,6 +768,9 @@ class ConnTracker : NotCopyMoveable {
   // The data collected by the stream, one per direction.
   DataStream send_data_;
   DataStream recv_data_;
+
+  DataStream handshake_send_data_;
+  DataStream handshake_recv_data_;
 
   // Uprobe-based HTTP2 uses a different scheme, where it holds client and server-initiated streams,
   // instead of send and recv messages. As such, we create aliases for HTTP2.

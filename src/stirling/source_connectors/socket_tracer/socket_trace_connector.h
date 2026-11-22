@@ -100,11 +100,13 @@ class SocketTraceConnector : public BCCSourceConnector {
  public:
   static constexpr std::string_view kName = "socket_tracer";
   // PROTOCOL_LIST
-  static constexpr auto kTables = MakeArray(
-      kConnStatsTable, kHTTPTable, kMySQLTable, kCQLTable, kPGSQLTable, kDNSTable, kRedisTable,
-      kNATSTable, kKafkaTable, kMuxTable, kAMQPTable, kMongoDBTable, kTLSTable, kWebSocketTable);
+  static constexpr auto kTables =
+      MakeArray(kConnStatsTable, kHTTPTable, kMySQLTable, kCQLTable, kPGSQLTable, kDNSTable,
+                kRedisTable, kNATSTable, kKafkaTable, kMuxTable, kAMQPTable, kMongoDBTable,
+                kTLSTable, kWebSocketTable, kConnectionsTable);
 
   static constexpr uint32_t kConnStatsTableNum = TableNum(kTables, kConnStatsTable);
+  static constexpr uint32_t kConnectionsTableNum = TableNum(kTables, kConnectionsTable);
   static constexpr uint32_t kHTTPTableNum = TableNum(kTables, kHTTPTable);
   static constexpr uint32_t kMySQLTableNum = TableNum(kTables, kMySQLTable);
   static constexpr uint32_t kCQLTableNum = TableNum(kTables, kCQLTable);
@@ -219,7 +221,9 @@ class SocketTraceConnector : public BCCSourceConnector {
 
   template <typename TProtocolTraits>
   size_t TransferStream(ConnectorContext* ctx, ConnTracker* tracker, DataTable* data_table);
-  void TransferConnStats(ConnectorContext* ctx, DataTable* data_table);
+  void TransferHandshake(ConnectorContext* ctx, ConnTracker* tracker, DataTable* data_table);
+  void TransferConnStats(ConnectorContext* ctx, DataTable* data_table,
+                         DataTable* connections_table);
 
   void set_iteration_time(std::chrono::time_point<std::chrono::steady_clock> time) {
     DCHECK(time >= iteration_time_);

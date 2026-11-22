@@ -142,13 +142,79 @@ void ConnTracker::AddConnCloseEvent(const socket_control_event_t& event) {
 
   send_data_.set_conn_closed();
   recv_data_.set_conn_closed();
+  handshake_send_data_.set_conn_closed();
+  handshake_recv_data_.set_conn_closed();
 
   CONN_TRACE(1) << absl::Substitute("conn_close: $0", ::ToString(event));
 
   MarkForDeath();
 }
 
+void ConnTracker::AddHandshakeEvent(std::unique_ptr<SocketDataEvent> event) {
+  SetRole(event->attr.role, "inferred from handshake event");
+
+  CheckTracker();
+  UpdateTimestamps(event->attr.timestamp_ns);
+
+  CONN_TRACE(1) << absl::Substitute("Handshake event: $0", event->ToString());
+
+  if (state() == State::kDisabled) {
+    return;
+  }
+
+  switch (event->attr.direction) {
+    case traffic_direction_t::kEgress: {
+      handshake_send_data_.AddData(std::move(event));
+    } break;
+    case traffic_direction_t::kIngress: {
+      handshake_recv_data_.AddData(std::move(event));
+    } break;
+  }
+}
+
+std::vector<protocols::tls::Record> ConnTracker::ProcessHandshakeToRecords() {
+  using TKey = protocols::tls::stream_id_t;
+  using TFrameType = protocols::tls::Frame;
+
+  if (role_ == kRoleUnknown) {
+    return {};
+  }
+  DataStream* req_data = (role_ == kRoleClient) ? &handshake_send_data_ : &handshake_recv_data_;
+  DataStream* resp_data = (role_ == kRoleClient) ? &handshake_recv_data_ : &handshake_send_data_;
+
+  protocols::NoState* state = nullptr;
+  req_data->InitFrames<TKey, TFrameType>();
+  resp_data->InitFrames<TKey, TFrameType>();
+  req_data->ProcessBytesToFrames<TKey, TFrameType, protocols::NoState>(message_type_t::kRequest,
+                                                                       state);
+  resp_data->ProcessBytesToFrames<TKey, TFrameType, protocols::NoState>(message_type_t::kResponse,
+                                                                        state);
+
+  auto result = protocols::tls::StitchFrames(&req_data->Frames<TKey, TFrameType>()[0],
+                                             &resp_data->Frames<TKey, TFrameType>()[0]);
+  return std::move(result.records);
+}
+
+void ConnTracker::CleanupHandshake(
+    size_t frame_size_limit_bytes, size_t buffer_size_limit_bytes,
+    std::chrono::time_point<std::chrono::steady_clock> frame_expiry_timestamp,
+    std::chrono::time_point<std::chrono::steady_clock> buffer_expiry_timestamp) {
+  using TKey = protocols::tls::stream_id_t;
+  using TFrameType = protocols::tls::Frame;
+
+  for (DataStream* stream : {&handshake_send_data_, &handshake_recv_data_}) {
+    stream->InitFrames<TKey, TFrameType>();
+    stream->CleanupFrames<TKey, TFrameType>(frame_size_limit_bytes, frame_expiry_timestamp);
+    stream->CleanupEvents(buffer_size_limit_bytes, buffer_expiry_timestamp);
+  }
+}
+
 void ConnTracker::AddDataEvent(std::unique_ptr<SocketDataEvent> event) {
+  if (event->attr.protocol == kProtocolTLS) {
+    AddHandshakeEvent(std::move(event));
+    return;
+  }
+
   SetRole(event->attr.role, "inferred from data_event");
   SetProtocol(event->attr.protocol, "inferred from data_event");
   SetSSL(event->attr.ssl, event->attr.ssl_source, "inferred from data_event");
@@ -415,6 +481,8 @@ ConnTracker::ProcessToRecords<protocols::http2::ProtocolTraits>() {
 void ConnTracker::Reset() {
   send_data_.Reset();
   recv_data_.Reset();
+  handshake_send_data_.Reset();
+  handshake_recv_data_.Reset();
 
   protocol_state_.reset();
 }

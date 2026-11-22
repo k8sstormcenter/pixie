@@ -47,6 +47,7 @@ ConnStats::AggKey BuildAggKey(const upid_t& upid, endpoint_role_t role,
 
 absl::flat_hash_map<ConnStats::AggKey, ConnStats::Stats>& ConnStats::UpdateStats() {
   ++update_counter_;
+  changed_trackers_.clear();
 
   for (const auto& tracker : conn_trackers_mgr_->active_trackers()) {
     if (tracker->IsZombie()) {
@@ -64,6 +65,9 @@ absl::flat_hash_map<ConnStats::AggKey, ConnStats::Stats>& ConnStats::UpdateStats
     int conn_close = conn_stats.CloseSinceLastRead();
     int bytes_recv = conn_stats.BytesRecvSinceLastRead();
     int bytes_sent = conn_stats.BytesSentSinceLastRead();
+    int64_t wire_tls_bytes = conn_stats.WireTLSBytesSinceLastRead();
+    int64_t wire_non_tls_bytes = conn_stats.WireNonTLSBytesSinceLastRead();
+    int64_t wire_unexamined_bytes = conn_stats.WireUnexaminedBytesSinceLastRead();
 
     AggKey key = BuildAggKey(tracker->conn_id().upid, tracker->role(), tracker->remote_endpoint());
     auto& stats = agg_stats_[key];
@@ -76,9 +80,14 @@ absl::flat_hash_map<ConnStats::AggKey, ConnStats::Stats>& ConnStats::UpdateStats
     stats.conn_close += conn_close;
     stats.bytes_recv += bytes_recv;
     stats.bytes_sent += bytes_sent;
-    stats.wire_tls_bytes += conn_stats.WireTLSBytesSinceLastRead();
-    stats.wire_non_tls_bytes += conn_stats.WireNonTLSBytesSinceLastRead();
-    stats.wire_unexamined_bytes += conn_stats.WireUnexaminedBytesSinceLastRead();
+    stats.wire_tls_bytes += wire_tls_bytes;
+    stats.wire_non_tls_bytes += wire_non_tls_bytes;
+    stats.wire_unexamined_bytes += wire_unexamined_bytes;
+
+    if (conn_open || conn_close || bytes_recv || bytes_sent || wire_tls_bytes ||
+        wire_non_tls_bytes || wire_unexamined_bytes) {
+      changed_trackers_.push_back(tracker);
+    }
 
     stats.last_update = update_counter_;
   }

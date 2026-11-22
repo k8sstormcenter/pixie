@@ -38,13 +38,17 @@
 #define LOOP_LIMIT BPF_LOOP_LIMIT
 #define PROTOCOL_VEC_LIMIT 3
 #define TLS_RECORD_LIMIT (BPF_LOOP_LIMIT > 41 ? 16 : 1)
+#define TLS_IOVEC_LIMIT 4
 #define TLS_RECORD_HEADER_SIZE 5
+#define TLS_HANDSHAKE_CONTENT_TYPE 0x16
+#define TLS_HANDSHAKE_BYTES_LIMIT 4096
 
 const int32_t kInvalidFD = -1;
 
 // This is the amount of activity required on a connection before a new ConnStats event
 // is reported to user-space. It applies to read and write traffic combined.
 const int kConnStatsDataThreshold = 65536;
+const uint64_t kConnStatsTimeThresholdNS = 1000000000;
 
 // This is the perf buffer for BPF program to export data from kernel to user space.
 BPF_PERF_OUTPUT(socket_data_events);
@@ -126,6 +130,7 @@ BPF_HASH(active_sendfile_args_map, uint64_t, struct sendfile_args_t);
 BPF_PERCPU_ARRAY(socket_data_event_buffer_heap, struct socket_data_event_t, 1);
 BPF_PERCPU_ARRAY(conn_stats_event_buffer_heap, struct conn_stats_event_t, 1);
 BPF_PERCPU_ARRAY(tls_record_scan_heap, struct tls_record_scan_t, 1);
+BPF_PERCPU_ARRAY(conn_info_heap, struct conn_info_t, 1);
 
 // This array records singular values that are used by probes. We group them together to reduce the
 // number of arrays with only 1 element.
@@ -160,9 +165,14 @@ static __inline void init_conn_info(uint32_t tgid, int32_t fd, struct conn_info_
 // the relevant map entries every time a ConnTracker is destroyed.
 static __inline struct conn_info_t* get_or_create_conn_info(uint32_t tgid, int32_t fd) {
   uint64_t tgid_fd = gen_tgid_fd(tgid, fd);
-  struct conn_info_t new_conn_info = {};
-  init_conn_info(tgid, fd, &new_conn_info);
-  return conn_info_map.lookup_or_init(&tgid_fd, &new_conn_info);
+  int kZero = 0;
+  struct conn_info_t* new_conn_info = conn_info_heap.lookup(&kZero);
+  if (new_conn_info == NULL) {
+    return NULL;
+  }
+  __builtin_memset(new_conn_info, 0, sizeof(struct conn_info_t));
+  init_conn_info(tgid, fd, new_conn_info);
+  return conn_info_map.lookup_or_init(&tgid_fd, new_conn_info);
 }
 
 static __inline enum ssl_source_t get_ssl_source(uint32_t tgid) {
@@ -388,35 +398,40 @@ static __inline void read_sockaddr_kernel(struct conn_info_t* conn_info, const s
 static __inline void submit_new_conn(struct pt_regs* ctx, uint32_t tgid, int32_t fd,
                                      const struct sockaddr* addr, const struct sock* sock,
                                      enum endpoint_role_t role, enum source_function_t source_fn) {
-  struct conn_info_t conn_info = {};
-  init_conn_info(tgid, fd, &conn_info);
-  if (sock != NULL) {
-    read_sockaddr_kernel(&conn_info, sock);
-  } else if (addr != NULL) {
-    conn_info.raddr = *((union sockaddr_t*)addr);
+  int kZero = 0;
+  struct conn_info_t* conn_info = conn_info_heap.lookup(&kZero);
+  if (conn_info == NULL) {
+    return;
   }
-  conn_info.role = role;
-  conn_info.tls_record_state[kEgress].synced = role != kRoleUnknown;
-  conn_info.tls_record_state[kIngress].synced = role != kRoleUnknown;
+  __builtin_memset(conn_info, 0, sizeof(struct conn_info_t));
+  init_conn_info(tgid, fd, conn_info);
+  if (sock != NULL) {
+    read_sockaddr_kernel(conn_info, sock);
+  } else if (addr != NULL) {
+    conn_info->raddr = *((union sockaddr_t*)addr);
+  }
+  conn_info->role = role;
+  conn_info->tls_record_state[kEgress].synced = role != kRoleUnknown;
+  conn_info->tls_record_state[kIngress].synced = role != kRoleUnknown;
 
   uint64_t tgid_fd = gen_tgid_fd(tgid, fd);
-  conn_info_map.update(&tgid_fd, &conn_info);
+  conn_info_map.update(&tgid_fd, conn_info);
 
   // While we keep all sa_family types in conn_info_map,
   // we only send connections with supported protocols to user-space.
   // We use the same filter function to avoid sending data of unwanted connections as well.
-  if (!should_trace_sockaddr_family(conn_info.raddr.sa.sa_family)) {
+  if (!should_trace_sockaddr_family(conn_info->raddr.sa.sa_family)) {
     return;
   }
 
   struct socket_control_event_t control_event = {};
   control_event.type = kConnOpen;
   control_event.timestamp_ns = bpf_ktime_get_ns();
-  control_event.conn_id = conn_info.conn_id;
+  control_event.conn_id = conn_info->conn_id;
   control_event.source_fn = source_fn;
-  control_event.open.raddr = conn_info.raddr;
-  control_event.open.laddr = conn_info.laddr;
-  control_event.open.role = conn_info.role;
+  control_event.open.raddr = conn_info->raddr;
+  control_event.open.laddr = conn_info->laddr;
+  control_event.open.role = conn_info->role;
 
   socket_control_events.perf_submit(ctx, &control_event, sizeof(struct socket_control_event_t));
 }
@@ -785,8 +800,10 @@ static __inline void update_conn_stats(struct pt_regs* ctx, struct conn_info_t* 
   // Only send event if there's been enough of a change.
   // TODO(oazizi): Add elapsed time since last send as a triggering condition too.
   uint64_t total_bytes = conn_info->wr_bytes + conn_info->rd_bytes;
+  uint64_t now = bpf_ktime_get_ns();
   bool meets_activity_threshold =
-      total_bytes >= conn_info->last_reported_bytes + kConnStatsDataThreshold;
+      total_bytes >= conn_info->last_reported_bytes + kConnStatsDataThreshold ||
+      now >= conn_info->last_reported_ns + kConnStatsTimeThresholdNS;
   if (meets_activity_threshold) {
     struct conn_stats_event_t* event = fill_conn_stats_event(conn_info);
     if (event != NULL) {
@@ -794,16 +811,18 @@ static __inline void update_conn_stats(struct pt_regs* ctx, struct conn_info_t* 
     }
 
     conn_info->last_reported_bytes = conn_info->rd_bytes + conn_info->wr_bytes;
+    conn_info->last_reported_ns = now;
   }
 }
 
-static __inline bool is_tls_record_header(uint64_t header) {
+static __inline bool is_tls_record_header(uint64_t header, uint8_t len) {
   uint8_t content_type = header;
   uint8_t version_major = header >> 8;
   uint8_t version_minor = header >> 16;
   uint32_t length = ((header >> 24) & 0xff) << 8 | ((header >> 32) & 0xff);
-  return content_type >= 0x14 && content_type <= 0x17 && version_major == 0x03 &&
-         version_minor <= 0x04 && length <= 16384 + 2048;
+  return content_type >= 0x14 && content_type <= 0x17 && (len < 2 || version_major == 0x03) &&
+         (len < 3 || version_minor <= 0x04) &&
+         (len < TLS_RECORD_HEADER_SIZE || length <= 16384 + 2048);
 }
 
 static __inline void skip_wire_tls_bytes(struct conn_info_t* conn_info,
@@ -840,7 +859,9 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
     uint8_t held = state->header_len & 0x7;
     uint64_t header = state->header | (scan->chunk << (8 * held));
     size_t available = scan->buf_size - scan->pos;
-    if (held + available < TLS_RECORD_HEADER_SIZE) {
+    bool is_header =
+        is_tls_record_header(header, min_size_t(held + available, TLS_RECORD_HEADER_SIZE));
+    if (is_header && held + available < TLS_RECORD_HEADER_SIZE) {
       if (scan->buf_size != scan->bytes_count) {
         break;
       }
@@ -850,7 +871,7 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
     }
     state->header = 0;
     state->header_len = 0;
-    if (!is_tls_record_header(header)) {
+    if (!is_header) {
       if (state->synced) {
         conn_info->wire_non_tls_bytes += held + scan->bytes_count - scan->pos;
       } else {
@@ -858,13 +879,44 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
       }
       return;
     }
+    if (!state->tls && (uint8_t)header != TLS_HANDSHAKE_CONTENT_TYPE) {
+      state->handshake_bytes = TLS_HANDSHAKE_BYTES_LIMIT;
+    }
     state->synced = true;
+    state->tls = true;
     conn_info->wire_tls_bytes += held;
     state->remaining =
         TLS_RECORD_HEADER_SIZE - held + (((header >> 24) & 0xff) << 8 | ((header >> 32) & 0xff));
   }
 
   skip_wire_tls_bytes(conn_info, state, scan->bytes_count - scan->pos);
+}
+
+static __inline void submit_tls_handshake(struct pt_regs* ctx, enum traffic_direction_t direction,
+                                          enum source_function_t source_fn, bool force_trace_tgid,
+                                          struct conn_info_t* conn_info,
+                                          struct tls_record_scan_t* scan, size_t bytes_count) {
+  struct tls_record_state_t* state = &conn_info->tls_record_state[direction & 1];
+  if (state->handshake_bytes >= TLS_HANDSHAKE_BYTES_LIMIT ||
+      (!state->tls && state->header_len == 0)) {
+    return;
+  }
+
+  uint32_t protocol = kProtocolTLS;
+  uint64_t* control = control_map.lookup(&protocol);
+  if (!force_trace_tgid && (control == NULL || !(*control & conn_info->role))) {
+    return;
+  }
+
+  struct socket_data_event_t* event = fill_socket_data_event(source_fn, direction, conn_info);
+  if (event == NULL) {
+    return;
+  }
+  event->attr.protocol = kProtocolTLS;
+  event->attr.pos = state->handshake_bytes;
+  event->attr.prepend_length_header = false;
+  state->handshake_bytes += bytes_count;
+  perf_submit_buf(ctx, direction, (const char*)scan->buf, scan->buf_size, conn_info, event);
 }
 
 static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t id,
@@ -952,33 +1004,54 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
     }
   }
 
+  if (!ssl && vecs && BPF_LOOP_LIMIT <= 41) {
+    conn_info->wire_unexamined_bytes += bytes_count;
+  } else if (!ssl) {
+    int kZero = 0;
+    struct tls_record_scan_t* scan = tls_record_scan_heap.lookup(&kZero);
+    if (scan != NULL) {
+      scan->bytes_count = bytes_count;
+      if (!vecs) {
+        scan->buf = (uint64_t)args->buf;
+        scan->buf_size = bytes_count;
+      } else {
+        scan->buf = 0;
+        scan->buf_size = 0;
+        bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[0]);
+        scan->buf_size = min_size_t(scan->buf_size, bytes_count);
+        scan->bytes_count = scan->buf_size;
+      }
+      update_wire_tls_bytes(conn_info, direction, scan);
+      if (ENABLE_TLS_TRACING && !is_stirling_tgid(tgid) &&
+          conn_info->conn_id.tsid > conn_disabled_tsid) {
+        submit_tls_handshake(ctx, direction, args->source_fn, force_trace_tgid, conn_info, scan,
+                             bytes_count);
+      }
+      if (vecs) {
+        size_t left = bytes_count - scan->bytes_count;
+#pragma unroll
+        for (int i = 1; i < TLS_IOVEC_LIMIT && i < args->iovlen && left > 0; ++i) {
+          scan->buf = 0;
+          scan->buf_size = 0;
+          bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[i]);
+          scan->buf_size = min_size_t(scan->buf_size, left);
+          scan->bytes_count = scan->buf_size;
+          update_wire_tls_bytes(conn_info, direction, scan);
+          left -= scan->bytes_count;
+        }
+        if (left > 0) {
+          skip_wire_tls_bytes(conn_info, &conn_info->tls_record_state[direction & 1], left);
+        }
+      }
+    }
+  }
+
   // TODO(oazizi): For conn stats, we should be using the encrypted traffic to do the accounting,
   //               but that will break things with how we track data positions.
   //               For now, keep using plaintext data. In the future, this if statement should be:
   //                     if (!ssl) { ... }
   if (conn_info->ssl == ssl) {
     update_conn_stats(ctx, conn_info, direction, bytes_count);
-  }
-
-  if (!ssl && vecs && BPF_LOOP_LIMIT <= 41) {
-    conn_info->wire_unexamined_bytes += bytes_count;
-  } else if (!ssl) {
-    int kZero = 0;
-    struct tls_record_scan_t* scan = tls_record_scan_heap.lookup(&kZero);
-    if (scan == NULL) {
-      return;
-    }
-    scan->bytes_count = bytes_count;
-    if (!vecs) {
-      scan->buf = (uint64_t)args->buf;
-      scan->buf_size = bytes_count;
-    } else {
-      scan->buf = 0;
-      scan->buf_size = 0;
-      bpf_probe_read(&scan->buf, 2 * sizeof(uint64_t), &args->iov[0]);
-      scan->buf_size = min_size_t(scan->buf_size, bytes_count);
-    }
-    update_wire_tls_bytes(conn_info, direction, scan);
   }
 
   return;

@@ -95,19 +95,20 @@ class TLSVersionParameterizedTest
 
   void TestTLSVersion(const std::string& tls_version, const std::string& tls_max_version) {
     FLAGS_stirling_conn_trace_pid = this->server_.PID();
+    const std::string port = tls_version == "1.3" ? "8443" : "443";
 
     this->StartTransferDataThread();
 
     // Make an SSL request with curl.
     ::px::stirling::testing::CurlContainer client;
     constexpr bool kHostPid = false;
-    ASSERT_OK(
-        client.Run(std::chrono::seconds{60},
-                   {absl::Substitute("--network=container:$0", this->server_.container_name())},
-                   {"--insecure", "-s", "-S", "--resolve", "test-host:443:127.0.0.1",
-                    absl::Substitute("--tlsv$0", tls_version), "--tls-max", tls_max_version,
-                    "https://test-host/index.html"},
-                   kHostPid));
+    ASSERT_OK(client.Run(
+        std::chrono::seconds{60},
+        {absl::Substitute("--network=container:$0", this->server_.container_name())},
+        {"--insecure", "-s", "-S", "--resolve", absl::Substitute("test-host:$0:127.0.0.1", port),
+         absl::Substitute("--tlsv$0", tls_version), "--tls-max", tls_max_version,
+         absl::Substitute("https://test-host:$0/index.html", port)},
+        kHostPid));
     client.Wait();
     this->StopTransferDataThread();
 

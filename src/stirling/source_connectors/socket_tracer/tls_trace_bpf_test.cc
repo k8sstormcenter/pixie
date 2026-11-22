@@ -19,10 +19,13 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <sys/wait.h>
+
 #include <string>
 
 #include "src/common/base/base.h"
 #include "src/common/exec/exec.h"
+#include "src/common/system/tcp_socket.h"
 #include "src/common/testing/test_environment.h"
 #include "src/shared/types/column_wrapper.h"
 #include "src/shared/types/types.h"
@@ -42,6 +45,7 @@ using ::px::stirling::testing::FindRecordIdxMatchesPID;
 using ::px::stirling::testing::GetTargetRecords;
 using ::px::stirling::testing::SocketTraceBPFTestFixture;
 using ::px::stirling::testing::ToRecordVector;
+using ::px::system::TCPSocket;
 
 using ::testing::HasSubstr;
 using ::testing::IsTrue;
@@ -171,6 +175,65 @@ INSTANTIATE_TEST_SUITE_P(TLSVersions, TLSVersionParameterizedTest, ::testing::Va
 TEST_P(TLSVersionParameterizedTest, TestTLSVersions) {
   const std::string& tls_version = GetParam();
   TestTLSVersion(tls_version, tls_version);
+}
+
+class ForkedServerHandshakeTest : public SocketTraceBPFTestFixture</* TClientSideTracing */ false> {
+ protected:
+  ForkedServerHandshakeTest() { Init(); }
+};
+
+TEST_F(ForkedServerHandshakeTest, ServerForkedAfterAcceptYieldsItsHandshake) {
+  const std::string pgsql_tls_request("\x00\x00\x00\x08\x04\xd2\x16\x2f", 8);
+  const std::string random(32, '\x7b');
+  const std::string client_hello = std::string("\x16\x03\x01\x00\x2f\x01\x00\x00\x2b\x03\x03", 11) +
+                                   random + std::string("\x00\x00\x02\x13\x01\x01\x00\x00\x00", 9);
+  const std::string server_hello = std::string("\x16\x03\x03\x00\x2c\x02\x00\x00\x28\x03\x03", 11) +
+                                   random + std::string("\x00\x13\x01\x00\x00\x00", 6);
+  std::chrono::milliseconds server_response_latency{200};
+
+  StartTransferDataThread();
+
+  TCPSocket server;
+  server.BindAndListen();
+
+  pid_t client_pid = fork();
+  if (client_pid == 0) {
+    TCPSocket client;
+    std::string data;
+    client.Connect(server);
+    client.Write(pgsql_tls_request);
+    client.Read(&data);
+    client.Write(client_hello);
+    client.Read(&data);
+    client.Read(&data);
+    client.Close();
+    exit(0);
+  }
+
+  std::unique_ptr<TCPSocket> conn = server.Accept();
+  pid_t server_pid = fork();
+  if (server_pid == 0) {
+    std::string data;
+    conn->Read(&data);
+    std::this_thread::sleep_for(server_response_latency);
+    conn->Write("S");
+    conn->Read(&data);
+    std::this_thread::sleep_for(server_response_latency);
+    conn->Write(server_hello);
+    std::this_thread::sleep_for(server_response_latency);
+    conn->Close();
+    exit(0);
+  }
+  conn->Close();
+  waitpid(server_pid, 0, 0);
+  waitpid(client_pid, 0, 0);
+  server.Close();
+
+  StopTransferDataThread();
+
+  std::vector<TaggedRecordBatch> tablets = ConsumeRecords(SocketTraceConnector::kTLSTableNum);
+  ASSERT_NOT_EMPTY_AND_GET_RECORDS(const types::ColumnWrapperRecordBatch& rb, tablets);
+  EXPECT_THAT(FindRecordIdxMatchesPID(rb, kTLSUPIDIdx, server_pid), SizeIs(1));
 }
 
 }  // namespace stirling

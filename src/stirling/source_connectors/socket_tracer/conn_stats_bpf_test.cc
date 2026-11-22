@@ -61,6 +61,7 @@ class ConnStatsBPFTest : public testing::SocketTraceBPFTestFixture</* TClientSid
     std::vector<TaggedRecordBatch> tablets =
         ConsumeRecords(SocketTraceConnector::kConnStatsTableNum);
     ASSERT_NOT_EMPTY_AND_GET_RECORDS(const types::ColumnWrapperRecordBatch& rb, tablets);
+    PX_LOG_VAR(PrintConnStatsTable(rb));
     auto indices = FindRecordIdxMatchesPID(rb, kUPIDIdx, server_pid);
     ASSERT_FALSE(indices.empty());
     int idx = indices.back();
@@ -237,6 +238,7 @@ pid_t RunForkedServer(std::string_view preamble, bool http = true) {
     conn->Close();
     exit(0);
   }
+  FLAGS_stirling_conn_trace_pid = server_pid;
   conn->Close();
   waitpid(server_pid, 0, 0);
   waitpid(client_pid, 0, 0);

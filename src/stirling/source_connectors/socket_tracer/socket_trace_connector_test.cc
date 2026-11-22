@@ -312,6 +312,26 @@ TEST_F(SocketTraceConnectorHandshakeTest, OneConnectionYieldsItsHandshakeAndItsH
   }
 }
 
+TEST_F(SocketTraceConnectorHandshakeTest, ServerConnectionWithoutContentYieldsItsHandshake) {
+  const std::string random(32, '\x7b');
+  const std::string client_hello = std::string("\x16\x03\x01\x00\x2f\x01\x00\x00\x2b\x03\x03", 11) +
+                                   random + std::string("\x00\x00\x02\x13\x01\x01\x00\x00\x00", 9);
+  const std::string server_hello = std::string("\x16\x03\x03\x00\x2c\x02\x00\x00\x28\x03\x03", 11) +
+                                   random + std::string("\x00\x13\x01\x00\x00\x00", 6);
+
+  struct socket_control_event_t conn = event_gen_.InitConn(kRoleServer);
+  source_->AcceptControlEvent(conn);
+  source_->AcceptDataEvent(event_gen_.InitRecvEvent<kProtocolTLS, kRoleServer>(client_hello));
+  source_->AcceptDataEvent(event_gen_.InitSendEvent<kProtocolTLS, kRoleServer>(server_hello));
+
+  connector_->TransferData(ctx_.get());
+
+  std::vector<TaggedRecordBatch> tablets = tls_table_->ConsumeRecords();
+  ASSERT_NOT_EMPTY_AND_GET_RECORDS(RecordBatch & records, tablets);
+  EXPECT_THAT(ToUInt128Vector(records[kTLSTable.ColIndex("conn_id")]),
+              ElementsAre(absl::MakeUint128(conn.conn_id.fd, conn.conn_id.tsid)));
+}
+
 TEST_F(SocketTraceConnectorTest, ConnectionsTableHasOneRowPerChangedConnection) {
   struct conn_stats_event_t event = {};
   event.conn_id.upid.pid = kPID;

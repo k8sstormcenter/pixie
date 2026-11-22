@@ -188,6 +188,51 @@ TEST_F(ConnStatsBPFTest, PreambleBeforeTLSRecords) {
   ExpectServerWireBytes(cs.ServerPID(), 7, 9, 0);
 }
 
+TEST_F(ConnStatsBPFTest, PGSQLTLSRequestReadByAForkedServer) {
+  StartTransferDataThread();
+
+  constexpr std::string_view kPGSQLTLSRequest{"\x00\x00\x00\x08\x04\xd2\x16\x2f", 8};
+  std::chrono::milliseconds server_response_latency{200};
+
+  TCPSocket server;
+  server.BindAndListen();
+
+  pid_t client_pid = fork();
+  if (client_pid == 0) {
+    TCPSocket client;
+    std::string data;
+    client.Connect(server);
+    client.Write(kPGSQLTLSRequest);
+    client.Read(&data);
+    client.Write(kTLSRecord);
+    client.Read(&data);
+    client.Close();
+    exit(0);
+  }
+
+  std::unique_ptr<TCPSocket> conn = server.Accept();
+  pid_t server_pid = fork();
+  if (server_pid == 0) {
+    std::string data;
+    conn->Read(&data);
+    std::this_thread::sleep_for(server_response_latency);
+    conn->Write("S");
+    conn->Read(&data);
+    std::this_thread::sleep_for(server_response_latency);
+    conn->Write(kTLSRecord);
+    conn->Close();
+    exit(0);
+  }
+  conn->Close();
+  waitpid(server_pid, 0, 0);
+  waitpid(client_pid, 0, 0);
+  server.Close();
+
+  StopTransferDataThread();
+
+  ExpectServerWireBytes(server_pid, 14, 9, 0);
+}
+
 TEST_F(ConnStatsBPFTest, VectoredTLSRecords) {
   StartTransferDataThread();
 

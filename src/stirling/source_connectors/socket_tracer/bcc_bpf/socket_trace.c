@@ -41,6 +41,7 @@
 #define TLS_IOVEC_LIMIT 4
 #define TLS_RECORD_HEADER_SIZE 5
 #define TLS_HANDSHAKE_CONTENT_TYPE 0x16
+#define PGSQL_TLS_REQUEST 0x2f16d20408000000ULL
 #define TLS_HANDSHAKE_BYTES_LIMIT 4096
 
 const int32_t kInvalidFD = -1;
@@ -892,6 +893,22 @@ static __inline void update_wire_tls_bytes(struct conn_info_t* conn_info,
   skip_wire_tls_bytes(conn_info, state, scan->bytes_count - scan->pos);
 }
 
+static __inline void sync_on_pgsql_tls_request(struct conn_info_t* conn_info,
+                                               enum traffic_direction_t direction,
+                                               struct tls_record_scan_t* scan) {
+  if (conn_info->tls_record_state[direction & 1].synced ||
+      conn_info->rd_bytes + conn_info->wr_bytes != 0 || scan->buf_size != sizeof(scan->chunk)) {
+    return;
+  }
+  scan->chunk = 0;
+  if (bpf_probe_read(&scan->chunk, sizeof(scan->chunk), (const char*)scan->buf) != 0 ||
+      scan->chunk != PGSQL_TLS_REQUEST) {
+    return;
+  }
+  conn_info->tls_record_state[kEgress].synced = true;
+  conn_info->tls_record_state[kIngress].synced = true;
+}
+
 static __inline void submit_tls_handshake(struct pt_regs* ctx, enum traffic_direction_t direction,
                                           enum source_function_t source_fn, bool force_trace_tgid,
                                           struct conn_info_t* conn_info,
@@ -1021,6 +1038,7 @@ static __inline void process_data(const bool vecs, struct pt_regs* ctx, uint64_t
         scan->buf_size = min_size_t(scan->buf_size, bytes_count);
         scan->bytes_count = scan->buf_size;
       }
+      sync_on_pgsql_tls_request(conn_info, direction, scan);
       update_wire_tls_bytes(conn_info, direction, scan);
       if (ENABLE_TLS_TRACING && !is_stirling_tgid(tgid) &&
           conn_info->conn_id.tsid > conn_disabled_tsid) {

@@ -138,6 +138,8 @@ ignored_dirs = [
 # (GitOrigin-RevId 7622689973) silently removed these fork-only trees for
 # exactly that reason.
 fork_only_files = [
+    # dx active-diagnosis PoC — pure-Linux standalone PEM-direct showcase (not upstream).
+    "src/experimental/dx-standalone-linux/**",
     ".github/workflows/copybara_pixie_oss.yaml",
     ".github/workflows/perf_clickhouse.yaml",
     ".github/workflows/perf_soc_attack.yaml",

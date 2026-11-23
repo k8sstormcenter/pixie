@@ -23,6 +23,7 @@ To update this README, run `make update_readme` in this directory.
 - dx/[fullchain](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/dx/fullchain): SOC Full-Chain
 - dx/[host_findings](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/dx/host_findings): Host findings
 - dx/[incidents](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/dx/incidents): Incidents
+- dx/[kube_api](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/dx/kube_api): Shows the requests served by the Kubernetes API server and the kubelets.
 - dx/[mitre_coverage](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/dx/mitre_coverage): MITRE coverage
 - dx/[process_forest](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/dx/process_forest): SOC Process Forest
 - dx/[profile_coverage](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/dx/profile_coverage): Profile coverage
@@ -30,7 +31,9 @@ To update this README, run `make update_readme` in this directory.
 - dx/[shadow_profiles](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/dx/shadow_profiles): Shadow profiles
 - dx/[shadow_trace](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/dx/shadow_trace): SOC Shadow Trace
 - dx/[signatures](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/dx/signatures): Signatures
+- dx/[tls_handshakes](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/dx/tls_handshakes): Shows the TLS version, cipher suite and key-exchange group negotiated on each connection.
 - dx/[token_access](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/dx/token_access): Token access
+- dx/[websocket_data](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/dx/websocket_data): Shows most recent WebSocket frames in the cluster, including exec, attach and port-forward sessions.
 - px/[agent_status](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/agent_status): This script gets the status of all the pixie agents (PEMs/Collectors) running.
 - px/[agent_status_diagnostics](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/agent_status_diagnostics): This script performs diagnostics on the agents' (PEMs/Collectors) status
 - px/[amqp_data](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/amqp_data): Shows a sample of amqp messages in the cluster.
@@ -57,7 +60,6 @@ To update this README, run `make update_readme` in this directory.
 - px/[kafka_data](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/kafka_data): Shows a sample of Kafka messages in the cluster.
 - px/[kafka_overview](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/kafka_overview): Overview of the Kafka cluster.
 - px/[kafka_producer_consumer_latency](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/kafka_producer_consumer_latency): Shows the producer-consumer latency for a given topic. Values above 0 indicate that the consumer is falling behind the producer.
-- px/[kube_api](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/kube_api): Shows the requests served by the Kubernetes API server and the kubelets.
 - px/[largest_http_request](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/largest_http_request): Calculates the largest HTTP Request according to the passed in filter value.
 - px/[mongodb_data](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/mongodb_data): Shows the most recent MongoDB messages in the cluster.
 - px/[most_http_data](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/most_http_data): Finds the endpoint on a specific Pod that passes the most HTTP Data. Optionally, you can uncomment a line to see a table summarizing data per service, endpoint pair.
@@ -97,10 +99,8 @@ To update this README, run `make update_readme` in this directory.
 - px/[sql_queries](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/sql_queries): This live view calculates the latency, error rate, and throughput of each distinct normalized SQL Query. Only supports Postgres or MySQL.
 - px/[sql_query](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/sql_query): This live view calculates the latency, error rate, and throughput of each distinct parameter set for a given normalized SQL query. Only supports PostgresSQL or MySQL.
 - px/[stirling_errors](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/stirling_errors): Shows errors in different Stirling components and deployment statuses of eBPF probes.
-- px/[tls_handshakes](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/tls_handshakes): Shows the TLS version, cipher suite and key-exchange group negotiated on each connection.
 - px/[tracepoint_status](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/tracepoint_status): Returns information about tracepoints running on the cluster.
 - px/[upids](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/upids): Shows a list of UPIDs running in a given namespace.
-- px/[websocket_data](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/px/websocket_data): Shows most recent WebSocket frames in the cluster, including exec, attach and port-forward sessions.
 - pxbeta/[pii_cluster_egress](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/pxbeta/pii_cluster_egress): This view displays a summary of traffic containing PII from the cluster to external endpoints.
 - pxbeta/[service_endpoint](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/pxbeta/service_endpoint): This script gets an overview of an individual endpoint for an individual service, summarizing its request statistics.
 - pxbeta/[service_endpoints](https://github.com/pixie-io/pixie/tree/main/src/pxl_scripts/pxbeta/service_endpoints): This script gets an overview of the endpoints for a service, summarizing their request statistics.

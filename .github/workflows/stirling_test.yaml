@@ -61,6 +61,7 @@ on:
         type: string
 permissions:
   contents: read
+  packages: read
 jobs:
   get-dev-image:
     uses: ./.github/workflows/get_image.yaml
@@ -92,6 +93,15 @@ jobs:
       with:
         dev: 'false'
         BB_API_KEY: ${{ secrets.BB_IO_API_KEY }}
+    - name: Registry credentials
+      shell: bash
+      env:
+        REGISTRY_USER: ${{ github.actor }}
+        REGISTRY_TOKEN: ${{ github.token }}
+      run: |
+        mkdir -p "${HOME}/.docker"
+        auth="$(printf '%s:%s' "${REGISTRY_USER}" "${REGISTRY_TOKEN}" | base64 -w0)"
+        printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "${auth}" > "${HOME}/.docker/config.json"
     - name: Test
       shell: bash
       run: |

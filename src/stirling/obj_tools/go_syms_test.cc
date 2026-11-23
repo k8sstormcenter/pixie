@@ -17,16 +17,24 @@
  */
 
 #include "src/stirling/obj_tools/go_syms.h"
+#include "src/stirling/testing/go_https_server_fixture.h"
 
+#include <algorithm>
 #include <memory>
+#include <optional>
+#include <string>
 #include <tuple>
 #include <utility>
+
+#include <elfio/elfio.hpp>
 
 #include "src/common/testing/testing.h"
 
 namespace px {
 namespace stirling {
 namespace obj_tools {
+
+using ::px::stirling::testing::GoHTTPSServerFixture;
 
 using ::testing::Field;
 using ::testing::Matcher;
@@ -44,6 +52,11 @@ constexpr std::string_view kTestGoLittleEndianBinaryPath =
 
 constexpr std::string_view kTestGoWithModulesBinaryPath =
     "src/stirling/obj_tools/testdata/go/test_buildinfo_with_mods";
+
+constexpr std::string_view kTestGoCgoTLSBinaryPath =
+    "src/stirling/obj_tools/testdata/go/cgo_tls/cgo_tls_binary";
+constexpr std::string_view kTestGoCgoTLSStrippedBinaryPath =
+    "src/stirling/obj_tools/testdata/go/cgo_tls/cgo_tls_stripped_binary";
 
 constexpr std::string_view kTestGoBinaryPath =
     "src/stirling/obj_tools/testdata/go/test_go_1_24_binary";
@@ -311,6 +324,122 @@ TEST_P(ElfGolangItableTest, ExtractInterfaceTypes) {
 #else
   EXPECT_THAT(interfaces, std::get<1>(GetParam()));
 #endif
+}
+
+class StrippedGoBinaryTest : public ::testing::TestWithParam<std::string_view> {};
+
+TEST_P(StrippedGoBinaryTest, IsGoExecutable) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
+                       ElfReader::Create(GoHTTPSServerFixture::StrippedPath(GetParam())));
+  EXPECT_TRUE(IsGoExecutable(elf_reader.get()));
+}
+
+TEST_P(StrippedGoBinaryTest, ReadGoBuildInfo) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader,
+                       ElfReader::Create(GoHTTPSServerFixture::StrippedPath(GetParam())));
+  ASSERT_OK_AND_ASSIGN(auto pair, ReadGoBuildInfo(elf_reader.get()));
+  std::string minor(GetParam());
+  std::replace(minor.begin(), minor.end(), '_', '.');
+  EXPECT_TRUE(absl::StartsWith(pair.first, absl::StrCat(minor, "."))) << pair.first;
+}
+
+TEST_P(StrippedGoBinaryTest, PopulateGoPclntabSymbols) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> unstripped,
+                       ElfReader::Create(GoHTTPSServerFixture::Path(GetParam())));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> stripped,
+                       ElfReader::Create(GoHTTPSServerFixture::StrippedPath(GetParam())));
+  ASSERT_OK(PopulateGoPclntabSymbols(stripped.get()));
+
+  for (std::string_view name :
+       {"crypto/tls.(*Conn).Write", "crypto/tls.(*Conn).Read", "go:itab.*crypto/tls.Conn,net.Conn",
+        "go:itab.*net.TCPConn,net.Conn"}) {
+    SCOPED_TRACE(name);
+    auto expected = unstripped->SymbolAddress(name);
+    ASSERT_TRUE(expected.has_value());
+    EXPECT_EQ(stripped->SymbolAddress(name), expected);
+  }
+
+  ASSERT_OK_AND_ASSIGN(
+      auto funcs, stripped->ListFuncSymbols("crypto/tls.(*Conn).Write", SymbolMatchType::kSuffix));
+  ASSERT_EQ(funcs.size(), 1);
+  auto write_addr = unstripped->SymbolAddress("crypto/tls.(*Conn).Write");
+  ASSERT_TRUE(write_addr.has_value());
+  EXPECT_EQ(funcs[0].address, static_cast<uint64_t>(write_addr.value()));
+}
+
+TEST_P(StrippedGoBinaryTest, PopulateGoPclntabSymbolsKeepsSymtab) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> unstripped,
+                       ElfReader::Create(GoHTTPSServerFixture::Path(GetParam())));
+  auto expected = unstripped->SymbolAddress("runtime.buildVersion");
+  ASSERT_TRUE(expected.has_value());
+  ASSERT_OK(PopulateGoPclntabSymbols(unstripped.get()));
+  EXPECT_EQ(unstripped->SymbolAddress("runtime.buildVersion"), expected);
+}
+
+INSTANTIATE_TEST_SUITE_P(GoVersions, StrippedGoBinaryTest,
+                         ::testing::ValuesIn(GoHTTPSServerFixture::kVersions));
+
+TEST(PopulateGoPclntabSymbolsTest, SymtabBinaryWithPreGo1_16Pclntab) {
+  const std::string path = px::testing::BazelRunfilePath(kTestGo1_11BinaryPath);
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader, ElfReader::Create(path));
+  EXPECT_OK(PopulateGoPclntabSymbols(elf_reader.get()));
+}
+
+StatusOr<int32_t> GAddrOffsetFromTLSSymbol(const std::string& path) {
+  ELFIO::elfio elf;
+  if (!elf.load(path)) {
+    return error::Internal("Failed to load $0", path);
+  }
+  PX_ASSIGN_OR_RETURN(std::unique_ptr<ElfReader> elf_reader, ElfReader::Create(path));
+  std::optional<int64_t> tlsg = elf_reader->SymbolAddress("runtime.tlsg");
+  if (!tlsg.has_value()) {
+    return error::NotFound("runtime.tlsg not found in $0", path);
+  }
+  for (int i = 0; i < elf.segments.size(); ++i) {
+    const ELFIO::segment* segment = elf.segments[i];
+    if (segment->get_type() != ELFIO::PT_TLS) {
+      continue;
+    }
+    const uint64_t memsz = segment->get_memory_size() +
+                           ((-segment->get_virtual_address() - segment->get_memory_size()) &
+                            (segment->get_align() - 1));
+    return static_cast<int32_t>(tlsg.value() - static_cast<int64_t>(memsz));
+  }
+  return error::NotFound("No PT_TLS segment in $0", path);
+}
+
+TEST(GoGAddrOffsetTest, InternallyLinkedBinary) {
+  const std::string path = px::testing::BazelRunfilePath(kTestGoBinaryPath);
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader, ElfReader::Create(path));
+  ASSERT_OK_AND_ASSIGN(int32_t offset, GoGAddrOffset(elf_reader.get()));
+  EXPECT_EQ(offset, -8);
+}
+
+TEST(GoGAddrOffsetTest, ExternallyLinkedCgoBinary) {
+  const std::string path = px::testing::BazelRunfilePath(kTestGoCgoTLSBinaryPath);
+  ASSERT_OK_AND_ASSIGN(int32_t expected, GAddrOffsetFromTLSSymbol(path));
+  EXPECT_NE(expected, -8);
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader, ElfReader::Create(path));
+  ASSERT_OK_AND_ASSIGN(int32_t offset, GoGAddrOffset(elf_reader.get()));
+  EXPECT_EQ(offset, expected);
+}
+
+TEST(GoGAddrOffsetTest, StrippedExternallyLinkedCgoBinary) {
+  ASSERT_OK_AND_ASSIGN(
+      int32_t expected,
+      GAddrOffsetFromTLSSymbol(px::testing::BazelRunfilePath(kTestGoCgoTLSBinaryPath)));
+  const std::string path = px::testing::BazelRunfilePath(kTestGoCgoTLSStrippedBinaryPath);
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader, ElfReader::Create(path));
+  ASSERT_OK(PopulateGoPclntabSymbols(elf_reader.get()));
+  ASSERT_OK_AND_ASSIGN(int32_t offset, GoGAddrOffset(elf_reader.get()));
+  EXPECT_EQ(offset, expected);
+}
+
+TEST(IsGoExecutableTest, StrippedCBinaryIsNotGo) {
+  const std::string path =
+      px::testing::BazelRunfilePath("src/stirling/obj_tools/testdata/cc/stripped_test_exe");
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ElfReader> elf_reader, ElfReader::Create(path));
+  EXPECT_FALSE(IsGoExecutable(elf_reader.get()));
 }
 
 }  // namespace obj_tools

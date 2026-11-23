@@ -85,3 +85,31 @@ filegroup(
         ":test_go_1_24_binary",
     ],
 )
+
+golang_server_binaries = {
+    v.replace(".", "_"): pl_go_sdk_version_template_to_label(
+        "//src/stirling/testing/demo_apps/go_https/server:golang_%s_server_binary",
+        v,
+    )
+    for v in pl_supported_go_sdk_versions
+}
+
+[
+    genrule(
+        name = "golang_%s_server_stripped_binary_target" % v,
+        srcs = [src],
+        outs = ["golang_%s_server_stripped_binary" % v],
+        cmd = "$(OBJCOPY) --strip-all $(location %s) $(location golang_%s_server_stripped_binary)" % (src, v),
+        toolchains = ["@bazel_tools//tools/cpp:current_cc_toolchain"],
+    )
+    for v, src in golang_server_binaries.items()
+]
+
+filegroup(
+    name = "go_https_server_binaries",
+    testonly = True,
+    srcs = golang_server_binaries.values() + [
+        ":golang_%s_server_stripped_binary" % v
+        for v in golang_server_binaries.keys()
+    ],
+)

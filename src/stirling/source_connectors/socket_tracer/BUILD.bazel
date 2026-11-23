@@ -44,12 +44,14 @@ pl_cc_library(
         "//src/stirling/source_connectors/socket_tracer/proto:sock_event_pl_cc_proto",
         "//src/stirling/source_connectors/socket_tracer/protocols:cc_library",
         "//src/stirling/utils:cc_library",
+        "@com_github_tencent_rapidjson//:rapidjson",
     ],
 )
 
 pl_cc_test(
     name = "socket_trace_connector_test",
     srcs = ["socket_trace_connector_test.cc"],
+    data = ["//src/common/system/testdata:proc_fs"],
     deps = [
         ":cc_library",
         "//src/stirling/source_connectors/socket_tracer/protocols/cql:testing",
@@ -69,16 +71,64 @@ pl_cc_test(
     ],
 )
 
+pl_cc_binary(
+    name = "go_binary_cache_benchmark",
+    testonly = True,
+    srcs = ["go_binary_cache_benchmark.cc"],
+    data = [
+        "//src/stirling:offsetgen_offsets",
+        "//src/stirling/obj_tools/testdata/go:go_https_server_binaries",
+        "//src/stirling/obj_tools/testdata/go/cgo_tls:cgo_tls_pie_stripped_binary",
+    ],
+    deps = [
+        ":cc_library",
+        "//src/common/testing:cc_library",
+        "@com_google_benchmark//:benchmark_main",
+    ],
+)
+
+pl_cc_test(
+    name = "go_binary_cache_test",
+    srcs = ["go_binary_cache_test.cc"],
+    data = ["//src/stirling/obj_tools/testdata/go/cgo_tls:cgo_tls_binary"],
+    deps = [":cc_library"],
+)
+
+pl_cc_bpf_test(
+    name = "go_binary_cache_bpf_test",
+    timeout = "moderate",
+    srcs = ["go_binary_cache_bpf_test.cc"],
+    data = [
+        "//src/stirling:offsetgen_offsets",
+        "//src/stirling/testing/demo_apps/go_https/server:server_certs",
+    ],
+    tags = [
+        "cpu:16",
+        "no_asan",
+        "requires_bpf",
+    ],
+    deps = [
+        ":cc_library",
+        "//src/common/exec:cc_library",
+        "//src/stirling/source_connectors/socket_tracer/testing:cc_library",
+        "//src/stirling/testing:go_https_server_fixture",
+    ],
+)
+
 pl_cc_test(
     name = "uprobe_symaddrs_test",
     srcs = ["uprobe_symaddrs_test.cc"],
     data = [
+        "//src/stirling:offsetgen_offsets",
+        "//src/stirling/obj_tools/testdata/cc:stripped_exe",
+        "//src/stirling/source_connectors/socket_tracer/testdata:offsetgen",
         "//src/stirling/testing/demo_apps/go_grpc_tls_pl/server:golang_1_24_grpc_tls_server_binary",
         "//src/stirling/testing/demo_apps/node:node_debug",
     ],
     deps = [
         ":cc_library",
         "//src/stirling/source_connectors/socket_tracer/testing:cc_library",
+        "//src/stirling/testing:go_https_server_fixture",
         "//src/stirling/utils:cc_library",
     ],
 )
@@ -337,6 +387,9 @@ pl_cc_bpf_test(
     name = "http2_trace_bpf_test",
     timeout = "long",
     srcs = ["http2_trace_bpf_test.cc"],
+    data = [
+        "//src/stirling:offsetgen_offsets",
+    ],
     flaky = True,
     tags = [
         "cpu:16",
@@ -547,6 +600,9 @@ pl_cc_bpf_test(
     name = "go_tls_trace_bpf_test",
     timeout = "long",
     srcs = ["go_tls_trace_bpf_test.cc"],
+    data = [
+        "//src/stirling:offsetgen_offsets",
+    ],
     flaky = True,
     tags = [
         "cpu:16",
@@ -591,5 +647,29 @@ pl_cc_bpf_test(
         "//src/stirling/source_connectors/socket_tracer/testing/container_images:mongodb_client_container",
         "//src/stirling/source_connectors/socket_tracer/testing/container_images:mongodb_container",
         "//src/stirling/testing:cc_library",
+    ],
+)
+
+pl_cc_test(
+    name = "uprobe_manager_test",
+    srcs = ["uprobe_manager_test.cc"],
+    deps = [":cc_library"],
+)
+
+pl_cc_bpf_test(
+    name = "uprobe_manager_bpf_test",
+    timeout = "moderate",
+    srcs = ["uprobe_manager_bpf_test.cc"],
+    data = ["//src/stirling/testing/demo_apps/go_https/server:server_certs"],
+    tags = [
+        "cpu:16",
+        "no_asan",
+        "requires_bpf",
+    ],
+    deps = [
+        ":cc_library",
+        "//src/common/exec:cc_library",
+        "//src/stirling/source_connectors/socket_tracer/testing:cc_library",
+        "//src/stirling/testing:go_https_server_fixture",
     ],
 )

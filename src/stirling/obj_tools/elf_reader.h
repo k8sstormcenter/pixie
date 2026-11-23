@@ -20,6 +20,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -111,6 +112,14 @@ class ElfReader {
    */
   std::optional<int64_t> SymbolAddress(std::string_view symbol);
 
+  bool HasSymtab();
+
+  void SetFallbackSymbols(std::vector<SymbolInfo> symbols);
+
+  static const SymbolInfo* SymbolContaining(const std::vector<SymbolInfo>& symbols, size_t addr);
+
+  bool UsesFallbackSymbols();
+
   /**
    * Looks up the symbol for an address.
    *
@@ -164,6 +173,8 @@ class ElfReader {
    */
   StatusOr<std::vector<uint64_t>> FuncRetInstAddrs(const SymbolInfo& func_symbol);
 
+  ELFIO::Elf_Half Machine() { return elf_reader_.get_machine(); }
+
   /**
    * Returns the byte code for the symbol at the specified section.
    */
@@ -192,6 +203,8 @@ class ElfReader {
    */
   StatusOr<ELFIO::section*> SectionWithName(std::string_view section_name);
 
+  std::vector<ELFIO::section*> Sections();
+
   /**
    * Returns the ELF type of this binary. (eg. ELFIO::ET_EXEC or ELFIO::ET_DYN).
    */
@@ -202,18 +215,17 @@ class ElfReader {
    */
   template <typename TCharType = u8string::value_type>
   StatusOr<std::basic_string<TCharType>> BinaryByteCode(size_t offset, size_t length) {
-    std::ifstream ifs(binary_path_, std::ios::binary);
-    if (!ifs.seekg(offset)) {
-      return error::Internal("Failed to seek position=$0 in binary=$1", offset, binary_path_);
-    }
     std::basic_string<TCharType> byte_code(length, '\0');
-    auto* buf = reinterpret_cast<char*>(byte_code.data());
-    if (!ifs.read(buf, length)) {
-      return error::Internal("Failed to read size=$0 bytes from offset=$1 in binary=$2", length,
-                             offset, binary_path_);
-    }
+    PX_RETURN_IF_ERROR(ReadBinary(offset, reinterpret_cast<char*>(byte_code.data()), length));
     return byte_code;
   }
+
+  uint64_t binary_reads() const { return binary_reads_; }
+
+  ~ElfReader();
+
+  ElfReader(const ElfReader&) = delete;
+  ElfReader& operator=(const ElfReader&) = delete;
 
  private:
   static StatusOr<std::unique_ptr<ElfReader>> CreateImpl(
@@ -221,7 +233,14 @@ class ElfReader {
 
   ElfReader() = default;
 
+  Status ReadBinary(size_t offset, char* buf, size_t length);
+
   StatusOr<ELFIO::section*> SymtabSection();
+
+  std::vector<SymbolInfo> SearchFallbackSymbols(std::string_view search_symbol,
+                                                SymbolMatchType match_type,
+                                                std::optional<int> symbol_type,
+                                                bool stop_at_first_match);
 
   /**
    * Locates the debug symbols for the currently loaded ELF object.
@@ -239,10 +258,16 @@ class ElfReader {
 
   std::string binary_path_;
 
+  int binary_fd_ = -1;
+
+  uint64_t binary_reads_ = 0;
+
   std::filesystem::path debug_symbols_path_;
 
   // Set up an elf reader, so we can extract debug symbols.
   ELFIO::elfio elf_reader_;
+
+  std::vector<SymbolInfo> fallback_symbols_;
 };
 
 }  // namespace obj_tools

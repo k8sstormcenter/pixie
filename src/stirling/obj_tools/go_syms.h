@@ -35,6 +35,12 @@ namespace obj_tools {
 // Returns true if the executable is built by Golang.
 bool IsGoExecutable(ElfReader* elf_reader);
 
+Status PopulateGoPclntabSymbols(ElfReader* elf_reader);
+
+inline constexpr int32_t kGoDefaultGAddrOffset = -8;
+
+StatusOr<int32_t> GoGAddrOffset(ElfReader* elf_reader);
+
 struct Module {
   std::string path;
   std::string version;

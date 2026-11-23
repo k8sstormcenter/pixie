@@ -18,10 +18,12 @@
 
 #pragma once
 
+#include <chrono>
 #include <fstream>
 #include <list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -53,6 +55,7 @@
 
 DECLARE_uint32(stirling_conn_stats_sampling_ratio);
 DECLARE_bool(stirling_enable_periodic_bpf_map_cleanup);
+DECLARE_bool(stirling_deploy_uprobes_on_host_processes);
 DECLARE_int32(test_only_socket_trace_target_pid);
 DECLARE_string(socket_trace_data_events_output_path);
 DECLARE_int32(stirling_enable_http_tracing);
@@ -230,6 +233,8 @@ class SocketTraceConnector : public BCCSourceConnector {
 
   std::thread RunDeployUProbesThread(const absl::flat_hash_set<md::UPID>& pids);
 
+  absl::flat_hash_set<md::UPID> UProbeTargetUPIDs(ConnectorContext* ctx);
+
   // Setups output file stream object writing to the input file path.
   void SetupOutput(const std::filesystem::path& file);
 
@@ -249,6 +254,10 @@ class SocketTraceConnector : public BCCSourceConnector {
   absl::flat_hash_set<int> pids_to_trace_disable_;
 
   std::function<std::chrono::steady_clock::time_point()> now_fn_ = std::chrono::steady_clock::now;
+
+  static constexpr std::chrono::seconds kHostUPIDsRefreshPeriod{10};
+  absl::flat_hash_set<md::UPID> host_upids_;
+  std::optional<std::chrono::steady_clock::time_point> host_upids_refresh_time_;
 
   struct TransferSpec {
     // TODO(yzhao): Enabling protocol is essentially equivalent to subscribing to DataTable. They

@@ -81,13 +81,16 @@ namespace testing {{
 
 class {class_name} : public ContainerRunner {{
  public:
-  {class_name}()
-      : ContainerRunner(::px::testing::BazelRunfilePath(kBazelImageTar), kContainerNamePrefix,
+  static constexpr std::string_view kBazelImageTar =
+      "{tar_path}";
+
+  {class_name}() : {class_name}(std::string(kBazelImageTar)) {{}}
+
+  explicit {class_name}(std::string image_tar)
+      : ContainerRunner(::px::testing::BazelRunfilePath(image_tar), kContainerNamePrefix,
                         kReadyMessage) {{}}
 
  private:
-  static constexpr std::string_view kBazelImageTar =
-      "{tar_path}";
   static constexpr std::string_view kContainerNamePrefix = "{container_prefix}";
   static constexpr std::string_view kReadyMessage = {ready_message};
 }};

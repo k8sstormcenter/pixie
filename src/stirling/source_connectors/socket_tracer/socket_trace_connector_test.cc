@@ -27,6 +27,7 @@
 #include "src/shared/metadata/metadata.h"
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/socket_trace.hpp"
 
+#include "src/common/testing/temp_dir.h"
 #include "src/common/testing/testing.h"
 #include "src/stirling/core/connector_context.h"
 #include "src/stirling/core/data_tables.h"
@@ -41,6 +42,7 @@ namespace stirling {
 namespace http = protocols::http;
 
 using ::testing::ElementsAre;
+using ::testing::UnorderedElementsAre;
 
 using ::px::stirling::testing::RecordBatchSizeIs;
 
@@ -933,6 +935,41 @@ TEST_F(SocketTraceConnectorTest, UntrackedUPIDDoesNotTransferData) {
 
   // Should not transfer any data anymore.
   ASSERT_TRUE(http_table_->ConsumeRecords().empty());
+}
+
+constexpr std::string_view kTestProcPath = "src/common/system/testdata/proc";
+
+TEST_F(SocketTraceConnectorTest, UProbeTargetsAreContextUPIDsByDefault) {
+  PX_SET_FOR_SCOPE(FLAGS_proc_path, ::px::testing::BazelRunfilePath(kTestProcPath).string());
+
+  EXPECT_THAT(source_->UProbeTargetUPIDs(ctx_.get()),
+              UnorderedElementsAre(md::UPID(kASID, kPID, kPIDStartTimeTicks)));
+}
+
+TEST_F(SocketTraceConnectorTest, UProbeTargetsIncludeHostProcessesWhenEnabled) {
+  PX_SET_FOR_SCOPE(FLAGS_stirling_deploy_uprobes_on_host_processes, true);
+  PX_SET_FOR_SCOPE(FLAGS_proc_path, ::px::testing::BazelRunfilePath(kTestProcPath).string());
+
+  EXPECT_THAT(source_->UProbeTargetUPIDs(ctx_.get()),
+              UnorderedElementsAre(md::UPID(kASID, kPID, kPIDStartTimeTicks),
+                                   md::UPID(kASID, 123, 14329), md::UPID(kASID, 1, 13),
+                                   md::UPID(kASID, 456, 17594622), md::UPID(kASID, 789, 46120203)));
+}
+
+TEST_F(SocketTraceConnectorTest, HostUProbeTargetsRefreshPeriodically) {
+  PX_SET_FOR_SCOPE(FLAGS_stirling_deploy_uprobes_on_host_processes, true);
+  PX_SET_FOR_SCOPE(FLAGS_proc_path, ::px::testing::BazelRunfilePath(kTestProcPath).string());
+  EXPECT_EQ(source_->UProbeTargetUPIDs(ctx_.get()).size(), 5);
+
+  ::px::testing::TempDir empty_proc;
+  FLAGS_proc_path = empty_proc.path().string();
+
+  mock_clock_.advance(std::chrono::nanoseconds(std::chrono::seconds(5)).count());
+  EXPECT_EQ(source_->UProbeTargetUPIDs(ctx_.get()).size(), 5);
+
+  mock_clock_.advance(std::chrono::nanoseconds(std::chrono::seconds(10)).count());
+  EXPECT_THAT(source_->UProbeTargetUPIDs(ctx_.get()),
+              UnorderedElementsAre(md::UPID(kASID, kPID, kPIDStartTimeTicks)));
 }
 
 }  // namespace stirling

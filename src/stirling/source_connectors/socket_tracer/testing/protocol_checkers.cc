@@ -45,10 +45,12 @@ std::vector<http::Record> ToRecordVector(const types::ColumnWrapperRecordBatch& 
     r.req.req_path = rb[kHTTPReqPathIdx]->Get<types::StringValue>(idx);
     r.req.req_method = rb[kHTTPReqMethodIdx]->Get<types::StringValue>(idx);
     r.req.body = rb[kHTTPReqBodyIdx]->Get<types::StringValue>(idx);
+    r.req.body_size = rb[kHTTPReqBodySizeIdx]->Get<types::Int64Value>(idx).val;
 
     r.resp.resp_status = rb[kHTTPRespStatusIdx]->Get<types::Int64Value>(idx).val;
     r.resp.resp_message = rb[kHTTPRespMessageIdx]->Get<types::StringValue>(idx);
     r.resp.body = rb[kHTTPRespBodyIdx]->Get<types::StringValue>(idx);
+    r.resp.body_size = rb[kHTTPRespBodySizeIdx]->Get<types::Int64Value>(idx).val;
     result.push_back(r);
   }
   return result;

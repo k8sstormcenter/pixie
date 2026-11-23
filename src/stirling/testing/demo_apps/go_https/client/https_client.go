@@ -43,6 +43,7 @@ func main() {
 	pflag.Int("iters", 1000, "Number of iterations.")
 	pflag.Int("sub_iters", 1000, "Number of sub-iterations with same TLS config.")
 	pflag.Bool("http2", true, "Use HTTP/2, instead of HTTP/1.1.")
+	pflag.String("path", "/", "The request path.")
 	pflag.Parse()
 
 	viper.BindPFlags(pflag.CommandLine)
@@ -62,7 +63,7 @@ func main() {
 		}
 
 		for j := 0; j < viper.GetInt("sub_iters"); j++ {
-			resp, err := client.Get(address)
+			resp, err := client.Get(address + viper.GetString("path"))
 			if err != nil {
 				fmt.Println(err)
 			}

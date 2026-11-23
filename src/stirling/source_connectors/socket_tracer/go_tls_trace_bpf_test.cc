@@ -19,12 +19,17 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <string>
+#include <vector>
+
 #include "src/common/testing/testing.h"
 #include "src/stirling/source_connectors/socket_tracer/testing/container_images/go_tls_client_containers.h"
 #include "src/stirling/source_connectors/socket_tracer/testing/container_images/go_tls_server_containers.h"
 #include "src/stirling/source_connectors/socket_tracer/testing/protocol_checkers.h"
 #include "src/stirling/source_connectors/socket_tracer/testing/socket_trace_bpf_test_fixture.h"
 #include "src/stirling/testing/common.h"
+
+DECLARE_string(offsetgen_filepath);
 
 namespace px {
 namespace stirling {
@@ -39,6 +44,11 @@ using ::px::stirling::testing::EqHTTPRecord;
 using ::px::stirling::testing::FindRecordIdxMatchesPID;
 using ::px::stirling::testing::ToRecordVector;
 
+using ::testing::AllOf;
+using ::testing::Contains;
+using ::testing::Each;
+using ::testing::Field;
+using ::testing::IsTrue;
 using ::testing::UnorderedElementsAre;
 
 //-----------------------------------------------------------------------------
@@ -48,11 +58,20 @@ using ::testing::UnorderedElementsAre;
 template <typename TClientServerContainers>
 class GoTLSTraceTest : public testing::SocketTraceBPFTestFixture</* TClientSideTracing */ false> {
  protected:
-  GoTLSTraceTest() {
+  GoTLSTraceTest() : server_(std::string(TClientServerContainers::server_image_tar)), client_() {
     // Run the server.
     // The container runner will make sure it is in the ready state before unblocking.
     // Stirling will run after this unblocks, as part of SocketTraceBPFTest SetUp().
-    PX_CHECK_OK(server_.Run(std::chrono::seconds{60}, {}));
+
+    FLAGS_disable_dwarf_parsing = TClientServerContainers::disable_dwarf;
+
+    auto f = ::px::testing::BazelRunfilePath("src/stirling/offsetgen_offsets.json");
+    FLAGS_offsetgen_filepath = f.string();
+    std::vector<std::string> args;
+    if (TClientServerContainers::wrap_conn) {
+      args.push_back("--wrap_conn");
+    }
+    PX_CHECK_OK(server_.Run(std::chrono::seconds{60}, {}, args));
   }
 
   typename TClientServerContainers::GoTLSServerContainer server_;
@@ -62,47 +81,99 @@ class GoTLSTraceTest : public testing::SocketTraceBPFTestFixture</* TClientSideT
 struct Go1_18TLSClientServerContainers {
   using GoTLSServerContainer = ::px::stirling::testing::Go1_18_TLSServerContainer;
   using GoTLSClientContainer = ::px::stirling::testing::Go1_24_TLSClientContainer;
+
+  static constexpr std::string_view server_image_tar = GoTLSServerContainer::kBazelImageTar;
+  static const bool disable_dwarf = false;
+  static const bool wrap_conn = false;
 };
 
 struct Go1_19TLSClientServerContainers {
   using GoTLSServerContainer = ::px::stirling::testing::Go1_19_TLSServerContainer;
   using GoTLSClientContainer = ::px::stirling::testing::Go1_24_TLSClientContainer;
+
+  static constexpr std::string_view server_image_tar = GoTLSServerContainer::kBazelImageTar;
+  static const bool disable_dwarf = false;
+  static const bool wrap_conn = false;
 };
 
 struct Go1_20TLSClientServerContainers {
   using GoTLSServerContainer = ::px::stirling::testing::Go1_20_TLSServerContainer;
   using GoTLSClientContainer = ::px::stirling::testing::Go1_24_TLSClientContainer;
+
+  static constexpr std::string_view server_image_tar = GoTLSServerContainer::kBazelImageTar;
+  static const bool disable_dwarf = false;
+  static const bool wrap_conn = false;
 };
 
 struct Go1_21TLSClientServerContainers {
   using GoTLSServerContainer = ::px::stirling::testing::Go1_21_TLSServerContainer;
   using GoTLSClientContainer = ::px::stirling::testing::Go1_24_TLSClientContainer;
+
+  static constexpr std::string_view server_image_tar = GoTLSServerContainer::kBazelImageTar;
+  static const bool disable_dwarf = false;
+  static const bool wrap_conn = false;
 };
 
 struct Go1_22TLSClientServerContainers {
   using GoTLSServerContainer = ::px::stirling::testing::Go1_22_TLSServerContainer;
   using GoTLSClientContainer = ::px::stirling::testing::Go1_24_TLSClientContainer;
+
+  static constexpr std::string_view server_image_tar = GoTLSServerContainer::kBazelImageTar;
+  static const bool disable_dwarf = false;
+  static const bool wrap_conn = false;
+};
+
+struct Go1_22TLSClientServerNoDWARFContainers {
+  using GoTLSServerContainer = ::px::stirling::testing::Go1_22_TLSServerContainer;
+  using GoTLSClientContainer = ::px::stirling::testing::Go1_24_TLSClientContainer;
+
+  static constexpr std::string_view server_image_tar = GoTLSServerContainer::kBazelImageTar;
+  static const bool disable_dwarf = true;
+  static const bool wrap_conn = false;
 };
 
 struct Go1_23TLSClientServerContainers {
   using GoTLSServerContainer = ::px::stirling::testing::Go1_23_TLSServerContainer;
   using GoTLSClientContainer = ::px::stirling::testing::Go1_23_TLSClientContainer;
+
+  static constexpr std::string_view server_image_tar = GoTLSServerContainer::kBazelImageTar;
+  static const bool disable_dwarf = false;
+  static const bool wrap_conn = false;
 };
 
 struct Go1_24TLSClientServerContainers {
   using GoTLSServerContainer = ::px::stirling::testing::Go1_24_TLSServerContainer;
   using GoTLSClientContainer = ::px::stirling::testing::Go1_24_TLSClientContainer;
+
+  static constexpr std::string_view server_image_tar = GoTLSServerContainer::kBazelImageTar;
+  static const bool disable_dwarf = false;
+  static const bool wrap_conn = false;
+};
+
+struct Go1_24TLSClientServerWrappedConnContainers {
+  using GoTLSServerContainer = ::px::stirling::testing::Go1_24_TLSServerContainer;
+  using GoTLSClientContainer = ::px::stirling::testing::Go1_24_TLSClientContainer;
+
+  static constexpr std::string_view server_image_tar = GoTLSServerContainer::kBazelImageTar;
+  static const bool disable_dwarf = false;
+  static const bool wrap_conn = true;
 };
 
 struct GoBoringCryptoTLSClientServerContainers {
   using GoTLSServerContainer = ::px::stirling::testing::GoBoringCryptoTLSServerContainer;
   using GoTLSClientContainer = ::px::stirling::testing::GoBoringCryptoTLSClientContainer;
+
+  static constexpr std::string_view server_image_tar = GoTLSServerContainer::kBazelImageTar;
+  static const bool disable_dwarf = false;
+  static const bool wrap_conn = false;
 };
 
 typedef ::testing::Types<GoBoringCryptoTLSClientServerContainers, Go1_18TLSClientServerContainers,
                          Go1_19TLSClientServerContainers, Go1_20TLSClientServerContainers,
                          Go1_21TLSClientServerContainers, Go1_22TLSClientServerContainers,
-                         Go1_23TLSClientServerContainers, Go1_24TLSClientServerContainers>
+                         Go1_23TLSClientServerContainers, Go1_22TLSClientServerNoDWARFContainers,
+                         Go1_24TLSClientServerContainers,
+                         Go1_24TLSClientServerWrappedConnContainers>
     GoVersions;
 TYPED_TEST_SUITE(GoTLSTraceTest, GoVersions);
 
@@ -182,7 +253,36 @@ TYPED_TEST(GoTLSTraceTest, BasicHTTP2) {
     expected_record.resp.body = R"({"status":"ok"})";
 
     EXPECT_THAT(records, Contains(EqHTTPRecord(expected_record)));
+    EXPECT_THAT(testing::GetEncrypted(record_batch, kHTTPEncryptedIdx, target_record_indices),
+                Each(IsTrue()));
   }
+}
+
+using GoTLSTraceLargeResponseTest = GoTLSTraceTest<Go1_24TLSClientServerContainers>;
+
+TEST_F(GoTLSTraceLargeResponseTest, HTTP2ResponseLargerThanOneDataFrame) {
+  StartTransferDataThread();
+
+  PX_CHECK_OK(client_.Run(std::chrono::seconds{10},
+                          {absl::Substitute("--network=container:$0", server_.container_name())},
+                          {"--http2=true", "--iters=1", "--sub_iters=2", "--path=/large"}));
+  client_.Wait();
+
+  StopTransferDataThread();
+
+  std::vector<TaggedRecordBatch> tablets = ConsumeRecords(SocketTraceConnector::kHTTPTableNum);
+  ASSERT_NOT_EMPTY_AND_GET_RECORDS(const types::ColumnWrapperRecordBatch& record_batch, tablets);
+
+  const std::vector<size_t> target_record_indices =
+      FindRecordIdxMatchesPID(record_batch, kHTTPUPIDIdx, server_.process_pid());
+  std::vector<http::Record> records =
+      ToRecordVector<http::Record>(record_batch, target_record_indices);
+
+  EXPECT_THAT(
+      records,
+      Contains(AllOf(Field(&http::Record::req, Field(&http::Message::req_path, "/large")),
+                     Field(&http::Record::resp, AllOf(Field(&http::Message::resp_status, 200),
+                                                      Field(&http::Message::body_size, 20015))))));
 }
 
 }  // namespace stirling

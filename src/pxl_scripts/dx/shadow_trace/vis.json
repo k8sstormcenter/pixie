@@ -23,6 +23,24 @@
       "type": "PX_STRING",
       "description": "The sixteen per-protocol tabs fill only after a trace is selected: click a shadow_id in the traces table, or paste one here. They match this id exactly, so they are empty while it is. The summary tables above them \u2014 traces, graph, timeline, keys, reconciliation, processes, forest \u2014 match on substring and are always populated. Note what the tabs mean: the dark surfaces (dc_snoop, creds_change, stack_trace) hold FIRST-APPEARANCE content, one row per distinct key per session, so a long-open trace shows none of them in a recent window however busy it is. They answer what this trace has ever seen. For whether a surface is still collecting, read the timeline and keys tables, which come from the per-epoch activity and count recurrences.",
       "defaultValue": ""
+    },
+    {
+      "name": "leave_out",
+      "type": "PX_STRING",
+      "description": "Surfaces left out of the behaviour graph and the key list, space separated. Empty shows all.",
+      "defaultValue": "stack_trace"
+    },
+    {
+      "name": "live_window",
+      "type": "PX_STRING",
+      "description": "Window for the two widgets that read the sensor's live tables (Kubernetes API, WebSocket).",
+      "defaultValue": "-30m"
+    },
+    {
+      "name": "graph_leave_out",
+      "type": "PX_STRING",
+      "description": "Surfaces left out of the behaviour graph, space separated. File access and profiler frames are thousands of nodes per pod; they stay in the key list and in their own tables.",
+      "defaultValue": "stack_trace dc_snoop"
     }
   ],
   "globalFuncs": [
@@ -62,6 +80,10 @@
           {
             "name": "shadow_id",
             "variable": "shadow_id"
+          },
+          {
+            "name": "leave_out",
+            "variable": "graph_leave_out"
           }
         ]
       }
@@ -102,6 +124,10 @@
           {
             "name": "shadow_id",
             "variable": "shadow_id"
+          },
+          {
+            "name": "leave_out",
+            "variable": "leave_out"
           }
         ]
       }
@@ -252,10 +278,76 @@
       }
     },
     {
-      "name": "dc_snoop",
+      "name": "KUBERNETES API ON THIS POD",
       "position": {
         "x": 0,
         "y": 16,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "api_on_pod",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          },
+          {
+            "name": "live_window",
+            "variable": "live_window"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "WEBSOCKET OF THIS POD",
+      "position": {
+        "x": 6,
+        "y": 16,
+        "w": 6,
+        "h": 3
+      },
+      "func": {
+        "name": "websocket_of_pod",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          },
+          {
+            "name": "shadow_id",
+            "variable": "shadow_id"
+          },
+          {
+            "name": "live_window",
+            "variable": "live_window"
+          }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "dc_snoop",
+      "position": {
+        "x": 0,
+        "y": 19,
         "w": 6,
         "h": 3
       },
@@ -284,7 +376,7 @@
       "name": "stack_trace",
       "position": {
         "x": 6,
-        "y": 16,
+        "y": 19,
         "w": 6,
         "h": 3
       },
@@ -313,7 +405,7 @@
       "name": "conn_stats",
       "position": {
         "x": 0,
-        "y": 19,
+        "y": 22,
         "w": 6,
         "h": 3
       },
@@ -342,7 +434,7 @@
       "name": "dns",
       "position": {
         "x": 6,
-        "y": 19,
+        "y": 22,
         "w": 6,
         "h": 3
       },
@@ -371,7 +463,7 @@
       "name": "http",
       "position": {
         "x": 0,
-        "y": 22,
+        "y": 25,
         "w": 6,
         "h": 3
       },
@@ -400,7 +492,7 @@
       "name": "redis",
       "position": {
         "x": 6,
-        "y": 22,
+        "y": 25,
         "w": 6,
         "h": 3
       },
@@ -429,7 +521,7 @@
       "name": "pgsql",
       "position": {
         "x": 0,
-        "y": 25,
+        "y": 28,
         "w": 6,
         "h": 3
       },
@@ -458,7 +550,7 @@
       "name": "amqp",
       "position": {
         "x": 6,
-        "y": 25,
+        "y": 28,
         "w": 6,
         "h": 3
       },
@@ -487,7 +579,7 @@
       "name": "http2",
       "position": {
         "x": 0,
-        "y": 28,
+        "y": 31,
         "w": 6,
         "h": 3
       },
@@ -516,7 +608,7 @@
       "name": "mysql",
       "position": {
         "x": 6,
-        "y": 28,
+        "y": 31,
         "w": 6,
         "h": 3
       },
@@ -545,7 +637,7 @@
       "name": "cql",
       "position": {
         "x": 0,
-        "y": 31,
+        "y": 34,
         "w": 6,
         "h": 3
       },
@@ -574,7 +666,7 @@
       "name": "mongodb",
       "position": {
         "x": 6,
-        "y": 31,
+        "y": 34,
         "w": 6,
         "h": 3
       },
@@ -603,7 +695,7 @@
       "name": "kafka",
       "position": {
         "x": 0,
-        "y": 34,
+        "y": 37,
         "w": 6,
         "h": 3
       },
@@ -632,7 +724,7 @@
       "name": "mux",
       "position": {
         "x": 6,
-        "y": 34,
+        "y": 37,
         "w": 6,
         "h": 3
       },
@@ -661,7 +753,7 @@
       "name": "tls",
       "position": {
         "x": 0,
-        "y": 37,
+        "y": 40,
         "w": 6,
         "h": 3
       },
@@ -690,7 +782,7 @@
       "name": "creds_change",
       "position": {
         "x": 6,
-        "y": 37,
+        "y": 40,
         "w": 6,
         "h": 3
       },
@@ -719,7 +811,7 @@
       "name": "PROCESSES",
       "position": {
         "x": 0,
-        "y": 40,
+        "y": 43,
         "w": 12,
         "h": 3
       },
@@ -748,7 +840,7 @@
       "name": "FOREST",
       "position": {
         "x": 0,
-        "y": 43,
+        "y": 46,
         "w": 12,
         "h": 4
       },
@@ -777,7 +869,7 @@
       "name": "nsswitch",
       "position": {
         "x": 0,
-        "y": 46,
+        "y": 49,
         "w": 6,
         "h": 3
       },

@@ -201,6 +201,20 @@ TEST_F(MetadataOpsTest, upid_to_pod_name_resolves_through_cgroup) {
   udf_tester.ForInput(upid).Expect("pl/running_pod");
 }
 
+TEST_F(MetadataOpsTest, upid_to_pod_name_is_empty_for_unknown_upid) {
+  auto container_update = std::make_unique<ResourceUpdate>();
+  container_update->mutable_container_update()->set_name("waiting_container");
+  updates_->enqueue(std::move(container_update));
+  auto pod_update = px::metadatapb::testutils::CreateRunningPodUpdatePB();
+  pod_update->mutable_pod_update()->add_container_ids("");
+  updates_->enqueue(std::move(pod_update));
+  ASSERT_OK(px::md::ApplyK8sUpdates(11, metadata_state_.get(), &md_filter_, updates_.get()));
+  auto function_ctx = std::make_unique<FunctionContext>(metadata_state_, nullptr);
+  auto udf_tester = px::carnot::udf::UDFTester<UPIDToPodNameUDF>(std::move(function_ctx));
+  auto unknown_upid = types::UInt128Value(528280977975, 123);
+  udf_tester.ForInput(unknown_upid).Expect("");
+}
+
 TEST_F(MetadataOpsTest, upid_to_parent_upid_test) {
   metadata_state_->AddProcessParent(md::UPID(123, 900, 5000), md::UPID(123, 567, 89101));
   auto function_ctx = std::make_unique<FunctionContext>(metadata_state_, nullptr);

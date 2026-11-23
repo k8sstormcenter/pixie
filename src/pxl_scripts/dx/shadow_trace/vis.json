@@ -373,7 +373,7 @@
       }
     },
     {
-      "name": "stack_trace",
+      "name": "stack_trace (only around alerts about code or CPU)",
       "position": {
         "x": 6,
         "y": 19,

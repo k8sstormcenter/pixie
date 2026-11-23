@@ -4,7 +4,7 @@
       "name": "start_time",
       "type": "PX_STRING",
       "description": "",
-      "defaultValue": "-6h"
+      "defaultValue": "-30m"
     },
     {
       "name": "clickhouse_dsn",
@@ -15,7 +15,7 @@
     {
       "name": "order_id",
       "type": "PX_STRING",
-      "description": "",
+      "description": "The alert whose lookups are drawn. The panel is empty without one: open it from the dns link of an order in dx/evidence_graph, or paste an order id here.",
       "defaultValue": ""
     }
   ],

@@ -28,9 +28,14 @@ def fullchain(start_time: str, clickhouse_dsn: str, min_sev: int):
     e = px.DataFrame('dx_fullchain_edges', clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     seeds = _seed_pods(start_time, clickhouse_dsn, min_sev)
     g = e.merge(seeds, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_s'])
+    # One row per distinct edge with how often it was seen, not one row per event: ten minutes of
+    # one busy pod were more than 10,000 rows, which the graph cannot draw and the cluster's query
+    # path does not survive at an hour.
+    g = g.groupby(['from_node', 'to_node', 'edge_label', 'kind', 'pod']).agg(seen=('sev', px.count))
     g.from_entity = g.from_node
     g.to_entity = g.to_node
-    return g[['from_entity', 'to_entity', 'edge_label', 'kind', 'pod']]
+    g = g.head(2000)
+    return g[['from_entity', 'to_entity', 'edge_label', 'kind', 'pod', 'seen']]
 
 
 def group(start_time: str, clickhouse_dsn: str, min_sev: int):

@@ -3,7 +3,7 @@
     {
       "name": "start_time",
       "type": "PX_STRING",
-      "defaultValue": "-1h"
+      "defaultValue": "-15m"
     },
     {
       "name": "clickhouse_dsn",

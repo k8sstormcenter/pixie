@@ -55,12 +55,36 @@ def _behaviour(start_time: str, clickhouse_dsn: str, shadow_id: str, leave_out: 
     return a[not px.contains(leave_out, a.surface)]
 
 
+def _busiest(keys, shadow_id: str):
+    # The graph draws one node per key. With no trace selected that is every key of every open
+    # trace, and file access alone is thousands of them: the panel then takes minutes and the
+    # query can take the cluster's query path down with it. There is no sort in PxL, so "the
+    # busiest" is a floor on the count: per surface, every key while there are few, the top tenth
+    # past the target, the top hundredth past ten times the target. The target is 100 file keys
+    # with no trace selected and 1000 keys for every other surface and for a selected trace.
+    # head() is the hard limit behind it, for a surface whose keys all have the same count.
+    st = keys.groupby(['surface']).agg(cnt=('n', px.count), q=('n', px.quantiles))
+    st.target = px.select(st.surface == 'dc_snoop', px.select(shadow_id == '', 100, 1000), 1000)
+    st.floor = px.floor(px.select(st.cnt <= st.target, 0.0,
+                                  px.select(st.cnt <= st.target * 10, px.pluck_float64(st.q, 'p90'),
+                                            px.pluck_float64(st.q, 'p99'))))
+    st = st[['surface', 'floor']]
+    k = keys.merge(st, how='inner', left_on=['surface'], right_on=['surface'], suffixes=['', '_s'])
+    k = k[k.n >= k.floor]
+    files = k[k.surface == 'dc_snoop']
+    files = files.head(1000)
+    rest = k[k.surface != 'dc_snoop']
+    rest = rest.head(5000)
+    return files.append(rest)
+
+
 def graph(start_time: str, clickhouse_dsn: str, shadow_id: str, leave_out: str):
     a = _behaviour(start_time, clickhouse_dsn, shadow_id, leave_out)
     t = _latest(px.DataFrame('dx_shadow__trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time))
     t = t[['shadow_id', 'pod', 'container']]
     a = a.merge(t, how='inner', left_on=['shadow_id'], right_on=['shadow_id'], suffixes=['', '_t'])
     keys = a.groupby(['pod', 'surface', 'key']).agg(n=('n', px.sum), first_ts=('first_ts', px.min), last_ts=('last_ts', px.max))
+    keys = _busiest(keys, shadow_id)
     keys.from_entity = keys.surface
     keys.to_entity = keys.key
     keys.weight = keys.n
@@ -90,6 +114,7 @@ def keys(start_time: str, clickhouse_dsn: str, shadow_id: str, leave_out: str):
     a = _behaviour(start_time, clickhouse_dsn, shadow_id, leave_out)
     df = a.groupby(['surface', 'key']).agg(n=('n', px.sum), bytes=('bytes', px.sum),
                                            first_ts=('first_ts', px.min), last_ts=('last_ts', px.max))
+    df = _busiest(df, shadow_id)
     df.first_seen = px.int64_to_time(df.first_ts)
     df.last_seen = px.int64_to_time(df.last_ts)
     return df[['surface', 'key', 'n', 'bytes', 'first_seen', 'last_seen']]
@@ -144,6 +169,9 @@ def forest(start_time: str, clickhouse_dsn: str, shadow_id: str):
 def _rows(start_time: str, clickhouse_dsn: str, view: str, shadow_id: str):
     df = px.DataFrame(view, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[df.shadow_id == shadow_id]
+    # A busy trace holds thousands of rows of one surface in half an hour; the table shows the
+    # first thousand of the window. Narrow the window to see the rest.
+    df = df.head(1000)
     return df.drop(['shadow_id', 'row_time', 'event_time', 'unique_id'])
 
 

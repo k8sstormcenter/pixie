@@ -72,6 +72,9 @@ def forest(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm:
 
 def processes(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm: str, scope: str):
     df = _scoped(start_time, clickhouse_dsn, namespace, pod, comm, scope)
+    # A table of the whole cluster's processes is thousands of rows; narrow by namespace, pod or
+    # comm to see the rest.
+    df = df.head(1000)
     return df[['path', 'tree_depth', 'started_at', 'exited', 'hostname', 'namespace', 'pod', 'container', 'pid',
                'ppid', 'comm', 'pcomm', 'file', 'execs', 'origin', 'attribution', 'depth', 'boundary', 'runtime',
                'exit_code', 'signal', 'upid', 'pupid', 'root_upid']]
@@ -98,6 +101,9 @@ def timeline(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, com
 def execs(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm: str, scope: str):
     df = _scoped(start_time, clickhouse_dsn, namespace, pod, comm, scope)
     df = df[df.origin == 'exec']
+    # A table of the whole cluster's processes is thousands of rows; narrow by namespace, pod or
+    # comm to see the rest.
+    df = df.head(1000)
     return df[['path', 'started_at', 'exited', 'hostname', 'namespace', 'pod', 'container', 'comm', 'pcomm', 'file',
                'execs', 'pid', 'ppid', 'tree_depth', 'attribution', 'exit_code']]
 
@@ -107,6 +113,9 @@ def exits(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm: 
     df = df[df.exit_ns > 0]
     df.abnormal = (df.exit_code != 0) or (df.signal != 0)
     df = df[df.abnormal]
+    # A table of the whole cluster's processes is thousands of rows; narrow by namespace, pod or
+    # comm to see the rest.
+    df = df.head(1000)
     return df[['exited', 'started_at', 'hostname', 'namespace', 'pod', 'container', 'comm', 'pcomm', 'file',
                'pid', 'ppid', 'exit_code', 'signal']]
 
@@ -115,5 +124,8 @@ def lineage(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm
     df = _scoped(start_time, clickhouse_dsn, namespace, pod, comm, scope)
     df = df[df.attribution != 'pixie']
     df = df[df.pod != '']
+    # A table of the whole cluster's processes is thousands of rows; narrow by namespace, pod or
+    # comm to see the rest.
+    df = df.head(1000)
     return df[['started_at', 'hostname', 'namespace', 'pod', 'container', 'pid', 'comm', 'pcomm',
                'attribution', 'anchor_pid', 'depth', 'boundary', 'gap', 'file', 'upid']]

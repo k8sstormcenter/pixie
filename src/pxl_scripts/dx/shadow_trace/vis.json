@@ -4,7 +4,7 @@
       "name": "start_time",
       "type": "PX_STRING",
       "description": "",
-      "defaultValue": "-6h"
+      "defaultValue": "-30m"
     },
     {
       "name": "clickhouse_dsn",
@@ -39,8 +39,8 @@
     {
       "name": "graph_leave_out",
       "type": "PX_STRING",
-      "description": "Surfaces left out of the behaviour graph, space separated. File access and profiler frames are thousands of nodes per pod; they stay in the key list and in their own tables.",
-      "defaultValue": "stack_trace dc_snoop"
+      "description": "Surfaces left out of the behaviour graph, space separated. The graph shows the busiest keys only: about 100 file keys with no trace selected, about 1000 keys of every other surface and of a selected trace. Every key is in the key list and in the surface's own table.",
+      "defaultValue": "stack_trace"
     }
   ],
   "globalFuncs": [

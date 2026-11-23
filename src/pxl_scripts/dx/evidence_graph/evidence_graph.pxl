@@ -89,7 +89,13 @@ def orders(start_time: str, clickhouse_dsn: str, graph_table: str, case_id: str)
         'case_id': df.culprit_key,
     })
     df.Alert = df.disc
-    return df[['order', 'ts', 'rule_id', 'Alert', 'offender', 'infected_pid', 'profile',
+    # The lookups made around this alert, as a graph of who asked which resolver for what.
+    df.dns = px.script_reference('dns', 'dx/dns_resolve', {
+        'start_time': start_time,
+        'clickhouse_dsn': clickhouse_dsn,
+        'order_id': df.order_id,
+    })
+    return df[['order', 'dns', 'ts', 'rule_id', 'Alert', 'offender', 'infected_pid', 'profile',
                'mitre_tactic', 'mitre_technique', 'pod', 'culprit_key']]
 
 

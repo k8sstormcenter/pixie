@@ -4,7 +4,7 @@
       "name": "start_time",
       "type": "PX_STRING",
       "description": "window start, relative to now (e.g. -3h)",
-      "defaultValue": "-6h"
+      "defaultValue": "-1h"
     },
     {
       "name": "end_time",

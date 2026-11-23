@@ -1,0 +1,70 @@
+# SBoB overlay — the pixie-native binding of Pixie's own ContainerProfiles.
+# Enabled ONLY via `skaffold -p sbob` (the global SBOB=TRUE toggle), which points
+# the vizier kustomize path here instead of the bare persistent_metadata overlay.
+#
+# It layers three things over the normal vizier build:
+#   1. the base vizier workloads (resources: ../persistent_metadata/x86)
+#   2. the recorded+generalised ContainerProfiles (profiles/), applied in the pl
+#      namespace the base already creates, so they exist BEFORE the pods roll
+#   3. a kubescape.io/user-defined-profile label on each workload's POD TEMPLATE
+#      (not the live pod) so it survives restarts and node-agent binds the profile
+#      at container start.
+#
+# Profiles are recorded from bob#209 (example/pixie); FP fixes flow back to both.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- ../persistent_metadata/x86
+- profiles/cp-vizier-pem-pem.yaml
+- profiles/cp-vizier-pem-qb-wait.yaml
+- profiles/cp-kelvin.yaml
+- profiles/cp-kelvin-cc-wait.yaml
+- profiles/cp-kelvin-qb-wait.yaml
+- profiles/cp-vizier-query-broker.yaml
+- profiles/cp-vizier-query-broker-cc-wait.yaml
+- profiles/cp-vizier-query-broker-mds-wait.yaml
+- profiles/cp-vizier-metadata.yaml
+- profiles/cp-vizier-metadata-nats-wait.yaml
+- profiles/cp-vizier-cloud-connector.yaml
+- profiles/cp-vizier-cloud-connector-nats-wait.yaml
+- profiles/cp-pl-nats-pl-nats.yaml
+- profiles/cp-cert-provisioner-job-provisioner.yaml
+
+# Bind each workload to its profile via the pod-template label. Strategic-merge so
+# it merges into existing labels rather than requiring the labels map to pre-exist.
+patches:
+- target: {kind: DaemonSet, name: vizier-pem}
+  patch: |-
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata: {name: vizier-pem}
+    spec: {template: {metadata: {labels: {kubescape.io/user-defined-profile: vizier-pem-pem}}}}
+- target: {kind: Deployment, name: kelvin}
+  patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata: {name: kelvin}
+    spec: {template: {metadata: {labels: {kubescape.io/user-defined-profile: kelvin}}}}
+- target: {kind: Deployment, name: vizier-query-broker}
+  patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata: {name: vizier-query-broker}
+    spec: {template: {metadata: {labels: {kubescape.io/user-defined-profile: vizier-query-broker}}}}
+- target: {kind: Deployment, name: vizier-cloud-connector}
+  patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata: {name: vizier-cloud-connector}
+    spec: {template: {metadata: {labels: {kubescape.io/user-defined-profile: vizier-cloud-connector}}}}
+- target: {kind: StatefulSet, name: vizier-metadata}
+  patch: |-
+    apiVersion: apps/v1
+    kind: StatefulSet
+    metadata: {name: vizier-metadata}
+    spec: {template: {metadata: {labels: {kubescape.io/user-defined-profile: vizier-metadata}}}}
+# pl-nats is NOT deployed by this vizier kustomize (it's a separate Pixie
+# dependency; the metadata STS only waits on pl-nats-mgmt). Its profile ships
+# above so it's ready to bind, but the label must go wherever pl-nats is actually
+# deployed — no patch target here.

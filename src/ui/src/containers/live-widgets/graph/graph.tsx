@@ -46,6 +46,7 @@ import {
 } from './graph-utils';
 import { formatByDataType, formatBySemType } from '../../format-data/format-data';
 import { deepLinkURLFromSemanticType } from '../utils/live-view-params';
+import { ScriptReference } from '../utils/script-reference';
 
 interface AdjacencyList {
   toColumn: string;
@@ -157,8 +158,11 @@ export const Graph = React.memo<GraphProps>(({
   const [graph, setGraph] = React.useState<GraphData>(null);
   const [pinned, setPinned] = React.useState<Array<{
     key: number, label: string, title: string, x: number, y: number,
+    scriptRef?: { label: string, script: string, args: Arguments },
   }>>([]);
   const pinSeq = React.useRef(0);
+  const [edgeScriptRefs, setEdgeScriptRefs] = React.useState<
+  Map<string, { label: string, script: string, args: Arguments }>>(() => new Map());
 
   const [edgeLabels, setEdgeLabels] = React.useState<Map<string, string>>(() => new Map());
   const [labelOffsets, setLabelOffsets] = React.useState<Map<string, { dx: number, dy: number }>>(() => new Map());
@@ -198,6 +202,7 @@ export const Graph = React.memo<GraphProps>(({
     const nodes = new visData.DataSet<Node>();
     const idToSemType = {};
     const labelMap = new Map<string, string>();
+    const scriptRefMap = new Map<string, { label: string, script: string, args: Arguments }>();
     const selfLoopCounts = new Map<string, number>();
     const selfLoopRank = new Map<string, number>();
 
@@ -257,8 +262,17 @@ export const Graph = React.memo<GraphProps>(({
 
       if (edgeHoverInfo && edgeHoverInfo.length > 0) {
         let edgeInfo = '';
-        edgeHoverInfo.forEach((info, i) => {
+        edgeHoverInfo.forEach((info) => {
           if (info != null) {
+            // Script-reference columns become the deep link in the pinned popup,
+            // not a line in the hover text (a hover tooltip can't be clicked).
+            if (info.semType === SemanticType.ST_SCRIPT_REFERENCE) {
+              const ref = d[info.name];
+              if (ref && ref.script) {
+                scriptRefMap.set(edgeId, { label: ref.label, script: ref.script, args: ref.args });
+              }
+              return;
+            }
             let val: string;
             if (info.semType === SemanticType.ST_NONE || info.semType === SemanticType.ST_UNSPECIFIED) {
               val = formatByDataType(info.type, d[info.name]);
@@ -266,7 +280,7 @@ export const Graph = React.memo<GraphProps>(({
               const valWithUnits = formatBySemType(info.semType, d[info.name]);
               val = `${valWithUnits.val} ${valWithUnits.units}`;
             }
-            edgeInfo = `${edgeInfo}${i === 0 ? '' : '<br>'} ${info.name}: ${val}`;
+            edgeInfo = `${edgeInfo}${edgeInfo === '' ? '' : '<br>'} ${info.name}: ${val}`;
           }
         });
         edge.title = edgeInfo;
@@ -279,6 +293,7 @@ export const Graph = React.memo<GraphProps>(({
       nodes, edges, idToSemType,
     });
     setEdgeLabels(labelMap);
+    setEdgeScriptRefs(scriptRefMap);
     setLabelOffsets((prev) => {
       const next = new Map<string, { dx: number, dy: number }>();
       selfLoopRank.forEach((rank, edgeId) => {
@@ -331,6 +346,7 @@ export const Graph = React.memo<GraphProps>(({
           title: String(edgeData?.title ?? ''),
           x: rect.left + params.pointer.DOM.x,
           y: rect.top + params.pointer.DOM.y,
+          scriptRef: edgeScriptRefs.get(edgeId),
         }]);
       }
     });
@@ -401,7 +417,7 @@ export const Graph = React.memo<GraphProps>(({
 
   const onPinPointerDown = React.useCallback((key: number, initialX: number, initialY: number) =>
     (e: React.PointerEvent) => {
-      if ((e.target as HTMLElement).closest('[data-pin-close]')) return;
+      if ((e.target as HTMLElement).closest('a, [data-pin-close]')) return;
       e.stopPropagation();
       const startX = e.clientX;
       const startY = e.clientY;
@@ -490,6 +506,17 @@ export const Graph = React.memo<GraphProps>(({
                 touchAction: 'none',
               }}
             >
+              {p.scriptRef && (
+                <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                  <ScriptReference
+                    label={p.scriptRef.label}
+                    script={p.scriptRef.script}
+                    args={p.scriptRef.args}
+                    embedState={embedState}
+                    clusterName={selectedClusterName}
+                  />
+                </div>
+              )}
               <div style={{
                 display: 'flex', justifyContent: 'space-between', gap: '8px',
                 fontWeight: 'bold', marginBottom: '4px',

@@ -15,7 +15,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Update dir name here if you want to add a new directory.
-dirs := bpftrace px pxbeta sotw
+dirs := bpftrace dx px pxbeta sotw
 script_files := $(foreach dir,$(dirs),$(wildcard $(dir)/**/*))
 
 EXECUTABLES ?= px

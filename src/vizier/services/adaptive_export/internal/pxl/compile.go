@@ -71,8 +71,6 @@ func CompilePassthrough(table string, window time.Duration) (string, error) {
 // PodEnrichPxL.
 var darkVectorTables = map[string]bool{
 	"dc_snoop": true, "creds_change": true,
-	"dx_vfs_events": true, "dx_unlink": true, "dx_dlookup": true,
-	"dx_mprotect": true, "dx_bpf": true, "dx_ptrace": true,
 }
 
 // IsDarkVector reports whether table is a pid-keyed dx tracepoint table.
@@ -95,8 +93,18 @@ const darkProcStatsWindow = "-2m"
 // aggregator/kelvin asid, not the per-PEM asid of the data, so pid+asid never
 // matches. df.pod here is the BARE pod name (proc.ctx['pod']). Best-effort: blank
 // for host/transient pids (correct — no pod).
+// NodeHostname is the AE pod's k8s node (NODE_NAME), stamped as a literal onto the
+// pid-keyed dark tables. The process_stats-merge node resolution misses transient
+// attack pids (most dc_snoop rows blank), leaving the table un-px-readable; AE is
+// node-local, so its node is the correct shard key for every row it captures.
+var NodeHostname string
+
 func PodEnrichPxL(table string) string {
 	if darkVectorTables[table] {
+		hostLine := "df.hostname = df.node\n"
+		if NodeHostname != "" {
+			hostLine = "df.hostname = '" + escapePxL(NodeHostname) + "'\n"
+		}
 		// process_stats is the COST of the dark-table merge: a busy node samples
 		// every live pid every ~10-30s, so a wide window is a huge scan that
 		// competes with the fast native-table queries for the shared query-slot
@@ -108,12 +116,23 @@ func PodEnrichPxL(table string) string {
 		return "proc = px.DataFrame(table='process_stats', start_time='" + darkProcStatsWindow + "')\n" +
 			"proc.pod = proc.ctx['pod']\n" +
 			"proc.namespace = proc.ctx['namespace']\n" +
+			// node resolved from the SAME process_stats upid the pod/ns come from, so
+			// dark-vector rows (dc_snoop et al.) carry hostname and become px-readable
+			// (#136). Transient attack pids that miss process_stats resolve blank —
+			// the same accepted limitation as pod/ns above.
+			"proc.node = px.upid_to_node_name(proc.upid)\n" +
 			"proc.pid = px.upid_to_pid(proc.upid)\n" +
-			"proc = proc.groupby(['pod', 'namespace', 'pid']).agg()\n" +
-			"df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['', '_x'])\n"
+			"proc = proc.groupby(['pod', 'namespace', 'node', 'pid']).agg()\n" +
+			"df = df.merge(proc, how='left', left_on=['pid'], right_on=['pid'], suffixes=['', '_x'])\n" +
+			hostLine
 	}
 	return "df.namespace = px.upid_to_namespace(df.upid)\n" +
-		"df.pod = px.upid_to_pod_name(df.upid)\n"
+		"df.pod = px.upid_to_pod_name(df.upid)\n" +
+		// hostname = the capture node — the leading ORDER BY column on every
+		// socket_tracer table. AE left it empty (only stack_trace stamped it), so
+		// px reads of these tables (and the #136 order-UUID views) could not filter
+		// by hostname and the pushdown prefix (hostname,event_time) was unusable.
+		"df.hostname = px.upid_to_node_name(df.upid)\n"
 }
 
 // Render fills a CompilePassthrough template with the precise [sliceStart,

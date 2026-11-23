@@ -1,0 +1,285 @@
+apiVersion: spdx.softwarecomposition.kubescape.io/v1beta1
+kind: ContainerProfile
+metadata:
+  annotations:
+    kubescape.io/completion: complete
+    kubescape.io/managed-by: User
+    kubescape.io/status: completed
+  labels:
+    kubescape.io/managed-by: User
+  name: pixie-operator-index-registry-server
+  namespace: px-operator
+spec:
+  architectures: null
+  capabilities:
+  - CAP_CHOWN
+  - CAP_DAC_OVERRIDE
+  - CAP_FOWNER
+  - CAP_FSETID
+  - CAP_KILL
+  - CAP_NET_BIND_SERVICE
+  - CAP_SETGID
+  - CAP_SETUID
+  - CAP_SYS_CHROOT
+  egress:
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    - '*.pod.cluster.local'
+    - '*.svc.cluster.local'
+    - '*.in-addr.arpa'
+    - '*.ip6.arpa'
+    - '*.cluster.local.'
+    - '*.pl.pod.cluster.local'
+    - '*.honey.pod.cluster.local'
+    - '*.olm.pod.cluster.local'
+    - '*.px-operator.pod.cluster.local'
+    - '*.shop.pod.cluster.local'
+    - '*.kube-system.pod.cluster.local'
+    - '*.clickhouse.pod.cluster.local'
+    - '*.default.pod.cluster.local'
+    - '*.kube-public.pod.cluster.local'
+    - '*.kube-node-lease.pod.cluster.local'
+    - '*.pl.svc.cluster.local'
+    - '*.honey.svc.cluster.local'
+    - '*.olm.svc.cluster.local'
+    - '*.px-operator.svc.cluster.local'
+    - '*.shop.svc.cluster.local'
+    - '*.kube-system.svc.cluster.local'
+    - '*.clickhouse.svc.cluster.local'
+    - '*.default.svc.cluster.local'
+    - '*.kube-public.svc.cluster.local'
+    - '*.kube-node-lease.svc.cluster.local'
+    - '*.pl.pod.cluster.local.'
+    - '*.honey.pod.cluster.local.'
+    - '*.olm.pod.cluster.local.'
+    - '*.px-operator.pod.cluster.local.'
+    - '*.shop.pod.cluster.local.'
+    - '*.kube-system.pod.cluster.local.'
+    - '*.clickhouse.pod.cluster.local.'
+    - '*.default.pod.cluster.local.'
+    - '*.kube-public.pod.cluster.local.'
+    - '*.kube-node-lease.pod.cluster.local.'
+    - '*.pl.svc.cluster.local.'
+    - '*.honey.svc.cluster.local.'
+    - '*.olm.svc.cluster.local.'
+    - '*.px-operator.svc.cluster.local.'
+    - '*.shop.svc.cluster.local.'
+    - '*.kube-system.svc.cluster.local.'
+    - '*.clickhouse.svc.cluster.local.'
+    - '*.default.svc.cluster.local.'
+    - '*.kube-public.svc.cluster.local.'
+    - '*.kube-node-lease.svc.cluster.local.'
+    identifier: wildcard-any-dns
+    ports: null
+    type: ''
+  endpoints: null
+  execs:
+  - path: /*
+  identifiedCallStacks: null
+  ingress:
+  - dns: ''
+    dnsNames: null
+    identifier: wildcard-any-address
+    ipAddresses:
+    - '*'
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames:
+    - '*.cluster.local'
+    - '*.svc'
+    - '*.local'
+    - '*.com'
+    - '*.org'
+    - '*.net'
+    - '*.io'
+    - '*.dev'
+    - '*.arpa'
+    - '*.pod.cluster.local'
+    - '*.svc.cluster.local'
+    - '*.in-addr.arpa'
+    - '*.ip6.arpa'
+    - '*.cluster.local.'
+    - '*.pl.pod.cluster.local'
+    - '*.honey.pod.cluster.local'
+    - '*.olm.pod.cluster.local'
+    - '*.px-operator.pod.cluster.local'
+    - '*.shop.pod.cluster.local'
+    - '*.kube-system.pod.cluster.local'
+    - '*.clickhouse.pod.cluster.local'
+    - '*.default.pod.cluster.local'
+    - '*.kube-public.pod.cluster.local'
+    - '*.kube-node-lease.pod.cluster.local'
+    - '*.pl.svc.cluster.local'
+    - '*.honey.svc.cluster.local'
+    - '*.olm.svc.cluster.local'
+    - '*.px-operator.svc.cluster.local'
+    - '*.shop.svc.cluster.local'
+    - '*.kube-system.svc.cluster.local'
+    - '*.clickhouse.svc.cluster.local'
+    - '*.default.svc.cluster.local'
+    - '*.kube-public.svc.cluster.local'
+    - '*.kube-node-lease.svc.cluster.local'
+    - '*.pl.pod.cluster.local.'
+    - '*.honey.pod.cluster.local.'
+    - '*.olm.pod.cluster.local.'
+    - '*.px-operator.pod.cluster.local.'
+    - '*.shop.pod.cluster.local.'
+    - '*.kube-system.pod.cluster.local.'
+    - '*.clickhouse.pod.cluster.local.'
+    - '*.default.pod.cluster.local.'
+    - '*.kube-public.pod.cluster.local.'
+    - '*.kube-node-lease.pod.cluster.local.'
+    - '*.pl.svc.cluster.local.'
+    - '*.honey.svc.cluster.local.'
+    - '*.olm.svc.cluster.local.'
+    - '*.px-operator.svc.cluster.local.'
+    - '*.shop.svc.cluster.local.'
+    - '*.kube-system.svc.cluster.local.'
+    - '*.clickhouse.svc.cluster.local.'
+    - '*.default.svc.cluster.local.'
+    - '*.kube-public.svc.cluster.local.'
+    - '*.kube-node-lease.svc.cluster.local.'
+    identifier: wildcard-any-dns
+    ports: null
+    type: ''
+  - dns: ''
+    dnsNames: null
+    entity: host
+    identifier: host
+    ports: null
+    type: ''
+  opens:
+  - flags: null
+    path: /*
+  - flags: null
+    path: /*/*
+  - flags: null
+    path: /proc/*
+  - flags: null
+    path: /proc/*/*
+  - flags: null
+    path: /proc/*/task/*
+  - flags: null
+    path: /proc/*/task/*/fd
+  - flags: null
+    path: /etc/*
+  - flags: null
+    path: /tmp/*
+  - flags: null
+    path: /var/*
+  - flags: null
+    path: /database/*
+  - flags: null
+    path: /bin/*
+  - flags: null
+    path: /usr/*
+  rulePolicies:
+    R0001:
+      processAllowed:
+      - registry-server
+      - opm
+      - grpc_health_probe
+      - runc
+      - runc:[1:CHILD]
+      - runc:[2:INIT]
+      - sh
+    R0002:
+      processAllowed:
+      - registry-server
+      - opm
+      - grpc_health_probe
+      - runc
+      - runc:[1:CHILD]
+      - runc:[2:INIT]
+      - sh
+    R0003:
+      processAllowed:
+      - registry-server
+      - opm
+      - grpc_health_probe
+      - runc
+      - runc:[1:CHILD]
+      - runc:[2:INIT]
+      - sh
+    R0004:
+      processAllowed:
+      - registry-server
+      - opm
+      - grpc_health_probe
+      - runc
+      - runc:[1:CHILD]
+      - runc:[2:INIT]
+      - sh
+    R0005:
+      processAllowed:
+      - registry-server
+      - opm
+      - grpc_health_probe
+      - runc
+      - runc:[1:CHILD]
+      - runc:[2:INIT]
+      - sh
+    R0006:
+      processAllowed:
+      - registry-server
+      - opm
+      - grpc_health_probe
+      - runc
+      - runc:[1:CHILD]
+      - runc:[2:INIT]
+      - sh
+    R0007:
+      processAllowed:
+      - registry-server
+      - opm
+      - grpc_health_probe
+      - runc
+      - runc:[1:CHILD]
+      - runc:[2:INIT]
+      - sh
+    R0009:
+      processAllowed:
+      - registry-server
+      - opm
+      - grpc_health_probe
+      - runc
+      - runc:[1:CHILD]
+      - runc:[2:INIT]
+      - sh
+    R1000:
+      processAllowed:
+      - registry-server
+      - opm
+      - grpc_health_probe
+      - runc
+      - runc:[1:CHILD]
+      - runc:[2:INIT]
+      - sh
+    R1017:
+      processAllowed:
+      - registry-server
+      - opm
+      - grpc_health_probe
+      - runc
+      - runc:[1:CHILD]
+      - runc:[2:INIT]
+      - sh
+  seccompProfile: null
+  syscalls: null

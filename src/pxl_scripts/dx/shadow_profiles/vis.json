@@ -1,0 +1,49 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "Ignored by this panel. It shows the CURRENT profile set: one row per profile at its newest generation, stamped with the read instant rather than when the profile was learned. Use the learned_at column to see how old each profile is.",
+      "defaultValue": "-6h"
+    },
+    {
+      "name": "clickhouse_dsn",
+      "type": "PX_STRING",
+      "description": "",
+      "defaultValue": "forensic_analyst:changeme-analyst@clickhouse-forensic-soc-db.clickhouse.svc.cluster.local:9000/forensic_db"
+    }
+  ],
+  "globalFuncs": [
+    {
+      "outputName": "g_learned",
+      "func": {
+        "name": "learned",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "clickhouse_dsn",
+            "variable": "clickhouse_dsn"
+          }
+        ]
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "name": "Shadow profiles (current set \u2014 the time picker does not filter this panel)",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 4
+      },
+      "globalFuncOutputName": "g_learned",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    }
+  ]
+}

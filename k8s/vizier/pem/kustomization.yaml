@@ -7,6 +7,13 @@ kind: Kustomization
 namespace: pl
 resources:
 - base
+# Our own PEM line, not stock. Ships the :50305 direct-query listener (pem-direct
+# default-on in main since #87) so AE (:50305) + dx (DX_BENCH=pemdirect) run
+# node-local — the whole point of real-time detection. Built with AE, same tag.
+images:
+- name: vizier-pem_image
+  newName: ghcr.io/k8sstormcenter/vizier-pem_image
+  newTag: 0.14.19-aeprod90
 patches:
 - path: pem_host_mounts.yaml
   target:

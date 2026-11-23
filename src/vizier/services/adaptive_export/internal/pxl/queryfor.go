@@ -63,21 +63,17 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	var b strings.Builder
 	b.WriteString(pxSetMaxRows)
 	b.WriteString("import px\n")
-	b.WriteString("df = px.DataFrame(table='" + pixieSourceFor(table) + "', start_time='" + relStart + "')\n")
+	// Bound the source scan on both sides; the df.time_ < sliceEnd filter trims the exact upper bound.
+	dfArgs := "table='" + pixieSourceFor(table) + "', start_time='" + relStart + "'"
+	if relEnd := relEndBound(now, sliceEnd); relEnd != "" {
+		dfArgs += ", end_time='" + relEnd + "'"
+	}
+	b.WriteString("df = px.DataFrame(" + dfArgs + ")\n")
 	b.WriteString("df = df[df.time_ >= px.int64_to_time(" + strconv.FormatInt(sliceStart.UnixNano(), 10) + ")]\n")
 	b.WriteString("df = df[df.time_ <  px.int64_to_time(" + strconv.FormatInt(sliceEnd.UnixNano(), 10) + ")]\n")
-	// Native tables: px.upid_to_pod_name returns "<namespace>/<pod>" (carnot:
-	// metadata_ops.h UPIDToPodNameUDF::Exec → absl::Substitute("$0/$1", ns, name)),
-	// not the bare pod name. Dark-vector tracepoint tables (pid-keyed) resolve pod
-	// via a process_stats pid-merge instead and yield a BARE pod name (dx#126).
+	// px.upid_to_pod_name yields "<namespace>/<pod>"; dark-vector tables resolve pod via a pid-merge (bare name).
 	if table == "stack_trace" {
-		// stack_trace is the CANONICAL native continuous profiler (stack_traces.beta,
-		// upid-keyed — NOT a pid tracepoint, so NOT a dark-vector pid-merge). Resolve
-		// pod/namespace/container/hostname exactly like the export preset
-		// (script/presets/stack_trace.pxl) and stamp event_time = time_ so the CH
-		// stack_trace row is complete. df.ctx['pod'] is the NAMESPACED "<ns>/<pod>"
-		// key (verified live), so the pod filter is namespaced — same as the native
-		// upid_to_pod_name path below.
+		// Native profiler (stack_traces.beta): resolve pod/ns/container from ctx, stamp event_time.
 		b.WriteString("df.namespace = df.ctx['namespace']\n")
 		b.WriteString("df.pod = df.ctx['pod']\n")
 		b.WriteString("df.container = df.ctx['container']\n")
@@ -94,22 +90,11 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 			}
 		}
 	} else if IsDarkVector(table) {
-		// Dark-vector tracepoints emit a RAW kernel pid. The malignant transient
-		// pids an incident actually produces — an attack's whoami/cat/getent
-		// children — are too short-lived to land in process_stats, so their
-		// pod/namespace resolves BLANK; a pod (or even namespace) filter drops
-		// exactly the evidence, which is why the dark tables came back empty.
-		// The AE is node-local (pem-direct → the node's own PEM), so the query is
-		// already scoped to the alert's node.
-		//
-		// ORDER MATTERS: drop the infra/self comms FIRST (env-driven, no recompile),
-		// THEN do the process_stats pid-merge. The node's dark stream is huge
-		// (Formatter/vector/runc/... thousands of rows per window); merging every
-		// one against process_stats is the query that timed out and silently
-		// dropped dc_snoop. Filtering comm first shrinks the merge to the handful
-		// of workload rows (bash/redis/whoami/cat), so the dark capture completes.
+		// Node-scoped (transient attack pids resolve blank ns, so no pod filter). Drop
+		// own-stack comms before the pid-merge to keep it cheap, then drop infra namespaces.
 		b.WriteString(darkCommExclusion(table))
 		b.WriteString(PodEnrichPxL(table))
+		b.WriteString(darkNamespaceExclusion())
 	} else {
 		b.WriteString(PodEnrichPxL(table))
 		if t.Namespace != "" {
@@ -130,11 +115,16 @@ func QueryFor(table string, t anomaly.Target, sliceStart, sliceEnd, now time.Tim
 	return b.String(), nil
 }
 
-// pixieSourceFor returns the Pixie table a builtin is sourced FROM when it
-// differs from the ClickHouse table it is written TO. stack_trace is written to
-// CH as 'stack_trace' but sourced from the CANONICAL native continuous profiler
-// 'stack_traces.beta' — the always-on Pixie profiler, NOT an AE-invented table.
-// (Dotted-name DataFrames compile fine in a direct query; verified live.)
+// relEndBound returns a relative end_time ("-<n>s"), or "" when sliceEnd is at/after now.
+func relEndBound(now, sliceEnd time.Time) string {
+	gap := now.Sub(sliceEnd)
+	if gap < time.Second {
+		return "" // at/after now → default end_time (scan to now)
+	}
+	return "-" + strconv.FormatInt(int64(gap/time.Second), 10) + "s"
+}
+
+// pixieSourceFor maps a CH table to the pixie table it's read from (stack_trace ← stack_traces.beta).
 func pixieSourceFor(table string) string {
 	if table == "stack_trace" {
 		return "stack_traces.beta"
@@ -142,18 +132,12 @@ func pixieSourceFor(table string) string {
 	return table
 }
 
-// darkVectorHasComm lists the dark-vector tables that carry a `comm` column, so
-// the infra-comm exclusion only emits for those (stack_trace is upid-only).
+// Dark-vector tables carrying a comm column (so the comm exclusion applies).
 var darkVectorHasComm = map[string]bool{
-	"dc_snoop": true, "creds_change": true, "dx_vfs_events": true,
-	"dx_unlink": true, "dx_dlookup": true, "dx_mprotect": true,
-	"dx_bpf": true, "dx_ptrace": true,
-}
+	"dc_snoop": true, "creds_change": true}
 
-// darkExcludeCommsDefault is the node's own infra/self comms dropped from the
-// node-scoped dark capture so the workload's activity stands out. Overridable at
-// runtime via DC_SNOOP_EXCLUDE_COMMS (csv) — a process can be added without a
-// recompile. Kept in sync with script.presets defaultExcludeComms.
+// Own-stack + node/system comms dropped from the node-scoped dark capture; workload
+// comms (redis-*, etc.) are never listed. Override via DC_SNOOP_EXCLUDE_COMMS (csv).
 var darkExcludeCommsDefault = []string{
 	"pem", "kelvin", "containerd", "containerd-shim", "runc", "node-agent",
 	"runc:[2:INIT]", "runc:[1:CHILD]",
@@ -165,10 +149,26 @@ var darkExcludeCommsDefault = []string{
 	"ConfigReloader", "clickhouse-oper", "Formatter", "(setup.sh)", "cmd",
 	"vector-worker", "metrics-server", "local-path-prov", "portmap",
 	"(udev-worker)", "systemd-resolve", "systemd-timesyn",
+	"systemd-udevd", "systemd-sysctl", "host-local", "bridge", "flannel",
+	"loopback", "bandwidth", "dbus-daemon", "mount", "umount", "tailscaled",
+	"grpc_health_pro", "kubevuln", "opm", "(spawn)", "kube-proxy",
+	"pause", "systemd-logind",
 }
 
-// darkCommExclusion builds the infra-comm drop filter for a dark-vector table
-// that has a comm column. Returns "" for comm-less tables (stack_trace).
+// Kernel-thread families whose names carry a variable suffix (kworker/u8:3) that
+// exact match misses; dropped via px.contains.
+var darkExcludeCommSubstrings = []string{
+	"kworker", "ksoftirqd", "migration", "rcu_", "kthreadd", "kdevtmpfs",
+	"kcompactd", "khugepaged", "kswapd", "watchdog", "cpuhp", "ksmd", "irq/",
+}
+
+// Infra namespaces dropped from the node-scoped dark capture. Blank-namespace rows
+// (transient attack children) survive. Override via DC_SNOOP_EXCLUDE_NAMESPACES.
+var darkExcludeNamespacesDefault = []string{
+	"pl", "honey", "px-operator", "olm", "clickhouse", "socdemo", "socdemo-ch",
+	"kube-system", "kube-public", "kube-node-lease", "local-path-storage",
+}
+
 func darkCommExclusion(table string) string {
 	if !darkVectorHasComm[table] {
 		return ""
@@ -185,6 +185,26 @@ func darkCommExclusion(table string) string {
 	var b strings.Builder
 	for _, c := range comms {
 		b.WriteString("df = df[df.comm != '" + escapePxL(c) + "']\n")
+	}
+	for _, s := range darkExcludeCommSubstrings {
+		b.WriteString("df = df[px.logicalNot(px.contains(df.comm, '" + escapePxL(s) + "'))]\n")
+	}
+	return b.String()
+}
+
+func darkNamespaceExclusion() string {
+	nss := darkExcludeNamespacesDefault
+	if v := strings.TrimSpace(os.Getenv("DC_SNOOP_EXCLUDE_NAMESPACES")); v != "" {
+		nss = nil
+		for _, s := range strings.Split(v, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				nss = append(nss, s)
+			}
+		}
+	}
+	var b strings.Builder
+	for _, ns := range nss {
+		b.WriteString("df = df[df.namespace != '" + escapePxL(ns) + "']\n")
 	}
 	return b.String()
 }

@@ -113,7 +113,10 @@ def reconciliation(start_time: str, clickhouse_dsn: str, shadow_id: str):
     df.runtime_parents = px.pluck(r, 'runtime_parents')
     df.attributions = px.pluck(r, 'attributions')
     df.profile_execs_seen = px.pluck(r, 'profile_execs_seen')
-    return df[['container', 'close_reason', 'profile', 'profile_status', 'selected', 'profile_only',
+    # An open trace carries the head of each list; totals is the length of each before the cut.
+    df.state = px.pluck(df.surfaces, 'state')
+    df.totals = px.pluck(r, 'totals')
+    return df[['container', 'state', 'profile', 'profile_status', 'selected', 'totals', 'profile_only',
                'trace_only', 'novel_paths', 'unobserved_execs', 'unobserved_opens',
                'profile_execs_seen', 'silent', 'forest_gaps', 'runtime_parents', 'attributions']]
 

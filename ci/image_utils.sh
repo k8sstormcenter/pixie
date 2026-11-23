@@ -16,6 +16,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+read -ra release_archs <<< "${RELEASE_ARCHS:-x86_64 aarch64}"
+
 sign_image() {
   multiarch_image="$1"
   image_digest="$2"
@@ -39,13 +41,15 @@ push_images_for_arch() {
 
 push_multiarch_image() {
   multiarch_image="$1"
-  x86_image="${multiarch_image}-x86_64"
-  aarch64_image="${multiarch_image}-aarch64"
   echo "Building ${multiarch_image} manifest"
 
+  manifests=()
+  for arch in "${release_archs[@]}"; do
+    manifests+=(--manifest "${multiarch_image}-${arch}")
+  done
+
   crane index append \
-    --manifest "${x86_image}" \
-    --manifest "${aarch64_image}" \
+    "${manifests[@]}" \
     --tag "${multiarch_image}"
 
   pushed_digest=$(crane digest "${multiarch_image}")
@@ -58,8 +62,9 @@ push_all_multiarch_images() {
   release_tag="$3"
   image_repo="$4"
 
-  push_images_for_arch "x86_64" "${image_rule}" "${release_tag}" "${image_repo}"
-  push_images_for_arch "aarch64" "${image_rule}" "${release_tag}" "${image_repo}"
+  for arch in "${release_archs[@]}"; do
+    push_images_for_arch "${arch}" "${image_rule}" "${release_tag}" "${image_repo}"
+  done
 
   while read -r image;
   do

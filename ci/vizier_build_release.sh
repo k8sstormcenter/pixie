@@ -25,6 +25,7 @@ manifest_updates="${MANIFEST_UPDATES:?}"
 repo_path=$(pwd)
 release_tag=${TAG_NAME##*/v}
 
+RELEASE_ARCHS="x86_64"
 # shellcheck source=ci/image_utils.sh
 . "${repo_path}/ci/image_utils.sh"
 # shellcheck source=ci/artifact_utils.sh

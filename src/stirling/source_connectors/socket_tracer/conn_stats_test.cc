@@ -32,6 +32,7 @@ namespace stirling {
 using ::px::operator<<;
 
 using ::testing::AllOf;
+using ::testing::ElementsAre;
 using ::testing::Field;
 using ::testing::IsEmpty;
 using ::testing::Pair;
@@ -363,6 +364,39 @@ TEST_F(ConnStatsTest, NoEventsIfNoRemoteAddr) {
   tracker.AddConnStats(conn_stats_event);
 
   EXPECT_THAT(conn_stats_.UpdateStats(), IsEmpty());
+}
+
+TEST_F(ConnStatsTest, ClosedConnWithoutRemoteAddrIsReportedOnce) {
+  constexpr struct conn_id_t kConnID0 = {
+      .upid = {.pid = 11111, .start_time_ticks = 1000},
+      .fd = 3,
+      .tsid = 10000,
+  };
+
+  struct conn_stats_event_t conn_stats_event = {};
+  conn_stats_event.conn_id = kConnID0;
+  conn_stats_event.role = kRoleServer;
+  conn_stats_event.raddr.in4.sin_family = PX_AF_UNKNOWN;
+
+  ConnTracker& tracker = conn_trackers_mgr_.GetOrCreateConnTracker(conn_stats_event.conn_id);
+  conn_stats_event.timestamp_ns = 1;
+  conn_stats_event.conn_events = CONN_OPEN;
+  conn_stats_event.rd_bytes = 100;
+  conn_stats_event.wr_bytes = 200;
+  tracker.AddConnStats(conn_stats_event);
+
+  EXPECT_THAT(conn_stats_.UpdateStats(), IsEmpty());
+  EXPECT_THAT(conn_stats_.changed_trackers(), IsEmpty());
+
+  conn_stats_event.timestamp_ns = 2;
+  conn_stats_event.conn_events = CONN_OPEN | CONN_CLOSE;
+  tracker.AddConnStats(conn_stats_event);
+
+  EXPECT_THAT(conn_stats_.UpdateStats(), IsEmpty());
+  EXPECT_THAT(conn_stats_.changed_trackers(), ElementsAre(&tracker));
+
+  EXPECT_THAT(conn_stats_.UpdateStats(), IsEmpty());
+  EXPECT_THAT(conn_stats_.changed_trackers(), IsEmpty());
 }
 
 // Tests that disabled ConnTracker still reports data.

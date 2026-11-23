@@ -54,9 +54,15 @@ absl::flat_hash_map<ConnStats::AggKey, ConnStats::Stats>& ConnStats::UpdateStats
       tracker->MarkFinalConnStatsReported();
     }
 
+    if (tracker->role() == kRoleUnknown) {
+      continue;
+    }
+
     if (!(tracker->remote_endpoint().family == SockAddrFamily::kIPv4 ||
-          tracker->remote_endpoint().family == SockAddrFamily::kIPv6) ||
-        tracker->role() == kRoleUnknown) {
+          tracker->remote_endpoint().family == SockAddrFamily::kIPv6)) {
+      if (tracker->conn_stats().CloseSinceLastRead()) {
+        changed_trackers_.push_back(tracker);
+      }
       continue;
     }
 

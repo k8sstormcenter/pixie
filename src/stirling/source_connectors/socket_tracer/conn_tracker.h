@@ -483,6 +483,7 @@ class ConnTracker : NotCopyMoveable {
    * Marks the ConnTracker as having reported its final conn stats event.
    */
   void MarkFinalConnStatsReported() { final_conn_stats_reported_ = true; }
+  bool final_conn_stats_reported() const { return final_conn_stats_reported_; }
 
   /**
    * Whether this ConnTracker can be destroyed.

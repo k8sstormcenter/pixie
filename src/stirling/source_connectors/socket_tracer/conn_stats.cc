@@ -50,6 +50,7 @@ absl::flat_hash_map<ConnStats::AggKey, ConnStats::Stats>& ConnStats::UpdateStats
   changed_trackers_.clear();
 
   for (const auto& tracker : conn_trackers_mgr_->active_trackers()) {
+    bool final_report = tracker->IsZombie() && !tracker->final_conn_stats_reported();
     if (tracker->IsZombie()) {
       tracker->MarkFinalConnStatsReported();
     }
@@ -60,7 +61,7 @@ absl::flat_hash_map<ConnStats::AggKey, ConnStats::Stats>& ConnStats::UpdateStats
 
     if (!(tracker->remote_endpoint().family == SockAddrFamily::kIPv4 ||
           tracker->remote_endpoint().family == SockAddrFamily::kIPv6)) {
-      if (tracker->conn_stats().CloseSinceLastRead()) {
+      if (tracker->conn_stats().CloseSinceLastRead() || final_report) {
         changed_trackers_.push_back(tracker);
       }
       continue;

@@ -2005,7 +2005,7 @@ void SocketTraceConnector::TransferConnStats(ConnectorContext* ctx, DataTable* d
   for (ConnTracker* tracker : conn_stats_.changed_trackers()) {
     md::UPID upid(ctx->GetASID(), tracker->conn_id().upid.pid,
                   tracker->conn_id().upid.start_time_ticks);
-    if (connections_table == nullptr || !(upids.contains(upid) || tracker->is_tracked_upid())) {
+    if (connections_table == nullptr) {
       continue;
     }
 

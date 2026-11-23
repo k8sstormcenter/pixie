@@ -290,7 +290,11 @@ inline const md::ContainerInfo* UPIDToContainer(const px::md::AgentMetadataState
                                                 types::UInt128Value upid_value) {
   auto upid_uint128 = absl::MakeUint128(upid_value.High64(), upid_value.Low64());
   auto upid = md::UPID(upid_uint128);
-  return md->k8s_metadata_state().ContainerInfoByID(md->ContainerIDByUPID(upid));
+  auto cid = md->ContainerIDByUPID(upid);
+  if (cid.empty()) {
+    return nullptr;
+  }
+  return md->k8s_metadata_state().ContainerInfoByID(cid);
 }
 
 class UPIDToContainerNameUDF : public ScalarUDF {

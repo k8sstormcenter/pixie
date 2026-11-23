@@ -382,6 +382,31 @@ TEST_F(SocketTraceConnectorTest, ConnectionsTableHasOneRowPerChangedConnection) 
   EXPECT_THAT(connections_table->ConsumeRecords(), IsEmpty());
 }
 
+TEST_F(SocketTraceConnectorTest, ConnectionsTableHasRowForProcessNotYetInContext) {
+  struct conn_stats_event_t event = {};
+  event.conn_id.upid.pid = kPID + 1;
+  event.conn_id.upid.start_time_ticks = kPIDStartTimeTicks;
+  event.conn_id.fd = 7;
+  event.conn_id.tsid = 100;
+  event.role = kRoleServer;
+  event.raddr.in4.sin_family = AF_INET;
+  event.raddr.in4.sin_port = htons(40000);
+  event.raddr.in4.sin_addr.s_addr = 0x01010101;
+  event.conn_events = CONN_OPEN;
+  event.timestamp_ns = 1;
+  event.wr_bytes = 20;
+  event.rd_bytes = 10;
+  source_->AcceptConnStatsEvent(event);
+
+  connector_->TransferData(ctx_.get());
+
+  DataTable* connections_table = data_tables_[SocketTraceConnector::kConnectionsTableNum];
+  std::vector<TaggedRecordBatch> tablets = connections_table->ConsumeRecords();
+  ASSERT_NOT_EMPTY_AND_GET_RECORDS(RecordBatch & records, tablets);
+  EXPECT_THAT(ToUInt128Vector(records[kConnectionsTable.ColIndex("conn_id")]),
+              ElementsAre(absl::MakeUint128(7, 100)));
+}
+
 TEST_F(SocketTraceConnectorTest, HTTPCredentialsAreRedacted) {
   const std::string_view kCredReq =
       "POST /login?access_token=cs-canary-20 HTTP/1.1\r\n"

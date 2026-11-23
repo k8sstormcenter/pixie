@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	"px.dev/pixie/src/vizier/services/adaptive_export/internal/chhttp"
@@ -59,12 +60,6 @@ var OperatorOwnedTables = []string{
 	"dc_snoop",
 	"creds_change",
 	"stack_trace",
-	"dx_vfs_events",
-	"dx_unlink",
-	"dx_dlookup",
-	"dx_mprotect",
-	"dx_bpf",
-	"dx_ptrace",
 	// operator's write targets.
 	"adaptive_attribution",
 	"trigger_watermark",
@@ -77,12 +72,52 @@ var OperatorOwnedTables = []string{
 	// globally-registered table to read. dx emits edges, AE persists.
 	// Not a pixie socket_tracer table → not in PixieTables().
 	"dx_evidence_graph",
-	// rule-ins-only VIEW over dx_evidence_graph; created AFTER it (depends on it).
-	"dx_evidence_graph_malignant",
 	// dx §9 completeness manifest — one row per verdict naming the evidence rows
 	// dx consulted. Created on boot so POST /dx/evidence_manifest has a target.
 	// Independent of dx_evidence_graph. Not a pixie table → not in PixieTables().
 	"dx_evidence_manifest",
+	// dx per-referral order seeds (#136 evidence-loss fix) — created on boot so
+	// dx's direct INSERT has a target. Not a pixie table → not in PixieTables().
+	"dx_order_seeds",
+	// consulted-records bridge (#136 stamping) — created on boot so dx's INSERT has
+	// a target. Not a pixie table → not in PixieTables().
+	"dx_order_records",
+	// NEW identity-model tables (added alongside; dx INSERTs). Not pixie tables.
+	"dx_orders",
+	"dx_order_edges",
+	// order-UUID pre-correlation VIEWS (#136) — created LAST, after every base
+	// table above exists (kubescape_logs, the socket_tracer tables, dc_snoop,
+	// dx_order_seeds). Read by the px/dx_evidence_graph dashboard. Not pixie tables.
+	"dx_anomaly_orders",
+	"dx_kubescape_anomalies",
+	"dx_src__kubescape_logs",
+	"dx_src__stack_trace",
+	// NEW identity-model join views (after their base table + dx_order_edges exist).
+	"dx_ord__conn_stats",
+	"dx_ord__redis_events",
+	"dx_ord__http_events",
+	"dx_ord__dns_events",
+	"dx_ord__pgsql_events",
+	"dx_ord__mysql_events",
+	"dx_ord__dc_snoop",
+	"dx_ord__stack_trace",
+	// MITRE ATT&CK enrichment (over kubescape_logs) + per-order window (over
+	// dx_orders) — VIEWS, created after their base tables. px/dx_evidence_graph reads them.
+	"dx_kubescape_mitre",
+	"dx_src__kubescape_mitre",
+	"dx_orders_win",
+	// DNS resolution reconstruction view (dx/dns_resolve UI) — over dns_events.
+	"dx_dns_resolve",
+	// cql/mongodb/creds_change order-bridge views — created after their base tables.
+	"dx_ord__cql_events",
+	"dx_ord__mongodb_events",
+	"dx_ord__creds_change",
+	"dx_cases",
+	"dx_case_links",
+	// generic alert flatten (dx/breakout PxL) + story edge views (dx/breakout, dx/fullchain).
+	"dx_alerts",
+	"dx_breakout_story",
+	"dx_fullchain_edges",
 }
 
 // Applier applies operator-owned DDL to a ClickHouse cluster over the
@@ -115,6 +150,14 @@ func (a *Applier) Apply(ctx context.Context) error {
 			return fmt.Errorf("apply: get DDL for %s: %w", table, err)
 		}
 		if err := a.execute(ctx, ddl); err != nil {
+			// Views are DERIVED + best-effort: a not-yet-ready base (e.g. the
+			// soc-owned kubescape_logs before its installer has run) must NOT fatal
+			// the boot. Log + continue; the next boot retries once the base exists.
+			// Tables stay boot-critical (fatal) — a missing operator table is real.
+			if strings.Contains(ddl, "CREATE VIEW") {
+				log.Printf("[ae] deferred view %s (base not ready?): %v", table, err)
+				continue
+			}
 			return fmt.Errorf("apply: create %s: %w", table, err)
 		}
 	}

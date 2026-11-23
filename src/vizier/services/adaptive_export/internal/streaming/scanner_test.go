@@ -240,3 +240,26 @@ func TestScanner_QueriesOnNonEmptyFilter(t *testing.T) {
 		t.Fatalf("writer received no rows; expected at least 1")
 	}
 }
+
+// TestScanner_DarkVectorPidMergeNodeScoped locks the #89-completion fix (the
+// dx-steered streaming path): a dark-vector tracepoint table (dc_snoop) carries a
+// raw kernel pid with NO upid, so buildPxL must resolve pod via the process_stats
+// pid-merge (pxl.PodEnrichPxL) — NOT px.upid_to_pod_name(df.upid) which threw
+// "Column 'upid' not found" — and must be NODE-SCOPED (no pod allowlist: transient
+// attack pids resolve a blank pod, so a pod filter would drop the malignant
+// evidence; dx's process forest scopes by lineage).
+func TestScanner_DarkVectorPidMergeNodeScoped(t *testing.T) {
+	cfg := ScannerConfig{Table: "dc_snoop"}.defaulted()
+	s := &TableScanner{cfg: cfg}
+	f := Filter{Mode: FilterModeAllowlist, Pods: []activeset.Key{{Namespace: "redis", Pod: "redis-0"}}}
+	pxl := s.buildPxL(f)
+	if strings.Contains(pxl, "px.upid_to_pod_name(df.upid)") || strings.Contains(pxl, "px.upid_to_namespace(df.upid)") {
+		t.Fatalf("dark table must NOT resolve pod via df.upid (no upid column):\n%s", pxl)
+	}
+	if !strings.Contains(pxl, "table='process_stats'") || !strings.Contains(pxl, "left_on=['pid']") {
+		t.Fatalf("dark table must pid-merge process_stats for pod:\n%s", pxl)
+	}
+	if strings.Contains(pxl, "px.regex_match") {
+		t.Fatalf("dark table must be node-scoped (no pod allowlist filter):\n%s", pxl)
+	}
+}

@@ -25,6 +25,7 @@ go_library(
     deps = [
         "//src/api/go/pxapi",
         "//src/shared/services",
+        "//src/shared/services/metrics",
         "//src/vizier/services/adaptive_export/internal/activeset",
         "//src/vizier/services/adaptive_export/internal/clickhouse",
         "//src/vizier/services/adaptive_export/internal/config",

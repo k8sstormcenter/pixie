@@ -21,6 +21,8 @@ go_library(
     name = "trigger",
     srcs = [
         "clickhouse.go",
+        "dedup.go",
+        "metrics.go",
         "watermark.go",
     ],
     importpath = "px.dev/pixie/src/vizier/services/adaptive_export/internal/trigger",
@@ -28,6 +30,8 @@ go_library(
     deps = [
         "//src/vizier/services/adaptive_export/internal/chhttp",
         "//src/vizier/services/adaptive_export/internal/kubescape",
+        "@com_github_prometheus_client_golang//prometheus",
+        "@com_github_prometheus_client_golang//prometheus/promauto",
         "@com_github_sirupsen_logrus//:logrus",
     ],
 )
@@ -37,10 +41,15 @@ pl_go_test(
     srcs = [
         "clickhouse_internal_test.go",
         "clickhouse_test.go",
+        "dedup_test.go",
         "fingerprint_bench_test.go",
+        "lookback_test.go",
         "oracle_test.go",
         "watermark_test.go",
     ],
     embed = [":trigger"],
-    deps = ["//src/vizier/services/adaptive_export/internal/kubescape"],
+    deps = [
+        "//src/vizier/services/adaptive_export/internal/kubescape",
+        "@com_github_prometheus_client_golang//prometheus/testutil",
+    ],
 )

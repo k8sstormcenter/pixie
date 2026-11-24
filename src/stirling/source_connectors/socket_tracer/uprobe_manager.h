@@ -476,6 +476,21 @@ class UProbeManager {
           .probe_fn = "probe_entry_SSL_free",
           .is_optional = true,
       },
+      // For sockets attached with SSL_set_bio: the handshake's own syscalls give the fd.
+      bpf_tools::UProbeSpec{
+          .binary_path = "/usr/lib/x86_64-linux-gnu/libssl.so.1.1",
+          .symbol = "SSL_do_handshake",
+          .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+          .probe_fn = "probe_entry_SSL_do_handshake",
+          .is_optional = true,
+      },
+      bpf_tools::UProbeSpec{
+          .binary_path = "/usr/lib/x86_64-linux-gnu/libssl.so.1.1",
+          .symbol = "SSL_do_handshake",
+          .attach_type = bpf_tools::BPFProbeAttachType::kReturn,
+          .probe_fn = "probe_ret_SSL_do_handshake",
+          .is_optional = true,
+      },
   });
 
   inline static const auto kOpenSSLUProbes = MakeArray<bpf_tools::UProbeSpec>({

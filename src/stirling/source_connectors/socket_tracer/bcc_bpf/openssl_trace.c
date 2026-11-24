@@ -147,6 +147,54 @@ int probe_entry_SSL_free(struct pt_regs* ctx) {
   return 0;
 }
 
+// An application that attaches its socket with SSL_set_bio (BIO_new_socket, or a BIO of its own
+// that reads the socket) never calls SSL_set_fd, so ssl_fd_map learns nothing from it. Its
+// handshake still reads and writes the socket: the syscalls nested in SSL_do_handshake (which
+// SSL_accept and SSL_connect call) give the fd before any application data is read.
+struct ssl_handshake_t {
+  uint64_t ssl;
+  // Whether this handshake created the thread's ssl_user_space_call_map entry. A handshake nested
+  // in an SSL_read (BoringSSL starts one there) leaves the entry to the SSL_read.
+  uint64_t owns_nested;
+};
+
+BPF_HASH(active_ssl_handshake_map, uint64_t, struct ssl_handshake_t);
+
+// Function signature being probed:
+// int SSL_do_handshake(SSL *s);
+int probe_entry_SSL_do_handshake(struct pt_regs* ctx) {
+  uint64_t id = bpf_get_current_pid_tgid();
+  struct ssl_handshake_t hs = {.ssl = (uint64_t)PT_REGS_PARM1(ctx), .owns_nested = 0};
+  if (ssl_user_space_call_map.lookup(&id) == NULL) {
+    struct nested_syscall_fd_t nested_syscall_fd = {
+        .fd = kInvalidFD,
+    };
+    ssl_user_space_call_map.update(&id, &nested_syscall_fd);
+    hs.owns_nested = 1;
+  }
+  active_ssl_handshake_map.update(&id, &hs);
+  return 0;
+}
+
+int probe_ret_SSL_do_handshake(struct pt_regs* ctx) {
+  uint64_t id = bpf_get_current_pid_tgid();
+  struct ssl_handshake_t* hs = active_ssl_handshake_map.lookup(&id);
+  if (hs == NULL) {
+    return 0;
+  }
+  struct nested_syscall_fd_t* nested = ssl_user_space_call_map.lookup(&id);
+  if (nested != NULL && nested->fd != kInvalidFD && !nested->mismatched_fds) {
+    struct ssl_fd_key_t key = {.tgid = id >> 32, .ssl = hs->ssl};
+    int32_t fd = nested->fd;
+    ssl_fd_map.update(&key, &fd);
+  }
+  if (hs->owns_nested) {
+    ssl_user_space_call_map.delete(&id);
+  }
+  active_ssl_handshake_map.delete(&id);
+  return 0;
+}
+
 static __inline int get_fd_and_eval_nested_syscall_detection(uint64_t pid_tgid) {
   struct nested_syscall_fd_t* nested_syscall_fd_ptr = ssl_user_space_call_map.lookup(&pid_tgid);
 

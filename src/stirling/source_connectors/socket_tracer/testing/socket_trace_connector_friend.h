@@ -40,6 +40,20 @@ class SocketTraceConnectorFriend : public SocketTraceConnector {
     return SocketTraceConnector::UProbeTargetUPIDs(ctx);
   }
 
+  int64_t ConnStatsUnattributedHeld() const {
+    return stats_.Get(StatKey::kConnStatsUnattributedHeld);
+  }
+  int64_t ConnStatsUnattributedExported() const {
+    return stats_.Get(StatKey::kConnStatsUnattributedExported);
+  }
+  int64_t ConnStatsUnattributedDropped() const {
+    return stats_.Get(StatKey::kConnStatsUnattributedDropped);
+  }
+  int64_t ConnStatsUnattributedOverCap() const {
+    return stats_.Get(StatKey::kConnStatsUnattributedOverCap);
+  }
+  size_t NumUnattributedConnStats() const { return num_unattributed_conn_stats_; }
+
   void AcceptDataEvent(std::unique_ptr<SocketDataEvent> event) {
     SocketTraceConnector::AcceptDataEvent(std::move(event));
   }

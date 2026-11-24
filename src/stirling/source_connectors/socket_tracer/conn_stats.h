@@ -85,6 +85,20 @@ class ConnStats {
     // has closed.
     bool reported = false;
 
+    // Set (to the transfer time) while the stats of a process no metadata set knows are held,
+    // waiting for its container to become known from its exit. 0 when not held.
+    uint64_t unattributed_since_ns = 0;
+    // Set when the hold of the key ended, by its export or by its drop. A key is held at most
+    // once, so a process that is never attributed (a host process such as the kubelet) is not
+    // held again on its next activity. The counters at that moment are kept: while the process is
+    // in no scan, only a real change of them is exported later. (The tracker of a closed
+    // connection stays active for a few rounds, which makes the key "active" without any change.)
+    bool hold_done = false;
+    uint64_t hold_done_conn_open = 0;
+    uint64_t hold_done_conn_close = 0;
+    uint64_t hold_done_bytes_sent = 0;
+    uint64_t hold_done_bytes_recv = 0;
+
     // Last time this stats object was updated.
     // Used to indicate whether or not to skip exporting the current record.
     int last_update = 0;

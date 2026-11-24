@@ -1,0 +1,75 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+''' Kubernetes API Traffic
+
+This script shows the requests served by the Kubernetes API server and the kubelets.
+Headers and bodies are shown as captured.
+'''
+import px
+
+
+def api_requests(start_time: str, apiserver_port: int, kubelet_port: int):
+    df = px.DataFrame(table='http_events', start_time=start_time)
+    df = df[df.trace_role == 2]
+    df = df[df.local_port == apiserver_port or df.local_port == kubelet_port]
+    df.node = px._exec_hostname()
+    df.pod = df.ctx['pod']
+    df.component = px.select(df.local_port == apiserver_port, 'apiserver', 'kubelet')
+    df.served_by = px.select(df.pod != '', df.pod, df.node)
+    df.ua_h1 = px.pluck(df.req_headers, 'User-Agent')
+    df.user_agent = px.select(df.ua_h1 != '', df.ua_h1, px.pluck(df.req_headers, 'user-agent'))
+    df.audit_h1 = px.pluck(df.resp_headers, 'Audit-Id')
+    df.audit_id = px.select(df.audit_h1 != '', df.audit_h1, px.pluck(df.resp_headers, 'audit-id'))
+    return df
+
+
+def kube_api(start_time: str, apiserver_port: int, kubelet_port: int, path_filter: str,
+             client_filter: str, num_head: int):
+    df = api_requests(start_time, apiserver_port, kubelet_port)
+    df = df[px.contains(df.req_path, path_filter)]
+    df = df[px.contains(df.user_agent, client_filter) or px.contains(df.remote_addr, client_filter)]
+    # The table is cut to max_num_records; every row it keeps carries how many requests
+    # matched (requests_total) and whether the cut applied (capped), so the first 1000 of
+    # ~4000 requests in five minutes do not read as all of them. The count is joined on
+    # BEFORE the cut: with head() first, the planner moves the cut down to the source and
+    # the count comes out as the cap.
+    df.one = 1
+    t = df.groupby(['one']).agg(requests_total=('one', px.count))
+    df = df.merge(t, how='inner', left_on=['one'], right_on=['one'], suffixes=['', '_t'])
+    df = df.head(num_head)
+    df.capped = df.requests_total > num_head
+
+    df.client_pod = px.pod_id_to_pod_name(px.ip_to_pod_id(df.remote_addr))
+    df.client = px.select(df.client_pod != '', df.client_pod, df.remote_addr)
+    df = df['time_', 'component', 'served_by', 'client', 'user_agent', 'req_method', 'req_path',
+            'resp_status', 'latency', 'encrypted', 'audit_id', 'req_body_size', 'req_body',
+            'resp_body_size', 'resp_body', 'req_headers', 'resp_headers', 'requests_total', 'capped']
+    return df
+
+
+def kube_api_summary(start_time: str, apiserver_port: int, kubelet_port: int, path_filter: str,
+                     client_filter: str):
+    df = api_requests(start_time, apiserver_port, kubelet_port)
+    df = df[px.contains(df.req_path, path_filter)]
+    df = df[px.contains(df.user_agent, client_filter) or px.contains(df.remote_addr, client_filter)]
+    df = df.groupby(['component', 'served_by', 'user_agent', 'req_method', 'resp_status']).agg(
+        requests=('time_', px.count),
+        resp_bytes=('resp_body_size', px.sum),
+        last_seen=('time_', px.max),
+    )
+    return df
+

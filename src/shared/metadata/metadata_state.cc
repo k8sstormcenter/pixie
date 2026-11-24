@@ -634,7 +634,8 @@ void AgentMetadataState::SetContainerCgroupID(const CID& cid, uint64_t cgroup_id
   cids_by_cgroup_id_[cgroup_id] = cid;
 }
 
-void AgentMetadataState::AddProcessCgroup(UPID upid, uint64_t cgroup_id) {
+void AgentMetadataState::AddProcessCgroup(UPID upid, uint64_t cgroup_id,
+                                          std::string_view /*cgroup_path*/) {
   auto it = cids_by_cgroup_id_.find(cgroup_id);
   if (it != cids_by_cgroup_id_.end()) {
     EmplaceBounded(&process_cids_, &process_cid_order_, upid, it->second);

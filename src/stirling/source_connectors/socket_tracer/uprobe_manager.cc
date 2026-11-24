@@ -480,6 +480,12 @@ StatusOr<int> UProbeManager::AttachOpenSSLUProbesOnDynamicLib(uint32_t pid) {
 
       PX_RETURN_IF_ERROR(LogAndAttachUProbe(spec));
     }
+    if (ssl_library_match.socket_fd_access == SSLSocketFDAccess::kNestedSyscall) {
+      for (auto spec : kOpenSSLFDUProbes) {
+        spec.binary_path = container_libssl.string();
+        PX_RETURN_IF_ERROR(LogAndAttachUProbe(spec));
+      }
+    }
   }
   return kOpenSSLUProbes.size();
 }
@@ -529,6 +535,10 @@ StatusOr<int> UProbeManager::AttachOpenSSLUProbesOnStaticBinary(
   for (auto spec : kOpenSSLUProbes) {
     spec.binary_path = host_proc_exe.string();
     spec.probe_fn = absl::StrCat(spec.probe_fn, "_syscall_fd_access");
+    PX_RETURN_IF_ERROR(LogAndAttachUProbe(spec));
+  }
+  for (auto spec : kOpenSSLFDUProbes) {
+    spec.binary_path = host_proc_exe.string();
     PX_RETURN_IF_ERROR(LogAndAttachUProbe(spec));
   }
   return kOpenSSLUProbes.size();
@@ -1026,6 +1036,7 @@ std::set<std::string> UProbeManager::ProbeFuncs() {
   };
   add(kHTTP2ProbeTmpls);
   add(kGoTLSUProbeTmpls);
+  add(kOpenSSLFDUProbes);
   add(kNodeOpenSSLUProbeTmplsV12_3_1);
   add(kNodeOpenSSLUProbeTmplsV15_0_0);
   probe_fns.emplace(kNodeSSLNewUProbe.probe_fn);

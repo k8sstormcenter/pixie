@@ -119,6 +119,34 @@ static int get_fd(uint32_t tgid, void* ssl) {
 BPF_HASH(active_ssl_read_args_map, uint64_t, struct data_args_t);
 BPF_HASH(active_ssl_write_args_map, uint64_t, struct data_args_t);
 
+struct ssl_fd_key_t {
+  uint64_t tgid;
+  uint64_t ssl;
+};
+
+BPF_TABLE("lru_hash", struct ssl_fd_key_t, int32_t, ssl_fd_map, 10240);
+
+static __inline int32_t get_fd_set_on_ssl(uint32_t tgid, void* ssl) {
+  struct ssl_fd_key_t key = {.tgid = tgid, .ssl = (uint64_t)ssl};
+  int32_t* fd = ssl_fd_map.lookup(&key);
+  return fd == NULL ? kInvalidFD : *fd;
+}
+
+int probe_entry_SSL_set_fd(struct pt_regs* ctx) {
+  uint32_t tgid = bpf_get_current_pid_tgid() >> 32;
+  struct ssl_fd_key_t key = {.tgid = tgid, .ssl = (uint64_t)PT_REGS_PARM1(ctx)};
+  int32_t fd = (int32_t)PT_REGS_PARM2(ctx);
+  ssl_fd_map.update(&key, &fd);
+  return 0;
+}
+
+int probe_entry_SSL_free(struct pt_regs* ctx) {
+  uint32_t tgid = bpf_get_current_pid_tgid() >> 32;
+  struct ssl_fd_key_t key = {.tgid = tgid, .ssl = (uint64_t)PT_REGS_PARM1(ctx)};
+  ssl_fd_map.delete(&key);
+  return 0;
+}
+
 static __inline int get_fd_and_eval_nested_syscall_detection(uint64_t pid_tgid) {
   struct nested_syscall_fd_t* nested_syscall_fd_ptr = ssl_user_space_call_map.lookup(&pid_tgid);
 
@@ -250,6 +278,7 @@ static int probe_entry_SSL_write_syscall_fd_access_agnostic(struct pt_regs* ctx,
   struct data_args_t write_args = {};
   write_args.source_fn = kSSLWrite;
   write_args.buf = buf;
+  write_args.fd = get_fd_set_on_ssl(tgid, ssl);
   if (is_ex_call) {
     size_t* ssl_ex_len = (size_t*)PT_REGS_PARM4(ctx);
     write_args.ssl_ex_len = ssl_ex_len;
@@ -278,12 +307,17 @@ static int probe_ret_SSL_write_syscall_fd_access_agnostic(struct pt_regs* ctx, b
   uint64_t id = bpf_get_current_pid_tgid();
 
   int fd = get_fd_and_eval_nested_syscall_detection(id);
+  struct data_args_t* write_args = active_ssl_write_args_map.lookup(&id);
+  if (fd == kInvalidFD && write_args != NULL && write_args->fd != kInvalidFD) {
+    fd = write_args->fd;
+    uint32_t tgid = id >> 32;
+    set_conn_as_ssl(tgid, fd, get_ssl_source(tgid));
+  }
   if (fd == kInvalidFD) {
     active_ssl_write_args_map.delete(&id);
     return 0;
   }
 
-  struct data_args_t* write_args = active_ssl_write_args_map.lookup(&id);
   // Set socket fd
   if (write_args != NULL) {
     write_args->fd = fd;
@@ -318,6 +352,7 @@ static int probe_entry_SSL_read_syscall_fd_access_agnostic(struct pt_regs* ctx, 
   struct data_args_t read_args = {};
   read_args.source_fn = kSSLRead;
   read_args.buf = buf;
+  read_args.fd = get_fd_set_on_ssl(tgid, ssl);
   if (is_ex_call) {
     size_t* ssl_ex_len = (size_t*)PT_REGS_PARM4(ctx);
     read_args.ssl_ex_len = ssl_ex_len;
@@ -346,12 +381,17 @@ static int probe_ret_SSL_read_syscall_fd_access_agnostic(struct pt_regs* ctx, bo
   uint64_t id = bpf_get_current_pid_tgid();
 
   int fd = get_fd_and_eval_nested_syscall_detection(id);
+  struct data_args_t* read_args = active_ssl_read_args_map.lookup(&id);
+  if (fd == kInvalidFD && read_args != NULL && read_args->fd != kInvalidFD) {
+    fd = read_args->fd;
+    uint32_t tgid = id >> 32;
+    set_conn_as_ssl(tgid, fd, get_ssl_source(tgid));
+  }
   if (fd == kInvalidFD) {
     active_ssl_read_args_map.delete(&id);
     return 0;
   }
 
-  struct data_args_t* read_args = active_ssl_read_args_map.lookup(&id);
   if (read_args != NULL) {
     read_args->fd = fd;
     process_openssl_data(ctx, id, kIngress, read_args, is_ex_call);

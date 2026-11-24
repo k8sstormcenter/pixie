@@ -461,6 +461,23 @@ class UProbeManager {
   static StatusOr<std::array<UProbeTmpl, 6>> GetNodeOpensslUProbeTmpls(const SemVer& ver);
 
   // Probes for OpenSSL tracing.
+  inline static const auto kOpenSSLFDUProbes = MakeArray<bpf_tools::UProbeSpec>({
+      bpf_tools::UProbeSpec{
+          .binary_path = "/usr/lib/x86_64-linux-gnu/libssl.so.1.1",
+          .symbol = "SSL_set_fd",
+          .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+          .probe_fn = "probe_entry_SSL_set_fd",
+          .is_optional = true,
+      },
+      bpf_tools::UProbeSpec{
+          .binary_path = "/usr/lib/x86_64-linux-gnu/libssl.so.1.1",
+          .symbol = "SSL_free",
+          .attach_type = bpf_tools::BPFProbeAttachType::kEntry,
+          .probe_fn = "probe_entry_SSL_free",
+          .is_optional = true,
+      },
+  });
+
   inline static const auto kOpenSSLUProbes = MakeArray<bpf_tools::UProbeSpec>({
       bpf_tools::UProbeSpec{
           .binary_path = "/usr/lib/x86_64-linux-gnu/libssl.so.1.1",

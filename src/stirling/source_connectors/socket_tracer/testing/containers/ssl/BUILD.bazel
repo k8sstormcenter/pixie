@@ -118,3 +118,10 @@ py3_image(
     base = ":python_base_with_ssl",
     main = "https_server_memory_bio.py",
 )
+
+py3_image(
+    name = "python_https_server_set_bio",
+    srcs = ["https_server_set_bio.py"],
+    base = ":python_base_with_ssl",
+    main = "https_server_set_bio.py",
+)

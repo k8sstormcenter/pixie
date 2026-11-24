@@ -23,24 +23,30 @@ def _lc(start_time: str, clickhouse_dsn: str):
 
 def lifecycle(start_time: str, clickhouse_dsn: str):
     df = _lc(start_time, clickhouse_dsn)
-    df.profile = px.script_reference(df.workload_name, 'dx/shadow_profiles',
-        {'start_time': start_time, 'clickhouse_dsn': clickhouse_dsn})
-    return df[['namespace', 'workload_kind', 'workload_name', 'pod_name', 'container_name',
-               'phase', 'started_firing', 'stopped_firing', 'snapshots', 'profile']]
+    return df[['namespace', 'pod_name', 'container_name', 'node', 'phase', 'started_firing',
+               'stopped_firing', 'snapshots']]
+
+
+def firing(start_time: str, clickhouse_dsn: str):
+    df = _lc(start_time, clickhouse_dsn)
+    df = df[df.phase == 'Firing']
+    return df[['namespace', 'pod_name', 'container_name', 'node', 'started_firing']]
 
 
 def transitions(start_time: str, clickhouse_dsn: str):
     df = _lc(start_time, clickhouse_dsn)
-    return df[['namespace', 'container_name', 'workload_kind', 'pod_name',
+    return df[['namespace', 'container_name', 'pod_name', 'node',
                'phase', 'started_firing', 'stopped_firing']]
 
 
 def rogue(start_time: str, clickhouse_dsn: str):
     df = _lc(start_time, clickhouse_dsn)
     df = df[df.phase == 'Firing']
-    agg = df.groupby(['namespace', 'workload_kind', 'container_name']).agg(
+    # Host artefacts carry no pod: without the node in the key, every node's host
+    # artefacts fold into one row and the reader cannot tell which node is rogue.
+    agg = df.groupby(['namespace', 'pod_name', 'container_name', 'node']).agg(
         firing=('name', px.count))
-    return agg[['namespace', 'workload_kind', 'container_name', 'firing']]
+    return agg[['namespace', 'pod_name', 'container_name', 'node', 'firing']]
 
 
 def by_ns(start_time: str, clickhouse_dsn: str):
@@ -49,3 +55,4 @@ def by_ns(start_time: str, clickhouse_dsn: str):
     df.to_entity = df.container_name
     agg = df.groupby(['from_entity', 'to_entity', 'phase']).agg(seen=('name', px.count))
     return agg[['from_entity', 'to_entity', 'phase', 'seen']]
+

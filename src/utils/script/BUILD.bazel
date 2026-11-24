@@ -42,9 +42,14 @@ go_library(
 
 pl_go_test(
     name = "script_test",
-    srcs = ["flagset_test.go"],
+    srcs = [
+        "flagset_test.go",
+        "script_test.go",
+    ],
     deps = [
         ":script",
+        "//src/api/proto/vispb:vis_pl_go_proto",
+        "@com_github_spf13_viper//:viper",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
     ],

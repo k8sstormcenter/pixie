@@ -42,13 +42,22 @@ def kube_api(start_time: str, apiserver_port: int, kubelet_port: int, path_filte
     df = api_requests(start_time, apiserver_port, kubelet_port)
     df = df[px.contains(df.req_path, path_filter)]
     df = df[px.contains(df.user_agent, client_filter) or px.contains(df.remote_addr, client_filter)]
+    # The table is cut to max_num_records; every row it keeps carries how many requests
+    # matched (requests_total) and whether the cut applied (capped), so the first 1000 of
+    # ~4000 requests in five minutes do not read as all of them. The count is joined on
+    # BEFORE the cut: with head() first, the planner moves the cut down to the source and
+    # the count comes out as the cap.
+    df.one = 1
+    t = df.groupby(['one']).agg(requests_total=('one', px.count))
+    df = df.merge(t, how='inner', left_on=['one'], right_on=['one'], suffixes=['', '_t'])
     df = df.head(num_head)
+    df.capped = df.requests_total > num_head
 
     df.client_pod = px.pod_id_to_pod_name(px.ip_to_pod_id(df.remote_addr))
     df.client = px.select(df.client_pod != '', df.client_pod, df.remote_addr)
     df = df['time_', 'component', 'served_by', 'client', 'user_agent', 'req_method', 'req_path',
             'resp_status', 'latency', 'encrypted', 'audit_id', 'req_body_size', 'req_body',
-            'resp_body_size', 'resp_body', 'req_headers', 'resp_headers']
+            'resp_body_size', 'resp_body', 'req_headers', 'resp_headers', 'requests_total', 'capped']
     return df
 
 

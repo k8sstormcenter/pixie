@@ -35,6 +35,21 @@ def _scoped(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm
     return df
 
 
+def _capped(df, cap: int):
+    # A table cut to `cap` rows says so: every row it keeps carries the number of rows
+    # before the cut (rows_total) and whether the cut applied (capped). Before, FOREST
+    # and PROCESSES showed 2000 and EXECS 1000 rows with nothing to tell that from all
+    # of them (edge4, default window: 2000 of 5313 and 1000 of 3635).
+    # The count is joined on BEFORE the cut: with head() first, the planner moves the
+    # cut down to the source and the count comes out as the cap.
+    df.one = 1
+    t = df.groupby(['one']).agg(rows_total=('one', px.count))
+    df = df.merge(t, how='inner', left_on=['one'], right_on=['one'], suffixes=['', '_t'])
+    df = df.head(cap)
+    df.capped = df.rows_total > cap
+    return df
+
+
 def summary(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm: str, scope: str):
     df = _scoped(start_time, clickhouse_dsn, namespace, pod, comm, scope)
     df.is_exec = px.select(df.origin == 'exec', 1, 0)
@@ -63,11 +78,11 @@ def summary(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm
 def forest(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm: str, scope: str):
     df = _scoped(start_time, clickhouse_dsn, namespace, pod, comm, scope)
     df.weight = 1
-    df = df.head(2000)
+    df = _capped(df, 2000)
     return df[['path', 'tree_depth', 'parent', 'node', 'weight', 'attr_code', 'attribution', 'started_at',
                'exited', 'hostname', 'namespace', 'pod', 'container', 'pid', 'ppid', 'comm', 'pcomm', 'file',
                'execs', 'origin', 'anchor_pid', 'depth', 'boundary', 'gap', 'runtime', 'exit_code', 'signal',
-               'upid', 'pupid', 'root_upid']]
+               'upid', 'pupid', 'root_upid', 'rows_total', 'capped']]
 
 
 def processes(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm: str, scope: str):
@@ -103,9 +118,9 @@ def execs(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm: 
     df = df[df.origin == 'exec']
     # A table of the whole cluster's processes is thousands of rows; narrow by namespace, pod or
     # comm to see the rest.
-    df = df.head(1000)
+    df = _capped(df, 1000)
     return df[['path', 'started_at', 'exited', 'hostname', 'namespace', 'pod', 'container', 'comm', 'pcomm', 'file',
-               'execs', 'pid', 'ppid', 'tree_depth', 'attribution', 'exit_code']]
+               'execs', 'pid', 'ppid', 'tree_depth', 'attribution', 'exit_code', 'rows_total', 'capped']]
 
 
 def exits(start_time: str, clickhouse_dsn: str, namespace: str, pod: str, comm: str, scope: str):

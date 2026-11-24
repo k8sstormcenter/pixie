@@ -708,6 +708,43 @@ TEST_F(ConnTrackerTest, DisabledForLocalhostRemoteEndpoint) {
             std::string("No client-side tracing: Remote endpoint is inside the cluster."));
 }
 
+// Tests that the client side of an intra-cluster connection is traced when
+// --stirling_conn_trace_client_side_in_cluster is set.
+TEST_F(ConnTrackerTest, TracedForIntraClusterRemoteEndpointWhenClientSideInClusterEnabled) {
+  PX_SET_FOR_SCOPE(FLAGS_stirling_conn_trace_client_side_in_cluster, true);
+  struct socket_control_event_t conn = event_gen_.InitConn();
+  testing::SetIPv4RemoteAddr(&conn, "1.2.3.4");
+
+  CIDRBlock cidr;
+  ASSERT_OK(ParseCIDRBlock("1.2.3.4/14", &cidr));
+
+  ConnTracker tracker;
+  tracker.AddControlEvent(conn);
+  tracker.SetProtocol(kProtocolHTTP, "testing");
+  tracker.SetRole(kRoleClient, "testing");
+  tracker.IterationPreTick(now(), {cidr}, /*proc_parser*/ nullptr, /*connections*/ nullptr);
+  EXPECT_EQ(tracker.state(), ConnTracker::State::kTransferring);
+  EXPECT_EQ(std::string(tracker.disable_reason()), std::string(""));
+}
+
+// Same for a loopback remote endpoint (treated as in-cluster by default).
+TEST_F(ConnTrackerTest, TracedForLocalhostRemoteEndpointWhenClientSideInClusterEnabled) {
+  PX_SET_FOR_SCOPE(FLAGS_stirling_conn_trace_client_side_in_cluster, true);
+  struct socket_control_event_t conn = event_gen_.InitConn();
+  conn.open.raddr.in6.sin6_addr = IN6ADDR_LOOPBACK_INIT;
+  conn.open.raddr.in6.sin6_family = AF_INET6;
+
+  CIDRBlock cidr;
+  ASSERT_OK(ParseCIDRBlock("1.2.3.4/14", &cidr));
+
+  ConnTracker tracker;
+  tracker.AddControlEvent(conn);
+  tracker.SetProtocol(kProtocolHTTP, "testing");
+  tracker.SetRole(kRoleClient, "testing");
+  tracker.IterationPreTick(now(), {cidr}, /*proc_parser*/ nullptr, /*connections*/ nullptr);
+  EXPECT_EQ(tracker.state(), ConnTracker::State::kTransferring);
+}
+
 // Tests that ConnTracker state is not updated when no cluster CIDR is specified.
 TEST_F(ConnTrackerTest, TrackerCollectingForClientSideTracingWithNoCIDR) {
   struct socket_control_event_t conn = event_gen_.InitConn();

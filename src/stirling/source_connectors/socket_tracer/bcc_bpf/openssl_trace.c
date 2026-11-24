@@ -279,6 +279,7 @@ static int probe_ret_SSL_write_syscall_fd_access_agnostic(struct pt_regs* ctx, b
 
   int fd = get_fd_and_eval_nested_syscall_detection(id);
   if (fd == kInvalidFD) {
+    active_ssl_write_args_map.delete(&id);
     return 0;
   }
 
@@ -346,6 +347,7 @@ static int probe_ret_SSL_read_syscall_fd_access_agnostic(struct pt_regs* ctx, bo
 
   int fd = get_fd_and_eval_nested_syscall_detection(id);
   if (fd == kInvalidFD) {
+    active_ssl_read_args_map.delete(&id);
     return 0;
   }
 

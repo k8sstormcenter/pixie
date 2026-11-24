@@ -40,7 +40,7 @@ namespace stirling {
 namespace proc_exit_tracer {
 
 constexpr uint32_t kPerfBufferPerCPUSizeBytes = 5 * 1024 * 1024;
-constexpr uint32_t kForkPerfBufferPerCPUSizeBytes = 256 * 1024;
+constexpr uint32_t kForkPerfBufferPerCPUSizeBytes = 1024 * 1024;
 constexpr uint32_t kCgroupPerfBufferPerCPUSizeBytes = 256 * 1024;
 
 const auto kTracepointSpecs = MakeArray<bpf_tools::TracepointSpec>({

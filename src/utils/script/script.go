@@ -28,6 +28,7 @@ import (
 	"github.com/spf13/viper"
 
 	"px.dev/pixie/src/api/proto/vispb"
+	"px.dev/pixie/src/utils"
 )
 
 var jsonUnmashaler = &jsonpb.Unmarshaler{
@@ -69,7 +70,7 @@ func (e ExecutableScript) LiveViewLink(clusterID *string) string {
 
 	u := url.URL{
 		Scheme: "https",
-		Host:   workspaceHost(cloudAddr),
+		Host:   utils.WorkspaceHost(cloudAddr),
 		Path:   urlPath,
 	}
 
@@ -81,24 +82,6 @@ func (e ExecutableScript) LiveViewLink(clusterID *string) string {
 	u.RawQuery = q.Encode()
 
 	return u.String()
-}
-
-// workspaceHost is the host the live view is served from: the "work." subdomain
-// of the cloud address. The address may carry a scheme or a trailing slash, and
-// may already name that subdomain (a self-hosted cloud's address often does);
-// neither must end up in the host, and the prefix is added only once.
-func workspaceHost(cloudAddr string) string {
-	host := cloudAddr
-	if i := strings.Index(host, "://"); i >= 0 {
-		host = host[i+len("://"):]
-	}
-	if i := strings.IndexByte(host, '/'); i >= 0 {
-		host = host[:i]
-	}
-	if strings.HasPrefix(host, "work.") {
-		return host
-	}
-	return "work." + host
 }
 
 // ParseVisSpec parses the spec return nil on failure.

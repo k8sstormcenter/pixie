@@ -32,6 +32,7 @@ go_library(
     visibility = ["//src:__subpackages__"],
     deps = [
         "//src/api/proto/vispb:vis_pl_go_proto",
+        "//src/utils",
         "@com_github_bmatcuk_doublestar//:doublestar",
         "@com_github_gogo_protobuf//jsonpb",
         "@com_github_sirupsen_logrus//:logrus",

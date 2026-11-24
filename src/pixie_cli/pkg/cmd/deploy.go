@@ -155,7 +155,7 @@ var DeployCmd = &cobra.Command{
 		p("- %s : to run service info for sock-shop demo application (service selection coming soon!).\n",
 			g("px run %s", script.ServiceStatsScript))
 		p("\nCheck out our docs: %s.\n", u("https://docs.%s", docsAddr))
-		p("\nVisit : %s to use Pixie's UI.\n", u("https://work.%s", cloudAddr))
+		p("\nVisit : %s to use Pixie's UI.\n", u("https://%s", utils2.WorkspaceHost(cloudAddr)))
 	},
 	Run: runDeployCmd,
 }

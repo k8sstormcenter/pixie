@@ -429,7 +429,7 @@ type RefreshToken struct {
 }
 
 func (p *PixieCloudLogin) getAuthURL() *url.URL {
-	authURL, err := url.Parse(fmt.Sprintf("https://work.%s", p.CloudAddr))
+	authURL, err := url.Parse(fmt.Sprintf("https://%s", apiutils.WorkspaceHost(p.CloudAddr)))
 	if err != nil {
 		// This is intentionally a log.Fatal, which will trigger a Sentry error.
 		// In most other cases, we want to use the cli logger, which will not trigger

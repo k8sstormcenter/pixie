@@ -407,6 +407,63 @@ TEST_F(SocketTraceConnectorTest, ConnectionsTableHasRowForProcessNotYetInContext
               ElementsAre(absl::MakeUint128(7, 100)));
 }
 
+// A process that opens, uses and closes a connection between two metadata scans (a curl in a shell
+// loop) is in no UPID set while its connection has activity. Its connection must still reach
+// conn_stats once its container is known from its exit (proc_exit reports the cgroup of the exiting
+// task through AddProcessCgroup).
+TEST_F(SocketTraceConnectorTest, ConnStatsRowForProcessKnownOnlyAfterItExited) {
+  constexpr uint32_t kShortLivedPID = kPID + 2;
+  const md::UPID short_lived(kASID, kShortLivedPID, kPIDStartTimeTicks);
+
+  struct conn_stats_event_t event = {};
+  event.conn_id.upid.pid = kShortLivedPID;
+  event.conn_id.upid.start_time_ticks = kPIDStartTimeTicks;
+  event.conn_id.fd = 5;
+  event.conn_id.tsid = 300;
+  event.role = kRoleClient;
+  event.raddr.in4.sin_family = AF_INET;
+  event.raddr.in4.sin_port = htons(80);
+  event.raddr.in4.sin_addr.s_addr = 0x01010101;
+  event.conn_events = CONN_OPEN;
+  event.timestamp_ns = 1;
+  event.wr_bytes = 86;
+  event.rd_bytes = 853;
+  source_->AcceptConnStatsEvent(event);
+  event.conn_events = CONN_CLOSE;
+  event.timestamp_ns = 2;
+  source_->AcceptConnStatsEvent(event);
+
+  DataTable* conn_stats_table = data_tables_[SocketTraceConnector::kConnStatsTableNum];
+
+  // No metadata set knows the process yet.
+  connector_->TransferData(ctx_.get());
+  EXPECT_THAT(conn_stats_table->ConsumeRecords(), IsEmpty());
+
+  // The process exits; proc_exit reports its cgroup, and the metadata knows its container.
+  ctx_->AddProcessCgroup(short_lived, /*cgroup_id*/ 4242,
+                         "/kubepods/besteffort/pod0f0f/cri-containerd-abcdef0123456789.scope");
+  connector_->TransferData(ctx_.get());
+
+  std::vector<TaggedRecordBatch> tablets = conn_stats_table->ConsumeRecords();
+  ASSERT_NOT_EMPTY_AND_GET_RECORDS(RecordBatch & records, tablets);
+  EXPECT_THAT(ToUInt128Vector(records[kConnStatsTable.ColIndex("upid")]),
+              ElementsAre(short_lived.value()));
+  EXPECT_THAT(ToIntVector<types::Int64Value>(records[kConnStatsTable.ColIndex("trace_role")]),
+              ElementsAre(kRoleClient));
+  EXPECT_THAT(ToIntVector<types::Int64Value>(records[kConnStatsTable.ColIndex("conn_open")]),
+              ElementsAre(1));
+  EXPECT_THAT(ToIntVector<types::Int64Value>(records[kConnStatsTable.ColIndex("conn_close")]),
+              ElementsAre(1));
+  EXPECT_THAT(ToIntVector<types::Int64Value>(records[kConnStatsTable.ColIndex("bytes_sent")]),
+              ElementsAre(86));
+  EXPECT_THAT(ToIntVector<types::Int64Value>(records[kConnStatsTable.ColIndex("bytes_recv")]),
+              ElementsAre(853));
+
+  // Exported once.
+  connector_->TransferData(ctx_.get());
+  EXPECT_THAT(conn_stats_table->ConsumeRecords(), IsEmpty());
+}
+
 TEST_F(SocketTraceConnectorTest, HTTPCredentialsAreRedacted) {
   const std::string_view kCredReq =
       "POST /login?access_token=cs-canary-20 HTTP/1.1\r\n"

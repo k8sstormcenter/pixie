@@ -24,6 +24,8 @@
 #include <string>
 #include <vector>
 
+#include <absl/container/flat_hash_map.h>
+
 #include "src/stirling/bpf_tools/bcc_wrapper.h"
 #include "src/stirling/core/source_connector.h"
 #include "src/stirling/source_connectors/proc_exit/bcc_bpf_intf/proc_exit.h"
@@ -53,6 +55,7 @@ class ProcExitConnector : public BCCSourceConnector {
 
   void AcceptProcExitEvent(const struct proc_exit_event_t& event);
   void AcceptProcForkEvent(const struct proc_fork_event_t& event);
+  void AcceptCgroupEvent(const struct cgroup_event_t& event);
   void AcceptProcForkEventLoss(uint64_t lost);
 
  protected:
@@ -65,6 +68,9 @@ class ProcExitConnector : public BCCSourceConnector {
  private:
   std::vector<struct proc_exit_event_t> events_;
   std::vector<struct proc_fork_event_t> fork_events_;
+  std::vector<struct cgroup_event_t> cgroup_events_;
+  absl::flat_hash_map<uint64_t, std::string> cgroup_paths_;
+  std::vector<uint64_t> removed_cgroups_;
 
  private:
   // Update counters related to java process.

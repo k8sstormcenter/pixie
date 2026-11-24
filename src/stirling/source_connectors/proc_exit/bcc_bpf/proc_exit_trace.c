@@ -27,6 +27,7 @@
 
 BPF_PERF_OUTPUT(proc_exit_events);
 BPF_PERF_OUTPUT(proc_fork_events);
+BPF_PERF_OUTPUT(cgroup_events);
 
 BPF_HASH(new_process_pids, uint64_t, uint32_t);
 
@@ -103,6 +104,29 @@ int probe_wake_up_new_task(struct pt_regs* ctx) {
 
   new_process_pids.delete(&id);
   proc_fork_events.perf_submit(ctx, &event, sizeof(event));
+
+  return 0;
+}
+
+TRACEPOINT_PROBE(cgroup, cgroup_mkdir) {
+  struct cgroup_event_t event = {};
+
+  event.cgroup_id = args->id;
+  bpf_probe_read_str(&event.path, sizeof(event.path),
+                     (char*)args + (args->data_loc_path & 0xFFFF));
+
+  cgroup_events.perf_submit(args, &event, sizeof(event));
+
+  return 0;
+}
+
+TRACEPOINT_PROBE(cgroup, cgroup_rmdir) {
+  struct cgroup_event_t event = {};
+
+  event.cgroup_id = args->id;
+  event.removed = true;
+
+  cgroup_events.perf_submit(args, &event, sizeof(event));
 
   return 0;
 }

@@ -16,11 +16,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
 
 #include <absl/container/flat_hash_set.h>
+#include <absl/strings/ascii.h>
+#include <absl/strings/match.h>
+#include <absl/strings/str_split.h>
+#include <absl/strings/strip.h>
 
 #include "src/shared/metadata/metadata_state.h"
 
@@ -602,6 +607,22 @@ void EmplaceBounded(absl::flat_hash_map<UPID, TValue>* values, std::deque<UPID>*
   }
 }
 
+CID ContainerIDFromCgroupPath(std::string_view cgroup_path) {
+  if (!absl::StrContains(cgroup_path, "kubepods")) {
+    return "";
+  }
+  for (std::string_view part : absl::StrSplit(cgroup_path, '/')) {
+    absl::ConsumeSuffix(&part, ".scope");
+    part = part.substr(part.rfind('-') + 1);
+    if (part.size() == 64 && std::all_of(part.begin(), part.end(), [](unsigned char c) {
+          return absl::ascii_isxdigit(c);
+        })) {
+      return CID(part);
+    }
+  }
+  return "";
+}
+
 }  // namespace
 
 void AgentMetadataState::AddProcessParent(UPID upid, UPID parent_upid) {
@@ -635,10 +656,11 @@ void AgentMetadataState::SetContainerCgroupID(const CID& cid, uint64_t cgroup_id
 }
 
 void AgentMetadataState::AddProcessCgroup(UPID upid, uint64_t cgroup_id,
-                                          std::string_view /*cgroup_path*/) {
+                                          std::string_view cgroup_path) {
   auto it = cids_by_cgroup_id_.find(cgroup_id);
-  if (it != cids_by_cgroup_id_.end()) {
-    EmplaceBounded(&process_cids_, &process_cid_order_, upid, it->second);
+  CID cid = it != cids_by_cgroup_id_.end() ? it->second : ContainerIDFromCgroupPath(cgroup_path);
+  if (!cid.empty()) {
+    EmplaceBounded(&process_cids_, &process_cid_order_, upid, cid);
   }
 }
 

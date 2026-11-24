@@ -18,13 +18,16 @@
 
 #include "src/stirling/source_connectors/proc_exit/proc_exit_connector.h"
 
+#include <sched.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 #include <fstream>
 #include <string>
 #include <vector>
 
 #include <absl/container/flat_hash_map.h>
+#include <absl/container/flat_hash_set.h>
 
 #include "src/common/exec/subprocess.h"
 #include "src/common/metrics/metrics.h"
@@ -157,6 +160,43 @@ TEST(ProcExitConnectorTest, ReportsCgroupOfExitedProcess) {
     }
   }
   EXPECT_THAT(cgroups, ElementsAre(st.st_ino));
+}
+
+TEST(ProcExitConnectorTest, ReportsParentsOfProcessesCreatedBeforeTheFirstTransfer) {
+  constexpr int kProcesses = 8000;
+
+  cpu_set_t cpus;
+  CPU_ZERO(&cpus);
+  CPU_SET(sched_getcpu(), &cpus);
+  ASSERT_EQ(0, sched_setaffinity(0, sizeof(cpus), &cpus));
+
+  auto connector = ProcExitConnector::Create("test_proc_exit_connector");
+  ASSERT_TRUE(connector != nullptr);
+  EXPECT_OK(connector->Init());
+  ProcessParentContext context({md::UPID{0, 1, 1}});
+
+  DataTables data_tables{ProcExitConnector::kTables};
+  connector->set_data_tables(data_tables.tables());
+
+  absl::flat_hash_set<uint32_t> pids;
+  for (int i = 0; i < kProcesses; ++i) {
+    pid_t pid = fork();
+    ASSERT_GE(pid, 0);
+    if (pid == 0) {
+      _exit(0);
+    }
+    ASSERT_EQ(pid, waitpid(pid, nullptr, 0));
+    pids.insert(pid);
+  }
+  connector->TransferData(&context);
+
+  int reported = 0;
+  for (const auto& [upid, parent_upid] : context.parents()) {
+    if (pids.contains(upid.pid()) && parent_upid.pid() == static_cast<uint32_t>(getpid())) {
+      ++reported;
+    }
+  }
+  EXPECT_EQ(reported, kProcesses);
 }
 
 TEST(ProcExitConnectorTest, ReportsPathOfCgroupCreatedWhileTracing) {

@@ -1,0 +1,88 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "The start time of the window in time units before now.",
+      "defaultValue": "-5m"
+    },
+    {
+      "name": "endpoint_filter",
+      "type": "PX_STRING",
+      "description": "The partial string to match the 'endpoint' column (pod, or node for host processes).",
+      "defaultValue": ""
+    },
+    {
+      "name": "max_num_records",
+      "type": "PX_INT64",
+      "description": "Max number of records to show.",
+      "defaultValue": "1000"
+    }
+  ],
+  "globalFuncs": [
+    {
+      "outputName": "summary",
+      "func": {
+        "name": "tls_summary",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "endpoint_filter",
+            "variable": "endpoint_filter"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "handshakes",
+      "func": {
+        "name": "tls_handshakes",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "endpoint_filter",
+            "variable": "endpoint_filter"
+          },
+          {
+            "name": "num_head",
+            "variable": "max_num_records"
+          }
+        ]
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "name": "Negotiated parameters by endpoint",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "summary",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Handshakes",
+      "position": {
+        "x": 0,
+        "y": 3,
+        "w": 12,
+        "h": 4
+      },
+      "globalFuncOutputName": "handshakes",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    }
+  ]
+}

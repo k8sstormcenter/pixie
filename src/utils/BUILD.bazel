@@ -22,6 +22,7 @@ go_library(
     srcs = [
         "erroraccumulator.go",
         "org_name_validator.go",
+        "workspace.go",
         "uuid.go",
     ],
     importpath = "px.dev/pixie/src/utils",
@@ -34,7 +35,10 @@ go_library(
 
 pl_go_test(
     name = "utils_test",
-    srcs = ["uuid_test.go"],
+    srcs = [
+        "uuid_test.go",
+        "workspace_test.go",
+    ],
     deps = [
         ":utils",
         "//src/api/proto/uuidpb:uuid_pl_go_proto",

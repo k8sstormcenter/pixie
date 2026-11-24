@@ -28,6 +28,7 @@ import (
 	"github.com/spf13/viper"
 
 	"px.dev/pixie/src/api/proto/vispb"
+	"px.dev/pixie/src/utils"
 )
 
 var jsonUnmashaler = &jsonpb.Unmarshaler{
@@ -69,7 +70,7 @@ func (e ExecutableScript) LiveViewLink(clusterID *string) string {
 
 	u := url.URL{
 		Scheme: "https",
-		Host:   fmt.Sprintf("work.%s", cloudAddr),
+		Host:   utils.WorkspaceHost(cloudAddr),
 		Path:   urlPath,
 	}
 

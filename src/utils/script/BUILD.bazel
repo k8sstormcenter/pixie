@@ -32,6 +32,7 @@ go_library(
     visibility = ["//src:__subpackages__"],
     deps = [
         "//src/api/proto/vispb:vis_pl_go_proto",
+        "//src/utils",
         "@com_github_bmatcuk_doublestar//:doublestar",
         "@com_github_gogo_protobuf//jsonpb",
         "@com_github_sirupsen_logrus//:logrus",
@@ -42,9 +43,14 @@ go_library(
 
 pl_go_test(
     name = "script_test",
-    srcs = ["flagset_test.go"],
+    srcs = [
+        "flagset_test.go",
+        "script_test.go",
+    ],
     deps = [
         ":script",
+        "//src/api/proto/vispb:vis_pl_go_proto",
+        "@com_github_spf13_viper//:viper",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
     ],

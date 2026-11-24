@@ -15,6 +15,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//bazel:pl_build_system.bzl", "pl_go_test")
 
 go_library(
     name = "auth",
@@ -35,4 +36,11 @@ go_library(
         "@org_golang_google_grpc//metadata",
         "@org_golang_x_term//:term",
     ],
+)
+
+pl_go_test(
+    name = "auth_test",
+    srcs = ["login_test.go"],
+    embed = [":auth"],
+    deps = ["@com_github_stretchr_testify//assert"],
 )

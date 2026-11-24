@@ -81,7 +81,11 @@ def tls_summary(start_time: str, endpoint_filter: str):
     df = px.DataFrame(table='tls_events', start_time=start_time)
     df = add_names(df)
     df = df[px.contains(df.endpoint, endpoint_filter)]
-    df = df.groupby(['endpoint', 'local_port', 'role', 'version', 'cipher_suite', 'group']).agg(
+    # The service port: a server's own port, a client's peer port. A client's
+    # local port is ephemeral, a new one per connection, and keying by it made
+    # one row per connection (edge4: 225 of 236 rows in five minutes).
+    df.port = px.select(df.trace_role == 2, df.local_port, df.remote_port)
+    df = df.groupby(['endpoint', 'role', 'port', 'version', 'cipher_suite', 'group']).agg(
         handshakes=('time_', px.count),
         last_seen=('time_', px.max),
     )

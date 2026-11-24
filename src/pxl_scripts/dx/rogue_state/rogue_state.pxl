@@ -23,24 +23,28 @@ def _lc(start_time: str, clickhouse_dsn: str):
 
 def lifecycle(start_time: str, clickhouse_dsn: str):
     df = _lc(start_time, clickhouse_dsn)
-    df.profile = px.script_reference(df.workload_name, 'dx/shadow_profiles',
-        {'start_time': start_time, 'clickhouse_dsn': clickhouse_dsn})
-    return df[['namespace', 'workload_kind', 'workload_name', 'pod_name', 'container_name',
-               'phase', 'started_firing', 'stopped_firing', 'snapshots', 'profile']]
+    return df[['namespace', 'pod_name', 'container_name', 'phase', 'started_firing',
+               'stopped_firing', 'snapshots']]
+
+
+def firing(start_time: str, clickhouse_dsn: str):
+    df = _lc(start_time, clickhouse_dsn)
+    df = df[df.phase == 'Firing']
+    return df[['namespace', 'pod_name', 'container_name', 'started_firing']]
 
 
 def transitions(start_time: str, clickhouse_dsn: str):
     df = _lc(start_time, clickhouse_dsn)
-    return df[['namespace', 'container_name', 'workload_kind', 'pod_name',
+    return df[['namespace', 'container_name', 'pod_name',
                'phase', 'started_firing', 'stopped_firing']]
 
 
 def rogue(start_time: str, clickhouse_dsn: str):
     df = _lc(start_time, clickhouse_dsn)
     df = df[df.phase == 'Firing']
-    agg = df.groupby(['namespace', 'workload_kind', 'container_name']).agg(
+    agg = df.groupby(['namespace', 'pod_name', 'container_name']).agg(
         firing=('name', px.count))
-    return agg[['namespace', 'workload_kind', 'container_name', 'firing']]
+    return agg[['namespace', 'pod_name', 'container_name', 'firing']]
 
 
 def by_ns(start_time: str, clickhouse_dsn: str):
@@ -49,3 +53,4 @@ def by_ns(start_time: str, clickhouse_dsn: str):
     df.to_entity = df.container_name
     agg = df.groupby(['from_entity', 'to_entity', 'phase']).agg(seen=('name', px.count))
     return agg[['from_entity', 'to_entity', 'phase', 'seen']]
+

@@ -1,0 +1,3 @@
+---
+short: Kubernetes API Traffic
+long: Shows the requests served by the Kubernetes API server and the kubelets.

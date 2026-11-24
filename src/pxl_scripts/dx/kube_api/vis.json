@@ -1,0 +1,130 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "The start time of the window in time units before now.",
+      "defaultValue": "-5m"
+    },
+    {
+      "name": "apiserver_port",
+      "type": "PX_INT64",
+      "description": "The port the Kubernetes API server listens on.",
+      "defaultValue": "6443"
+    },
+    {
+      "name": "kubelet_port",
+      "type": "PX_INT64",
+      "description": "The port the kubelets listen on.",
+      "defaultValue": "10250"
+    },
+    {
+      "name": "path_filter",
+      "type": "PX_STRING",
+      "description": "The partial string to match the request path.",
+      "defaultValue": ""
+    },
+    {
+      "name": "client_filter",
+      "type": "PX_STRING",
+      "description": "The partial string to match the client's user agent or address.",
+      "defaultValue": ""
+    },
+    {
+      "name": "max_num_records",
+      "type": "PX_INT64",
+      "description": "Max number of records to show.",
+      "defaultValue": "1000"
+    }
+  ],
+  "globalFuncs": [
+    {
+      "outputName": "summary",
+      "func": {
+        "name": "kube_api_summary",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "apiserver_port",
+            "variable": "apiserver_port"
+          },
+          {
+            "name": "kubelet_port",
+            "variable": "kubelet_port"
+          },
+          {
+            "name": "path_filter",
+            "variable": "path_filter"
+          },
+          {
+            "name": "client_filter",
+            "variable": "client_filter"
+          }
+        ]
+      }
+    },
+    {
+      "outputName": "requests",
+      "func": {
+        "name": "kube_api",
+        "args": [
+          {
+            "name": "start_time",
+            "variable": "start_time"
+          },
+          {
+            "name": "apiserver_port",
+            "variable": "apiserver_port"
+          },
+          {
+            "name": "kubelet_port",
+            "variable": "kubelet_port"
+          },
+          {
+            "name": "path_filter",
+            "variable": "path_filter"
+          },
+          {
+            "name": "client_filter",
+            "variable": "client_filter"
+          },
+          {
+            "name": "num_head",
+            "variable": "max_num_records"
+          }
+        ]
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "name": "Requests by client",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 3
+      },
+      "globalFuncOutputName": "summary",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    },
+    {
+      "name": "Requests",
+      "position": {
+        "x": 0,
+        "y": 3,
+        "w": 12,
+        "h": 4
+      },
+      "globalFuncOutputName": "requests",
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    }
+  ]
+}

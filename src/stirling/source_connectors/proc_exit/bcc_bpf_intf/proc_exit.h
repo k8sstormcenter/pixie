@@ -46,6 +46,14 @@ struct proc_fork_event_t {
   struct upid_t parent_upid;
 };
 
+#define MAX_CGROUP_PATH_SIZE 256
+
+struct cgroup_event_t {
+  uint64_t cgroup_id;
+  bool removed;
+  char path[MAX_CGROUP_PATH_SIZE];
+};
+
 // Specifies the corresponding indexes of the entries of a per-cpu array.
 enum proc_exit_trace_control_value_index_t {
   TASK_STRUCT_EXIT_CODE_OFFSET_INDEX,

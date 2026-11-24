@@ -20,6 +20,8 @@
 
 #include <signal.h>
 
+#include <cstring>
+#include <string>
 #include <utility>
 
 #include "src/common/base/base.h"
@@ -39,10 +41,13 @@ namespace proc_exit_tracer {
 
 constexpr uint32_t kPerfBufferPerCPUSizeBytes = 5 * 1024 * 1024;
 constexpr uint32_t kForkPerfBufferPerCPUSizeBytes = 256 * 1024;
+constexpr uint32_t kCgroupPerfBufferPerCPUSizeBytes = 256 * 1024;
 
 const auto kTracepointSpecs = MakeArray<bpf_tools::TracepointSpec>({
     {std::string("sched:sched_process_exit"), std::string("tracepoint__sched__sched_process_exit")},
     {std::string("task:task_newtask"), std::string("tracepoint__task__task_newtask")},
+    {std::string("cgroup:cgroup_mkdir"), std::string("tracepoint__cgroup__cgroup_mkdir")},
+    {std::string("cgroup:cgroup_rmdir"), std::string("tracepoint__cgroup__cgroup_rmdir")},
 });
 
 const auto kProbeSpecs = MakeArray<bpf_tools::KProbeSpec>({
@@ -61,6 +66,14 @@ void HandleProcForkEvent(void* cb_cookie, void* data, int /*data_size*/) {
   auto* event = reinterpret_cast<struct proc_fork_event_t*>(data);
   connector->AcceptProcForkEvent(*event);
 }
+
+void HandleCgroupEvent(void* cb_cookie, void* data, int /*data_size*/) {
+  auto* connector = reinterpret_cast<ProcExitConnector*>(cb_cookie);
+  auto* event = reinterpret_cast<struct cgroup_event_t*>(data);
+  connector->AcceptCgroupEvent(*event);
+}
+
+void HandleCgroupEventLoss(void* /*cb_cookie*/, uint64_t /*lost*/) {}
 
 void HandleProcExitEventLoss(void* /*cb_cookie*/, uint64_t /*lost*/) {
   // TODO(yzhao): Add stats counter.
@@ -98,6 +111,10 @@ void ProcExitConnector::AcceptProcForkEvent(const struct proc_fork_event_t& even
   fork_events_.push_back(event);
 }
 
+void ProcExitConnector::AcceptCgroupEvent(const struct cgroup_event_t& event) {
+  cgroup_events_.push_back(event);
+}
+
 void ProcExitConnector::AcceptProcForkEventLoss(uint64_t lost) {
   proc_fork_events_lost_counter_.Increment(lost);
 }
@@ -127,6 +144,8 @@ Status ProcExitConnector::InitImpl() {
        kPerfBufferPerCPUSizeBytes, bpf_tools::PerfBufferSizeCategory::kControl},
       {"proc_fork_events", HandleProcForkEvent, HandleProcForkEventLoss, this,
        kForkPerfBufferPerCPUSizeBytes, bpf_tools::PerfBufferSizeCategory::kControl},
+      {"cgroup_events", HandleCgroupEvent, HandleCgroupEventLoss, this,
+       kCgroupPerfBufferPerCPUSizeBytes, bpf_tools::PerfBufferSizeCategory::kControl},
   });
 
   PX_RETURN_IF_ERROR(bcc_->AttachTracepoints(kTracepointSpecs));
@@ -145,7 +164,22 @@ uint8_t GetExitSignal(uint32_t exit_code) { return exit_code & 0x7F; }
 void ProcExitConnector::TransferDataImpl(ConnectorContext* ctx) {
   DCHECK(data_tables_.size() == 1) << "Expect only one data table for proc_exit tracer";
 
+  for (uint64_t cgroup_id : removed_cgroups_) {
+    cgroup_paths_.erase(cgroup_id);
+  }
+  removed_cgroups_.clear();
+
   bcc_->PollPerfBuffers();
+
+  for (const auto& event : cgroup_events_) {
+    if (event.removed) {
+      removed_cgroups_.push_back(event.cgroup_id);
+    } else {
+      cgroup_paths_[event.cgroup_id] =
+          std::string(event.path, strnlen(event.path, sizeof(event.path)));
+    }
+  }
+  cgroup_events_.clear();
 
   for (const auto& event : fork_events_) {
     ctx->AddProcessParent(event.upid.ToMetadataUPID(ctx->GetASID()),
@@ -159,7 +193,9 @@ void ProcExitConnector::TransferDataImpl(ConnectorContext* ctx) {
     DataTable::RecordBuilder<&kProcExitEventsTable> r(data_table, event.timestamp_ns);
     r.Append<proc_exit_tracer::kTimeIdx>(event.timestamp_ns);
     md::UPID upid(ctx->GetASID(), event.upid.pid, event.upid.start_time_ticks);
-    ctx->AddProcessCgroup(upid, event.cgroup_id, "");
+    auto cgroup_path_it = cgroup_paths_.find(event.cgroup_id);
+    ctx->AddProcessCgroup(upid, event.cgroup_id,
+                          cgroup_path_it == cgroup_paths_.end() ? "" : cgroup_path_it->second);
     r.Append<proc_exit_tracer::kUPIDIdx>(upid.value());
     // Exit code and signals are encoded in the exit_code field of the task_struct of the process.
     // See the description below:

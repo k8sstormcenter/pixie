@@ -166,9 +166,38 @@ def forest(start_time: str, clickhouse_dsn: str, shadow_id: str):
               'boundary', 'exit_code', 'upid', 'pupid', 'container']]
 
 
+def _picked(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    # The trace a per-trace widget shows, and why: the selected one, or with none selected
+    # the open trace with the most activity in the last five minutes. Opened without a
+    # trace (the default) these widgets matched shadow_id == '' and were all empty; the
+    # newest open trace is no better a choice, as it may be quiet. PxL has no `if`, so
+    # the fallback is filtered on the argument and is empty whenever a trace is given.
+    t = _latest(px.DataFrame('dx_shadow__trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time))
+    sel = t[t.shadow_id == shadow_id]
+    sel.shown = 'selected'
+    sel = sel[['shadow_id', 'shown']]
+    o = t[t.closed_at == 0]
+    o = o[['shadow_id']]
+    a = px.DataFrame('dx_shadow__activity', clickhouse_dsn=clickhouse_dsn, start_time='-5m')
+    a.arg = shadow_id
+    a = a[a.arg == '']
+    a = a.merge(o, how='inner', left_on=['shadow_id'], right_on=['shadow_id'], suffixes=['', '_o'])
+    a = a.groupby(['shadow_id']).agg(n=('n', px.count))
+    a.one = 1
+    top = a.groupby(['one']).agg(n=('n', px.max))
+    a = a.merge(top, how='inner', left_on=['one', 'n'], right_on=['one', 'n'], suffixes=['', '_t'])
+    a = a.head(1)
+    a.shown = 'most active open trace (none selected)'
+    a = a[['shadow_id', 'shown']]
+    p = sel.append(a)
+    p.trace = p.shadow_id
+    return p[['trace', 'shown']]
+
+
 def _rows(start_time: str, clickhouse_dsn: str, view: str, shadow_id: str):
     df = px.DataFrame(view, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
-    df = df[df.shadow_id == shadow_id]
+    p = _picked(start_time, clickhouse_dsn, shadow_id)
+    df = df.merge(p, how='inner', left_on=['shadow_id'], right_on=['trace'], suffixes=['', '_p'])
     # A busy trace holds thousands of rows of one surface in half an hour; the table shows the
     # first thousand of the window. Narrow the window to see the rest.
     df = df.head(1000)
@@ -281,8 +310,9 @@ def _nsswitch(start_time: str, clickhouse_dsn: str):
 
 def nsswitch(start_time: str, clickhouse_dsn: str, shadow_id: str):
     df = _nsswitch(start_time, clickhouse_dsn)
-    df = df[df.shadow_id == shadow_id]
-    return df[['when', 'changed_ns', 'comm', 'pid', 'cgroup',
+    p = _picked(start_time, clickhouse_dsn, shadow_id)
+    df = df.merge(p, how='inner', left_on=['shadow_id'], right_on=['trace'], suffixes=['', '_p'])
+    return df[['trace', 'shown', 'when', 'changed_ns', 'comm', 'pid', 'cgroup',
                'mnt_new', 'net_new', 'pid_new', 'uts_new', 'ipc_new', 'cgroupns_new',
                'time_new', 'attributed_by', 'pod', 'container', 'hostname']]
 

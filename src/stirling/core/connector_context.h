@@ -78,7 +78,8 @@ class ConnectorContext {
 
   virtual void AddProcessParent(const md::UPID& /*upid*/, const md::UPID& /*parent_upid*/) {}
 
-  virtual void AddProcessCgroup(const md::UPID& /*upid*/, uint64_t /*cgroup_id*/) {}
+  virtual void AddProcessCgroup(const md::UPID& /*upid*/, uint64_t /*cgroup_id*/,
+                                const std::string& /*cgroup_path*/) {}
 };
 
 /**
@@ -128,9 +129,10 @@ class AgentContext : public ConnectorContext {
     }
   }
 
-  void AddProcessCgroup(const md::UPID& upid, uint64_t cgroup_id) override {
+  void AddProcessCgroup(const md::UPID& upid, uint64_t cgroup_id,
+                        const std::string& cgroup_path) override {
     if (process_cgroup_callback_ != nullptr) {
-      process_cgroup_callback_(upid, cgroup_id);
+      process_cgroup_callback_(upid, cgroup_id, cgroup_path);
     }
   }
 

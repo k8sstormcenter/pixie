@@ -87,7 +87,7 @@ class FakeAgentMetadataStateManager : public md::AgentMetadataStateManager {
 
   void AddProcessParent(md::UPID, md::UPID) override {}
 
-  void AddProcessCgroup(md::UPID, uint64_t) override {}
+  void AddProcessCgroup(md::UPID, uint64_t, std::string) override {}
 
   void SetServiceCIDR(CIDRBlock cidr) override { cidr_ = cidr; }
 

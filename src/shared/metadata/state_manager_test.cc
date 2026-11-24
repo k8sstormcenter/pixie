@@ -444,6 +444,30 @@ TEST_F(AgentMetadataStateTest, process_resolves_to_the_container_of_its_cgroup) 
   EXPECT_EQ(metadata_state_.CloneToShared()->ContainerIDByUPID(process), "container_id1");
 }
 
+TEST_F(AgentMetadataStateTest, process_resolves_to_the_container_named_by_its_cgroup_path) {
+  const std::string cid = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+  UPID systemd(kASID, 300 /*pid*/, 3000 /*ts*/);
+  UPID cgroupfs(kASID, 301 /*pid*/, 3001 /*ts*/);
+  UPID nested(kASID, 302 /*pid*/, 3002 /*ts*/);
+  UPID other(kASID, 303 /*pid*/, 3003 /*ts*/);
+  UPID scanned(kASID, 304 /*pid*/, 3004 /*ts*/);
+  metadata_state_.SetContainerCgroupID("container_id1", 77);
+  metadata_state_.AddProcessCgroup(
+      systemd, 80,
+      "/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod1.slice/cri-containerd-" +
+          cid + ".scope");
+  metadata_state_.AddProcessCgroup(cgroupfs, 81, "/kubepods/besteffort/pod1/" + cid);
+  metadata_state_.AddProcessCgroup(nested, 82, "/kubepods/besteffort/pod1/" + cid + "/init.scope");
+  metadata_state_.AddProcessCgroup(other, 83, "/system.slice/k3s.service");
+  metadata_state_.AddProcessCgroup(scanned, 77, "/kubepods/besteffort/pod1/" + cid);
+
+  EXPECT_EQ(metadata_state_.ContainerIDByUPID(systemd), cid);
+  EXPECT_EQ(metadata_state_.ContainerIDByUPID(cgroupfs), cid);
+  EXPECT_EQ(metadata_state_.ContainerIDByUPID(nested), cid);
+  EXPECT_EQ(metadata_state_.ContainerIDByUPID(other), "");
+  EXPECT_EQ(metadata_state_.ContainerIDByUPID(scanned), "container_id1");
+}
+
 TEST_F(AgentMetadataStateTest, process_cgroups_are_bounded) {
   metadata_state_.SetContainerCgroupID("container_id1", 77);
   for (uint32_t i = 0; i <= AgentMetadataState::kMaxProcessParents; ++i) {
@@ -465,8 +489,8 @@ TEST_F(AgentMetadataStateTest, process_cgroups_are_applied_after_the_scan) {
   ASSERT_OK(ProcessPIDUpdates(1000, proc_parser, &metadata_state_, &md_reader, &pid_updates));
 
   UPID process(kASID, 300 /*pid*/, 3000 /*ts*/);
-  moodycamel::BlockingConcurrentQueue<std::pair<UPID, uint64_t>> process_cgroups;
-  process_cgroups.enqueue({process, 77});
+  moodycamel::BlockingConcurrentQueue<ProcessCgroup> process_cgroups;
+  process_cgroups.enqueue({process, 77, ""});
   ApplyProcessCgroups(&metadata_state_, &process_cgroups);
 
   EXPECT_EQ(0, process_cgroups.size_approx());

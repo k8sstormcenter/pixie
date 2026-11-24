@@ -19,6 +19,8 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -64,14 +66,17 @@ TEST(AgentContextTest, ReportsProcessCgroup) {
   auto state = std::make_shared<md::AgentMetadataState>("myhost", 1, 123, sole::uuid4(), "mypod",
                                                         sole::uuid4(), "myvizier",
                                                         "myviziernamespace", &time_system);
-  std::vector<std::pair<md::UPID, uint64_t>> cgroups;
-  AgentContext ctx(state, nullptr, [&cgroups](md::UPID upid, uint64_t cgroup_id) {
-    cgroups.emplace_back(upid, cgroup_id);
-  });
+  std::vector<std::tuple<md::UPID, uint64_t, std::string>> cgroups;
+  AgentContext ctx(state, nullptr,
+                   [&cgroups](md::UPID upid, uint64_t cgroup_id, std::string cgroup_path) {
+                     cgroups.emplace_back(upid, cgroup_id, cgroup_path);
+                   });
 
-  ctx.AddProcessCgroup(md::UPID{1, 300, 3000}, 77);
+  ctx.AddProcessCgroup(md::UPID{1, 300, 3000}, 77, "/kubepods/pod1/c1");
 
-  EXPECT_THAT(cgroups, ElementsAre(Pair(md::UPID{1, 300, 3000}, 77)));
+  const std::tuple<md::UPID, uint64_t, std::string> expected{md::UPID{1, 300, 3000}, 77,
+                                                             "/kubepods/pod1/c1"};
+  EXPECT_THAT(cgroups, ElementsAre(expected));
 }
 
 }  // namespace stirling

@@ -57,6 +57,12 @@ using NodeUpdate = px::shared::k8s::metadatapb::NodeUpdate;
 using ReplicaSetUpdate = px::shared::k8s::metadatapb::ReplicaSetUpdate;
 using DeploymentUpdate = px::shared::k8s::metadatapb::DeploymentUpdate;
 
+struct ProcessCgroup {
+  UPID upid;
+  uint64_t cgroup_id;
+  std::string cgroup_path;
+};
+
 /**
  * AgentMetadataStateManager has all the metadata that is tracked on a per agent basis.
  */
@@ -95,7 +101,7 @@ class AgentMetadataStateManager {
 
   virtual void AddProcessParent(UPID upid, UPID parent_upid) = 0;
 
-  virtual void AddProcessCgroup(UPID upid, uint64_t cgroup_id) = 0;
+  virtual void AddProcessCgroup(UPID upid, uint64_t cgroup_id, std::string cgroup_path) = 0;
 
   /**
    * Sets the service CIDR.
@@ -146,7 +152,7 @@ class AgentMetadataStateManagerImpl : public AgentMetadataStateManager {
 
   void AddProcessParent(UPID upid, UPID parent_upid) override;
 
-  void AddProcessCgroup(UPID upid, uint64_t cgroup_id) override;
+  void AddProcessCgroup(UPID upid, uint64_t cgroup_id, std::string cgroup_path) override;
 
   void SetServiceCIDR(CIDRBlock cidr) override {
     absl::base_internal::SpinLockHolder lock(&cidr_lock_);
@@ -184,7 +190,7 @@ class AgentMetadataStateManagerImpl : public AgentMetadataStateManager {
   moodycamel::BlockingConcurrentQueue<std::unique_ptr<ResourceUpdate>> incoming_k8s_updates_;
   moodycamel::BlockingConcurrentQueue<std::unique_ptr<PIDStatusEvent>> pid_updates_;
   moodycamel::BlockingConcurrentQueue<std::pair<UPID, UPID>> process_parents_;
-  moodycamel::BlockingConcurrentQueue<std::pair<UPID, uint64_t>> process_cgroups_;
+  moodycamel::BlockingConcurrentQueue<ProcessCgroup> process_cgroups_;
 
   absl::base_internal::SpinLock cidr_lock_;
   std::optional<CIDRBlock> service_cidr_;
@@ -216,9 +222,8 @@ void ApplyProcessParents(
     AgentMetadataState* state,
     moodycamel::BlockingConcurrentQueue<std::pair<UPID, UPID>>* process_parents);
 
-void ApplyProcessCgroups(
-    AgentMetadataState* state,
-    moodycamel::BlockingConcurrentQueue<std::pair<UPID, uint64_t>>* process_cgroups);
+void ApplyProcessCgroups(AgentMetadataState* state,
+                         moodycamel::BlockingConcurrentQueue<ProcessCgroup>* process_cgroups);
 
 /**
  * Deletes metadata for dead objects.

@@ -397,7 +397,7 @@ class AgentMetadataState : NotCopyable {
 
   void SetContainerCgroupID(const CID& cid, uint64_t cgroup_id);
 
-  void AddProcessCgroup(UPID upid, uint64_t cgroup_id);
+  void AddProcessCgroup(UPID upid, uint64_t cgroup_id, std::string_view cgroup_path = "");
 
   CID ContainerIDByUPID(UPID upid) const;
 

@@ -61,8 +61,9 @@ void AgentMetadataStateManagerImpl::AddProcessParent(UPID upid, UPID parent_upid
   process_parents_.enqueue({upid, parent_upid});
 }
 
-void AgentMetadataStateManagerImpl::AddProcessCgroup(UPID upid, uint64_t cgroup_id) {
-  process_cgroups_.enqueue({upid, cgroup_id});
+void AgentMetadataStateManagerImpl::AddProcessCgroup(UPID upid, uint64_t cgroup_id,
+                                                     std::string cgroup_path) {
+  process_cgroups_.enqueue({upid, cgroup_id, std::move(cgroup_path)});
 }
 
 Status AgentMetadataStateManagerImpl::PerformMetadataStateUpdate() {
@@ -327,12 +328,12 @@ void ApplyProcessParents(
   }
 }
 
-void ApplyProcessCgroups(
-    AgentMetadataState* state,
-    moodycamel::BlockingConcurrentQueue<std::pair<UPID, uint64_t>>* process_cgroups) {
-  std::pair<UPID, uint64_t> process_cgroup;
+void ApplyProcessCgroups(AgentMetadataState* state,
+                         moodycamel::BlockingConcurrentQueue<ProcessCgroup>* process_cgroups) {
+  ProcessCgroup process_cgroup;
   while (process_cgroups->try_dequeue(process_cgroup)) {
-    state->AddProcessCgroup(process_cgroup.first, process_cgroup.second);
+    state->AddProcessCgroup(process_cgroup.upid, process_cgroup.cgroup_id,
+                            process_cgroup.cgroup_path);
   }
 }
 

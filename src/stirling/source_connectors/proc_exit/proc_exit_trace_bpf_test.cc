@@ -42,6 +42,7 @@ using ::px::SubProcess;
 using ::px::stirling::testing::RecordBatchSizeIs;
 using ::px::testing::BazelRunfilePath;
 using ::testing::ElementsAre;
+using ::testing::Pair;
 using ::testing::SizeIs;
 
 class ProcessParentContext : public StandaloneContext {
@@ -52,16 +53,20 @@ class ProcessParentContext : public StandaloneContext {
     parents_[upid] = parent_upid;
   }
 
-  void AddProcessCgroup(const md::UPID& upid, uint64_t cgroup_id) override {
+  void AddProcessCgroup(const md::UPID& upid, uint64_t cgroup_id,
+                        const std::string& cgroup_path) override {
     cgroups_[upid] = cgroup_id;
+    cgroup_paths_[upid] = cgroup_path;
   }
 
   const absl::flat_hash_map<md::UPID, md::UPID>& parents() const { return parents_; }
   const absl::flat_hash_map<md::UPID, uint64_t>& cgroups() const { return cgroups_; }
+  const absl::flat_hash_map<md::UPID, std::string>& cgroup_paths() const { return cgroup_paths_; }
 
  private:
   absl::flat_hash_map<md::UPID, md::UPID> parents_;
   absl::flat_hash_map<md::UPID, uint64_t> cgroups_;
+  absl::flat_hash_map<md::UPID, std::string> cgroup_paths_;
 };
 
 // Tests that ProcExitConnector::TransferData() does not throw any failures.
@@ -152,6 +157,41 @@ TEST(ProcExitConnectorTest, ReportsCgroupOfExitedProcess) {
     }
   }
   EXPECT_THAT(cgroups, ElementsAre(st.st_ino));
+}
+
+TEST(ProcExitConnectorTest, ReportsPathOfCgroupCreatedWhileTracing) {
+  auto connector = ProcExitConnector::Create("test_proc_exit_connector");
+  ASSERT_TRUE(connector != nullptr);
+  EXPECT_OK(connector->Init());
+  ProcessParentContext context({md::UPID{0, 1, 1}});
+
+  DataTables data_tables{ProcExitConnector::kTables};
+  connector->set_data_tables(data_tables.tables());
+
+  const std::string name = absl::Substitute("proc_exit_test_$0", getpid());
+  const std::string dir = "/sys/fs/cgroup/" + name;
+  ASSERT_EQ(0, mkdir(dir.c_str(), 0755));
+  struct stat st;
+  ASSERT_EQ(0, stat(dir.c_str(), &st));
+
+  SubProcess proc;
+  ASSERT_OK(proc.Start(
+      [&dir] {
+        std::ofstream(dir + "/cgroup.procs") << getpid();
+        return 0;
+      },
+      {}));
+  proc.Wait();
+  ASSERT_EQ(0, rmdir(dir.c_str()));
+  connector->TransferData(&context);
+
+  std::vector<std::pair<uint64_t, std::string>> cgroups;
+  for (const auto& [upid, cgroup_path] : context.cgroup_paths()) {
+    if (upid.pid() == static_cast<uint32_t>(proc.child_pid())) {
+      cgroups.emplace_back(context.cgroups().at(upid), cgroup_path);
+    }
+  }
+  EXPECT_THAT(cgroups, ElementsAre(Pair(st.st_ino, "/" + name)));
 }
 
 TEST(ProcExitConnectorTest, ReportsParentOfShortLivedProcess) {

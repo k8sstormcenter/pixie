@@ -25,11 +25,24 @@ def _summary(start_time: str, clickhouse_dsn: str):
     return df[df.part == '']
 
 
+def _unproven(df):
+    # Why a roll-up suspicion is not proven, or '' when dx scored it malicious (proven).
+    # dx writes 'gap' only when the act part IS proven and another part is not; a
+    # suspicion whose act part is unproven is scored 'benign', and an alert that matched
+    # no suspicion of the suite is 'unmatched'. All of them are unproven for this panel.
+    return px.select(df.verdict == 'malicious', '',
+                     px.select(df.verdict == 'gap', 'partial proof',
+                               px.select(df.verdict == 'benign', 'act not proven',
+                                         px.select(df.verdict == 'unmatched', 'no suspicion matched',
+                                                   px.select(df.verdict == 'misattributed',
+                                                             'wrong attribution', 'not scored')))))
+
+
 def coverage(start_time: str, clickhouse_dsn: str, suite: str):
     df = _summary(start_time, clickhouse_dsn)
     df = df[px.contains(df.suite, suite)]
     df.coverage = 100.0 * df.pc
-    df.unproven = px.select(df.verdict == 'gap', 'GAP', '')
+    df.unproven = _unproven(df)
     df.measured_at = px.int64_to_time(df.row_time)
     # A coverage row carries no order_id until an order finalizes, and an empty label
     # renders as a blank clickable that looks broken rather than inapplicable.
@@ -49,14 +62,17 @@ def gaps(start_time: str, clickhouse_dsn: str, suite: str):
     # Narrowed to the unproven ones. The full list stays on the panel above, so this
     # hides nothing — an empty table here means every suspicion proved, which the
     # coverage widget corroborates rather than a reader having to assume it.
+    # Filtering on verdict == 'gap' alone left this table empty while most suspicions
+    # were unproven ('benign' with the act part unproven, or 'unmatched'), so the empty
+    # table claimed the opposite of the store.
     df = coverage(start_time, clickhouse_dsn, suite)
-    return df[df.verdict == 'gap']
+    return df[df.unproven != '']
 
 
 def by_class(start_time: str, clickhouse_dsn: str, suite: str):
     df = _summary(start_time, clickhouse_dsn)
     df = df[px.contains(df.suite, suite)]
-    df.is_gap = px.select(df.verdict == 'gap', 1, 0)
+    df.is_gap = px.select(df.verdict == 'malicious', 0, 1)
     agg = df.groupby(['class']).agg(suspicions=('suspicion', px.count),
                                     mean_pc=('pc', px.mean),
                                     worst_pc=('pc', px.min),

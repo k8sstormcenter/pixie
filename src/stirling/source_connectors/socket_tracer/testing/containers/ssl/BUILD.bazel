@@ -106,6 +106,13 @@ py3_image(
 )
 
 py3_image(
+    name = "tls13_coalesced_client",
+    srcs = ["tls13_coalesced_client.py"],
+    base = ":python_base_with_ssl",
+    main = "tls13_coalesced_client.py",
+)
+
+py3_image(
     name = "python_min_310_https_server_memory_bio",
     srcs = ["https_server_memory_bio.py"],
     base = ":python_base_with_ssl",

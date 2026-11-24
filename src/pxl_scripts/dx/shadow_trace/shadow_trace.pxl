@@ -48,12 +48,43 @@ def _activity(start_time: str, clickhouse_dsn: str, shadow_id: str):
     return df[px.contains(df.shadow_id, shadow_id)]
 
 
-def graph(start_time: str, clickhouse_dsn: str, shadow_id: str):
+def _behaviour(start_time: str, clickhouse_dsn: str, shadow_id: str, leave_out: str):
+    # Profiler frames and other surfaces named in leave_out are not behaviour a reader can act on,
+    # and they outnumber everything else: 337 of 400 keys of one Kafka trace were stack frames.
     a = _activity(start_time, clickhouse_dsn, shadow_id)
+    return a[not px.contains(leave_out, a.surface)]
+
+
+def _busiest(keys, shadow_id: str):
+    # The graph draws one node per key. With no trace selected that is every key of every open
+    # trace, and file access alone is thousands of them: the panel then takes minutes and the
+    # query can take the cluster's query path down with it. There is no sort in PxL, so "the
+    # busiest" is a floor on the count: per surface, every key while there are few, the top tenth
+    # past the target, the top hundredth past ten times the target. The target is 100 file keys
+    # with no trace selected and 1000 keys for every other surface and for a selected trace.
+    # head() is the hard limit behind it, for a surface whose keys all have the same count.
+    st = keys.groupby(['surface']).agg(cnt=('n', px.count), q=('n', px.quantiles))
+    st.target = px.select(st.surface == 'dc_snoop', px.select(shadow_id == '', 100, 1000), 1000)
+    st.floor = px.floor(px.select(st.cnt <= st.target, 0.0,
+                                  px.select(st.cnt <= st.target * 10, px.pluck_float64(st.q, 'p90'),
+                                            px.pluck_float64(st.q, 'p99'))))
+    st = st[['surface', 'floor']]
+    k = keys.merge(st, how='inner', left_on=['surface'], right_on=['surface'], suffixes=['', '_s'])
+    k = k[k.n >= k.floor]
+    files = k[k.surface == 'dc_snoop']
+    files = files.head(1000)
+    rest = k[k.surface != 'dc_snoop']
+    rest = rest.head(5000)
+    return files.append(rest)
+
+
+def graph(start_time: str, clickhouse_dsn: str, shadow_id: str, leave_out: str):
+    a = _behaviour(start_time, clickhouse_dsn, shadow_id, leave_out)
     t = _latest(px.DataFrame('dx_shadow__trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time))
     t = t[['shadow_id', 'pod', 'container']]
     a = a.merge(t, how='inner', left_on=['shadow_id'], right_on=['shadow_id'], suffixes=['', '_t'])
     keys = a.groupby(['pod', 'surface', 'key']).agg(n=('n', px.sum), first_ts=('first_ts', px.min), last_ts=('last_ts', px.max))
+    keys = _busiest(keys, shadow_id)
     keys.from_entity = keys.surface
     keys.to_entity = keys.key
     keys.weight = keys.n
@@ -79,10 +110,11 @@ def timeline(start_time: str, clickhouse_dsn: str, shadow_id: str):
     return df[['time_', 'surface', 'n', 'keys']]
 
 
-def keys(start_time: str, clickhouse_dsn: str, shadow_id: str):
-    a = _activity(start_time, clickhouse_dsn, shadow_id)
+def keys(start_time: str, clickhouse_dsn: str, shadow_id: str, leave_out: str):
+    a = _behaviour(start_time, clickhouse_dsn, shadow_id, leave_out)
     df = a.groupby(['surface', 'key']).agg(n=('n', px.sum), bytes=('bytes', px.sum),
                                            first_ts=('first_ts', px.min), last_ts=('last_ts', px.max))
+    df = _busiest(df, shadow_id)
     df.first_seen = px.int64_to_time(df.first_ts)
     df.last_seen = px.int64_to_time(df.last_ts)
     return df[['surface', 'key', 'n', 'bytes', 'first_seen', 'last_seen']]
@@ -106,7 +138,10 @@ def reconciliation(start_time: str, clickhouse_dsn: str, shadow_id: str):
     df.runtime_parents = px.pluck(r, 'runtime_parents')
     df.attributions = px.pluck(r, 'attributions')
     df.profile_execs_seen = px.pluck(r, 'profile_execs_seen')
-    return df[['container', 'close_reason', 'profile', 'profile_status', 'selected', 'profile_only',
+    # An open trace carries the head of each list; totals is the length of each before the cut.
+    df.state = px.pluck(df.surfaces, 'state')
+    df.totals = px.pluck(r, 'totals')
+    return df[['container', 'state', 'profile', 'profile_status', 'selected', 'totals', 'profile_only',
                'trace_only', 'novel_paths', 'unobserved_execs', 'unobserved_opens',
                'profile_execs_seen', 'silent', 'forest_gaps', 'runtime_parents', 'attributions']]
 
@@ -134,6 +169,9 @@ def forest(start_time: str, clickhouse_dsn: str, shadow_id: str):
 def _rows(start_time: str, clickhouse_dsn: str, view: str, shadow_id: str):
     df = px.DataFrame(view, clickhouse_dsn=clickhouse_dsn, start_time=start_time)
     df = df[df.shadow_id == shadow_id]
+    # A busy trace holds thousands of rows of one surface in half an hour; the table shows the
+    # first thousand of the window. Narrow the window to see the rest.
+    df = df.head(1000)
     return df.drop(['shadow_id', 'row_time', 'event_time', 'unique_id'])
 
 
@@ -268,3 +306,42 @@ def ns_switches(start_time: str, clickhouse_dsn: str):
     return df[['when', 'changed_ns', 'trace', 'pod', 'container', 'comm', 'pid', 'cgroup',
                'mnt_new', 'net_new', 'pid_new', 'uts_new', 'ipc_new', 'cgroupns_new',
                'time_new', 'attributed_by', 'hostname']]
+
+
+def _trace_pod(start_time: str, clickhouse_dsn: str, shadow_id: str):
+    t = _latest(px.DataFrame('dx_shadow__trace', clickhouse_dsn=clickhouse_dsn, start_time=start_time))
+    t = t[px.contains(t.shadow_id, shadow_id)]
+    t = t.groupby(['pod']).agg(n=('pod', px.count))
+    t.pod_name = px.pluck_array(px.split(t.pod, '/'), 1)
+    t.one = 1
+    return t[['pod', 'pod_name', 'one']]
+
+
+def api_on_pod(start_time: str, clickhouse_dsn: str, shadow_id: str, live_window: str):
+    # The sensor's own tables hold minutes to hours and drop their oldest rows while they are read;
+    # a read from far back fails with "Data after Cursor is not in the table". Hence the short window.
+    t = _trace_pod(start_time, clickhouse_dsn, shadow_id)
+    df = px.DataFrame(table='http_events', start_time=live_window)
+    df = df[df.trace_role == 2 and (df.local_port == 6443 or df.local_port == 10250)]
+    df.served_by = px._exec_hostname()
+    df.one = 1
+    df = df.merge(t, how='inner', left_on=['one'], right_on=['one'], suffixes=['', '_t'])
+    df = df[px.contains(df.req_path, df.pod_name)]
+    df.ua_h1 = px.pluck(df.req_headers, 'User-Agent')
+    df.user_agent = px.select(df.ua_h1 != '', df.ua_h1, px.pluck(df.req_headers, 'user-agent'))
+    df.component = px.select(df.local_port == 6443, 'apiserver', 'kubelet')
+    return df[['time_', 'pod', 'component', 'served_by', 'remote_addr', 'user_agent', 'req_method',
+               'req_path', 'resp_status', 'latency']]
+
+
+def websocket_of_pod(start_time: str, clickhouse_dsn: str, shadow_id: str, live_window: str):
+    t = _trace_pod(start_time, clickhouse_dsn, shadow_id)
+    df = px.DataFrame(table='websocket_events', start_time=live_window)
+    df.pod = df.ctx['pod']
+    df = df.merge(t, how='inner', left_on=['pod'], right_on=['pod'], suffixes=['', '_t'])
+    df.role = px.select(df.trace_role == 2, 'server', 'client')
+    df.sent_by = px.select(df.direction == 1, 'client', 'server')
+    return df[['time_', 'pod', 'local_port', 'remote_addr', 'role', 'subprotocol', 'kind', 'sent_by',
+               'payload_size', 'payload']]
+
+

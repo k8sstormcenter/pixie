@@ -47,6 +47,12 @@
 DEFINE_bool(treat_loopback_as_in_cluster, true,
             "Whether loopback is treated as inside the cluster of not");
 
+DEFINE_bool(stirling_conn_trace_client_side_in_cluster,
+            gflags::BoolFromEnv("PX_STIRLING_CONN_TRACE_CLIENT_SIDE_IN_CLUSTER", false),
+            "If true, the client side of a connection is traced even when its remote endpoint is "
+            "inside the cluster. By default only the server side of intra-cluster traffic is "
+            "traced, so a client pod's own requests are not attributed to it.");
+
 DEFINE_int64(stirling_conn_trace_pid, kUnsetPIDFD, "Trace activity on this pid.");
 DEFINE_int64(stirling_conn_trace_fd, kUnsetPIDFD, "Trace activity on this fd.");
 
@@ -828,12 +834,14 @@ void ConnTracker::UpdateState(const std::vector<CIDRBlock>& cluster_cidrs) {
       DCHECK(open_info_.remote_addr.family == SockAddrFamily::kIPv4 ||
              open_info_.remote_addr.family == SockAddrFamily::kIPv6);
 
-      if (IsRemoteAddrInCluster(cluster_cidrs)) {
+      if (IsRemoteAddrInCluster(cluster_cidrs) &&
+          !FLAGS_stirling_conn_trace_client_side_in_cluster) {
         Disable("No client-side tracing: Remote endpoint is inside the cluster.");
         break;
       }
 
-      // Remote endpoint appears to be outside the cluster, so trace it.
+      // Remote endpoint appears to be outside the cluster (or in-cluster client-side tracing is
+      // enabled), so trace it.
       state_ = State::kTransferring;
     } break;
     case endpoint_role_t::kRoleUnknown:

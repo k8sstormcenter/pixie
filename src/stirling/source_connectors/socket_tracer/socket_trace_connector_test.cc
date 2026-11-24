@@ -464,6 +464,106 @@ TEST_F(SocketTraceConnectorTest, ConnStatsRowForProcessKnownOnlyAfterItExited) {
   EXPECT_THAT(conn_stats_table->ConsumeRecords(), IsEmpty());
 }
 
+// Sends the open and the close of one client connection of the process (pid, start_time_ticks).
+void SendShortLivedConnection(SocketTraceConnectorFriend* source, uint32_t pid,
+                              uint64_t start_time_ticks, int32_t fd, uint64_t tsid) {
+  struct conn_stats_event_t event = {};
+  event.conn_id.upid.pid = pid;
+  event.conn_id.upid.start_time_ticks = start_time_ticks;
+  event.conn_id.fd = fd;
+  event.conn_id.tsid = tsid;
+  event.role = kRoleClient;
+  event.raddr.in4.sin_family = AF_INET;
+  event.raddr.in4.sin_port = htons(80);
+  event.raddr.in4.sin_addr.s_addr = 0x01010101;
+  event.conn_events = CONN_OPEN;
+  event.timestamp_ns = 1;
+  event.wr_bytes = 86;
+  event.rd_bytes = 853;
+  source->AcceptConnStatsEvent(event);
+  event.conn_events = CONN_CLOSE;
+  event.timestamp_ns = 2;
+  source->AcceptConnStatsEvent(event);
+}
+
+// The held stats are counted, and the export after the exit is counted.
+TEST_F(SocketTraceConnectorTest, ConnStatsHeldAndExportedAreCounted) {
+  const md::UPID short_lived(kASID, kPID + 2, kPIDStartTimeTicks);
+  SendShortLivedConnection(source_, kPID + 2, kPIDStartTimeTicks, 5, 300);
+
+  connector_->TransferData(ctx_.get());
+  EXPECT_EQ(source_->ConnStatsUnattributedHeld(), 1);
+  EXPECT_EQ(source_->NumUnattributedConnStats(), 1);
+
+  ctx_->AddProcessCgroup(short_lived, 4242, "/kubepods/besteffort/pod0f0f/cri-containerd-ab.scope");
+  connector_->TransferData(ctx_.get());
+  EXPECT_EQ(source_->ConnStatsUnattributedExported(), 1);
+  EXPECT_EQ(source_->ConnStatsUnattributedDropped(), 0);
+  EXPECT_EQ(source_->NumUnattributedConnStats(), 0);
+}
+
+// A process whose container never becomes known: its stats are held for the hold time, then
+// dropped and counted. Nothing is exported, also not after the hold.
+TEST_F(SocketTraceConnectorTest, ConnStatsOfAProcessNeverAttributedAreDroppedAndCounted) {
+  PX_SET_FOR_SCOPE(FLAGS_stirling_conn_stats_unattributed_hold_s, 15);
+  const md::UPID never_known(kASID, kPID + 3, kPIDStartTimeTicks);
+  SendShortLivedConnection(source_, kPID + 3, kPIDStartTimeTicks, 5, 300);
+  DataTable* conn_stats_table = data_tables_[SocketTraceConnector::kConnStatsTableNum];
+
+  connector_->TransferData(ctx_.get());
+  EXPECT_THAT(conn_stats_table->ConsumeRecords(), IsEmpty());
+  EXPECT_EQ(source_->NumUnattributedConnStats(), 1);
+
+  // Within the hold: still held.
+  mock_clock_.advance(10ULL * 1000 * 1000 * 1000);
+  connector_->TransferData(ctx_.get());
+  EXPECT_THAT(conn_stats_table->ConsumeRecords(), IsEmpty());
+  EXPECT_EQ(source_->NumUnattributedConnStats(), 1);
+
+  // Past the hold: dropped and counted.
+  mock_clock_.advance(6ULL * 1000 * 1000 * 1000);
+  connector_->TransferData(ctx_.get());
+  EXPECT_THAT(conn_stats_table->ConsumeRecords(), IsEmpty());
+  EXPECT_EQ(source_->ConnStatsUnattributedDropped(), 1);
+  EXPECT_EQ(source_->NumUnattributedConnStats(), 0);
+
+  // A late exit report does not bring the dropped stats back.
+  ctx_->AddProcessCgroup(never_known, 4242, "/kubepods/besteffort/pod0f0f/cri-containerd-ab.scope");
+  connector_->TransferData(ctx_.get());
+  EXPECT_THAT(conn_stats_table->ConsumeRecords(), IsEmpty());
+}
+
+// The PID of the dead process is reused by another process (another start time) whose exit is
+// reported: the held stats belong to the first process and are never attributed to the second.
+TEST_F(SocketTraceConnectorTest, ConnStatsHeldAreNotAttributedThroughAReusedPID) {
+  constexpr uint32_t kReusedPID = kPID + 4;
+  SendShortLivedConnection(source_, kReusedPID, kPIDStartTimeTicks, 5, 300);
+  DataTable* conn_stats_table = data_tables_[SocketTraceConnector::kConnStatsTableNum];
+
+  connector_->TransferData(ctx_.get());
+  EXPECT_THAT(conn_stats_table->ConsumeRecords(), IsEmpty());
+
+  ctx_->AddProcessCgroup(md::UPID(kASID, kReusedPID, kPIDStartTimeTicks + 1000), 4242,
+                         "/kubepods/besteffort/pod0f0f/cri-containerd-ab.scope");
+  connector_->TransferData(ctx_.get());
+  EXPECT_THAT(conn_stats_table->ConsumeRecords(), IsEmpty());
+  EXPECT_EQ(source_->NumUnattributedConnStats(), 1);
+  EXPECT_EQ(source_->ConnStatsUnattributedExported(), 0);
+}
+
+// At most stirling_conn_stats_unattributed_max keys are held; past it the stats of another unknown
+// process are dropped at once and counted.
+TEST_F(SocketTraceConnectorTest, ConnStatsHoldIsBounded) {
+  PX_SET_FOR_SCOPE(FLAGS_stirling_conn_stats_unattributed_max, 1);
+  SendShortLivedConnection(source_, kPID + 5, kPIDStartTimeTicks, 5, 300);
+  SendShortLivedConnection(source_, kPID + 6, kPIDStartTimeTicks, 6, 301);
+
+  connector_->TransferData(ctx_.get());
+  EXPECT_EQ(source_->NumUnattributedConnStats(), 1);
+  EXPECT_EQ(source_->ConnStatsUnattributedHeld(), 1);
+  EXPECT_EQ(source_->ConnStatsUnattributedOverCap(), 1);
+}
+
 TEST_F(SocketTraceConnectorTest, HTTPCredentialsAreRedacted) {
   const std::string_view kCredReq =
       "POST /login?access_token=cs-canary-20 HTTP/1.1\r\n"

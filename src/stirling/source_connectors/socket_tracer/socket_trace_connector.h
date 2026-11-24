@@ -54,6 +54,8 @@
 #include "src/stirling/utils/proc_tracker.h"
 
 DECLARE_uint32(stirling_conn_stats_sampling_ratio);
+DECLARE_int32(stirling_conn_stats_unattributed_hold_s);
+DECLARE_int32(stirling_conn_stats_unattributed_max);
 DECLARE_bool(stirling_enable_periodic_bpf_map_cleanup);
 DECLARE_bool(stirling_deploy_uprobes_on_host_processes);
 DECLARE_int32(test_only_socket_trace_target_pid);
@@ -333,7 +335,16 @@ class SocketTraceConnector : public BCCSourceConnector {
     kPollSocketDataEventSize,
 
     kDroppedSocketDataEvent,
+
+    // conn_stats of processes no metadata scan saw (lived between two scans).
+    kConnStatsUnattributedHeld,      // held, waiting for the container to be known from the exit
+    kConnStatsUnattributedExported,  // exported once the container was known
+    kConnStatsUnattributedDropped,   // dropped: the container did not become known in time
+    kConnStatsUnattributedOverCap,   // dropped at once: too many held already
   };
+
+  // Number of conn_stats keys currently held (see kConnStatsUnattributedHeld).
+  size_t num_unattributed_conn_stats_ = 0;
 
   utils::StatCounter<StatKey> stats_;
 

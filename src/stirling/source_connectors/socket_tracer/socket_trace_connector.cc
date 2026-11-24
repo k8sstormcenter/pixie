@@ -23,6 +23,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <limits>
 #include <utility>
@@ -198,6 +199,20 @@ DEFINE_bool(stirling_deploy_uprobes_on_host_processes,
 DEFINE_bool(
     stirling_debug_tls_sources, gflags::BoolFromEnv("PX_DEBUG_TLS_SOURCES", false),
     "If true, stirling will add additional prometheus metrics regarding the traced tls sources");
+
+DEFINE_int32(
+    stirling_conn_stats_unattributed_hold_s,
+    gflags::Int32FromEnv("PX_STIRLING_CONN_STATS_UNATTRIBUTED_HOLD_S", 15),
+    "How long, in seconds, the conn_stats of a process no metadata scan saw are held while "
+    "its container is not known. A process that lives between two scans (5 s apart) is "
+    "attributed from the cgroup proc_exit reports at its exit, which reaches the metadata "
+    "with its next update. Past this time the stats are dropped and counted. 0 disables "
+    "holding (the stats of such a process are dropped, as before).");
+
+DEFINE_int32(stirling_conn_stats_unattributed_max,
+             gflags::Int32FromEnv("PX_STIRLING_CONN_STATS_UNATTRIBUTED_MAX", 4096),
+             "The most conn_stats keys held at once (see stirling_conn_stats_unattributed_hold_s). "
+             "Past it, the stats of another unknown process are dropped at once and counted.");
 
 DEFINE_uint32(stirling_bpf_loop_limit, 41,
               "The maximum number of iovecs to capture for syscalls. "
@@ -1999,6 +2014,9 @@ void SocketTraceConnector::TransferConnStats(ConnectorContext* ctx, DataTable* d
 
   absl::flat_hash_set<md::UPID> upids = ctx->GetUPIDs();
   uint64_t time = AdjustedSteadyClockNowNS();
+  // The hold of unattributed stats (below) is measured on now_fn_ (steady; injectable in tests).
+  const uint64_t hold_now_ns =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(now_fn_().time_since_epoch()).count();
 
   auto& agg_stats = conn_stats_.UpdateStats();
 
@@ -2044,11 +2062,43 @@ void SocketTraceConnector::TransferConnStats(ConnectorContext* ctx, DataTable* d
 
     bool activity = conn_stats_.Active(stats);
 
+    // A process that lives between two metadata scans (a curl in a shell loop) is in no UPID set
+    // while its connection has activity, and its stats used to be dropped on the next transfer,
+    // once its PID was gone. Hold them until its container is known from its exit (proc_exit
+    // reports the cgroup of the exiting task; the metadata has it after its next update). The key
+    // holds the start time of the process, so a reused PID is a different UPID and never inherits
+    // the dead process's container. What cannot be attributed in time is dropped and counted,
+    // never attributed by guess.
+    bool held = stats.unattributed_since_ns != 0;
+    const bool attributable = active_upid || ((activity || held) && ctx->UPIDHasContainer(upid));
+    if (activity && !attributable && !stats.reported && !held && !stats.hold_done &&
+        FLAGS_stirling_conn_stats_unattributed_hold_s > 0) {
+      if (num_unattributed_conn_stats_ <
+          static_cast<size_t>(std::max(FLAGS_stirling_conn_stats_unattributed_max, 0))) {
+        stats.unattributed_since_ns = hold_now_ns;
+        held = true;
+        ++num_unattributed_conn_stats_;
+        stats_.Increment(StatKey::kConnStatsUnattributedHeld);
+      } else {
+        stats_.Increment(StatKey::kConnStatsUnattributedOverCap);
+      }
+    }
+
     VLOG(1) << absl::Substitute("upid=$0 active=$1 previously_active=$2", upid.String(),
                                 active_upid, stats.reported);
 
-    // Only export this record if there are actual changes.
-    if ((active_upid || stats.reported) && activity) {
+    // Only export this record if there are actual changes, or if it was held for attribution.
+    // After its hold ended, the key of a process in no scan is exported only on a real change of
+    // its counters: exported once after the exit, and never after it was dropped.
+    bool export_now = (attributable || stats.reported) && (activity || held);
+    if (stats.hold_done && !active_upid) {
+      const bool changed = stats.conn_open != stats.hold_done_conn_open ||
+                           stats.conn_close != stats.hold_done_conn_close ||
+                           stats.bytes_sent != stats.hold_done_bytes_sent ||
+                           stats.bytes_recv != stats.hold_done_bytes_recv;
+      export_now = attributable && changed;
+    }
+    if (export_now) {
       DataTable::RecordBuilder<&kConnStatsTable> r(data_table, time);
 
       r.Append<idx::kTime>(time);
@@ -2075,6 +2125,41 @@ void SocketTraceConnector::TransferConnStats(ConnectorContext* ctx, DataTable* d
 #endif
 
       stats.reported = true;
+      if (held) {
+        stats.unattributed_since_ns = 0;
+        held = false;
+        stats.hold_done = true;
+        --num_unattributed_conn_stats_;
+        stats_.Increment(StatKey::kConnStatsUnattributedExported);
+      }
+      if (stats.hold_done) {
+        // The counters of the last export: a later export needs a change of them (see above).
+        stats.hold_done_conn_open = stats.conn_open;
+        stats.hold_done_conn_close = stats.conn_close;
+        stats.hold_done_bytes_sent = stats.bytes_sent;
+        stats.hold_done_bytes_recv = stats.bytes_recv;
+      }
+    }
+
+    if (held) {
+      const uint64_t hold_ns =
+          static_cast<uint64_t>(std::max(FLAGS_stirling_conn_stats_unattributed_hold_s, 0)) * 1000 *
+          1000 * 1000;
+      if (hold_now_ns - stats.unattributed_since_ns < hold_ns) {
+        // Still waiting: not subject to the cleanup of dead PIDs below.
+        ++iter;
+        continue;
+      }
+      // Not attributed in time: dropped and counted, never attributed by guess. The key falls
+      // back to the handling of before: erased below once its PID is gone.
+      stats.unattributed_since_ns = 0;
+      stats.hold_done = true;
+      stats.hold_done_conn_open = stats.conn_open;
+      stats.hold_done_conn_close = stats.conn_close;
+      stats.hold_done_bytes_sent = stats.bytes_sent;
+      stats.hold_done_bytes_recv = stats.bytes_recv;
+      --num_unattributed_conn_stats_;
+      stats_.Increment(StatKey::kConnStatsUnattributedDropped);
     }
 
     // Check for pids that may have died.

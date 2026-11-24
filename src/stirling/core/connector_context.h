@@ -85,6 +85,14 @@ class ConnectorContext {
 
   virtual void AddProcessCgroup(const md::UPID& /*upid*/, uint64_t /*cgroup_id*/,
                                 const std::string& /*cgroup_path*/) {}
+
+  /**
+   * Return true if the metadata can attribute the UPID to a container: a process a scan saw, or
+   * one whose cgroup was reported when it exited (AddProcessCgroup, from proc_exit). A process
+   * that lived between two scans is known only the second way. The UPID carries the process start
+   * time, so a reused PID never matches the dead process's entry.
+   */
+  virtual bool UPIDHasContainer(const md::UPID& upid) const { return UPIDIsInContext(upid); }
 };
 
 /**
@@ -141,6 +149,11 @@ class AgentContext : public ConnectorContext {
     }
   }
 
+  bool UPIDHasContainer(const md::UPID& upid) const override {
+    return agent_metadata_state_->upids().contains(upid) ||
+           !agent_metadata_state_->ContainerIDByUPID(upid).empty();
+  }
+
  private:
   std::shared_ptr<const md::AgentMetadataState> agent_metadata_state_;
   ProcessParentCallback process_parent_callback_;
@@ -173,12 +186,28 @@ class StandaloneContext : public ConnectorContext {
 
   std::vector<CIDRBlock> GetClusterCIDRs() override { return cidrs_; }
 
+  // Records the processes whose cgroup was reported at exit, so they count as attributable
+  // (UPIDHasContainer). Bounded: the set is cleared when it reaches kMaxExitedUPIDs.
+  void AddProcessCgroup(const md::UPID& upid, uint64_t /*cgroup_id*/,
+                        const std::string& /*cgroup_path*/) override {
+    if (exited_upids_.size() >= kMaxExitedUPIDs) {
+      exited_upids_.clear();
+    }
+    exited_upids_.insert(upid);
+  }
+
+  bool UPIDHasContainer(const md::UPID& upid) const override {
+    return upids_.contains(upid) || exited_upids_.contains(upid);
+  }
+
   Status SetClusterCIDR(std::string_view cidr_str);
 
   void RefreshUPIDList() override{};
 
  protected:
   absl::flat_hash_set<md::UPID> upids_;
+  static constexpr size_t kMaxExitedUPIDs = 1 << 16;
+  absl::flat_hash_set<md::UPID> exited_upids_;
   absl::flat_hash_map<md::UPID, md::PIDInfoUPtr> upid_pidinfo_map_;
 
  private:

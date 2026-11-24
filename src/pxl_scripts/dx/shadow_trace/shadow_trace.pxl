@@ -324,9 +324,19 @@ def api_on_pod(start_time: str, clickhouse_dsn: str, shadow_id: str, live_window
     df = px.DataFrame(table='http_events', start_time=live_window)
     df = df[df.trace_role == 2 and (df.local_port == 6443 or df.local_port == 10250)]
     df.served_by = px._exec_hostname()
-    df.one = 1
-    df = df.merge(t, how='inner', left_on=['one'], right_on=['one'], suffixes=['', '_t'])
-    df = df[px.contains(df.req_path, df.pod_name)]
+    # The pod a request addresses, read from its path: the apiserver's
+    # /api/v1/namespaces/<ns>/pods/<name>[/sub] and the kubelet's
+    # /<exec|attach|portForward|containerLogs|run>/<ns>/<name>[/...]. Matching the
+    # pod name anywhere in the path gave a pod every call on a namespace of the
+    # same name, on a PVC named after it, or whose exec command mentioned it
+    # (edge4: 126 of 175 rows).
+    df.api_pod = px.replace('^/api/v1/namespaces/([^/]+)/pods/([^/?]+).*$', df.req_path, '\\1/\\2')
+    df.kl_pod = px.replace('^/(?:exec|attach|portForward|portforward|containerLogs|run)/([^/]+)/([^/?]+).*$',
+                           df.req_path, '\\1/\\2')
+    df.target = px.select(df.api_pod != df.req_path, df.api_pod,
+                          px.select(df.kl_pod != df.req_path, df.kl_pod, ''))
+    df = df[df.target != '']
+    df = df.merge(t, how='inner', left_on=['target'], right_on=['pod'], suffixes=['', '_t'])
     df.ua_h1 = px.pluck(df.req_headers, 'User-Agent')
     df.user_agent = px.select(df.ua_h1 != '', df.ua_h1, px.pluck(df.req_headers, 'user-agent'))
     df.component = px.select(df.local_port == 6443, 'apiserver', 'kubelet')

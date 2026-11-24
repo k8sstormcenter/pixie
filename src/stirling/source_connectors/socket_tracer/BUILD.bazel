@@ -517,6 +517,25 @@ pl_cc_bpf_test(
 )
 
 pl_cc_bpf_test(
+    name = "openssl_args_map_bpf_test",
+    timeout = "long",
+    srcs = ["openssl_args_map_bpf_test.cc"],
+    tags = [
+        "cpu:16",
+        "no_asan",
+        "requires_bpf",
+    ],
+    deps = [
+        ":cc_library",
+        "//src/common/testing/test_utils:cc_library",
+        "//src/stirling/source_connectors/socket_tracer/testing:cc_library",
+        "//src/stirling/source_connectors/socket_tracer/testing/container_images:curl_container",
+        "//src/stirling/source_connectors/socket_tracer/testing/container_images:python_min_310_memory_bio_container",
+        "//src/stirling/testing:cc_library",
+    ],
+)
+
+pl_cc_bpf_test(
     name = "boringssl_trace_bpf_test",
     timeout = "long",
     srcs = ["boringssl_trace_bpf_test.cc"],

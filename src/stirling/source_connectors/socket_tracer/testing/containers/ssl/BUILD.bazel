@@ -104,3 +104,10 @@ py3_image(
     base = ":python_base_with_ssl",
     main = "https_server.py",
 )
+
+py3_image(
+    name = "python_min_310_https_server_memory_bio",
+    srcs = ["https_server_memory_bio.py"],
+    base = ":python_base_with_ssl",
+    main = "https_server_memory_bio.py",
+)

@@ -1,0 +1,89 @@
+# Copyright 2018- The Pixie Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+''' TLS Handshakes
+
+This script shows the TLS handshakes seen on the cluster: the protocol version,
+cipher suite and key-exchange group the server chose, and what the client offered.
+'''
+import px
+
+
+def add_names(df):
+    df.node = px._exec_hostname()
+    df.pod = df.ctx['pod']
+    df.endpoint = px.select(df.pod != '', df.pod, df.node)
+    df.role = px.select(df.trace_role == 2, 'server', 'client')
+    df.version_id = px.pluck_int64(df.resp_body, 'version')
+    df.cipher_id = px.pluck_int64(df.resp_body, 'cipher_suite')
+    df.group_id = px.pluck_int64(df.resp_body, 'group')
+    df.version = px.select(df.version_id == 772, 'TLS 1.3',
+                           px.select(df.version_id == 771, 'TLS 1.2',
+                                     px.select(df.version_id == 770, 'TLS 1.1',
+                                               px.select(df.version_id == 769, 'TLS 1.0',
+                                                         px.itoa(df.version_id)))))
+    df.cipher_suite = px.select(
+        df.cipher_id == 4865, 'TLS_AES_128_GCM_SHA256', px.select(
+            df.cipher_id == 4866, 'TLS_AES_256_GCM_SHA384', px.select(
+                df.cipher_id == 4867, 'TLS_CHACHA20_POLY1305_SHA256', px.select(
+                    df.cipher_id == 49195, 'ECDHE_ECDSA_AES_128_GCM_SHA256', px.select(
+                        df.cipher_id == 49196, 'ECDHE_ECDSA_AES_256_GCM_SHA384', px.select(
+                            df.cipher_id == 49199, 'ECDHE_RSA_AES_128_GCM_SHA256', px.select(
+                                df.cipher_id == 49200, 'ECDHE_RSA_AES_256_GCM_SHA384', px.select(
+                                    df.cipher_id == 52392, 'ECDHE_RSA_CHACHA20_POLY1305_SHA256', px.select(
+                                        df.cipher_id == 52393, 'ECDHE_ECDSA_CHACHA20_POLY1305_SHA256', px.select(
+                                            df.cipher_id == 156, 'RSA_AES_128_GCM_SHA256', px.select(
+                                                df.cipher_id == 157, 'RSA_AES_256_GCM_SHA384',
+                                                px.itoa(df.cipher_id))))))))))))
+    df.group = px.select(
+        df.group_id == 29, 'x25519', px.select(
+            df.group_id == 23, 'secp256r1', px.select(
+                df.group_id == 24, 'secp384r1', px.select(
+                    df.group_id == 25, 'secp521r1', px.select(
+                        df.group_id == 30, 'x448', px.select(
+                            df.group_id == 4588, 'X25519MLKEM768', px.select(
+                                df.group_id == 4587, 'SecP256r1MLKEM768', px.select(
+                                    df.group_id == 4589, 'SecP384r1MLKEM1024', px.select(
+                                        df.group_id == 0, '',
+                                        px.itoa(df.group_id))))))))))
+    return df
+
+
+def tls_handshakes(start_time: str, endpoint_filter: str, num_head: int):
+    df = px.DataFrame(table='tls_events', start_time=start_time)
+    df = add_names(df)
+    df = df[px.contains(df.endpoint, endpoint_filter)]
+    df = df.head(num_head)
+
+    df.peer_pod = px.pod_id_to_pod_name(px.ip_to_pod_id(df.remote_addr))
+    df.peer = px.select(df.peer_pod != '', df.peer_pod, df.remote_addr)
+    df.offered = df.req_body
+    df.chosen = df.resp_body
+    df = df['time_', 'endpoint', 'local_port', 'role', 'peer', 'version', 'cipher_suite', 'group',
+            'latency', 'offered', 'chosen']
+    return df
+
+
+def tls_summary(start_time: str, endpoint_filter: str):
+    df = px.DataFrame(table='tls_events', start_time=start_time)
+    df = add_names(df)
+    df = df[px.contains(df.endpoint, endpoint_filter)]
+    df = df.groupby(['endpoint', 'local_port', 'role', 'version', 'cipher_suite', 'group']).agg(
+        handshakes=('time_', px.count),
+        last_seen=('time_', px.max),
+    )
+    return df
+

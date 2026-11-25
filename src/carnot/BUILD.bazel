@@ -44,9 +44,6 @@ pl_cc_library(
             "carnot_executable.cc",
         ],
     ),
-    # entlein/dx#29 — PEM's direct_query_server.cc needs concrete Carnot +
-    # EngineState defs to compile and execute PxL on the live engine. Same
-    # access pattern //src/experimental/standalone_pem already uses.
     visibility = [
         "//src/carnot:__subpackages__",
         "//src/experimental:__subpackages__",

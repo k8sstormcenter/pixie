@@ -79,9 +79,8 @@ TEST_F(OpenSSLArgsMapTest, CallsWithoutASocketSyscallReleaseTheirArgs) {
 
   std::vector<TaggedRecordBatch> tablets = ConsumeRecords(SocketTraceConnector::kHTTPTableNum);
   ASSERT_THAT(tablets, Not(IsEmpty()));
-  EXPECT_THAT(
-      FindRecordIdxMatchesPID(tablets[0].records, kHTTPUPIDIdx, server_.process_pid()),
-      Not(IsEmpty()));
+  EXPECT_THAT(FindRecordIdxMatchesPID(tablets[0].records, kHTTPUPIDIdx, server_.process_pid()),
+              Not(IsEmpty()));
 
   EXPECT_THAT(EntriesOfServer("active_ssl_write_args_map"), Le(1));
   EXPECT_THAT(EntriesOfServer("active_ssl_read_args_map"), Le(1));

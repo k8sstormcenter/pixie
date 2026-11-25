@@ -588,7 +588,12 @@ int main(int argc, char* argv[]) {
 
   // Execute query.
   auto table_store = std::make_shared<px::table_store::TableStore>();
-  auto result_server = px::carnot::exec::LocalGRPCResultSinkServer();
+  auto result_server_or = px::carnot::exec::LocalGRPCResultSinkServer::Create();
+  if (!result_server_or.ok()) {
+    LOG(FATAL) << absl::Substitute("Failed to start result server: $0",
+                                   result_server_or.status().msg());
+  }
+  auto result_server = result_server_or.ConsumeValueOrDie();
 
   // Create vizier func factory context with metadata stub
   px::vizier::funcs::VizierFuncFactoryContext func_context(
@@ -605,7 +610,7 @@ int main(int argc, char* argv[]) {
   auto clients_config =
       std::make_unique<px::carnot::Carnot::ClientsConfig>(px::carnot::Carnot::ClientsConfig{
           [&result_server](const std::string& address, const std::string&) {
-            return result_server.StubGenerator(address);
+            return result_server->StubGenerator(address);
           },
           [](grpc::ClientContext*) {},
       });
@@ -663,7 +668,7 @@ int main(int argc, char* argv[]) {
   }
 
   // Get and log execution stats
-  auto exec_stats_or = result_server.exec_stats();
+  auto exec_stats_or = result_server->exec_stats();
   if (exec_stats_or.ok()) {
     auto exec_stats = exec_stats_or.ConsumeValueOrDie();
     if (exec_stats.has_execution_stats()) {
@@ -684,13 +689,13 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  auto output_names = result_server.output_tables();
+  auto output_names = result_server->output_tables();
   if (!output_names.size()) {
     LOG(FATAL) << "Query produced no output tables.";
   }
-  std::string output_name = *(result_server.output_tables().begin());
+  std::string output_name = *(result_server->output_tables().begin());
   LOG(INFO) << absl::Substitute("Writing results for output table: $0", output_name);
   // Write output table to CSV.
-  TableToCsv(output_filename, result_server.query_results(output_name));
+  TableToCsv(output_filename, result_server->query_results(output_name));
   return 0;
 }

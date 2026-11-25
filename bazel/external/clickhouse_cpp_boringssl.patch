@@ -1,0 +1,16 @@
+diff --git a/cmake/openssl.cmake b/cmake/openssl.cmake
+--- a/cmake/openssl.cmake
++++ b/cmake/openssl.cmake
+@@ -3,4 +3,10 @@
+     IF (WITH_OPENSSL)
+-        FIND_PACKAGE (OpenSSL REQUIRED)
+-        ADD_COMPILE_DEFINITIONS (WITH_OPENSSL=1)
++        ADD_LIBRARY (OpenSSL::Crypto INTERFACE IMPORTED GLOBAL)
++        SET_TARGET_PROPERTIES (OpenSSL::Crypto PROPERTIES
++            INTERFACE_INCLUDE_DIRECTORIES "$ENV{EXT_BUILD_ROOT}/external/boringssl/src/include")
++        ADD_LIBRARY (OpenSSL::SSL INTERFACE IMPORTED GLOBAL)
++        SET_TARGET_PROPERTIES (OpenSSL::SSL PROPERTIES
++            INTERFACE_INCLUDE_DIRECTORIES "$ENV{EXT_BUILD_ROOT}/external/boringssl/src/include"
++            INTERFACE_LINK_LIBRARIES OpenSSL::Crypto)
++        ADD_COMPILE_DEFINITIONS (WITH_OPENSSL=1 USE_BORINGSSL)
+     ENDIF ()

@@ -27,16 +27,16 @@
 #include "src/vizier/services/agent/shared/manager/manager.h"
 #include "src/vizier/services/agent/shared/manager/ssl.h"
 
-DEFINE_bool(direct_query_enabled, gflags::BoolFromEnv("PL_PEM_DIRECT_QUERY_ENABLED", false),
+DEFINE_bool(direct_query_enabled, gflags::BoolFromEnv("PL_PEM_DIRECT_QUERY_ENABLED", true),
             "If true, expose VizierService::ExecuteScript directly from this PEM. "
-            "Default false; existing PEM deploys see no behavior change.");
+            "Set PL_PEM_DIRECT_QUERY_ENABLED=false to disable.");
 DEFINE_int32(direct_query_port, gflags::Int32FromEnv("PL_PEM_DIRECT_QUERY_PORT", 50305),
              "gRPC listen port for the direct-query service when "
              "--direct_query_enabled=true.");
 DEFINE_string(direct_query_bind_address,
-              gflags::StringFromEnv("PL_PEM_DIRECT_QUERY_BIND_ADDRESS", "127.0.0.1"),
-              "Address the direct-query service listens on. Defaults to loopback; "
-              "setting 0.0.0.0 exposes the port on the node's network under hostNetwork.");
+              gflags::StringFromEnv("PL_PEM_DIRECT_QUERY_BIND_ADDRESS", "0.0.0.0"),
+              "Address the direct-query service listens on. Defaults to all interfaces; "
+              "set 127.0.0.1 to restrict it to loopback.");
 DECLARE_string(jwt_signing_key);
 
 DEFINE_int32(

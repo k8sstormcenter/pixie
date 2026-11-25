@@ -27,41 +27,17 @@
 #include "src/vizier/services/agent/shared/manager/manager.h"
 #include "src/vizier/services/agent/shared/manager/ssl.h"
 
-// entlein/dx#29 — direct-query gRPC endpoint on the normal PEM. Defined here
-// (not in pem_main.cc) so the test binary, which links cc_library but not
-// pem_main.cc, picks up the symbol. Default-OFF: flag false → port never
-// opened → existing PEM deploys unchanged. See DIRECT_QUERY_CONTRACT.md.
-//
-// Compile-time disable: when PX_PEM_DIRECT_QUERY_DISABLED is defined
-// (`--//src/vizier/services/agent/pem:direct_query=disabled`), the gflags
-// registrations + the runtime feature flag are EXCLUDED from the binary
-// entirely. Operators who do not want direct-query available even as a
-// disabled-by-default option get a binary with zero direct-query bytes.
-#ifndef PX_PEM_DIRECT_QUERY_DISABLED
-DEFINE_bool(direct_query_enabled, gflags::BoolFromEnv("PL_PEM_DIRECT_QUERY_ENABLED", true),
+DEFINE_bool(direct_query_enabled, gflags::BoolFromEnv("PL_PEM_DIRECT_QUERY_ENABLED", false),
             "If true, expose VizierService::ExecuteScript directly from this PEM. "
-            "Default true in this fork: dx queries the node-local direct-query server "
-            "at :50305 (DX_BENCH=pemdirect), and the deploy templates do not reliably "
-            "set PL_PEM_DIRECT_QUERY_ENABLED (the customPEMFlags path is often unset), "
-            "so a false default silently leaves :50305 unbound. Set "
-            "PL_PEM_DIRECT_QUERY_ENABLED=false to opt out at runtime, or build with "
-            "--//src/vizier/services/agent/pem:direct_query=disabled to compile it out.");
+            "Default false; existing PEM deploys see no behavior change.");
 DEFINE_int32(direct_query_port, gflags::Int32FromEnv("PL_PEM_DIRECT_QUERY_PORT", 50305),
              "gRPC listen port for the direct-query service when "
              "--direct_query_enabled=true.");
-DEFINE_string(direct_query_jwt_signing_key, gflags::StringFromEnv("PL_JWT_SIGNING_KEY", ""),
-              "HMAC key the bearer JWT must verify against. Optional; when "
-              "empty, falls back to the shared manager JWT mint key "
-              "(--jwt_signing_key in manager.cc, same PL_JWT_SIGNING_KEY env). "
-              "Required only if you want direct-query verification to use a "
-              "different key from the agent's outgoing-mint key.");
-
-// Declared (not defined) here so MaybeStartDirectQueryServer can fall back to
-// it when --direct_query_jwt_signing_key is unset — avoids the split-brain
-// where a CLI override of only one flag silently disables direct-query auth.
-// The actual DEFINE_string(jwt_signing_key, …) lives in shared/manager/manager.cc.
+DEFINE_string(direct_query_bind_address,
+              gflags::StringFromEnv("PL_PEM_DIRECT_QUERY_BIND_ADDRESS", "127.0.0.1"),
+              "Address the direct-query service listens on. Defaults to loopback; "
+              "setting 0.0.0.0 exposes the port on the node's network under hostNetwork.");
 DECLARE_string(jwt_signing_key);
-#endif  // PX_PEM_DIRECT_QUERY_DISABLED
 
 DEFINE_int32(
     table_store_data_limit, gflags::Int32FromEnv("PL_TABLE_STORE_DATA_LIMIT_MB", 1024 + 256),
@@ -123,131 +99,70 @@ Status PEMManager::PostRegisterHookImpl() {
   return Status::OK();
 }
 
-// MaybeStartDirectQueryServer is FAIL-SOFT. pemdq4 (commit 9ce6fbdb4) was
-// observed to crashloop the live PEM with `exit=1` and `:50305 never bound`
-// when this returned an error from PostRegisterHookImpl — the base manager
-// PX_CHECK_OK's its result and the entire data plane goes down. Direct-query
-// is an OPTIONAL feature on the PEM; an init failure here must never take
-// the data plane with it. Every failure path now logs+swallows and returns
-// Status::OK() so the rest of the PEM stays up; dx_daemon sees a
-// "connection refused" on :50305 which is harmless on the broker path.
-//
-// Each step also emits a LOG(INFO) breadcrumb so a future crashloop pin-
-// points the exact failure line in stderr (--previous capture, canary etc.).
 Status PEMManager::MaybeStartDirectQueryServer() {
-#ifdef PX_PEM_DIRECT_QUERY_DISABLED
-  // Compile-time kill switch. Zero direct-query bytes in the binary — no
-  // gflag registrations, no JWT verifier, no Carnot, no gRPC server. The
-  // runtime --direct_query_enabled flag does not exist in this build.
-  LOG(INFO) << "direct-query: compiled out (PX_PEM_DIRECT_QUERY_DISABLED)";
-  return Status::OK();
-#else
   if (!FLAGS_direct_query_enabled) {
     LOG(INFO) << "direct-query: disabled (--direct_query_enabled=false)";
     return Status::OK();
   }
   LOG(INFO) << "direct-query: start (port=" << FLAGS_direct_query_port << ")";
-  // Fall back to the shared manager key when the direct-query-specific flag is
-  // empty (the common case — both flags share PL_JWT_SIGNING_KEY by default,
-  // but a CLI override of one without the other would otherwise leave
-  // direct-query silently disabled). Manager::Init has already refused to
-  // start with an empty FLAGS_jwt_signing_key, so the only way to land here
-  // with effective_signing_key empty is an explicit
-  // --direct_query_jwt_signing_key='' override while --jwt_signing_key was
-  // also intentionally cleared — treat that as "direct-query disabled".
-  const std::string& effective_signing_key = FLAGS_direct_query_jwt_signing_key.empty()
-                                                 ? FLAGS_jwt_signing_key
-                                                 : FLAGS_direct_query_jwt_signing_key;
-  if (effective_signing_key.empty()) {
-    LOG(ERROR) << "direct-query: --direct_query_enabled=true but both signing keys are empty "
-                  "(set PL_JWT_SIGNING_KEY) — staying up, direct-query disabled";
+  auto sink_or = carnot::exec::LocalGRPCResultSinkServer::Create();
+  if (!sink_or.ok()) {
+    LOG(ERROR) << "direct-query: result sink server failed to start: " << sink_or.status().msg()
+               << " - staying up, direct-query disabled";
     return Status::OK();
   }
-  try {
-    LOG(INFO) << "direct-query: step 1/6 create sink server";
-    direct_query_sink_ = std::make_unique<carnot::exec::LocalGRPCResultSinkServer>();
+  direct_query_sink_ = sink_or.ConsumeValueOrDie();
 
-    LOG(INFO) << "direct-query: step 2/6 register udfs";
-    auto func_registry = std::make_unique<carnot::udf::Registry>("direct_query_registry");
-    carnot::funcs::RegisterFuncsOrDie(func_registry.get());
+  auto func_registry = std::make_unique<carnot::udf::Registry>("direct_query_registry");
+  carnot::funcs::RegisterFuncsOrDie(func_registry.get());
 
-    LOG(INFO) << "direct-query: step 3/6 build carnot configs";
-    auto clients_config =
-        std::make_unique<carnot::Carnot::ClientsConfig>(carnot::Carnot::ClientsConfig{
-            [this](const std::string& address, const std::string&) {
-              return direct_query_sink_->StubGenerator(address);
-            },
-            [](::grpc::ClientContext*) {},
-        });
-    auto server_config = std::make_unique<carnot::Carnot::ServerConfig>();
-    // SSL::DefaultGRPCServerCreds reuses the PEM's cluster-mounted certs
-    // (tls_ca_crt + client_tls_cert + client_tls_key). PL_DISABLE_SSL=1
-    // falls back to insecure for dev/soak clusters — matches manager.cc's
-    // base Carnot setup. Carnot's internal sink uses InProcessChannel
-    // (LocalGRPCResultSinkServer::StubGenerator), so this credential is
-    // exercised only when an external client opens a TCP channel; defense
-    // in depth still calls for matching the cluster's TLS policy.
-    server_config->grpc_server_creds = SSL::DefaultGRPCServerCreds();
-    server_config->grpc_server_port = 0;
+  VLOG(1) << "direct-query: registering udfs and building carnot configs";
+  auto clients_config =
+      std::make_unique<carnot::Carnot::ClientsConfig>(carnot::Carnot::ClientsConfig{
+          [this](const std::string& address, const std::string&) {
+            return direct_query_sink_->StubGenerator(address);
+          },
+          [](::grpc::ClientContext*) {},
+      });
+  auto server_config = std::make_unique<carnot::Carnot::ServerConfig>();
+  server_config->grpc_server_creds = SSL::DefaultGRPCServerCreds();
+  server_config->grpc_server_port = 0;
 
-    LOG(INFO) << "direct-query: step 4/6 Carnot::Create";
-    std::shared_ptr<table_store::TableStore> ts(table_store(), [](table_store::TableStore*) {});
-    auto carnot_or = carnot::Carnot::Create(info()->agent_id, std::move(func_registry), ts,
-                                            std::move(clients_config), std::move(server_config));
-    if (!carnot_or.ok()) {
-      LOG(ERROR) << "direct-query: Carnot::Create failed: " << carnot_or.status().msg()
-                 << " — staying up, direct-query disabled";
-      direct_query_sink_.reset();
-      return Status::OK();
-    }
-    direct_query_carnot_ = carnot_or.ConsumeValueOrDie();
-    direct_query_carnot_->RegisterAgentMetadataCallback(
-        std::bind(&::px::md::AgentMetadataStateManager::CurrentAgentMetadataState, mds_manager()));
-
-    LOG(INFO) << "direct-query: step 5/6 build DirectQueryServer";
-    direct_query_service_ = std::make_unique<DirectQueryServer>(
-        direct_query_carnot_.get(), direct_query_carnot_->GetEngineState(),
-        direct_query_sink_.get(), effective_signing_key);
-
-    LOG(INFO) << "direct-query: step 6/6 grpc BuildAndStart on :" << FLAGS_direct_query_port;
-    ::grpc::ServerBuilder builder;
-    const std::string addr = absl::Substitute("0.0.0.0:$0", FLAGS_direct_query_port);
-    // Cluster-default TLS — the JWT bearer flowing over this socket MUST
-    // NOT be plaintext on the pod network. SSL::DefaultGRPCServerCreds
-    // pulls the same in-cluster cert pair kelvin / metadata / the broker
-    // use (mounted via secretKeyRef in the PEM DaemonSet). Dev/soak
-    // clusters where the operator sets PL_DISABLE_SSL=1 still get an
-    // insecure channel — that's an EXPLICIT operator choice, not a
-    // silent default. See DIRECT_QUERY_SECURITY.md "Transport".
-    builder.AddListeningPort(addr, SSL::DefaultGRPCServerCreds());
-    builder.RegisterService(direct_query_service_.get());
-    direct_query_grpc_server_ = builder.BuildAndStart();
-    if (direct_query_grpc_server_ == nullptr) {
-      LOG(ERROR) << "direct-query: BuildAndStart returned null for " << addr
-                 << " — staying up, direct-query disabled";
-      direct_query_service_.reset();
-      direct_query_carnot_.reset();
-      direct_query_sink_.reset();
-      return Status::OK();
-    }
-    LOG(INFO) << "direct-query: READY — gRPC ExecuteScript listening on " << addr;
-  } catch (const std::exception& e) {
-    LOG(ERROR) << "direct-query: exception during setup: " << e.what()
+  VLOG(1) << "direct-query: creating carnot";
+  std::shared_ptr<table_store::TableStore> ts(table_store(), [](table_store::TableStore*) {});
+  auto carnot_or = carnot::Carnot::Create(info()->agent_id, std::move(func_registry), ts,
+                                          std::move(clients_config), std::move(server_config));
+  if (!carnot_or.ok()) {
+    LOG(ERROR) << "direct-query: Carnot::Create failed: " << carnot_or.status().msg()
                << " — staying up, direct-query disabled";
-    direct_query_grpc_server_.reset();
-    direct_query_service_.reset();
-    direct_query_carnot_.reset();
     direct_query_sink_.reset();
-  } catch (...) {
-    LOG(ERROR) << "direct-query: non-std exception during setup — staying up, "
-                  "direct-query disabled";
-    direct_query_grpc_server_.reset();
-    direct_query_service_.reset();
-    direct_query_carnot_.reset();
-    direct_query_sink_.reset();
+    return Status::OK();
   }
+  direct_query_carnot_ = carnot_or.ConsumeValueOrDie();
+  direct_query_carnot_->RegisterAgentMetadataCallback(
+      std::bind(&::px::md::AgentMetadataStateManager::CurrentAgentMetadataState, mds_manager()));
+
+  VLOG(1) << "direct-query: building service";
+  direct_query_service_ = std::make_unique<DirectQueryServer>(
+      direct_query_carnot_.get(), direct_query_carnot_->GetEngineState(), direct_query_sink_.get(),
+      FLAGS_jwt_signing_key);
+
+  VLOG(1) << "direct-query: binding listener";
+  ::grpc::ServerBuilder builder;
+  const std::string addr =
+      absl::Substitute("$0:$1", FLAGS_direct_query_bind_address, FLAGS_direct_query_port);
+  builder.AddListeningPort(addr, SSL::DefaultGRPCServerCreds());
+  builder.RegisterService(direct_query_service_.get());
+  direct_query_grpc_server_ = builder.BuildAndStart();
+  if (!direct_query_grpc_server_) {
+    LOG(ERROR) << "direct-query: BuildAndStart returned null on " << addr
+               << " — staying up, direct-query disabled";
+    StopDirectQueryServer();
+    return Status::OK();
+  }
+  LOG(INFO) << "direct-query: serving on " << addr
+            << (SSL::Enabled() ? " (TLS)" : " (PLAINTEXT - PL_DISABLE_SSL is set)");
   return Status::OK();
-#endif  // PX_PEM_DIRECT_QUERY_DISABLED
 }
 
 void PEMManager::StopDirectQueryServer() {

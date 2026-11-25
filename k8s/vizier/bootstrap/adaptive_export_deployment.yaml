@@ -40,6 +40,7 @@ spec:
           value: "$(HOST_IP):50305"
         - name: PL_JWT_SIGNING_KEY
           valueFrom: {secretKeyRef: {name: pl-cluster-secrets, key: jwt-signing-key}}
+        - {name: ADAPTIVE_JWT_KEY_FILE, value: /var/run/pl-cluster-secrets/jwt-signing-key}
         - name: PX_DISABLE_TLS
           value: "1"
         - name: PL_NAMESPACE
@@ -84,6 +85,7 @@ spec:
           value: "true"
         volumeMounts:
         - {name: certs, mountPath: /certs, readOnly: true}
+        - {name: signing-key, mountPath: /var/run/pl-cluster-secrets, readOnly: true}
         securityContext:
           allowPrivilegeEscalation: false
           capabilities: {drop: [ALL]}
@@ -91,6 +93,10 @@ spec:
       volumes:
       - name: certs
         secret: {secretName: service-tls-certs}
+      - name: signing-key
+        secret:
+          secretName: pl-cluster-secrets
+          items: [{key: jwt-signing-key, path: jwt-signing-key}]
       securityContext:
         runAsUser: 10100
         runAsGroup: 10100
